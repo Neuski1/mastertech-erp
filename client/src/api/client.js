@@ -108,6 +108,7 @@ export const api = {
   deleteInventoryItem: (id) => request(`/inventory/${id}`, { method: 'DELETE' }),
   getReorderAlerts: () => request('/inventory/reorder-alerts'),
   getLowStockReport: () => request('/inventory/reports/low-stock'),
+  getInStockReport: () => request('/inventory/reports/in-stock'),
 
   // Appointments
   getAppointments: (params = {}) => {

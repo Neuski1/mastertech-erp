@@ -75,6 +75,25 @@ router.get('/reorder-alerts', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/inventory/reports/in-stock — Parts currently in stock (physical count sheet)
+// ---------------------------------------------------------------------------
+router.get('/reports/in-stock', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, part_number, description, category, vendor, location,
+              qty_on_hand, reorder_level
+       FROM inventory
+       WHERE deleted_at IS NULL AND is_active = TRUE
+         AND qty_on_hand > 0
+       ORDER BY category ASC, part_number ASC`
+    );
+    res.json({ count: rows.length, items: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/inventory/reports/low-stock — Low stock report data
 // ---------------------------------------------------------------------------
 router.get('/reports/low-stock', async (req, res) => {

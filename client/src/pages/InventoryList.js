@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 const VENDORS = [
   'Amazon', 'NTP', 'Torklift', 'Interstate', 'Lippert', 'Renogy',
@@ -43,6 +44,7 @@ export default function InventoryList() {
   const [sortDirection, setSortDirection] = useState('desc');
   const [reportsOpen, setReportsOpen] = useState(false);
   const reportsRef = useRef(null);
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Close reports dropdown on outside click
@@ -142,6 +144,112 @@ export default function InventoryList() {
 <div class="footer">
   <span>Master Tech RV Repair & Storage — Confidential</span>
 </div>
+</body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => { printWindow.print(); };
+  };
+
+  const handleInStockReport = async () => {
+    setReportsOpen(false);
+    let data;
+    try {
+      data = await api.getInStockReport();
+    } catch (err) {
+      alert('Failed to load in-stock report: ' + err.message);
+      return;
+    }
+
+    const reportItems = data.items;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) { alert('Please allow pop-ups to print'); return; }
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const userName = user?.name || user?.email || 'Unknown';
+
+    // Group by category
+    const groups = {};
+    reportItems.forEach(item => {
+      const cat = item.category || 'UNCATEGORIZED';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    const categoryKeys = Object.keys(groups).sort();
+
+    let rows = '';
+    categoryKeys.forEach(cat => {
+      const catItems = groups[cat];
+      const catLabel = CATEGORY_LABELS[cat] || cat;
+      rows += `<tr><td colspan="7" style="padding:8px 10px;background:#e8eef5;font-weight:700;font-size:10px;color:#1e3a5f;border:1px solid #d1d5db;">
+        \u258C ${catLabel} (${catItems.length} item${catItems.length !== 1 ? 's' : ''})
+      </td></tr>`;
+      catItems.forEach((item, i) => {
+        const qty = parseFloat(item.qty_on_hand) || 0;
+        rows += `<tr style="background:${i % 2 === 0 ? '#fff' : '#f9fafb'}">
+          <td style="padding:5px 8px;border:1px solid #d1d5db;font-family:monospace;font-size:9px">${item.part_number || '—'}</td>
+          <td style="padding:5px 8px;border:1px solid #d1d5db;font-size:9px">${item.description || ''}</td>
+          <td style="padding:5px 8px;border:1px solid #d1d5db;font-size:9px">${catLabel}</td>
+          <td style="padding:5px 8px;border:1px solid #d1d5db;font-size:9px">${item.location || '—'}</td>
+          <td style="padding:5px 8px;border:1px solid #d1d5db;text-align:right;font-size:9px;font-weight:600">${qty}</td>
+          <td style="padding:5px 8px;border:1px solid #d1d5db;min-width:80px;background:#fafafa"></td>
+          <td style="padding:5px 8px;border:1px solid #d1d5db;min-width:100px;background:#fafafa"></td>
+        </tr>`;
+      });
+    });
+
+    const html = `<!DOCTYPE html><html><head><title>Parts In Stock — Physical Count Sheet</title>
+<style>
+  @media print {
+    @page { size: portrait; margin: 0.4in; }
+    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  }
+  body { font-family: Arial, sans-serif; color: #333; margin: 0; padding: 16px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .header-left img { height: 50px; }
+  .header-left h1 { font-size: 16px; color: #1e3a5f; margin: 0; }
+  .header-right { text-align: right; font-size: 11px; color: #6b7280; }
+  hr { border: none; border-top: 2px solid #1e3a5f; margin: 10px 0 12px; }
+  .instructions { font-style: italic; font-size: 10px; color: #6b7280; margin-bottom: 10px; }
+  .summary-box { display: flex; gap: 32px; padding: 8px 14px; background: #f0f4f8;
+                  border-radius: 6px; font-size: 10px; margin-bottom: 14px; }
+  .summary-box strong { color: #1e3a5f; }
+  table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th { background: #1e3a5f; color: #fff; padding: 5px 8px; text-align: left; font-size: 8px;
+       text-transform: uppercase; letter-spacing: 0.03em; border: 1px solid #1e3a5f; }
+  .footer { margin-top: 16px; font-size: 8px; color: #9ca3af; text-align: center; }
+</style></head><body>
+<div class="header">
+  <div class="header-left">
+    <img src="/master-rvtech-logo-dark.jpg" alt="Master Tech RV" onerror="this.style.display='none'" />
+    <h1>Parts In Stock — Physical Count Sheet</h1>
+  </div>
+  <div class="header-right">Generated: ${dateStr}</div>
+</div>
+<hr />
+<div class="instructions">
+  Use this sheet to verify physical inventory. Check each item and note any discrepancies in the Count column.
+</div>
+<div class="summary-box">
+  <div><strong>Total Categories:</strong> ${categoryKeys.length}</div>
+  <div><strong>Total Part Numbers In Stock:</strong> ${reportItems.length}</div>
+  <div><strong>Generated By:</strong> ${userName}</div>
+  <div><strong>Date:</strong> ${dateStr}</div>
+</div>
+<table>
+  <thead><tr>
+    <th>Part #</th><th>Description</th><th>Category</th><th>Location</th>
+    <th style="text-align:right">System Qty</th>
+    <th style="text-align:center">Physical Count</th>
+    <th>Notes</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="footer">Master Tech RV Repair & Storage — Confidential</div>
 </body></html>`;
 
     printWindow.document.write(html);
@@ -353,6 +461,9 @@ export default function InventoryList() {
               <div style={dropdownStyle}>
                 <button onClick={handleLowStockReport} style={dropdownItemStyle}>
                   Low Stock Report
+                </button>
+                <button onClick={handleInStockReport} style={dropdownItemStyle}>
+                  Parts In Stock Report
                 </button>
                 <div style={dropdownDivider} />
                 <span style={dropdownComingSoon}>Full Inventory Report — Coming Soon</span>
