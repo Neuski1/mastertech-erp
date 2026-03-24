@@ -4,3 +4,4 @@ buildCommand = "npm run build"
 
 [deploy]
 startCommand = "npx serve -s build -l $PORT"
+restartPolicyType = "ON_FAILURE"
