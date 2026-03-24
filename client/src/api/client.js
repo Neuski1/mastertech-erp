@@ -107,6 +107,7 @@ export const api = {
   updateInventoryItem: (id, data) => request(`/inventory/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteInventoryItem: (id) => request(`/inventory/${id}`, { method: 'DELETE' }),
   getReorderAlerts: () => request('/inventory/reorder-alerts'),
+  getLowStockReport: () => request('/inventory/reports/low-stock'),
 
   // Appointments
   getAppointments: (params = {}) => {

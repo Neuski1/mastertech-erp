@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 
@@ -41,7 +41,113 @@ export default function InventoryList() {
   const [reorderCount, setReorderCount] = useState(0);
   const [sortField, setSortField] = useState('qty_on_hand');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const reportsRef = useRef(null);
   const navigate = useNavigate();
+
+  // Close reports dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (reportsRef.current && !reportsRef.current.contains(e.target)) {
+        setReportsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleLowStockReport = async () => {
+    setReportsOpen(false);
+    let data;
+    try {
+      data = await api.getLowStockReport();
+    } catch (err) {
+      alert('Failed to load low stock report: ' + err.message);
+      return;
+    }
+
+    const reportItems = data.items;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) { alert('Please allow pop-ups to print'); return; }
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    let totalNeedToOrder = 0;
+    const rows = reportItems.map((item, i) => {
+      const qty = parseFloat(item.qty_on_hand) || 0;
+      const reorder = parseFloat(item.reorder_level) || 0;
+      const need = Math.max(0, reorder - qty);
+      totalNeedToOrder += need;
+      return `<tr style="background:${i % 2 === 0 ? '#fff' : '#f3f4f6'}">
+        <td style="padding:4px 8px;border:1px solid #d1d5db;font-family:monospace;font-size:9px">${item.part_number || '—'}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${item.description || ''}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${CATEGORY_LABELS[item.category] || item.category || '—'}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${item.vendor || '—'}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;text-align:right;font-size:9px;font-weight:700;color:#dc2626">${qty}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;text-align:right;font-size:9px">${reorder}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;text-align:right;font-size:9px;font-weight:700;color:#1e3a5f">${need}</td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><title>Low Stock Inventory Report</title>
+<style>
+  @media print {
+    @page { size: landscape; margin: 0.5in; }
+    body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    .no-print { display: none !important; }
+  }
+  body { font-family: Arial, sans-serif; color: #333; margin: 0; padding: 20px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .header-left img { height: 60px; }
+  .header-left h1 { font-size: 18px; color: #1e3a5f; margin: 0; }
+  .header-right { text-align: right; font-size: 11px; color: #6b7280; }
+  hr { border: none; border-top: 2px solid #1e3a5f; margin: 12px 0 16px; }
+  table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th { background: #1e3a5f; color: #fff; padding: 6px 8px; text-align: left; font-size: 9px;
+       text-transform: uppercase; letter-spacing: 0.03em; border: 1px solid #1e3a5f; }
+  .summary { margin-top: 20px; padding: 12px 16px; background: #f0f4f8; border-radius: 6px;
+             display: flex; gap: 40px; font-size: 12px; }
+  .summary strong { color: #1e3a5f; }
+  .footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 8px 20px;
+            font-size: 8px; color: #9ca3af; display: flex; justify-content: space-between; }
+  @media print {
+    .footer { position: running(footer); }
+    @page { @bottom-center { content: element(footer); } }
+  }
+</style></head><body>
+<div class="header">
+  <div class="header-left">
+    <img src="/master-rvtech-logo-dark.jpg" alt="Master Tech RV" onerror="this.style.display='none'" />
+    <h1>Low Stock Inventory Report</h1>
+  </div>
+  <div class="header-right">Generated: ${dateStr}</div>
+</div>
+<hr />
+<table>
+  <thead><tr>
+    <th>Part #</th><th>Description</th><th>Category</th><th>Vendor</th>
+    <th style="text-align:right">On Hand</th><th style="text-align:right">Reorder Level</th>
+    <th style="text-align:right">Need to Order</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="summary">
+  <div><strong>Total Items Low on Stock:</strong> ${reportItems.length}</div>
+  <div><strong>Total Units Needed to Order:</strong> ${totalNeedToOrder}</div>
+</div>
+<div class="footer">
+  <span>Master Tech RV Repair & Storage — Confidential</span>
+</div>
+</body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => { printWindow.print(); };
+  };
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -231,7 +337,31 @@ export default function InventoryList() {
             </button>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div ref={reportsRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setReportsOpen(!reportsOpen)}
+              style={{
+                ...btnSecondary,
+                display: 'flex', alignItems: 'center', gap: '6px',
+                backgroundColor: reportsOpen ? '#e5e7eb' : '#f3f4f6',
+              }}
+            >
+              Reports {reportsOpen ? '\u25B2' : '\u25BC'}
+            </button>
+            {reportsOpen && (
+              <div style={dropdownStyle}>
+                <button onClick={handleLowStockReport} style={dropdownItemStyle}>
+                  Low Stock Report
+                </button>
+                <div style={dropdownDivider} />
+                <span style={dropdownComingSoon}>Full Inventory Report — Coming Soon</span>
+                <span style={dropdownComingSoon}>Inventory by Category — Coming Soon</span>
+                <span style={dropdownComingSoon}>Zero Stock Report — Coming Soon</span>
+                <span style={dropdownComingSoon}>Inventory Valuation Report — Coming Soon</span>
+              </div>
+            )}
+          </div>
           <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>
           <button onClick={() => navigate('/inventory/new')} style={btnPrimary}>+ New Part</button>
         </div>
@@ -402,4 +532,22 @@ const thSortable = {
 };
 const tdStyle = {
   padding: '12px 16px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem',
+};
+const dropdownStyle = {
+  position: 'absolute', top: '100%', right: 0, marginTop: '4px',
+  backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '8px',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '260px',
+  padding: '6px 0',
+};
+const dropdownItemStyle = {
+  display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px',
+  border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.85rem',
+  color: '#1e3a5f', fontWeight: 500,
+};
+const dropdownDivider = {
+  borderTop: '1px solid #e5e7eb', margin: '4px 0',
+};
+const dropdownComingSoon = {
+  display: 'block', padding: '6px 16px', fontSize: '0.8rem',
+  color: '#9ca3af', fontStyle: 'italic',
 };
