@@ -180,7 +180,6 @@ export default function CustomerDetail() {
     setDupUnits([]);
     setDupRecords([]);
     setDupStorage([]);
-    setDupComms([]);
     setDupMarketing([]);
     setKeepFields({});
   };
