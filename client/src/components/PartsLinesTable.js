@@ -2,21 +2,6 @@ import React, { useState, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
-const CATEGORIES = [
-  { label: 'Airstream', prefix: 'AS' },
-  { label: 'Awning', prefix: 'AWN' },
-  { label: 'Battery', prefix: 'BAT' },
-  { label: 'Door/Window', prefix: 'DOOR' },
-  { label: 'Electrical', prefix: 'ELEC' },
-  { label: 'Hardware', prefix: 'HDWR' },
-  { label: 'HVAC', prefix: 'HVAC' },
-  { label: 'Miscellaneous', prefix: 'MISC' },
-  { label: 'Plumbing', prefix: 'PLMB' },
-  { label: 'Roofing', prefix: 'ROOF' },
-  { label: 'Solar', prefix: 'SOLR' },
-  { label: 'Suspension', prefix: 'SUSP' },
-];
-
 export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate }) {
   const { canSeeFinancials } = useAuth();
   const [showAddForm, setShowAddForm] = useState(false);

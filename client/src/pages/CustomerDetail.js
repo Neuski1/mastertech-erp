@@ -35,7 +35,6 @@ export default function CustomerDetail() {
   const [dupUnits, setDupUnits] = useState([]);
   const [dupRecords, setDupRecords] = useState([]);
   const [dupStorage, setDupStorage] = useState([]);
-  const [dupComms, setDupComms] = useState([]);
   const [dupMarketing, setDupMarketing] = useState([]);
   const [keepFields, setKeepFields] = useState({});
   const [merging, setMerging] = useState(false);

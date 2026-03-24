@@ -317,12 +317,6 @@ export default function RecordDetail() {
     if (r.status === 'estimate') { docTitle = 'ESTIMATE'; docColor = '#2e7d32'; }
     else if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status)) { docTitle = 'INVOICE'; docColor = '#4a235a'; }
 
-    const fmtPrintDate = (dateStr) => {
-      if (!dateStr) return '—';
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return '—';
-      return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Denver' });
-    };
     const fmtPrintDateShort = (dateStr) => {
       if (!dateStr) return '—';
       const d = new Date(dateStr);
@@ -331,7 +325,6 @@ export default function RecordDetail() {
     };
 
     const now = new Date();
-    const datePrinted = `${now.getMonth()+1}/${now.getDate()}/${now.getFullYear()}`;
     const timePrinted = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const intakeDate = r.intake_date ? fmtPrintDateShort(r.intake_date.includes('T') ? r.intake_date : r.intake_date + 'T12:00:00') : (r.created_at ? fmtPrintDateShort(r.created_at) : '—');
 

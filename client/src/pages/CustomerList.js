@@ -70,12 +70,6 @@ export default function CustomerList() {
     );
   });
 
-  const formatDate = (val) => {
-    if (!val) return '—';
-    const d = new Date(val);
-    return isNaN(d.getTime()) ? '—' : `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-  };
-
   const handleExportCSV = () => {
     const rows = customers.filter(c => c.email_primary);
     if (rows.length === 0) { alert('No customers with email in current filter'); return; }
