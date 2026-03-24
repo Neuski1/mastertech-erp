@@ -6,6 +6,7 @@
   "scripts": {
     "server": "node server/src/app.js",
     "client": "cd client && npm start",
+    "migrate": "node server/scripts/migrate.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -26,5 +27,8 @@
     "square": "^44.0.0",
     "twilio": "^5.13.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
   }
 }
