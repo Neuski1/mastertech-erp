@@ -60,7 +60,7 @@ app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../../client/build')));
-  app.get('*', (req, res) => {
+  app.get('{*path}', (req, res) => {
     res.sendFile(path.join(__dirname, '../../client/build/index.html'));
   });
 }
