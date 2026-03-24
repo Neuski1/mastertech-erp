@@ -64,7 +64,7 @@ router.get('/reorder-alerts', async (req, res) => {
               qty_on_hand, reorder_level, cost_each, sale_price_each
        FROM inventory
        WHERE deleted_at IS NULL AND is_active = TRUE
-         AND reorder_level IS NOT NULL
+         AND reorder_level IS NOT NULL AND reorder_level > 0
          AND qty_on_hand <= reorder_level
        ORDER BY (qty_on_hand - reorder_level) ASC, description`
     );
@@ -105,7 +105,7 @@ router.get('/', async (req, res) => {
     params.push(location);
   }
   if (low_stock === 'true') {
-    conditions.push('i.reorder_level IS NOT NULL AND i.qty_on_hand <= i.reorder_level');
+    conditions.push('i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level');
   }
 
   const allowedSorts = ['part_number', 'description', 'vendor_part_number', 'vendor', 'category', 'location', 'qty_on_hand', 'cost_each', 'sale_price_each'];
@@ -123,7 +123,7 @@ router.get('/', async (req, res) => {
       `SELECT i.id, i.part_number, i.description, i.vendor, i.vendor_part_number, i.category, i.location,
               i.qty_on_hand, i.reorder_level, i.cost_each, i.sale_price_each,
               i.is_active, i.created_at,
-              CASE WHEN i.reorder_level IS NOT NULL AND i.qty_on_hand <= i.reorder_level
+              CASE WHEN i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level
                    THEN TRUE ELSE FALSE END AS low_stock
        FROM inventory i
        WHERE ${conditions.join(' AND ')}
@@ -151,7 +151,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT *,
-              CASE WHEN reorder_level IS NOT NULL AND qty_on_hand <= reorder_level
+              CASE WHEN reorder_level IS NOT NULL AND reorder_level > 0 AND qty_on_hand <= reorder_level
                    THEN TRUE ELSE FALSE END AS low_stock
        FROM inventory
        WHERE id = $1 AND deleted_at IS NULL`,

@@ -279,13 +279,16 @@ export default function InventoryForm() {
               <input
                 name="reorder_level"
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
                 value={form.reorder_level}
                 onChange={handleChange}
-                placeholder="Leave blank if N/A"
+                placeholder="0 (enter minimum stock threshold)"
                 style={inputStyle}
               />
+              <span style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', display: 'block' }}>
+                Set to 1 or more to enable low stock alerts for this item. Leave at 0 for no alert.
+              </span>
             </div>
           </div>
 
