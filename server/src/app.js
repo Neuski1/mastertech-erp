@@ -1,7 +1,17 @@
+// Log any uncaught errors so Railway deploy logs show the real cause
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err);
+  process.exit(1);
+});
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const { requireAuth, requireRole } = require('./middleware/auth');
 
