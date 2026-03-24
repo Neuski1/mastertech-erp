@@ -1,0 +1,30 @@
+{
+  "name": "mastertech-erp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "server": "node server/src/app.js",
+    "client": "cd client && npm start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "ics": "^3.8.1",
+    "intuit-oauth": "^4.2.2",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^8.0.2",
+    "pdfkit": "^0.17.2",
+    "pg": "^8.20.0",
+    "square": "^44.0.0",
+    "twilio": "^5.13.0",
+    "xlsx": "^0.18.5"
+  }
+}
