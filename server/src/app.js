@@ -19,6 +19,9 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3002',
+  'https://mastertech-erp.vercel.app',
+  'https://mastertech-erp-production-cb96.up.railway.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
