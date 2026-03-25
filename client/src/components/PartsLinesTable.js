@@ -368,7 +368,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 )}
               </div>
               {/* Enter manually button */}
-              <button onClick={() => { setAllPartsFormVisible(true); setCatalogResults([]); }} style={{ ...btnSmallGray, fontSize: '0.8rem' }}>
+              <button onClick={() => { setForm(f => ({ ...f, description: catalogQuery })); setAllPartsFormVisible(true); setCatalogResults([]); }} style={{ ...btnSmallGray, fontSize: '0.8rem' }}>
                 Enter part manually
               </button>
             </div>
