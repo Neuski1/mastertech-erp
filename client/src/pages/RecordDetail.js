@@ -1075,25 +1075,27 @@ ${paymentDetailHtml}
         </div>
       )}
 
-      {/* Notes */}
+      {/* Notes — always editable */}
       <div style={editSectionStyle}>
         <h2 style={sectionTitle}>Notes</h2>
         <div style={gridStyle}>
           <div>
             <label style={labelStyle}>Internal Notes</label>
-            {editing ? (
-              <textarea value={formData.internal_notes || ''} onChange={(e) => handleFieldChange('internal_notes', e.target.value)} style={{ ...inputStyle, width: '100%', minHeight: '60px' }} />
-            ) : (
-              <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>{record.internal_notes || '—'}</p>
-            )}
+            <AutoSaveTextarea
+              value={record.internal_notes || ''}
+              field="internal_notes"
+              recordId={id}
+              onSaved={fetchRecord}
+            />
           </div>
           <div>
             <label style={labelStyle}>Customer Notes</label>
-            {editing ? (
-              <textarea value={formData.customer_notes || ''} onChange={(e) => handleFieldChange('customer_notes', e.target.value)} style={{ ...inputStyle, width: '100%', minHeight: '60px' }} />
-            ) : (
-              <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>{record.customer_notes || '—'}</p>
-            )}
+            <AutoSaveTextarea
+              value={record.customer_notes || ''}
+              field="customer_notes"
+              recordId={id}
+              onSaved={fetchRecord}
+            />
           </div>
         </div>
       </div>
@@ -1309,6 +1311,41 @@ function Field({ label, value }) {
     <div>
       <label style={labelStyle}>{label}</label>
       <div style={{ fontSize: '0.875rem' }}>{value || '—'}</div>
+    </div>
+  );
+}
+
+function AutoSaveTextarea({ value, field, recordId, onSaved }) {
+  const [text, setText] = React.useState(value);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  React.useEffect(() => { setText(value); }, [value]);
+
+  const handleBlur = async () => {
+    if (text === value) return;
+    setSaving(true);
+    try {
+      await api.updateRecord(recordId, { [field]: text });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      if (onSaved) onSaved();
+    } catch (err) {
+      console.error('Save notes error:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={handleBlur}
+        style={{ ...inputStyle, width: '100%', minHeight: '80px', resize: 'vertical', boxSizing: 'border-box' }}
+      />
+      {saving && <span style={{ position: 'absolute', top: '4px', right: '8px', fontSize: '0.7rem', color: '#6b7280' }}>Saving...</span>}
+      {saved && <span style={{ position: 'absolute', top: '4px', right: '8px', fontSize: '0.7rem', color: '#059669' }}>Saved</span>}
     </div>
   );
 }
