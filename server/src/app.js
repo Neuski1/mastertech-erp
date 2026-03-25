@@ -58,6 +58,7 @@ app.use('/api/quickbooks', requireAuth, require('./routes/quickbooks'));
 app.use('/api/storage', requireAuth, require('./routes/storage'));
 app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
+app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 
 // Serve React frontend in production

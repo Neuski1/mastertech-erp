@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import VendorSelect from './VendorSelect';
 
 export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate }) {
   const { canSeeFinancials } = useAuth();
@@ -383,7 +384,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               </div>
               <div>
                 <label style={labelStyle}>Vendor</label>
-                <input value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="e.g. Amazon, NTP..." style={inlineInput} />
+                <VendorSelect value={form.vendor} onChange={(v) => setForm({ ...form, vendor: v })} style={inlineInput} />
               </div>
               <div>
                 <label style={labelStyle}>Quantity *</label>
@@ -634,7 +635,7 @@ function AddToInventoryModal({ line, onClose }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
                     <label style={modalLabel}>Vendor</label>
-                    <input value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} style={modalInput} />
+                    <VendorSelect value={form.vendor} onChange={(v) => setForm({ ...form, vendor: v })} style={modalInput} />
                   </div>
                   <div>
                     <label style={modalLabel}>Vendor / Mfr Part #</label>

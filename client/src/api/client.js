@@ -177,4 +177,8 @@ export const api = {
   getMarketingLog: (customerId) => request(`/marketing/customer/${customerId}`),
   addMarketingNote: (data) => request('/marketing/note', { method: 'POST', body: JSON.stringify(data) }),
   logCampaign: (data) => request('/marketing/log-campaign', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Vendors
+  getVendors: () => request('/vendors'),
+  createVendor: (name) => request('/vendors', { method: 'POST', body: JSON.stringify({ name }) }),
 };

@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-
-const VENDORS = [
-  'Amazon', 'NTP', 'Torklift', 'Interstate', 'Lippert', 'Renogy',
-  'Iron', 'Woodstream', 'Adfas', 'TMC', 'Home Depot', 'Airstream', 'Other',
-];
+import VendorSelect from '../components/VendorSelect';
 
 const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
@@ -233,17 +229,7 @@ export default function InventoryForm() {
           <div style={row}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Vendor</label>
-              <select
-                name="vendor"
-                value={form.vendor}
-                onChange={handleChange}
-                style={inputStyle}
-              >
-                <option value="">-- Select --</option>
-                {VENDORS.map((v) => (
-                  <option key={v} value={v}>{v}</option>
-                ))}
-              </select>
+              <VendorSelect value={form.vendor} onChange={(v) => setForm(f => ({ ...f, vendor: v }))} style={inputStyle} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Location</label>
