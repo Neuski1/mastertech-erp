@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
+import { formatPhone } from '../utils/formatPhone';
 
 export default function CustomerList() {
   const navigate = useNavigate();
@@ -228,8 +229,8 @@ export default function CustomerList() {
                   <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
                   {c.company_name && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.company_name}</div>}
                 </td>
-                <td style={tdStyle}>{c.phone_primary || '—'}</td>
-                <td style={tdStyle}>{c.phone_secondary || '—'}</td>
+                <td style={tdStyle}>{formatPhone(c.phone_primary) || '—'}</td>
+                <td style={tdStyle}>{formatPhone(c.phone_secondary) || '—'}</td>
                 <td style={{ ...tdStyle, fontSize: '0.8rem' }}>{c.email_primary || '—'}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>{c.unit_count || 0}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>

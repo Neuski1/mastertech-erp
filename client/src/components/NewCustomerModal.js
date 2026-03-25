@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api/client';
+import { handlePhoneInput } from '../utils/formatPhone';
 
 export default function NewCustomerModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
@@ -51,11 +52,11 @@ export default function NewCustomerModal({ onClose, onCreated }) {
           </div>
           <div>
             <label style={labelStyle}>Phone 1</label>
-            <input type="text" value={form.phone_primary} onChange={(e) => handleChange('phone_primary', e.target.value)} style={inputStyle} />
+            <input type="text" value={handlePhoneInput(form.phone_primary)} onChange={(e) => handleChange('phone_primary', handlePhoneInput(e.target.value))} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Phone 2</label>
-            <input type="text" value={form.phone_secondary} onChange={(e) => handleChange('phone_secondary', e.target.value)} style={inputStyle} />
+            <input type="text" value={handlePhoneInput(form.phone_secondary)} onChange={(e) => handleChange('phone_secondary', handlePhoneInput(e.target.value))} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>Email</label>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 
 const APPT_TYPES = [
   { value: 'drop_off', label: 'Drop Off' },
@@ -209,7 +210,7 @@ export default function AppointmentForm() {
                       <div key={c.id} onClick={() => selectCustomer(c)} style={dropdownItem}>
                         <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
                         {c.company_name ? ` (${c.company_name})` : ''}
-                        <span style={{ color: '#9ca3af', marginLeft: '8px', fontSize: '0.8rem' }}>{c.phone_primary || c.email_primary || ''}</span>
+                        <span style={{ color: '#9ca3af', marginLeft: '8px', fontSize: '0.8rem' }}>{(c.phone_primary ? formatPhone(c.phone_primary) : c.email_primary) || ''}</span>
                       </div>
                     ))}
                   </div>
@@ -296,7 +297,7 @@ export default function AppointmentForm() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Customer Phone</label>
-                  <input type="tel" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="(303) 555-1234" style={inputStyle} />
+                  <input type="tel" value={handlePhoneInput(customerPhone)} onChange={(e) => setCustomerPhone(handlePhoneInput(e.target.value))} placeholder="(303) 555-1234" style={inputStyle} />
                 </div>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.875rem' }}>

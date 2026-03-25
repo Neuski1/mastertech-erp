@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
+import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -479,7 +480,7 @@ export default function CustomerDetail() {
                       >
                         <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
                         <span style={{ color: '#6b7280', marginLeft: '8px' }}>#{c.account_number}</span>
-                        {c.phone_primary && <span style={{ color: '#6b7280', marginLeft: '12px' }}>{c.phone_primary}</span>}
+                        {c.phone_primary && <span style={{ color: '#6b7280', marginLeft: '12px' }}>{formatPhone(c.phone_primary)}</span>}
                         {c.email_primary && <span style={{ color: '#6b7280', marginLeft: '12px' }}>{c.email_primary}</span>}
                         <span style={{ float: 'right', color: '#9ca3af', fontSize: '0.75rem' }}>
                           {c.unit_count || 0} units, {c.record_count || 0} records
@@ -723,13 +724,14 @@ function Field({ label, value }) {
 }
 
 function EditableField({ label, field, value, editing, onChange }) {
+  const isPhone = field && (field.includes('phone') && !field.includes('email'));
   return (
     <div>
       <label style={labelStyle}>{label}</label>
       {editing ? (
-        <input type="text" value={value ?? ''} onChange={(e) => onChange(field, e.target.value)} style={inputStyle} />
+        <input type="text" value={isPhone ? handlePhoneInput((value ?? '').replace(/\D/g, '')) : (value ?? '')} onChange={(e) => onChange(field, isPhone ? handlePhoneInput(e.target.value) : e.target.value)} style={inputStyle} />
       ) : (
-        <div style={{ fontSize: '0.875rem' }}>{value || '—'}</div>
+        <div style={{ fontSize: '0.875rem' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
       )}
     </div>
   );

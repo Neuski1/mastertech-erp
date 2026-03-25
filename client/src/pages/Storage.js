@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import NewCustomerModal from '../components/NewCustomerModal';
+import { formatPhone } from '../utils/formatPhone';
 
 export default function Storage() {
   const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
@@ -619,7 +620,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
             </a>
           </div>
           <InfoField label="Account #" value={space.account_number || '—'} />
-          <InfoField label="Phone" value={space.phone_primary || '—'} />
+          <InfoField label="Phone" value={formatPhone(space.phone_primary) || '—'} />
           <InfoField label="Unit" value={unitInfo} />
           {space.license_plate && <InfoField label="License Plate" value={space.license_plate} />}
         </div>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
 import BulletTextarea from '../components/BulletTextarea';
+import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 
 export default function RecordNew() {
   const navigate = useNavigate();
@@ -150,7 +151,7 @@ export default function RecordNew() {
                 >
                   <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
                   <span style={{ color: '#6b7280', fontSize: '0.8rem', marginLeft: '8px' }}>
-                    #{c.account_number} {c.phone_primary && `\u00B7 ${c.phone_primary}`}
+                    #{c.account_number} {c.phone_primary && `\u00B7 ${formatPhone(c.phone_primary)}`}
                   </span>
                 </div>
               ))}
@@ -278,7 +279,7 @@ export default function RecordNew() {
                 </div>
                 <div>
                   <label style={labelStyle}>Phone</label>
-                  <input value={recordData.insurance_phone} onChange={(e) => setRecordData({ ...recordData, insurance_phone: e.target.value })} style={inputStyle} />
+                  <input value={handlePhoneInput(recordData.insurance_phone)} onChange={(e) => setRecordData({ ...recordData, insurance_phone: handlePhoneInput(e.target.value) })} style={inputStyle} />
                 </div>
                 <div>
                   <label style={labelStyle}>Email</label>

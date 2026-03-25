@@ -8,6 +8,7 @@ import LaborLinesTable from '../components/LaborLinesTable';
 import PartsLinesTable from '../components/PartsLinesTable';
 import CommunicationLog from '../components/CommunicationLog';
 import SquarePayment from '../components/SquarePayment';
+import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
 import BulletTextarea, { BulletDisplay } from '../components/BulletTextarea';
@@ -466,7 +467,7 @@ export default function RecordDetail() {
     <span>${customerName}</span><br/>
     <span>${address || '—'}</span><br/>
     <span>${r.email_primary || ''}</span><br/>
-    <span>${r.phone_primary || ''}</span>
+    <span>${formatPhone(r.phone_primary) || ''}</span>
   </div>
   <div>
     <label>Unit</label>
@@ -1182,7 +1183,7 @@ function ScheduleModal({ record, onSuccess, onClose }) {
             </div>
             <div>
               <label style={labelStyle}>Customer Phone</label>
-              <input type="text" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="(303) 555-0000" style={inputStyle} />
+              <input type="text" value={handlePhoneInput(customerPhone)} onChange={(e) => setCustomerPhone(handlePhoneInput(e.target.value))} placeholder="(303) 555-0000" style={inputStyle} />
             </div>
           </div>
           <div>
@@ -1322,18 +1323,19 @@ function FieldFull({ label, value }) {
 }
 
 function EditableField({ label, field, value, editing, onChange, type = 'text' }) {
+  const isPhone = field && (field.includes('phone') && !field.includes('email'));
   return (
     <div>
       <label style={labelStyle}>{label}</label>
       {editing ? (
         <input
           type={type}
-          value={value ?? ''}
-          onChange={(e) => onChange(field, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
+          value={isPhone ? handlePhoneInput((value ?? '').replace(/\D/g, '')) : (value ?? '')}
+          onChange={(e) => isPhone ? onChange(field, handlePhoneInput(e.target.value)) : onChange(field, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
           style={inputStyle}
         />
       ) : (
-        <div style={{ fontSize: '0.875rem' }}>{value || '—'}</div>
+        <div style={{ fontSize: '0.875rem' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
       )}
     </div>
   );
