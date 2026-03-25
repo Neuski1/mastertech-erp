@@ -141,6 +141,7 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
         payment_method: 'credit_card',
         payment_type: paymentType,
         amount: parsedAmount,
+        payment_date: new Date().toISOString().split('T')[0],
         check_number: manualRef || null,
         notes: notes || 'Manual card entry',
       });
@@ -169,15 +170,7 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
         {/* ── STEP: Not Configured ── */}
         {step === 'not-configured' && (
           <div>
-            <div style={{ padding: '16px', backgroundColor: '#fffbeb', border: '1px solid #fbbf24', borderRadius: '8px', marginBottom: '16px' }}>
-              <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#92400e' }}>Square Terminal device not configured.</p>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: '#78350f' }}>
-                To use the physical card reader, add SQUARE_TERMINAL_DEVICE_ID to .env.<br />
-                You can still record a manual card payment below.
-              </p>
-            </div>
-
-            {/* Manual fallback form */}
+            {/* Manual card payment form */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Amount ($)</label>
