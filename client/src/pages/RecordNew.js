@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
 import BulletTextarea from '../components/BulletTextarea';
@@ -7,12 +7,14 @@ import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 
 export default function RecordNew() {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1); // 1: select customer, 2: select/create unit, 3: record details
+  const location = useLocation();
+  const prefill = location.state;
+  const [step, setStep] = useState(prefill?.prefillCustomer ? 2 : 1); // 1: select customer, 2: select/create unit, 3: record details
   const [customerSearch, setCustomerSearch] = useState('');
   const [customers, setCustomers] = useState([]);
   const [searchDone, setSearchDone] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [units, setUnits] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(prefill?.prefillCustomer || null);
+  const [units, setUnits] = useState(prefill?.prefillUnits || []);
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [showNewUnit, setShowNewUnit] = useState(false);
   const [newUnit, setNewUnit] = useState({ year: '', make: '', model: '', vin: '', license_plate: '' });

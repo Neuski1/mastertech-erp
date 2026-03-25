@@ -349,10 +349,17 @@ export default function CustomerDetail() {
 
       {/* ─── Records History ─── */}
       <div style={sectionStyle}>
-        <h2 style={sectionTitle}>
-          Records History ({filteredRecords.length})
-          {unitFilter && <span style={{ fontWeight: 400, fontSize: '0.8rem', color: '#6b7280' }}> — filtered by unit</span>}
-        </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
+          <h2 style={{ ...sectionTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
+            Records History ({filteredRecords.length})
+            {unitFilter && <span style={{ fontWeight: 400, fontSize: '0.8rem', color: '#6b7280' }}> — filtered by unit</span>}
+          </h2>
+          {canEditRecords && (
+            <button onClick={() => navigate('/records/new', { state: { prefillCustomer: customer, prefillUnits: units } })} style={{ padding: '4px 12px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>
+              + New Record
+            </button>
+          )}
+        </div>
         {filteredRecords.length > 0 ? (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
