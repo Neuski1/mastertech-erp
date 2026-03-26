@@ -435,7 +435,7 @@ export default function RecordDetail() {
 </style></head><body>
 <div class="header">
   <div class="header-left">
-    <img src="http://localhost:3000/master-rvtech-logo-dark.jpg" alt="Master Tech RV" style="height:120px;max-width:280px;object-fit:contain" />
+    <img src="${window.location.origin}/master-rvtech-logo-dark.jpg" alt="Master Tech RV" style="height:120px;max-width:280px;object-fit:contain" />
     <div>
     <h1>MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p>6590 EAST 49TH AVENUE</p>

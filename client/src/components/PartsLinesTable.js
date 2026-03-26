@@ -139,6 +139,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         inventory_id: isInventory ? form.inventory_id : null,
         is_inventory_part: isInventory && !!form.inventory_id,
         part_number: form.part_number || null,
+        vendor_part_number: !isInventory ? (form.part_number || null) : null,
         description: form.description,
         quantity: parseFloat(form.quantity),
         cost_each: form.cost_each ? parseFloat(form.cost_each) : null,
@@ -301,83 +302,88 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
           {/* All Parts tab — search then form */}
           {!isInventory && !allPartsFormVisible && (
             <div>
-              {/* Search box */}
-              <div style={{ position: 'relative', marginBottom: '8px' }}>
-                <input
-                  value={catalogQuery}
-                  onChange={(e) => handleCatalogSearch(e.target.value)}
-                  placeholder="Search all parts by description, part #, or vendor part #..."
-                  style={{ ...inlineInput, width: '100%' }}
-                  autoFocus
-                />
-                {/* Results dropdown */}
-                {catalogResults.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '6px', maxHeight: '260px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
-                    {/* Inventory results */}
-                    {catalogResults.filter(r => r.source === 'inventory').length > 0 && (
-                      <>
-                        <div style={{ padding: '4px 12px', backgroundColor: '#d1fae5', fontSize: '0.7rem', fontWeight: 700, color: '#065f46', textTransform: 'uppercase' }}>In Inventory</div>
-                        {catalogResults.filter(r => r.source === 'inventory').map(item => (
-                          <div key={`inv-${item.id}`} onClick={() => selectCatalogItem(item)}
-                            style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.8rem' }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <strong>{item.description}</strong>
-                              <span style={{ color: '#065f46', fontSize: '0.75rem' }}>{formatCurrency(item.sale_price_each)}</span>
+              {/* Search box + Enter Manually button on same row */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    value={catalogQuery}
+                    onChange={(e) => handleCatalogSearch(e.target.value)}
+                    placeholder="Search all parts by description, part #, or vendor part #..."
+                    style={{ ...inlineInput, width: '100%' }}
+                    autoFocus
+                  />
+                  {/* Results dropdown */}
+                  {catalogResults.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '6px', maxHeight: '260px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                      {/* Inventory results */}
+                      {catalogResults.filter(r => r.source === 'inventory').length > 0 && (
+                        <>
+                          <div style={{ padding: '4px 12px', backgroundColor: '#d1fae5', fontSize: '0.7rem', fontWeight: 700, color: '#065f46', textTransform: 'uppercase' }}>In Inventory</div>
+                          {catalogResults.filter(r => r.source === 'inventory').map(item => (
+                            <div key={`inv-${item.id}`} onClick={() => selectCatalogItem(item)}
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.8rem' }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <strong>{item.description}</strong>
+                                <span style={{ color: '#065f46', fontSize: '0.75rem' }}>{formatCurrency(item.sale_price_each)}</span>
+                              </div>
+                              <div style={{ color: '#6b7280', fontSize: '0.7rem' }}>
+                                {item.part_number && <span>#{item.part_number}</span>}
+                                {item.vendor && <span> &middot; {item.vendor}</span>}
+                                <span> &middot; Qty: {parseFloat(item.qty_on_hand)}</span>
+                              </div>
                             </div>
-                            <div style={{ color: '#6b7280', fontSize: '0.7rem' }}>
-                              {item.part_number && <span>#{item.part_number}</span>}
-                              {item.vendor && <span> &middot; {item.vendor}</span>}
-                              <span> &middot; Qty: {parseFloat(item.qty_on_hand)}</span>
+                          ))}
+                        </>
+                      )}
+                      {/* Catalog results */}
+                      {catalogResults.filter(r => r.source === 'catalog').length > 0 && (
+                        <>
+                          <div style={{ padding: '4px 12px', backgroundColor: '#f3f4f6', fontSize: '0.7rem', fontWeight: 700, color: '#374151', textTransform: 'uppercase' }}>Past Orders — Not in Inventory</div>
+                          {catalogResults.filter(r => r.source === 'catalog').map(item => (
+                            <div key={`cat-${item.id}`} onClick={() => selectCatalogItem(item)}
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.8rem' }}
+                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <strong>{item.description}</strong>
+                                <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>{item.sale_price_each ? `Last: ${formatCurrency(item.sale_price_each)}` : ''}</span>
+                              </div>
+                              <div style={{ color: '#6b7280', fontSize: '0.7rem' }}>
+                                {item.vendor_part_number && <span>MPN: {item.vendor_part_number}</span>}
+                                {item.vendor && <span> &middot; {item.vendor}</span>}
+                                {item.times_used && <span> &middot; Used {item.times_used}x</span>}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                    {/* Catalog results */}
-                    {catalogResults.filter(r => r.source === 'catalog').length > 0 && (
-                      <>
-                        <div style={{ padding: '4px 12px', backgroundColor: '#f3f4f6', fontSize: '0.7rem', fontWeight: 700, color: '#374151', textTransform: 'uppercase' }}>Past Orders — Not in Inventory</div>
-                        {catalogResults.filter(r => r.source === 'catalog').map(item => (
-                          <div key={`cat-${item.id}`} onClick={() => selectCatalogItem(item)}
-                            style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.8rem' }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <strong>{item.description}</strong>
-                              <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>{item.sale_price_each ? `Last: ${formatCurrency(item.sale_price_each)}` : ''}</span>
-                            </div>
-                            <div style={{ color: '#6b7280', fontSize: '0.7rem' }}>
-                              {item.vendor_part_number && <span>MPN: {item.vendor_part_number}</span>}
-                              {item.vendor && <span> &middot; {item.vendor}</span>}
-                              {item.times_used && <span> &middot; Used {item.times_used}x</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-                {/* No results message */}
-                {catalogQuery.length >= 2 && catalogResults.length === 0 && (
-                  <div style={{ color: '#9ca3af', fontSize: '0.8rem', marginTop: '4px' }}>
-                    No matches found
-                  </div>
-                )}
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {/* No results message */}
+                  {catalogQuery.length >= 2 && catalogResults.length === 0 && (
+                    <div style={{ color: '#9ca3af', fontSize: '0.8rem', marginTop: '4px' }}>
+                      No matches found
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => { setAllPartsFormVisible(true); setCatalogResults([]); setForm(f => ({ ...f, description: catalogQuery || '' })); }} style={{ ...btnSmallGray, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                  Enter Part Manually
+                </button>
               </div>
-              {/* Enter manually button */}
-              <button onClick={() => { setForm(f => ({ ...f, description: catalogQuery })); setAllPartsFormVisible(true); setCatalogResults([]); }} style={{ ...btnSmallGray, fontSize: '0.8rem' }}>
-                Enter part manually
-              </button>
             </div>
           )}
 
           {/* All Parts — form fields (shown after selection or manual entry) */}
           {!isInventory && allPartsFormVisible && (
             <div style={formGrid}>
+              <div>
+                <label style={labelStyle}>Part Number</label>
+                <input value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} placeholder="Mfr or vendor part #" style={inlineInput} />
+              </div>
               <div style={{ gridColumn: 'span 2' }}>
                 <label style={labelStyle}>Description *</label>
                 <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={inlineInput} autoFocus={!form.description} />
@@ -401,6 +407,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <div>
                 <label style={labelStyle}>Sale Price Each *</label>
                 <input type="number" step="0.01" value={form.sale_price_each} onChange={(e) => setForm({ ...form, sale_price_each: e.target.value })} style={inlineInput} />
+                <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Auto-calculated at 50% markup</div>
               </div>
               <div>
                 <label style={labelStyle}>Line Total</label>

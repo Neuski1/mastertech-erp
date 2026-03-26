@@ -181,4 +181,7 @@ export const api = {
   // Vendors
   getVendors: () => request('/vendors'),
   createVendor: (name) => request('/vendors', { method: 'POST', body: JSON.stringify({ name }) }),
+  getVendorParts: (name) => request(`/vendors/${encodeURIComponent(name)}/parts`),
+  deleteVendor: (name) => request(`/vendors/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  bulkUpdateVendor: (parts) => request('/vendors/bulk-update', { method: 'PATCH', body: JSON.stringify({ parts }) }),
 };

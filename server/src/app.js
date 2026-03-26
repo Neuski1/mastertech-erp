@@ -49,6 +49,7 @@ app.use('/api/customers', requireAuth, require('./routes/customers'));
 app.use('/api/units', requireAuth, require('./routes/units'));
 app.use('/api/technicians', requireAuth, require('./routes/technicians'));
 app.use('/api/inventory', requireAuth, require('./routes/inventory'));
+app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/appointments', requireAuth, require('./routes/appointments'));
 app.use('/api/communications', requireAuth, require('./routes/communications'));
 app.use('/api/square', requireAuth, require('./routes/square'));

@@ -152,7 +152,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
               <tr key={line.id} style={{ backgroundColor: '#fffbeb' }}>
                 <td style={tdStyle}>L</td>
                 <td style={tdStyle}>
-                  <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={inlineInput} />
+                  <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} />
                 </td>
                 <td style={tdStyle}>
                   <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
@@ -177,7 +177,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             ) : (
               <tr key={line.id} style={hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined}>
                 <td style={tdStyle}>{line.line_type}</td>
-                <td style={tdStyle}>{line.description}</td>
+                <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' }}>{line.description}</td>
                 <td style={tdStyle}>{line.technician_name || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Unassigned</span>}</td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>
                   {quickEditId === line.id ? (
@@ -209,8 +209,12 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
                 {(isEditable || isTechnician) && (
                   <td style={tdStyle}>
-                    {isEditable && <button onClick={() => handleEdit(line)} style={btnTinyGray}>Edit</button>}
-                    {isEditable && <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>}
+                    {(isEditable || (isTechnician && line.technician_id === user?.technician_id)) && (
+                      <>
+                        <button onClick={() => handleEdit(line)} style={btnTinyGray} title="Edit labor line">&#9998;</button>
+                        <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
+                      </>
+                    )}
                   </td>
                 )}
               </tr>
@@ -222,7 +226,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <tr style={{ backgroundColor: '#f0fdf4' }}>
               <td style={tdStyle}>L</td>
               <td style={tdStyle}>
-                <input placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={inlineInput} />
+                <textarea placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} />
               </td>
               <td style={tdStyle}>
                 {isTechnician ? (

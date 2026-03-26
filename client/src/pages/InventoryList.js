@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
-const VENDORS = [
+const FALLBACK_VENDORS = [
   'Amazon', 'NTP', 'Torklift', 'Interstate', 'Lippert', 'Renogy',
   'Iron', 'Woodstream', 'Adfas', 'TMC', 'Home Depot', 'Airstream', 'Other',
 ];
@@ -43,8 +43,15 @@ export default function InventoryList() {
   const [sortField, setSortField] = useState('qty_on_hand');
   const [sortDirection, setSortDirection] = useState('desc');
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [vendorList, setVendorList] = useState([]);
+  const [showVendorPanel, setShowVendorPanel] = useState(false);
+  const [vendorDeleteModal, setVendorDeleteModal] = useState(null); // { name, parts, allVendors }
+  const [vendorReassignments, setVendorReassignments] = useState({}); // { partId: newVendor }
+  const [bulkReassignVendor, setBulkReassignVendor] = useState('');
+  const [vendorSaving, setVendorSaving] = useState(false);
   const reportsRef = useRef(null);
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
 
   // Close reports dropdown on outside click
@@ -57,6 +64,23 @@ export default function InventoryList() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Fetch vendors from API
+  const fetchVendors = useCallback(async () => {
+    try {
+      const data = await api.getVendors();
+      setVendorList(data);
+    } catch {
+      // Fallback to hardcoded list
+      setVendorList(FALLBACK_VENDORS.map(v => ({ name: v, item_count: '?' })));
+    }
+  }, []);
+
+  useEffect(() => { fetchVendors(); }, [fetchVendors]);
+
+  const vendorNames = vendorList.length > 0
+    ? [...new Set([...vendorList.map(v => v.name), ...FALLBACK_VENDORS])].sort()
+    : FALLBACK_VENDORS;
 
   const handleLowStockReport = async () => {
     setReportsOpen(false);
@@ -288,6 +312,62 @@ export default function InventoryList() {
   useEffect(() => { fetchItems(); }, [fetchItems]);
   useEffect(() => { fetchReorderCount(); }, [fetchReorderCount]);
 
+  const handleDeleteVendor = async (vendorName) => {
+    if (!window.confirm(`Delete vendor "${vendorName}"? This cannot be undone.`)) return;
+    try {
+      await api.deleteVendor(vendorName);
+      fetchVendors();
+      alert(`Vendor "${vendorName}" deleted.`);
+    } catch (err) {
+      if (err.message === 'Vendor in use') {
+        try {
+          const parts = await api.getVendorParts(vendorName);
+          setVendorReassignments({});
+          setBulkReassignVendor('');
+          setVendorDeleteModal({ name: vendorName, parts, allVendors: vendorNames.filter(v => v !== vendorName) });
+        } catch (e2) {
+          alert('Failed to load affected parts: ' + e2.message);
+        }
+      } else {
+        alert(err.message);
+      }
+    }
+  };
+
+  const handleBulkReassign = () => {
+    if (!bulkReassignVendor) return;
+    const newAssignments = {};
+    vendorDeleteModal.parts.forEach(p => { newAssignments[p.id] = bulkReassignVendor; });
+    setVendorReassignments(newAssignments);
+  };
+
+  const handleSaveReassignments = async () => {
+    const updates = Object.entries(vendorReassignments)
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([id, vendor]) => ({ id: parseInt(id), vendor }));
+    if (updates.length === 0) { alert('No changes to save.'); return; }
+    setVendorSaving(true);
+    try {
+      await api.bulkUpdateVendor(updates);
+      const vendorName = vendorDeleteModal.name;
+      setVendorDeleteModal(null);
+      fetchVendors();
+      fetchItems();
+      if (updates.length === vendorDeleteModal.parts.length) {
+        try {
+          await api.deleteVendor(vendorName);
+          alert(`Vendor "${vendorName}" deleted.`);
+        } catch {
+          // Some parts may still reference it
+        }
+      }
+    } catch (err) {
+      alert('Failed to save: ' + err.message);
+    } finally {
+      setVendorSaving(false);
+    }
+  };
+
   const handleSort = (field) => {
     if (sortField === field) {
       setSortDirection(d => d === 'asc' ? 'desc' : 'asc');
@@ -474,6 +554,7 @@ export default function InventoryList() {
             )}
           </div>
           <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>
+          {isAdmin && <button onClick={() => setShowVendorPanel(!showVendorPanel)} style={btnSecondary}>Manage Vendors</button>}
           <button onClick={() => navigate('/inventory/new')} style={btnPrimary}>+ New Part</button>
         </div>
       </div>
@@ -493,7 +574,7 @@ export default function InventoryList() {
           style={inputStyle}
         >
           <option value="">All Vendors</option>
-          {VENDORS.map((v) => (
+          {vendorNames.map((v) => (
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
@@ -518,6 +599,101 @@ export default function InventoryList() {
           ))}
         </select>
       </div>
+
+      {/* Vendor Management Panel */}
+      {showVendorPanel && isAdmin && (
+        <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, color: '#1e3a5f', fontSize: '1rem' }}>Vendor Management</h3>
+            <button onClick={() => setShowVendorPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: '#6b7280' }}>&times;</button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ ...thStyle, padding: '8px 12px' }}>Vendor Name</th>
+                <th style={{ ...thStyle, padding: '8px 12px', textAlign: 'right' }}>Items</th>
+                <th style={{ ...thStyle, padding: '8px 12px', width: '80px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {vendorList.map(v => (
+                <tr key={v.name}>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>{v.name}</td>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', textAlign: 'right' }}>{v.item_count}</td>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6' }}>
+                    <button onClick={() => handleDeleteVendor(v.name)} style={{ padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' }}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+              {vendorList.length === 0 && (
+                <tr><td colSpan={3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>No vendors found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Vendor Reassignment Modal */}
+      {vendorDeleteModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '700px', width: '90%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h3 style={{ margin: '0 0 8px', color: '#1e3a5f' }}>Vendor In Use &mdash; {vendorDeleteModal.name}</h3>
+            <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '16px' }}>
+              This vendor is assigned to {vendorDeleteModal.parts.length} inventory item{vendorDeleteModal.parts.length !== 1 ? 's' : ''}.
+              Reassign them to another vendor before deleting, or update them individually below.
+            </p>
+
+            {/* Bulk reassign row */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', padding: '10px', backgroundColor: '#f9fafb', borderRadius: '6px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151' }}>Reassign All To:</span>
+              <select value={bulkReassignVendor} onChange={(e) => setBulkReassignVendor(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+                <option value="">-- Select Vendor --</option>
+                {vendorDeleteModal.allVendors.map(v => <option key={v} value={v}>{v}</option>)}
+              </select>
+              <button onClick={handleBulkReassign} disabled={!bulkReassignVendor} style={{ ...btnPrimary, padding: '8px 14px', fontSize: '0.8rem', opacity: bulkReassignVendor ? 1 : 0.5 }}>Apply to All</button>
+            </div>
+
+            {/* Parts table */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, padding: '6px 10px' }}>Part #</th>
+                  <th style={{ ...thStyle, padding: '6px 10px' }}>Description</th>
+                  <th style={{ ...thStyle, padding: '6px 10px', textAlign: 'right' }}>Qty</th>
+                  <th style={{ ...thStyle, padding: '6px 10px' }}>Vendor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendorDeleteModal.parts.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #f3f4f6', fontFamily: 'monospace', fontSize: '0.8rem' }}>{p.part_number || '—'}</td>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #f3f4f6', fontSize: '0.85rem' }}>{p.description}</td>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #f3f4f6', fontSize: '0.85rem', textAlign: 'right' }}>{parseFloat(p.qty_on_hand)}</td>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #f3f4f6' }}>
+                      <select
+                        value={vendorReassignments[p.id] !== undefined ? vendorReassignments[p.id] : vendorDeleteModal.name}
+                        onChange={(e) => setVendorReassignments(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        style={{ ...inputStyle, padding: '4px 8px', fontSize: '0.8rem', width: '100%' }}
+                      >
+                        <option value="">(none)</option>
+                        <option value={vendorDeleteModal.name}>{vendorDeleteModal.name}</option>
+                        {vendorDeleteModal.allVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setVendorDeleteModal(null)} style={btnSecondary}>Cancel</button>
+              <button onClick={handleSaveReassignments} disabled={vendorSaving} style={btnPrimary}>
+                {vendorSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       {/* Top Pagination */}
