@@ -24,7 +24,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   const laborSubtotal = (laborLines || []).reduce((sum, l) => sum + parseFloat(l.line_total || 0), 0);
 
   const resetForm = () => {
-    setForm({ technician_id: technicians[0]?.id || '', description: '', hours: '' });
+    setForm({ technician_id: '', description: '', hours: '' });
     setError('');
   };
 
