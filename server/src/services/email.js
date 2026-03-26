@@ -1,15 +1,8 @@
 /*
  VERCEL PRODUCTION SETUP — REQUIRED ENVIRONMENT VARIABLES:
- Go to: Vercel Dashboard → mastertech-erp project → Settings →
- Environment Variables → Add the following:
-   EMAIL_HOST     = smtp.gmail.com
-   EMAIL_PORT     = 587
-   EMAIL_SECURE   = false
-   EMAIL_USER     = service@mastertechrvrepair.com
-   EMAIL_PASS     = [16-character Gmail App Password]
-   EMAIL_FROM     = Master Tech RV Repair & Storage <service@mastertechrvrepair.com>
- After adding variables, go to Deployments → Redeploy the latest
- deployment to pick up the new variables.
+ Go to: Vercel Dashboard → Settings → Environment Variables
+ Required: EMAIL_HOST, EMAIL_PORT, EMAIL_SECURE, EMAIL_USER, EMAIL_PASS, EMAIL_FROM
+ See .env.example for placeholder values. Never hardcode credentials in code.
 */
 const nodemailer = require('nodemailer');
 const ics = require('ics');
