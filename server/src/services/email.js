@@ -95,14 +95,25 @@ async function sendViaResend(mailOptions) {
  * Generate an .ics calendar invite for an appointment
  */
 function generateICS({ appointmentDate, appointmentTime, durationMinutes, appointmentType, notes }) {
-  const [year, month, day] = appointmentDate.split('-').map(Number);
-  const [hour, minute] = appointmentTime.split(':').map(Number);
   const duration = parseInt(durationMinutes) || 60;
-
   const typeLabel = appointmentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
+  // Convert Mountain Time to UTC for .ics (which expects UTC when using Z suffix)
+  // Build a Date in Mountain Time using Intl to find the correct UTC offset
+  const localStr = `${appointmentDate}T${appointmentTime}:00`;
+  const mtFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', timeZoneName: 'shortOffset' });
+  const parts = mtFormatter.formatToParts(new Date(localStr));
+  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT-6';
+  const offsetMatch = tzPart.match(/GMT([+-])(\d+)/);
+  const offsetHours = offsetMatch ? parseInt(offsetMatch[1] + offsetMatch[2]) : -6;
+  // Create proper UTC date: Mountain Time = UTC + offset (offset is negative, so subtract)
+  const utcDate = new Date(`${appointmentDate}T${appointmentTime}:00Z`);
+  utcDate.setHours(utcDate.getHours() - offsetHours);
+
   const event = {
-    start: [year, month, day, hour, minute],
+    start: [utcDate.getUTCFullYear(), utcDate.getUTCMonth() + 1, utcDate.getUTCDate(), utcDate.getUTCHours(), utcDate.getUTCMinutes()],
+    startInputType: 'utc',
+    startOutputType: 'utc',
     duration: { hours: Math.floor(duration / 60), minutes: duration % 60 },
     title: 'RV Service Appointment — Master Tech RV Repair & Storage',
     description: `Appointment Type: ${typeLabel}${notes ? '\\n' + notes : ''}\\n\\nQuestions? Call (303) 557-2214 or email service@mastertechrvrepair.com`,
@@ -168,17 +179,20 @@ async function sendAppointmentConfirmation({
   const hour12 = hour % 12 || 12;
   const timeFormatted = `${hour12}:${m} ${ampm}`;
 
-  // Build Google Calendar URL
+  // Build Google Calendar URL — must be UTC (Z suffix) for correct timezone handling
   const pad = (n) => String(n).padStart(2, '0');
-  const [yr, mo, dy] = appointmentDate.split('-').map(Number);
-  const startH = parseInt(h);
-  const startM = parseInt(m);
+  const gcalLocalStr = `${appointmentDate}T${appointmentTime}:00`;
+  const gcalMtParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', timeZoneName: 'shortOffset' })
+    .formatToParts(new Date(gcalLocalStr));
+  const gcalTzPart = gcalMtParts.find(p => p.type === 'timeZoneName')?.value || 'GMT-6';
+  const gcalOffsetMatch = gcalTzPart.match(/GMT([+-])(\d+)/);
+  const gcalOffsetHours = gcalOffsetMatch ? parseInt(gcalOffsetMatch[1] + gcalOffsetMatch[2]) : -6;
+  const gcalUtcStart = new Date(`${appointmentDate}T${appointmentTime}:00Z`);
+  gcalUtcStart.setHours(gcalUtcStart.getHours() - gcalOffsetHours);
   const dur = parseInt(durationMinutes) || 60;
-  const endTotalMin = startH * 60 + startM + dur;
-  const endH = Math.floor(endTotalMin / 60);
-  const endM = endTotalMin % 60;
-  const gcalStart = `${yr}${pad(mo)}${pad(dy)}T${pad(startH)}${pad(startM)}00`;
-  const gcalEnd = `${yr}${pad(mo)}${pad(dy)}T${pad(endH)}${pad(endM)}00`;
+  const gcalUtcEnd = new Date(gcalUtcStart.getTime() + dur * 60000);
+  const gcalStart = `${gcalUtcStart.getUTCFullYear()}${pad(gcalUtcStart.getUTCMonth()+1)}${pad(gcalUtcStart.getUTCDate())}T${pad(gcalUtcStart.getUTCHours())}${pad(gcalUtcStart.getUTCMinutes())}00Z`;
+  const gcalEnd = `${gcalUtcEnd.getUTCFullYear()}${pad(gcalUtcEnd.getUTCMonth()+1)}${pad(gcalUtcEnd.getUTCDate())}T${pad(gcalUtcEnd.getUTCHours())}${pad(gcalUtcEnd.getUTCMinutes())}00Z`;
   const gcalParams = new URLSearchParams({
     action: 'TEMPLATE',
     text: `RV Service Appointment — Master Tech RV`,
