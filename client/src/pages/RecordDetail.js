@@ -1117,7 +1117,7 @@ function ScheduleModal({ record, onSuccess, onClose }) {
   const [notes, setNotes] = useState(`WO #${record.record_number} - ${record.last_name || ''}${record.first_name ? ', ' + record.first_name : ''}`);
   const [customerEmail, setCustomerEmail] = useState(record.email_primary || '');
   const [customerPhone, setCustomerPhone] = useState(record.phone_primary || '');
-  const [sendConfirmation, setSendConfirmation] = useState(!!record.email_primary);
+  const [sendConfirmation, setSendConfirmation] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 

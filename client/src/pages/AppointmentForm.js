@@ -95,7 +95,7 @@ export default function AppointmentForm() {
         });
         setCustomerEmail(appt.customer_email || appt.email_primary || '');
         setCustomerPhone(appt.customer_phone || appt.phone_primary || '');
-        setNotifyCustomer(appt.notify_customer || false);
+        setNotifyCustomer(true);
         // Load units for this customer
         const units = await api.getCustomerUnits(appt.customer_id);
         setCustomerUnits(units);
@@ -146,6 +146,8 @@ export default function AppointmentForm() {
     e.preventDefault();
     setError(null);
     setSaving(true);
+
+    console.log('Submitting appointment with:', { notify_customer: notifyCustomer, customer_email: customerEmail });
 
     try {
       let finalCustomerId = parseInt(form.customer_id);

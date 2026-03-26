@@ -179,14 +179,29 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
       [rows[0].id]
     );
 
-    // Send confirmation email + SMS if notify_customer is true
-    console.log('Appointment created — notify_customer:', notify_customer, 'customer_email:', customer_email);
+    // Send confirmation email + SMS
+    const apptId = rows[0].id;
+    console.log(`[Appt ${apptId}] Created — notify_customer: ${notify_customer}, customer_email: ${customer_email}`);
     let emailWarning = null;
-    if (notify_customer) {
+
+    // Resolve email address (provided or fallback to customer record)
+    let emailAddr = customer_email;
+    if (!emailAddr) {
+      try {
+        const { rows: custRows } = await pool.query('SELECT email_primary FROM customers WHERE id = $1', [customer_id]);
+        emailAddr = custRows[0]?.email_primary || null;
+      } catch (lookupErr) {
+        console.error(`[Appt ${apptId}] Email lookup error:`, lookupErr.message);
+      }
+    }
+
+    // Always attempt email if customer has an email and notify is checked
+    if (notify_customer && emailAddr) {
       const customerName = `${full[0].first_name || ''} ${full[0].last_name || ''}`.trim();
       const customerFirstName = full[0].first_name || '';
       const emailPayload = {
         customerName,
+        customerEmail: emailAddr,
         appointmentDate: scheduled_date,
         appointmentTime: scheduled_time,
         appointmentType: appointment_type,
@@ -194,38 +209,40 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
         notes: dropoff_notes,
       };
 
-      // Resolve email address (provided or fallback to customer record)
-      let emailAddr = customer_email;
-      if (!emailAddr) {
-        try {
-          const { rows: custRows } = await pool.query('SELECT email_primary FROM customers WHERE id = $1', [customer_id]);
-          emailAddr = custRows[0]?.email_primary || null;
-        } catch (lookupErr) {
-          console.error('Email lookup error:', lookupErr.message);
-        }
-      }
+      console.log(`[Appt ${apptId}] Sending email to: ${emailAddr}`);
+      try {
+        let emailResult = await sendAppointmentConfirmation(emailPayload);
+        console.log(`[Appt ${apptId}] Email result:`, JSON.stringify(emailResult));
 
-      if (emailAddr) {
-        console.log('Attempting email to:', emailAddr);
-        try {
-          const emailResult = await sendAppointmentConfirmation({ ...emailPayload, customerEmail: emailAddr });
-          console.log('Email result:', JSON.stringify(emailResult));
-          if (!emailResult.success) {
-            emailWarning = `Email failed: ${emailResult.error}`;
-          }
-        } catch (emailErr) {
-          console.error('Email send error:', emailErr);
-          emailWarning = `Email failed: ${emailErr.message}`;
+        // Retry once on failure after 2 seconds
+        if (!emailResult.success) {
+          console.log(`[Appt ${apptId}] First attempt failed, retrying in 2s...`);
+          await new Promise(r => setTimeout(r, 2000));
+          emailResult = await sendAppointmentConfirmation(emailPayload);
+          console.log(`[Appt ${apptId}] Retry result:`, JSON.stringify(emailResult));
         }
-      } else {
-        emailWarning = 'No customer email address available';
-      }
 
+        if (!emailResult.success) {
+          emailWarning = `Email failed: ${emailResult.error}`;
+        }
+      } catch (emailErr) {
+        console.error(`[Appt ${apptId}] Email exception:`, emailErr.message);
+        emailWarning = `Email failed: ${emailErr.message}`;
+      }
+    } else if (notify_customer && !emailAddr) {
+      emailWarning = 'No customer email address available';
+      console.log(`[Appt ${apptId}] No email address — skipping`);
+    } else {
+      console.log(`[Appt ${apptId}] notify_customer is false — skipping email`);
+    }
+
+    if (notify_customer) {
       // SMS — fire and forget
       const smsPhone = customer_phone || null;
+      const smsFirstName = full[0].first_name || '';
       if (smsPhone) {
         sendAppointmentSMS(smsPhone, {
-          customerFirstName,
+          customerFirstName: smsFirstName,
           appointmentDate: scheduled_date,
           appointmentTime: scheduled_time,
           appointmentType: appointment_type,
