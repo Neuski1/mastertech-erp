@@ -7,23 +7,35 @@
 const nodemailer = require('nodemailer');
 const ics = require('ics');
 
+// Use port 465 with SSL (more reliable on Railway than 587 STARTTLS)
+const smtpPort = parseInt(process.env.EMAIL_PORT) || 465;
+const smtpSecure = process.env.EMAIL_SECURE !== undefined
+  ? process.env.EMAIL_SECURE === 'true'
+  : smtpPort === 465;
+
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.EMAIL_PORT) || 587,
-  secure: process.env.EMAIL_SECURE === 'true',
+  port: smtpPort,
+  secure: smtpSecure,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
   family: 4,
-  tls: {
-    rejectUnauthorized: false,
-  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
 });
 
 // Verify SMTP connection on startup
 console.log('email.js loaded — testing SMTP connection...');
-console.log('SMTP config:', { host: process.env.EMAIL_HOST || 'MISSING', port: process.env.EMAIL_PORT || '587', user: process.env.EMAIL_USER || 'MISSING', pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING' });
+console.log('SMTP config:', {
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: smtpPort,
+  secure: smtpSecure,
+  user: process.env.EMAIL_USER || 'MISSING',
+  pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING',
+});
 transporter.verify(function(error, success) {
   if (error) {
     console.error('SMTP CONNECTION FAILED:', error.message);
