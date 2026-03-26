@@ -119,6 +119,8 @@ export const api = {
   createAppointment: (data) => request('/appointments', { method: 'POST', body: JSON.stringify(data) }),
   updateAppointment: (id, data) => request(`/appointments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAppointment: (id) => request(`/appointments/${id}`, { method: 'DELETE' }),
+  resendConfirmation: (id) => request(`/appointments/${id}/resend-confirmation`, { method: 'POST' }),
+  bulkResendConfirmations: () => request('/appointments/bulk-resend', { method: 'POST' }),
 
   // Communications
   logCommunication: (data) => request('/communications', { method: 'POST', body: JSON.stringify(data) }),

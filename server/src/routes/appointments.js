@@ -291,6 +291,118 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/appointments/:id/resend-confirmation — Resend confirmation email
+// ---------------------------------------------------------------------------
+router.post('/:id/resend-confirmation', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.*,
+              c.last_name, c.first_name, c.email_primary,
+              t.name AS technician_name
+       FROM appointments a
+       JOIN customers c ON c.id = a.customer_id
+       LEFT JOIN technicians t ON t.id = a.technician_id
+       WHERE a.id = $1 AND a.deleted_at IS NULL`,
+      [req.params.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
+
+    const appt = rows[0];
+    const emailAddr = appt.customer_email || appt.email_primary;
+
+    if (!emailAddr) {
+      return res.status(400).json({ error: 'No email address on file for this customer.' });
+    }
+
+    const dt = new Date(appt.scheduled_at);
+    const scheduled_date = dt.toLocaleDateString('en-CA');
+    const scheduled_time = dt.toTimeString().slice(0, 5);
+    const customerName = `${appt.first_name || ''} ${appt.last_name || ''}`.trim();
+
+    const result = await sendAppointmentConfirmation({
+      customerName,
+      customerEmail: emailAddr,
+      appointmentDate: scheduled_date,
+      appointmentTime: scheduled_time,
+      appointmentType: appt.appointment_type,
+      durationMinutes: appt.duration_minutes,
+      notes: appt.dropoff_notes,
+    });
+
+    if (result.success) {
+      res.json({ success: true, email: emailAddr });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    console.error('POST /api/appointments/:id/resend-confirmation error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/appointments/bulk-resend — Resend confirmations for all upcoming
+// ---------------------------------------------------------------------------
+router.post('/bulk-resend', requireRole('admin'), async (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString('en-CA');
+    const { rows } = await pool.query(
+      `SELECT a.*,
+              c.last_name, c.first_name, c.email_primary
+       FROM appointments a
+       JOIN customers c ON c.id = a.customer_id
+       WHERE a.deleted_at IS NULL
+         AND a.status NOT IN ('cancelled', 'complete', 'no_show')
+         AND a.scheduled_at >= $1::date
+         AND (a.customer_email IS NOT NULL OR c.email_primary IS NOT NULL)
+       ORDER BY a.scheduled_at`,
+      [today]
+    );
+
+    let sent = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const appt of rows) {
+      const emailAddr = appt.customer_email || appt.email_primary;
+      const dt = new Date(appt.scheduled_at);
+      const scheduled_date = dt.toLocaleDateString('en-CA');
+      const scheduled_time = dt.toTimeString().slice(0, 5);
+      const customerName = `${appt.first_name || ''} ${appt.last_name || ''}`.trim();
+
+      try {
+        const result = await sendAppointmentConfirmation({
+          customerName,
+          customerEmail: emailAddr,
+          appointmentDate: scheduled_date,
+          appointmentTime: scheduled_time,
+          appointmentType: appt.appointment_type,
+          durationMinutes: appt.duration_minutes,
+          notes: appt.dropoff_notes,
+        });
+        if (result.success) {
+          sent++;
+        } else {
+          failed++;
+          errors.push(`${customerName}: ${result.error}`);
+        }
+      } catch (emailErr) {
+        failed++;
+        errors.push(`${customerName}: ${emailErr.message}`);
+      }
+    }
+
+    res.json({ total: rows.length, sent, failed, errors: errors.slice(0, 10) });
+  } catch (err) {
+    console.error('POST /api/appointments/bulk-resend error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /api/appointments/:id — Soft delete
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {

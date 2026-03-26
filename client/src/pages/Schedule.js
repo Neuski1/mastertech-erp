@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 const APPT_TYPES = [
   { value: 'drop_off', label: 'Drop Off' },
@@ -78,7 +79,11 @@ export default function Schedule() {
   const [technicians, setTechnicians] = useState([]);
   const [filterType, setFilterType] = useState('all');
   const [filterTech, setFilterTech] = useState('all');
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -227,15 +232,54 @@ export default function Schedule() {
 
   const monthLabel = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
+  const handleBulkResend = async () => {
+    // Count upcoming appointments with email
+    const upcomingWithEmail = appointments.filter(a =>
+      !['cancelled', 'complete', 'no_show'].includes(a.status)
+    ).length;
+    if (!window.confirm(
+      `Send confirmation emails to all customers with upcoming appointments who have an email on file?\nThis may send up to ${upcomingWithEmail} emails.`
+    )) return;
+    setBulkSending(true);
+    setBulkResult(null);
+    try {
+      const result = await api.bulkResendConfirmations();
+      setBulkResult(result);
+      setTimeout(() => setBulkResult(null), 8000);
+    } catch (err) {
+      alert('Bulk resend failed: ' + err.message);
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
   return (
     <div>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0 }}>Schedule</h1>
-        <button onClick={() => navigate('/schedule/new')} style={btnPrimary}>
-          + New Appointment
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {isAdmin && (
+            <button onClick={handleBulkResend} disabled={bulkSending} style={btnNav}>
+              {bulkSending ? 'Sending...' : '\u2709 Resend All Upcoming'}
+            </button>
+          )}
+          <button onClick={() => navigate('/schedule/new')} style={btnPrimary}>
+            + New Appointment
+          </button>
+        </div>
       </div>
+      {bulkResult && (
+        <div style={{
+          padding: '12px', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem',
+          backgroundColor: bulkResult.failed === 0 ? '#f0fdf4' : '#fefce8',
+          color: bulkResult.failed === 0 ? '#065f46' : '#854d0e',
+          border: `1px solid ${bulkResult.failed === 0 ? '#bbf7d0' : '#fde68a'}`,
+        }}>
+          Sent {bulkResult.sent} of {bulkResult.total} confirmation emails.
+          {bulkResult.failed > 0 && ` ${bulkResult.failed} failed.`}
+        </div>
+      )}
 
       {/* Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>

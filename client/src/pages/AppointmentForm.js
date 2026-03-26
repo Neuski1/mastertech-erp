@@ -54,6 +54,8 @@ export default function AppointmentForm() {
   const [newUnitModel, setNewUnitModel] = useState('');
   const [emailWarning, setEmailWarning] = useState(null);
   const [creatingRecord, setCreatingRecord] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMsg, setResendMsg] = useState(null); // { type: 'success'|'warning'|'error', text }
 
   // Load technicians
   useEffect(() => {
@@ -224,6 +226,26 @@ export default function AppointmentForm() {
     }
   };
 
+  const handleResendConfirmation = async () => {
+    const email = customerEmail || selectedCustomer?.email_primary;
+    if (!window.confirm(`Resend appointment confirmation to ${email || 'customer'}?`)) return;
+    setResending(true);
+    setResendMsg(null);
+    try {
+      const result = await api.resendConfirmation(id);
+      setResendMsg({ type: 'success', text: `Confirmation email resent to ${result.email}` });
+    } catch (err) {
+      if (err.message.includes('No email address')) {
+        setResendMsg({ type: 'warning', text: 'No email address on file for this customer. Add an email to their customer record first.' });
+      } else {
+        setResendMsg({ type: 'error', text: 'Email could not be sent — check Vercel logs for details.' });
+      }
+    } finally {
+      setResending(false);
+      setTimeout(() => setResendMsg(null), 6000);
+    }
+  };
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>Loading...</div>;
   }
@@ -242,6 +264,17 @@ export default function AppointmentForm() {
           <div style={{ padding: '12px', backgroundColor: '#fefce8', color: '#854d0e', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem', border: '1px solid #fde68a' }}>
             Appointment saved. Email notification could not be sent — check Vercel environment variables.
             <div style={{ fontSize: '0.75rem', marginTop: '4px', color: '#a16207' }}>{emailWarning}</div>
+          </div>
+        )}
+
+        {resendMsg && (
+          <div style={{
+            padding: '12px', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem',
+            backgroundColor: resendMsg.type === 'success' ? '#f0fdf4' : resendMsg.type === 'warning' ? '#fefce8' : '#fef2f2',
+            color: resendMsg.type === 'success' ? '#065f46' : resendMsg.type === 'warning' ? '#854d0e' : '#dc2626',
+            border: `1px solid ${resendMsg.type === 'success' ? '#bbf7d0' : resendMsg.type === 'warning' ? '#fde68a' : '#fca5a5'}`,
+          }}>
+            {resendMsg.text}
           </div>
         )}
 
@@ -425,6 +458,11 @@ export default function AppointmentForm() {
               {saving ? 'Saving...' : isEdit ? 'Update Appointment' : 'Create Appointment'}
             </button>
             <button type="button" onClick={() => navigate('/schedule')} style={btnSecondary}>Cancel</button>
+            {isEdit && (
+              <button type="button" onClick={handleResendConfirmation} disabled={resending} style={btnSecondary}>
+                {resending ? 'Sending...' : '\u2709 Resend Confirmation'}
+              </button>
+            )}
             {isEdit && form.appointment_type === 'drop_off' && !form.record_id && (
               <button type="button" onClick={handleCreateRecord} disabled={creatingRecord} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
                 {creatingRecord ? 'Creating...' : 'Create Record'}
