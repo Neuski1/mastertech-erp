@@ -5,58 +5,86 @@
  See .env.example for placeholder values. Never hardcode credentials in code.
 */
 const nodemailer = require('nodemailer');
-const dns = require('dns');
 const ics = require('ics');
 
-// Railway IPv6 to Gmail is ENETUNREACH. Resolve IPv4 at startup and connect directly.
-const smtpHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
+/*
+ Email transport: uses Resend HTTP API if RESEND_API_KEY is set (recommended for Railway),
+ otherwise falls back to SMTP (works locally / on hosts that allow outbound SMTP).
+
+ Railway blocks outbound SMTP ports (25, 465, 587). Use Resend (free 100/day):
+   1. Sign up at https://resend.com
+   2. Add & verify domain mastertechrvrepair.com (or use onboarding@resend.dev for testing)
+   3. Create API key → add RESEND_API_KEY to Railway env vars
+   4. Set EMAIL_FROM=Master Tech RV <service@mastertechrvrepair.com> (must match verified domain)
+*/
+
 let transporter = null;
+let useResend = false;
 
-(async function initSmtp() {
-  let connectHost = smtpHost;
-  try {
-    const addresses = await dns.promises.resolve4(smtpHost);
-    connectHost = addresses[0];
-    console.log(`Resolved ${smtpHost} → ${connectHost} (IPv4)`);
-  } catch (err) {
-    console.error(`DNS resolve4 failed for ${smtpHost}:`, err.message, '— falling back to hostname');
-  }
-
+if (process.env.RESEND_API_KEY) {
+  // HTTP-based email via Resend — works on Railway (no SMTP ports needed)
+  useResend = true;
+  console.log('Email transport: Resend HTTP API (RESEND_API_KEY is set)');
+} else if (process.env.EMAIL_PASS) {
+  // SMTP transport — works locally and on hosts that allow outbound SMTP
   transporter = nodemailer.createTransport({
-    host: connectHost,
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: 465,
     secure: true,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
-    tls: {
-      servername: smtpHost,
-      rejectUnauthorized: false,
-    },
+    family: 4,
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
   });
 
-  console.log('email.js loaded — testing SMTP connection...');
-  console.log('SMTP config:', {
-    host: connectHost,
-    servername: smtpHost,
-    port: 465,
-    secure: true,
-    user: process.env.EMAIL_USER || 'MISSING',
-    pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING',
-  });
-
+  console.log('Email transport: SMTP', process.env.EMAIL_HOST || 'smtp.gmail.com');
   transporter.verify(function(error) {
     if (error) {
       console.error('SMTP CONNECTION FAILED:', error.message);
+      console.error('If on Railway, set RESEND_API_KEY instead — Railway blocks SMTP ports');
     } else {
       console.log('SMTP CONNECTION OK — ready to send email');
     }
   });
-})();
+} else {
+  console.log('Email transport: NONE — set RESEND_API_KEY or EMAIL_PASS to enable');
+}
+
+/**
+ * Send email via Resend HTTP API
+ */
+async function sendViaResend(mailOptions) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: mailOptions.from,
+      to: Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to],
+      cc: mailOptions.cc ? (Array.isArray(mailOptions.cc) ? mailOptions.cc : [mailOptions.cc]) : undefined,
+      subject: mailOptions.subject,
+      html: mailOptions.html,
+      text: mailOptions.text,
+      attachments: mailOptions.attachments?.map(a => ({
+        filename: a.filename,
+        content: Buffer.from(a.content).toString('base64'),
+        content_type: a.contentType,
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || `Resend API error: ${res.status}`);
+  }
+  return await res.json();
+}
 
 /**
  * Generate an .ics calendar invite for an appointment
@@ -100,9 +128,9 @@ async function sendAppointmentConfirmation({
   durationMinutes,
   notes,
 }) {
-  if (!transporter) {
-    console.error('SMTP transporter not initialized yet');
-    return { success: false, error: 'SMTP not ready — try again in a moment' };
+  if (!useResend && !transporter) {
+    console.error('No email transport configured');
+    return { success: false, error: 'Email not configured — set RESEND_API_KEY or EMAIL_PASS' };
   }
 
   if (!customerEmail) {
@@ -118,9 +146,9 @@ async function sendAppointmentConfirmation({
     from: process.env.EMAIL_FROM || 'MISSING',
   });
 
-  if (!process.env.EMAIL_PASS) {
-    console.log('EMAIL_PASS not configured — skipping confirmation email');
-    return { success: false, error: 'EMAIL_PASS not configured on server' };
+  if (!process.env.EMAIL_PASS && !process.env.RESEND_API_KEY) {
+    console.log('No email credentials configured — skipping confirmation email');
+    return { success: false, error: 'Set RESEND_API_KEY or EMAIL_PASS to enable email' };
   }
 
   const typeLabel = appointmentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -289,7 +317,11 @@ Our Service Makes Happy Campers!`;
   }
 
   try {
-    await transporter.sendMail(mailOptions);
+    if (useResend) {
+      await sendViaResend(mailOptions);
+    } else {
+      await transporter.sendMail(mailOptions);
+    }
     console.log(`Appointment confirmation email sent to ${customerEmail}`);
     return { success: true };
   } catch (err) {
