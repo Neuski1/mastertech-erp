@@ -11,12 +11,9 @@ const ics = require('ics');
 // Force IPv4 DNS resolution — Railway's IPv6 routes to Gmail are broken
 dns.setDefaultResultOrder('ipv4first');
 
-// Use port 465 with SSL (more reliable on Railway than 587 STARTTLS)
-// Override EMAIL_PORT/EMAIL_SECURE in Railway to 465/true if still set to 587
-const smtpPort = parseInt(process.env.EMAIL_PORT) || 465;
-const smtpSecure = process.env.EMAIL_SECURE !== undefined
-  ? process.env.EMAIL_SECURE === 'true'
-  : smtpPort === 465;
+// Force port 465/SSL — port 587 STARTTLS is blocked on Railway
+const smtpPort = 465;
+const smtpSecure = true;
 
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.gmail.com',
