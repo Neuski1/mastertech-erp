@@ -123,9 +123,10 @@ export default function AppointmentForm() {
     setForm(f => ({ ...f, customer_id: customer.id, unit_id: '', record_id: '' }));
     setCustomerSearch('');
     setCustomerResults([]);
-    // Pre-fill email/phone from customer record
+    // Pre-fill email/phone from customer record, auto-check notify if email exists
     setCustomerEmail(customer.email_primary || '');
     setCustomerPhone(customer.phone_primary || '');
+    setNotifyCustomer(!!customer.email_primary);
     try {
       const units = await api.getCustomerUnits(customer.id);
       setCustomerUnits(units);

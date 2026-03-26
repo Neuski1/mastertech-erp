@@ -169,6 +169,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
     );
 
     // Send confirmation email + SMS if notify_customer is true
+    console.log('Appointment created — notify_customer:', notify_customer, 'customer_email:', customer_email);
     let emailWarning = null;
     if (notify_customer) {
       const customerName = `${full[0].first_name || ''} ${full[0].last_name || ''}`.trim();
@@ -194,8 +195,10 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
       }
 
       if (emailAddr) {
+        console.log('Attempting email to:', emailAddr);
         try {
           const emailResult = await sendAppointmentConfirmation({ ...emailPayload, customerEmail: emailAddr });
+          console.log('Email result:', JSON.stringify(emailResult));
           if (!emailResult.success) {
             emailWarning = `Email failed: ${emailResult.error}`;
           }

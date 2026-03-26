@@ -20,6 +20,16 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Verify SMTP connection on startup
+transporter.verify(function(error, success) {
+  if (error) {
+    console.error('SMTP CONNECTION FAILED:', error.message);
+    console.error('Check EMAIL_HOST, EMAIL_USER, EMAIL_PASS environment variables');
+  } else {
+    console.log('SMTP CONNECTION OK — ready to send email');
+  }
+});
+
 /**
  * Generate an .ics calendar invite for an appointment
  */
