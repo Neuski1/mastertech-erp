@@ -282,7 +282,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               </div>
               <div>
                 <label style={labelStyle}>Sale Price Each</label>
-                <input type="number" step="0.01" value={form.sale_price_each} disabled style={inlineInput} />
+                <input type="number" step="0.01" value={form.sale_price_each} onChange={(e) => setForm({ ...form, sale_price_each: e.target.value })} style={inlineInput} />
+                <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Override inventory price if needed</div>
               </div>
               <div>
                 <label style={labelStyle}>Line Total</label>

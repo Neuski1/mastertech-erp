@@ -120,7 +120,10 @@ router.post('/:recordId', requireRole('admin', 'service_writer'), async (req, re
       finalPartNumber = inv.part_number;
       finalDescription = inv.description;
       finalCostEach = parseFloat(inv.cost_each) || null;
-      finalSalePrice = parseFloat(inv.sale_price_each);
+      // Use user-provided sale price if given, otherwise fall back to inventory price
+      finalSalePrice = (sale_price_each !== undefined && sale_price_each !== null && !isNaN(parseFloat(sale_price_each)))
+        ? parseFloat(sale_price_each)
+        : parseFloat(inv.sale_price_each);
 
       // Decrement inventory
       await client.query(
