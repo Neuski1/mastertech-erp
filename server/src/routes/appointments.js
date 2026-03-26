@@ -5,6 +5,17 @@ const { requireRole } = require('../middleware/auth');
 const { sendAppointmentConfirmation } = require('../services/email');
 const { sendAppointmentSMS } = require('../services/sms');
 
+// Build a timestamp string with Mountain Time offset for a given date+time
+function toMountainTimestamp(date, time) {
+  const dt = new Date(`${date}T${time}:00`);
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', timeZoneName: 'shortOffset' })
+    .formatToParts(dt);
+  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT-6';
+  const m = tzPart.match(/GMT([+-])(\d+)/);
+  const offset = m ? `${m[1]}${m[2].padStart(2, '0')}:00` : '-06:00';
+  return `${date}T${time}:00${offset}`;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/appointments — List with filters (date range, status, technician)
 // ---------------------------------------------------------------------------
@@ -127,8 +138,8 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
     });
   }
 
-  // Combine date and time into a single timestamp
-  const scheduledAt = `${scheduled_date}T${scheduled_time}`;
+  // Combine date and time in Mountain Time (handles MST/MDT automatically)
+  const scheduledAt = toMountainTimestamp(scheduled_date, scheduled_time);
 
   try {
     const { rows } = await pool.query(
@@ -251,7 +262,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
   if (appointment_type !== undefined) { updates.push(`appointment_type = $${idx++}`); values.push(appointment_type); }
   if (scheduled_date !== undefined && scheduled_time !== undefined) {
     updates.push(`scheduled_at = $${idx++}`);
-    values.push(`${scheduled_date}T${scheduled_time}`);
+    values.push(toMountainTimestamp(scheduled_date, scheduled_time));
   } else if (scheduled_date !== undefined) {
     // Only date changed, preserve existing time — handled with subquery
     updates.push(`scheduled_at = ($${idx++}::date + scheduled_at::time)`);

@@ -43,7 +43,7 @@ export default function AppointmentForm() {
   const [technicians, setTechnicians] = useState([]);
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [notifyCustomer, setNotifyCustomer] = useState(false);
+  const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -69,13 +69,16 @@ export default function AppointmentForm() {
       try {
         const appt = await api.getAppointment(id);
         const dt = new Date(appt.scheduled_at);
+        // Extract date/time in Mountain Time (not browser local or UTC)
+        const mtDate = dt.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+        const mtHour = dt.toLocaleString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\u200E/g, '');
         setForm({
           customer_id: appt.customer_id || '',
           unit_id: appt.unit_id || '',
           record_id: appt.record_id || '',
           appointment_type: appt.appointment_type,
-          scheduled_date: dt.toLocaleDateString('en-CA'), // YYYY-MM-DD
-          scheduled_time: dt.toTimeString().slice(0, 5), // HH:MM
+          scheduled_date: mtDate,
+          scheduled_time: mtHour.slice(0, 5),
           duration_minutes: appt.duration_minutes || '',
           technician_id: appt.technician_id || '',
           status: appt.status,

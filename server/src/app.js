@@ -62,6 +62,31 @@ app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 
+// Test email endpoint — quick debug, no auth required
+app.get('/api/test-email', async (req, res) => {
+  const to = req.query.to;
+  if (!to) return res.status(400).json({ error: 'Pass ?to=email@example.com' });
+
+  const { sendAppointmentConfirmation } = require('./services/email');
+  console.log('Test email to:', to);
+  try {
+    const result = await sendAppointmentConfirmation({
+      customerName: 'Test Customer',
+      customerEmail: to,
+      appointmentDate: new Date().toLocaleDateString('en-CA'),
+      appointmentTime: '10:00',
+      appointmentType: 'drop_off',
+      durationMinutes: 60,
+      notes: 'This is a test email from the debug endpoint.',
+    });
+    console.log('Test email result:', JSON.stringify(result));
+    res.json({ result });
+  } catch (err) {
+    console.error('Test email error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../../client/build')));

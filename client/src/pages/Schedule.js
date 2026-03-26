@@ -43,8 +43,9 @@ function formatDate(d) {
 }
 
 function formatTime(isoStr) {
+  // Display in Mountain Time — avoid UTC conversion from raw Date parsing
   const d = new Date(isoStr);
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Denver' });
 }
 
 function formatShortDate(d) {
@@ -164,7 +165,7 @@ export default function Schedule() {
   const appointmentsByDate = {};
   days.forEach(d => { appointmentsByDate[formatDate(d)] = []; });
   appointments.forEach(appt => {
-    const dateKey = new Date(appt.scheduled_at).toLocaleDateString('en-CA');
+    const dateKey = new Date(appt.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
     if (appointmentsByDate[dateKey]) {
       appointmentsByDate[dateKey].push(appt);
     }
@@ -207,7 +208,7 @@ export default function Schedule() {
   const monthApptsByDate = {};
   if (view === 'month') {
     appointments.forEach(appt => {
-      const dateKey = new Date(appt.scheduled_at).toLocaleDateString('en-CA');
+      const dateKey = new Date(appt.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
       if (!monthApptsByDate[dateKey]) monthApptsByDate[dateKey] = [];
       monthApptsByDate[dateKey].push(appt);
     });
@@ -224,7 +225,7 @@ export default function Schedule() {
 
   const listGrouped = {};
   filteredListAppts.forEach(appt => {
-    const dateKey = new Date(appt.scheduled_at).toLocaleDateString('en-CA');
+    const dateKey = new Date(appt.scheduled_at).toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
     if (!listGrouped[dateKey]) listGrouped[dateKey] = [];
     listGrouped[dateKey].push(appt);
   });
