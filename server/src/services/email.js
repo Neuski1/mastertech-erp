@@ -8,43 +8,55 @@ const nodemailer = require('nodemailer');
 const dns = require('dns');
 const ics = require('ics');
 
-// Force IPv4 DNS resolution — Railway's IPv6 routes to Gmail are broken
-dns.setDefaultResultOrder('ipv4first');
+// Railway IPv6 to Gmail is ENETUNREACH. Resolve IPv4 at startup and connect directly.
+const smtpHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
+let transporter = null;
 
-// Force port 465/SSL — port 587 STARTTLS is blocked on Railway
-const smtpPort = 465;
-const smtpSecure = true;
-
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: smtpPort,
-  secure: smtpSecure,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  family: 4,
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 15000,
-});
-
-// Verify SMTP connection on startup
-console.log('email.js loaded — testing SMTP connection...');
-console.log('SMTP config:', {
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: smtpPort,
-  secure: smtpSecure,
-  user: process.env.EMAIL_USER || 'MISSING',
-  pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING',
-});
-transporter.verify(function(error, success) {
-  if (error) {
-    console.error('SMTP CONNECTION FAILED:', error.message);
-  } else {
-    console.log('SMTP CONNECTION OK — ready to send email');
+(async function initSmtp() {
+  let connectHost = smtpHost;
+  try {
+    const addresses = await dns.promises.resolve4(smtpHost);
+    connectHost = addresses[0];
+    console.log(`Resolved ${smtpHost} → ${connectHost} (IPv4)`);
+  } catch (err) {
+    console.error(`DNS resolve4 failed for ${smtpHost}:`, err.message, '— falling back to hostname');
   }
-});
+
+  transporter = nodemailer.createTransport({
+    host: connectHost,
+    port: 465,
+    secure: true,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+    tls: {
+      servername: smtpHost,
+      rejectUnauthorized: false,
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+  });
+
+  console.log('email.js loaded — testing SMTP connection...');
+  console.log('SMTP config:', {
+    host: connectHost,
+    servername: smtpHost,
+    port: 465,
+    secure: true,
+    user: process.env.EMAIL_USER || 'MISSING',
+    pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING',
+  });
+
+  transporter.verify(function(error) {
+    if (error) {
+      console.error('SMTP CONNECTION FAILED:', error.message);
+    } else {
+      console.log('SMTP CONNECTION OK — ready to send email');
+    }
+  });
+})();
 
 /**
  * Generate an .ics calendar invite for an appointment
@@ -88,6 +100,11 @@ async function sendAppointmentConfirmation({
   durationMinutes,
   notes,
 }) {
+  if (!transporter) {
+    console.error('SMTP transporter not initialized yet');
+    return { success: false, error: 'SMTP not ready — try again in a moment' };
+  }
+
   if (!customerEmail) {
     console.log('No customer email — skipping confirmation email');
     return { success: false, error: 'No customer email provided' };
