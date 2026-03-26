@@ -302,7 +302,7 @@ export default function RecordNew() {
           </div>
 
           <div style={{ marginTop: '16px' }}>
-            <label style={labelStyle}>Job Description / Customer Complaint</label>
+            <label style={labelStyle}>Job Description</label>
             <BulletTextarea
               value={recordData.job_description}
               onChange={(val) => setRecordData({ ...recordData, job_description: val })}

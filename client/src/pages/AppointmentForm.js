@@ -295,7 +295,7 @@ export default function AppointmentForm() {
                   {selectedCustomer.company_name ? ` (${selectedCustomer.company_name})` : ''}
                 </div>
                 {!isEdit && (
-                  <button type="button" onClick={() => { setSelectedCustomer(null); setForm(f => ({ ...f, customer_id: '', unit_id: '' })); setCustomerUnits([]); setCustomerEmail(''); setCustomerPhone(''); setNotifyCustomer(false); }} style={btnSmall}>Change</button>
+                  <button type="button" onClick={() => { setSelectedCustomer(null); setForm(f => ({ ...f, customer_id: '', unit_id: '' })); setCustomerUnits([]); setCustomerEmail(''); setCustomerPhone(''); setNotifyCustomer(true); }} style={btnSmall}>Change</button>
                 )}
               </div>
             ) : (
@@ -454,8 +454,8 @@ export default function AppointmentForm() {
 
           {/* Job Description */}
           <div style={{ marginBottom: '20px' }}>
-            <label style={labelStyle}>Job Description / Customer Complaint</label>
-            <textarea name="job_description" value={form.job_description} onChange={handleChange} rows={3} placeholder="Describe the work requested or customer complaint..." style={{ ...inputStyle, resize: 'vertical', width: '100%' }} />
+            <label style={labelStyle}>Job Description</label>
+            <textarea name="job_description" value={form.job_description} onChange={handleChange} rows={3} placeholder="Describe the work requested..." style={{ ...inputStyle, resize: 'vertical', width: '100%' }} />
           </div>
 
           {/* Actions */}
