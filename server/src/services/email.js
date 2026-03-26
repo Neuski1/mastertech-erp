@@ -58,32 +58,37 @@ if (process.env.RESEND_API_KEY) {
  * Send email via Resend HTTP API
  */
 async function sendViaResend(mailOptions) {
+  const payload = {
+    from: mailOptions.from,
+    to: Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to],
+    cc: mailOptions.cc ? (Array.isArray(mailOptions.cc) ? mailOptions.cc : [mailOptions.cc]) : undefined,
+    subject: mailOptions.subject,
+    html: mailOptions.html,
+    text: mailOptions.text,
+    attachments: mailOptions.attachments?.map(a => ({
+      filename: a.filename,
+      content: Buffer.from(a.content).toString('base64'),
+      content_type: a.contentType,
+    })),
+  };
+  console.log('Resend API request:', { from: payload.from, to: payload.to, cc: payload.cc, subject: payload.subject });
+
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: mailOptions.from,
-      to: Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to],
-      cc: mailOptions.cc ? (Array.isArray(mailOptions.cc) ? mailOptions.cc : [mailOptions.cc]) : undefined,
-      subject: mailOptions.subject,
-      html: mailOptions.html,
-      text: mailOptions.text,
-      attachments: mailOptions.attachments?.map(a => ({
-        filename: a.filename,
-        content: Buffer.from(a.content).toString('base64'),
-        content_type: a.contentType,
-      })),
-    }),
+    body: JSON.stringify(payload),
   });
 
+  const data = await res.json().catch(() => ({ error: res.statusText }));
+  console.log('Resend API response:', res.status, JSON.stringify(data));
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(err.message || `Resend API error: ${res.status}`);
+    throw new Error(data.message || data.error || `Resend API error: ${res.status}`);
   }
-  return await res.json();
+  return data;
 }
 
 /**
