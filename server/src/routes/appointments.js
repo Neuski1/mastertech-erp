@@ -118,7 +118,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
     customer_id, unit_id, record_id, appointment_type,
     scheduled_date, scheduled_time, duration_minutes,
     technician_id, dropoff_notes, pickup_notes, internal_notes,
-    notify_customer, customer_email, customer_phone
+    notify_customer, customer_email, customer_phone, job_description
   } = req.body;
 
   if (!customer_id || !appointment_type || !scheduled_date || !scheduled_time) {
@@ -135,8 +135,8 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
       `INSERT INTO appointments
          (customer_id, unit_id, record_id, appointment_type, scheduled_at,
           duration_minutes, technician_id, dropoff_notes, pickup_notes, internal_notes,
-          notify_customer, customer_email, customer_phone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          notify_customer, customer_email, customer_phone, job_description)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         customer_id,
@@ -152,6 +152,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
         notify_customer || false,
         customer_email || null,
         customer_phone || null,
+        job_description || null,
       ]
     );
 
@@ -168,6 +169,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
     );
 
     // Send confirmation email + SMS if notify_customer is true
+    let emailWarning = null;
     if (notify_customer) {
       const customerName = `${full[0].first_name || ''} ${full[0].last_name || ''}`.trim();
       const customerFirstName = full[0].first_name || '';
@@ -181,23 +183,29 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
       };
 
       // Resolve email address (provided or fallback to customer record)
-      const resolveEmail = async () => {
-        if (customer_email) return customer_email;
+      let emailAddr = customer_email;
+      if (!emailAddr) {
         try {
           const { rows: custRows } = await pool.query('SELECT email_primary FROM customers WHERE id = $1', [customer_id]);
-          return custRows[0]?.email_primary || null;
-        } catch (err) {
-          console.error('Email lookup error:', err.message);
-          return null;
+          emailAddr = custRows[0]?.email_primary || null;
+        } catch (lookupErr) {
+          console.error('Email lookup error:', lookupErr.message);
         }
-      };
+      }
 
-      // Fire and forget — don't block response
-      resolveEmail().then(emailAddr => {
-        if (emailAddr) {
-          sendAppointmentConfirmation({ ...emailPayload, customerEmail: emailAddr });
+      if (emailAddr) {
+        try {
+          const emailResult = await sendAppointmentConfirmation({ ...emailPayload, customerEmail: emailAddr });
+          if (!emailResult.success) {
+            emailWarning = `Email failed: ${emailResult.error}`;
+          }
+        } catch (emailErr) {
+          console.error('Email send error:', emailErr);
+          emailWarning = `Email failed: ${emailErr.message}`;
         }
-      });
+      } else {
+        emailWarning = 'No customer email address available';
+      }
 
       // SMS — fire and forget
       const smsPhone = customer_phone || null;
@@ -211,7 +219,9 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
       }
     }
 
-    res.status(201).json(full[0]);
+    const response = { ...full[0] };
+    if (emailWarning) response.emailWarning = emailWarning;
+    res.status(201).json(response);
   } catch (err) {
     console.error('POST /api/appointments error:', err);
     res.status(500).json({ error: err.message });
@@ -225,7 +235,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
   const {
     customer_id, unit_id, record_id, appointment_type,
     scheduled_date, scheduled_time, duration_minutes,
-    technician_id, status, dropoff_notes, pickup_notes, internal_notes
+    technician_id, status, dropoff_notes, pickup_notes, internal_notes, job_description
   } = req.body;
 
   const updates = [];
@@ -253,6 +263,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
   if (dropoff_notes !== undefined) { updates.push(`dropoff_notes = $${idx++}`); values.push(dropoff_notes || null); }
   if (pickup_notes !== undefined) { updates.push(`pickup_notes = $${idx++}`); values.push(pickup_notes || null); }
   if (internal_notes !== undefined) { updates.push(`internal_notes = $${idx++}`); values.push(internal_notes || null); }
+  if (job_description !== undefined) { updates.push(`job_description = $${idx++}`); values.push(job_description || null); }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });

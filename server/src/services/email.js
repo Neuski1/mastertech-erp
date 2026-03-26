@@ -1,3 +1,16 @@
+/*
+ VERCEL PRODUCTION SETUP — REQUIRED ENVIRONMENT VARIABLES:
+ Go to: Vercel Dashboard → mastertech-erp project → Settings →
+ Environment Variables → Add the following:
+   EMAIL_HOST     = smtp.gmail.com
+   EMAIL_PORT     = 587
+   EMAIL_SECURE   = false
+   EMAIL_USER     = service@mastertechrvrepair.com
+   EMAIL_PASS     = [16-character Gmail App Password]
+   EMAIL_FROM     = Master Tech RV Repair & Storage <service@mastertechrvrepair.com>
+ After adding variables, go to Deployments → Redeploy the latest
+ deployment to pick up the new variables.
+*/
 const nodemailer = require('nodemailer');
 const ics = require('ics');
 
@@ -44,7 +57,8 @@ function generateICS({ appointmentDate, appointmentTime, durationMinutes, appoin
 }
 
 /**
- * Send appointment confirmation email with calendar invite
+ * Send appointment confirmation email with calendar invite.
+ * Returns { success: true } or { success: false, error: "reason" }
  */
 async function sendAppointmentConfirmation({
   customerName,
@@ -57,12 +71,20 @@ async function sendAppointmentConfirmation({
 }) {
   if (!customerEmail) {
     console.log('No customer email — skipping confirmation email');
-    return;
+    return { success: false, error: 'No customer email provided' };
   }
+
+  // Log email config status for production debugging
+  console.log('Email config check:', {
+    host: process.env.EMAIL_HOST || 'MISSING',
+    user: process.env.EMAIL_USER || 'MISSING',
+    pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING',
+    from: process.env.EMAIL_FROM || 'MISSING',
+  });
 
   if (!process.env.EMAIL_PASS) {
     console.log('EMAIL_PASS not configured — skipping confirmation email');
-    return;
+    return { success: false, error: 'EMAIL_PASS not configured on server' };
   }
 
   const typeLabel = appointmentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -213,7 +235,8 @@ Our Service Makes Happy Campers!`;
   const mailOptions = {
     from: fromAddr,
     to: customerEmail,
-    bcc: process.env.EMAIL_USER,
+    cc: 'service@mastertechrvrepair.com',
+    bcc: process.env.EMAIL_USER !== 'service@mastertechrvrepair.com' ? process.env.EMAIL_USER : undefined,
     subject: 'Appointment Confirmed — Master Tech RV Repair & Storage',
     html: htmlBody,
     text: textBody,
@@ -232,9 +255,10 @@ Our Service Makes Happy Campers!`;
   try {
     await transporter.sendMail(mailOptions);
     console.log(`Appointment confirmation email sent to ${customerEmail}`);
+    return { success: true };
   } catch (err) {
     console.error('Failed to send appointment confirmation email:', err.message);
-    // Do not throw — email failure should not block appointment creation
+    return { success: false, error: err.message };
   }
 }
 

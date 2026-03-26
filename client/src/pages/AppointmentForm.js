@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
+import NewCustomerModal from '../components/NewCustomerModal';
 
 const APPT_TYPES = [
   { value: 'drop_off', label: 'Drop Off' },
@@ -10,19 +11,21 @@ const APPT_TYPES = [
   { value: 'rv_repair', label: 'RV Repair' },
 ];
 
-const STATUSES = ['scheduled', 'confirmed', 'in_progress', 'complete', 'cancelled', 'no_show'];
+const STATUSES = ['scheduled', 'confirmed', 'arrived', 'in_progress', 'complete', 'cancelled', 'no_show'];
 
 export default function AppointmentForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
+  const prefillDate = location.state?.date;
 
   const [form, setForm] = useState({
     customer_id: '',
     unit_id: '',
     record_id: '',
     appointment_type: 'drop_off',
-    scheduled_date: new Date().toISOString().split('T')[0],
+    scheduled_date: prefillDate || new Date().toISOString().split('T')[0],
     scheduled_time: '09:00',
     duration_minutes: '60',
     technician_id: '',
@@ -30,6 +33,7 @@ export default function AppointmentForm() {
     dropoff_notes: '',
     pickup_notes: '',
     internal_notes: '',
+    job_description: '',
   });
 
   const [customerSearch, setCustomerSearch] = useState('');
@@ -44,6 +48,12 @@ export default function AppointmentForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [showDelete, setShowDelete] = useState(false);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [newUnitYear, setNewUnitYear] = useState('');
+  const [newUnitMake, setNewUnitMake] = useState('');
+  const [newUnitModel, setNewUnitModel] = useState('');
+  const [emailWarning, setEmailWarning] = useState(null);
+  const [creatingRecord, setCreatingRecord] = useState(false);
 
   // Load technicians
   useEffect(() => {
@@ -70,6 +80,7 @@ export default function AppointmentForm() {
           dropoff_notes: appt.dropoff_notes || '',
           pickup_notes: appt.pickup_notes || '',
           internal_notes: appt.internal_notes || '',
+          job_description: appt.job_description || '',
         });
         setSelectedCustomer({
           id: appt.customer_id,
@@ -131,10 +142,31 @@ export default function AppointmentForm() {
     setSaving(true);
 
     try {
+      let finalCustomerId = parseInt(form.customer_id);
+      let finalUnitId = form.unit_id ? parseInt(form.unit_id) : null;
+
+      // Create new unit if fields are filled and no unit selected
+      if (!finalUnitId && (newUnitYear || newUnitMake || newUnitModel) && finalCustomerId) {
+        try {
+          const unit = await api.createUnit({
+            customer_id: finalCustomerId,
+            year: newUnitYear ? parseInt(newUnitYear) : null,
+            make: newUnitMake || null,
+            model: newUnitModel || null,
+          });
+          finalUnitId = unit.id;
+          setCustomerUnits(prev => [...prev, unit]);
+        } catch (unitErr) {
+          setError('Failed to create unit: ' + unitErr.message);
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload = {
         ...form,
-        customer_id: parseInt(form.customer_id),
-        unit_id: form.unit_id ? parseInt(form.unit_id) : null,
+        customer_id: finalCustomerId,
+        unit_id: finalUnitId,
         record_id: form.record_id ? parseInt(form.record_id) : null,
         technician_id: form.technician_id ? parseInt(form.technician_id) : null,
         duration_minutes: form.duration_minutes ? parseInt(form.duration_minutes) : null,
@@ -146,7 +178,14 @@ export default function AppointmentForm() {
       if (isEdit) {
         await api.updateAppointment(id, payload);
       } else {
-        await api.createAppointment(payload);
+        const result = await api.createAppointment(payload);
+        if (result.emailWarning) {
+          setEmailWarning(result.emailWarning);
+          // Show warning for 5 seconds before navigating
+          setTimeout(() => navigate('/schedule'), 5000);
+          setSaving(false);
+          return;
+        }
       }
       navigate('/schedule');
     } catch (err) {
@@ -165,6 +204,26 @@ export default function AppointmentForm() {
     }
   };
 
+  const handleCreateRecord = async () => {
+    setCreatingRecord(true);
+    setError(null);
+    try {
+      const rec = await api.createRecord({
+        customer_id: parseInt(form.customer_id),
+        unit_id: form.unit_id ? parseInt(form.unit_id) : null,
+        job_description: form.job_description || null,
+      });
+      // Link appointment to the new record and set arrived status
+      await api.updateAppointment(id, { record_id: rec.id, status: 'arrived' });
+      alert(`Record #${rec.record_number} created from this appointment.`);
+      navigate(`/records/${rec.id}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreatingRecord(false);
+    }
+  };
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>Loading...</div>;
   }
@@ -179,6 +238,12 @@ export default function AppointmentForm() {
         </h1>
 
         {error && <div style={errorBox}>{error}</div>}
+        {emailWarning && (
+          <div style={{ padding: '12px', backgroundColor: '#fefce8', color: '#854d0e', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem', border: '1px solid #fde68a' }}>
+            Appointment saved. Email notification could not be sent — check Vercel environment variables.
+            <div style={{ fontSize: '0.75rem', marginTop: '4px', color: '#a16207' }}>{emailWarning}</div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {/* Customer picker */}
@@ -215,6 +280,9 @@ export default function AppointmentForm() {
                     ))}
                   </div>
                 )}
+                <div style={{ marginTop: '8px' }}>
+                  <button type="button" onClick={() => setShowNewCustomer(true)} style={{ ...btnSmall, color: '#1e3a5f' }}>+ Add New Customer</button>
+                </div>
               </div>
             )}
           </div>
@@ -281,6 +349,28 @@ export default function AppointmentForm() {
             </div>
           </div>
 
+          {/* New Unit fields (for new appointments when no unit selected) */}
+          {!isEdit && form.customer_id && !form.unit_id && (
+            <div style={{ marginBottom: '16px', padding: '12px 16px', backgroundColor: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+              <label style={{ ...labelStyle, marginBottom: '8px' }}>Or enter a new unit:</label>
+              <div style={row}>
+                <div style={{ flex: '0 0 100px' }}>
+                  <label style={labelStyle}>Year</label>
+                  <input type="number" value={newUnitYear} onChange={(e) => setNewUnitYear(e.target.value)} placeholder="2024" style={inputStyle} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Make</label>
+                  <input type="text" value={newUnitMake} onChange={(e) => setNewUnitMake(e.target.value)} placeholder="e.g. Airstream" style={inputStyle} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Model</label>
+                  <input type="text" value={newUnitModel} onChange={(e) => setNewUnitModel(e.target.value)} placeholder="e.g. Bambi" style={inputStyle} />
+                </div>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '4px' }}>Leave blank if unknown — can be added later from the customer record.</div>
+            </div>
+          )}
+
           {/* Record ID (optional) */}
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Record / WO # (optional)</label>
@@ -323,12 +413,23 @@ export default function AppointmentForm() {
             <textarea name="internal_notes" value={form.internal_notes} onChange={handleChange} rows={2} style={{ ...inputStyle, resize: 'vertical', width: '100%' }} />
           </div>
 
+          {/* Job Description */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={labelStyle}>Job Description / Customer Complaint</label>
+            <textarea name="job_description" value={form.job_description} onChange={handleChange} rows={3} placeholder="Describe the work requested or customer complaint..." style={{ ...inputStyle, resize: 'vertical', width: '100%' }} />
+          </div>
+
           {/* Actions */}
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button type="submit" disabled={saving || !form.customer_id} style={btnPrimary}>
               {saving ? 'Saving...' : isEdit ? 'Update Appointment' : 'Create Appointment'}
             </button>
             <button type="button" onClick={() => navigate('/schedule')} style={btnSecondary}>Cancel</button>
+            {isEdit && form.appointment_type === 'drop_off' && !form.record_id && (
+              <button type="button" onClick={handleCreateRecord} disabled={creatingRecord} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
+                {creatingRecord ? 'Creating...' : 'Create Record'}
+              </button>
+            )}
 
             {isEdit && (
               <div style={{ marginLeft: 'auto' }}>
@@ -346,6 +447,15 @@ export default function AppointmentForm() {
           </div>
         </form>
       </div>
+      {showNewCustomer && (
+        <NewCustomerModal
+          onClose={() => setShowNewCustomer(false)}
+          onCreated={(created) => {
+            setShowNewCustomer(false);
+            selectCustomer(created);
+          }}
+        />
+      )}
     </div>
   );
 }
