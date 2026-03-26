@@ -22,10 +22,11 @@ const transporter = nodemailer.createTransport({
 });
 
 // Verify SMTP connection on startup
+console.log('email.js loaded — testing SMTP connection...');
+console.log('SMTP config:', { host: process.env.EMAIL_HOST || 'MISSING', port: process.env.EMAIL_PORT || '587', user: process.env.EMAIL_USER || 'MISSING', pass: process.env.EMAIL_PASS ? 'SET' : 'MISSING' });
 transporter.verify(function(error, success) {
   if (error) {
     console.error('SMTP CONNECTION FAILED:', error.message);
-    console.error('Check EMAIL_HOST, EMAIL_USER, EMAIL_PASS environment variables');
   } else {
     console.log('SMTP CONNECTION OK — ready to send email');
   }
