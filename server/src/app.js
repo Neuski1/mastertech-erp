@@ -70,6 +70,17 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// Run pending migrations on startup
+const pool = require('./db/pool');
+(async () => {
+  try {
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS job_description TEXT');
+    console.log('Migration check: job_description column ensured on appointments');
+  } catch (err) {
+    console.error('Migration check error (non-fatal):', err.message);
+  }
+})();
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Master Tech ERP API running on port ${PORT}`);
