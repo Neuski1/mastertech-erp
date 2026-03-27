@@ -943,54 +943,9 @@ ${paymentDetailHtml}
               <span>{formatCurrency(record.tax_amount)}</span>
             </div>
 
-            {/* Discount/Credit */}
+            {/* Discount/Credit — always editable on active records */}
             {(isEditable || parseFloat(record.discount_amount) > 0) && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: '0.875rem', borderTop: '1px dashed #d1d5db', marginTop: '4px' }}>
-                <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  Discount
-                  {isEditable && (
-                    <input
-                      type="text"
-                      value={record.discount_description || ''}
-                      placeholder="Reason"
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        api.updateRecord(record.id, { discount_description: val }).catch(() => {});
-                      }}
-                      onBlur={(e) => {
-                        api.updateRecord(record.id, { discount_description: e.target.value }).then(() => fetchRecord()).catch(() => {});
-                      }}
-                      style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.8rem', width: '160px', marginLeft: '4px' }}
-                      autoComplete="off"
-                    />
-                  )}
-                  {!isEditable && record.discount_description && (
-                    <span style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>({record.discount_description})</span>
-                  )}
-                </span>
-                <span style={{ color: '#dc2626' }}>
-                  {isEditable ? (
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={record.discount_amount || ''}
-                      placeholder="0.00"
-                      onChange={(e) => {
-                        // Local state update handled by record refetch
-                      }}
-                      onBlur={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        api.updateRecord(record.id, { discount_amount: val }).then(() => fetchRecord()).catch(() => {});
-                      }}
-                      style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.875rem', width: '90px', textAlign: 'right' }}
-                      autoComplete="off"
-                    />
-                  ) : (
-                    `-${formatCurrency(record.discount_amount)}`
-                  )}
-                </span>
-              </div>
+              <DiscountRow record={record} isEditable={isEditable} formatCurrency={formatCurrency} onSaved={fetchRecord} />
             )}
 
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
@@ -1434,6 +1389,51 @@ function TotalRow({ label, value, bold, color }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '0.875rem' }}>
       <span style={{ color: '#6b7280' }}>{label}</span>
       <span style={{ fontWeight: bold ? 700 : 400, color: color || '#111827' }}>{value}</span>
+    </div>
+  );
+}
+
+function DiscountRow({ record, isEditable, formatCurrency, onSaved }) {
+  const [desc, setDesc] = React.useState(record.discount_description || '');
+  const [amt, setAmt] = React.useState(record.discount_amount || '');
+
+  // Sync from parent when record refreshes
+  React.useEffect(() => {
+    setDesc(record.discount_description || '');
+    setAmt(record.discount_amount || '');
+  }, [record.discount_description, record.discount_amount]);
+
+  const saveDesc = () => {
+    if (desc !== (record.discount_description || '')) {
+      api.updateRecord(record.id, { discount_description: desc }).then(() => onSaved()).catch(() => {});
+    }
+  };
+  const saveAmt = () => {
+    const val = parseFloat(amt) || 0;
+    if (val !== (parseFloat(record.discount_amount) || 0)) {
+      api.updateRecord(record.id, { discount_amount: val }).then(() => onSaved()).catch(() => {});
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: '0.875rem', borderTop: '1px dashed #d1d5db', marginTop: '4px' }}>
+      <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        Discount
+        {isEditable ? (
+          <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} onBlur={saveDesc}
+            placeholder="Reason" style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.8rem', width: '160px', marginLeft: '4px' }} autoComplete="off" />
+        ) : desc ? (
+          <span style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>({desc})</span>
+        ) : null}
+      </span>
+      <span style={{ color: '#dc2626' }}>
+        {isEditable ? (
+          <input type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} onBlur={saveAmt}
+            placeholder="0.00" style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.875rem', width: '90px', textAlign: 'right' }} autoComplete="off" />
+        ) : (
+          `-${formatCurrency(record.discount_amount)}`
+        )}
+      </span>
     </div>
   );
 }
