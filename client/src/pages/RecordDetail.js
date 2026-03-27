@@ -950,6 +950,9 @@ ${paymentDetailHtml}
 
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
               <TotalRow label="Total Sales" value={formatCurrency(record.total_sales)} bold />
+              {parseFloat(record.under_warranty_amount) > 0 && <TotalRow label="Under Warranty" value={`-${formatCurrency(record.under_warranty_amount)}`} color="#dc2626" />}
+              {parseFloat(record.no_charge_amount) > 0 && <TotalRow label="Not Covered" value={`-${formatCurrency(record.no_charge_amount)}`} color="#dc2626" />}
+              {parseFloat(record.discount_amount) > 0 && <TotalRow label={`Discount${record.discount_description ? ' — ' + record.discount_description : ''}`} value={`-${formatCurrency(record.discount_amount)}`} color="#dc2626" />}
               <TotalRow label="Total Collected" value={formatCurrency(record.total_collected)} />
               <TotalRow label="Amount Due" value={formatCurrency(record.amount_due)} bold color={parseFloat(record.amount_due) > 0 ? '#dc2626' : '#065f46'} />
             </div>
