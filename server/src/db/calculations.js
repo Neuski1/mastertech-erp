@@ -39,7 +39,7 @@ async function recalculateTotals(recordId, client) {
 
   const recRes = await db.query(
     `SELECT r.shop_supplies_exempt, r.cc_fee_applied, r.tax_rate,
-            r.under_warranty_amount, r.no_charge_amount, r.deposit_amount,
+            r.under_warranty_amount, r.no_charge_amount, r.discount_amount, r.deposit_amount,
             r.tax_waived,
             c.tax_exempt
      FROM records r
@@ -50,6 +50,7 @@ async function recalculateTotals(recordId, client) {
   const rec = recRes.rows[0];
   const underWarranty = parseFloat(rec.under_warranty_amount) || 0;
   const noCharge = parseFloat(rec.no_charge_amount) || 0;
+  const discountAmount = parseFloat(rec.discount_amount) || 0;
 
   const shopSuppliesRate = await getSetting('shop_supplies_rate');
   const shopSuppliesAmount = rec.shop_supplies_exempt
@@ -87,7 +88,7 @@ async function recalculateTotals(recordId, client) {
   );
   const totalCollected = parseFloat(payRes.rows[0].total_collected);
   const amountDue = parseFloat(
-    (totalSales - underWarranty - noCharge - totalCollected).toFixed(2)
+    (totalSales - underWarranty - noCharge - discountAmount - totalCollected).toFixed(2)
   );
 
   await db.query(

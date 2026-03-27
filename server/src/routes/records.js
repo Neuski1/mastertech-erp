@@ -250,6 +250,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
     'internal_notes', 'customer_notes',
     'actual_completion_date',
     'under_warranty_amount', 'no_charge_amount', 'deductible_amount', 'deposit_amount',
+    'discount_amount', 'discount_description',
     'cc_fee_applied', 'shop_supplies_exempt', 'tax_waived',
   ];
 
@@ -289,7 +290,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
     }
 
     // Recalculate totals when any financial toggle/value changes
-    const recalcFields = ['cc_fee_applied', 'shop_supplies_exempt', 'is_insurance_job', 'tax_waived', 'under_warranty_amount', 'no_charge_amount', 'deposit_amount'];
+    const recalcFields = ['cc_fee_applied', 'shop_supplies_exempt', 'is_insurance_job', 'tax_waived', 'under_warranty_amount', 'no_charge_amount', 'deposit_amount', 'discount_amount'];
     if (recalcFields.some(f => req.body[f] !== undefined)) {
       await recalculateTotals(req.params.id);
     }

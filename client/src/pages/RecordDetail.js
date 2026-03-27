@@ -157,7 +157,7 @@ export default function RecordDetail() {
         'is_insurance_job', 'insurance_company', 'insurance_contact_name',
         'insurance_phone', 'insurance_email', 'claim_number', 'policy_number',
         'estimate_valid_until', 'internal_notes', 'customer_notes',
-        'under_warranty_amount', 'no_charge_amount', 'deductible_amount',
+        'under_warranty_amount', 'no_charge_amount', 'discount_amount', 'discount_description', 'deductible_amount',
         'deposit_amount', 'cc_fee_applied', 'shop_supplies_exempt', 'tax_waived',
       ];
       const recordUpdates = {};
@@ -509,6 +509,7 @@ ${(r.freight_lines || []).length > 0 ? `
     <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; SUBTOTAL — OTHERS</span><span>${fmtCur(r.subtotal_others)}</span></div>
     ${underWarranty > 0 ? `<div class="row"><span>UNDER WARRANTY</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
     ${noCharge > 0 ? `<div class="row"><span>NOT COVERED</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
+    ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row"><span>DISCOUNT${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
     <div class="row"><span>TOTAL TAX</span><span>${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</span></div>
     <div class="row bold divider"><span>TOTAL SALES</span><span>${fmtCur(r.total_sales)}</span></div>
     <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur((parseFloat(r.total_collected) || 0) + deposit)}</span></div>
@@ -765,7 +766,7 @@ ${paymentDetailHtml}
         const insEditing = editing || editingInsurance;
         const insForm = editing ? formData : sectionForm;
         const insChange = editing ? handleFieldChange : handleSectionField;
-        const insFields = ['mileage_at_intake', 'under_warranty_amount', 'no_charge_amount', 'deductible_amount',
+        const insFields = ['mileage_at_intake', 'under_warranty_amount', 'no_charge_amount', 'discount_amount', 'discount_description', 'deductible_amount',
           'is_insurance_job', 'insurance_company', 'insurance_contact_name', 'insurance_phone',
           'insurance_email', 'claim_number', 'policy_number'];
         return (
@@ -941,6 +942,56 @@ ${paymentDetailHtml}
               </span>
               <span>{formatCurrency(record.tax_amount)}</span>
             </div>
+
+            {/* Discount/Credit */}
+            {(isEditable || parseFloat(record.discount_amount) > 0) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', fontSize: '0.875rem', borderTop: '1px dashed #d1d5db', marginTop: '4px' }}>
+                <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  Discount
+                  {isEditable && (
+                    <input
+                      type="text"
+                      value={record.discount_description || ''}
+                      placeholder="Reason"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        api.updateRecord(record.id, { discount_description: val }).catch(() => {});
+                      }}
+                      onBlur={(e) => {
+                        api.updateRecord(record.id, { discount_description: e.target.value }).then(() => fetchRecord()).catch(() => {});
+                      }}
+                      style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.8rem', width: '160px', marginLeft: '4px' }}
+                      autoComplete="off"
+                    />
+                  )}
+                  {!isEditable && record.discount_description && (
+                    <span style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>({record.discount_description})</span>
+                  )}
+                </span>
+                <span style={{ color: '#dc2626' }}>
+                  {isEditable ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={record.discount_amount || ''}
+                      placeholder="0.00"
+                      onChange={(e) => {
+                        // Local state update handled by record refetch
+                      }}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        api.updateRecord(record.id, { discount_amount: val }).then(() => fetchRecord()).catch(() => {});
+                      }}
+                      style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.875rem', width: '90px', textAlign: 'right' }}
+                      autoComplete="off"
+                    />
+                  ) : (
+                    `-${formatCurrency(record.discount_amount)}`
+                  )}
+                </span>
+              </div>
+            )}
 
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
               <TotalRow label="Total Sales" value={formatCurrency(record.total_sales)} bold />

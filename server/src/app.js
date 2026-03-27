@@ -101,7 +101,9 @@ const pool = require('./db/pool');
   try {
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS job_description TEXT');
     await pool.query("ALTER TYPE appointment_status_type ADD VALUE IF NOT EXISTS 'arrived'");
-    console.log('Migration check: job_description column + arrived status ensured');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0.00');
+    await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_description VARCHAR(255)");
+    console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
   }
