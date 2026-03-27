@@ -16,6 +16,7 @@ const emptyForm = {
   qty_on_hand: '0',
   reorder_level: '',
   cost_each: '',
+  markup: '50',
   sale_price_each: '',
 };
 
@@ -50,6 +51,9 @@ export default function InventoryForm() {
           qty_on_hand: item.qty_on_hand != null ? String(item.qty_on_hand) : '0',
           reorder_level: item.reorder_level != null ? String(item.reorder_level) : '',
           cost_each: item.cost_each != null ? String(item.cost_each) : '',
+          markup: (item.cost_each && item.sale_price_each && parseFloat(item.cost_each) > 0)
+            ? String(Math.round(((parseFloat(item.sale_price_each) - parseFloat(item.cost_each)) / parseFloat(item.cost_each)) * 100))
+            : '50',
           sale_price_each: item.sale_price_each != null ? String(item.sale_price_each) : '',
         });
       } catch (err) {
@@ -62,6 +66,20 @@ export default function InventoryForm() {
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleCostChange = (newCost) => {
+    const cost = parseFloat(newCost) || 0;
+    const markup = parseFloat(form.markup) || 0;
+    const salePrice = cost > 0 ? (cost * (1 + markup / 100)).toFixed(2) : '';
+    setForm({ ...form, cost_each: newCost, sale_price_each: salePrice || form.sale_price_each });
+  };
+
+  const handleMarkupChange = (newMarkup) => {
+    const cost = parseFloat(form.cost_each) || 0;
+    const markup = parseFloat(newMarkup) || 0;
+    const salePrice = cost > 0 ? (cost * (1 + markup / 100)).toFixed(2) : '';
+    setForm({ ...form, markup: newMarkup, sale_price_each: salePrice || form.sale_price_each });
   };
 
   const handleCategoryChange = async (e) => {
@@ -264,18 +282,29 @@ export default function InventoryForm() {
             </div>
           </div>
 
-          {/* Row 6: Cost, Sale Price */}
+          {/* Row 6: Cost, Markup, Sale Price */}
           <div style={row}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Cost Each ($)</label>
               <input
-                name="cost_each"
                 type="number"
                 step="0.01"
                 min="0"
                 value={form.cost_each}
-                onChange={handleChange}
+                onChange={(e) => handleCostChange(e.target.value)}
                 placeholder="0.00"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ flex: '0 0 100px' }}>
+              <label style={labelStyle}>Markup %</label>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={form.markup}
+                onChange={(e) => handleMarkupChange(e.target.value)}
+                placeholder="50"
                 style={inputStyle}
               />
             </div>
@@ -292,11 +321,12 @@ export default function InventoryForm() {
                 placeholder="0.00"
                 style={inputStyle}
               />
+              <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Auto-calculated from cost + markup</div>
             </div>
           </div>
 
           {/* Margin preview */}
-          {form.cost_each && form.sale_price_each && (
+          {form.cost_each && form.sale_price_each && parseFloat(form.cost_each) > 0 && (
             <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#f0fdf4', borderRadius: '6px', fontSize: '0.85rem', color: '#166534' }}>
               Margin: ${(parseFloat(form.sale_price_each) - parseFloat(form.cost_each)).toFixed(2)}
               {' '}({((1 - parseFloat(form.cost_each) / parseFloat(form.sale_price_each)) * 100).toFixed(1)}%)
