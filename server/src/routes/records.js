@@ -789,13 +789,15 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
     if (result.success) {
       // Log to communication_log
       try {
-        await pool.query(
+        const logResult = await pool.query(
           `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
-           VALUES ($1, $2, 'email', 'document_emailed', $3)`,
+           VALUES ($1, $2, 'email', 'document_emailed', $3)
+           RETURNING id`,
           [r.customer_id, r.id, `${docType} #${r.record_number} emailed to ${email}`]
         );
+        console.log(`[Record ${r.record_number}] Comm log entry created: #${logResult.rows[0].id}`);
       } catch (logErr) {
-        console.error('Comm log error (non-blocking):', logErr.message);
+        console.error('Comm log error:', logErr.message, logErr.detail || '');
       }
       res.json({ success: true, sentTo: email, docType });
     } else {
