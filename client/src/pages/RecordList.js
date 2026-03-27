@@ -63,6 +63,7 @@ export default function RecordList() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState({ closed: true });
+  const [groupSort, setGroupSort] = useState({}); // { groupKey: { field, dir } }
   const navigate = useNavigate();
 
   const fetchRecords = useCallback(async () => {
@@ -134,18 +135,60 @@ export default function RecordList() {
     </tr>
   );
 
-  const renderTableHead = (showDueDate = false) => (
-    <thead>
-      <tr>
-        <th style={thStyle}>WO #</th>
-        <th style={thStyle}>Customer</th>
-        <th style={thStyle}>Unit</th>
-        <th style={thStyle}>Status</th>
-        {showDueDate && <th style={thStyle}>Due Date</th>}
-        {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Amount Due</th>}
-      </tr>
-    </thead>
-  );
+  const handleGroupSort = (groupKey, field) => {
+    setGroupSort(prev => {
+      const cur = prev[groupKey];
+      if (cur?.field === field) {
+        return { ...prev, [groupKey]: { field, dir: cur.dir === 'asc' ? 'desc' : 'asc' } };
+      }
+      return { ...prev, [groupKey]: { field, dir: field === 'expected_completion_date' ? 'asc' : 'desc' } };
+    });
+  };
+
+  const sortGroupRecords = (recs, groupKey) => {
+    const sort = groupSort[groupKey];
+    if (!sort) return recs;
+    const { field, dir } = sort;
+    return [...recs].sort((a, b) => {
+      let va = a[field], vb = b[field];
+      if (field === 'expected_completion_date' || field === 'created_at') {
+        va = va ? new Date(va).getTime() : (dir === 'asc' ? Infinity : -Infinity);
+        vb = vb ? new Date(vb).getTime() : (dir === 'asc' ? Infinity : -Infinity);
+      } else if (field === 'record_number' || field === 'amount_due') {
+        va = parseFloat(va) || 0;
+        vb = parseFloat(vb) || 0;
+      } else {
+        va = (va || '').toString().toLowerCase();
+        vb = (vb || '').toString().toLowerCase();
+      }
+      if (va < vb) return dir === 'asc' ? -1 : 1;
+      if (va > vb) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const sortArrow = (groupKey, field) => {
+    const sort = groupSort[groupKey];
+    if (!sort || sort.field !== field) return '';
+    return sort.dir === 'asc' ? ' \u25B2' : ' \u25BC';
+  };
+
+  const renderTableHead = (showDueDate = false, groupKey = null) => {
+    const sortable = groupKey ? { cursor: 'pointer', userSelect: 'none' } : {};
+    const onClick = (field) => groupKey ? () => handleGroupSort(groupKey, field) : undefined;
+    return (
+      <thead>
+        <tr>
+          <th style={{ ...thStyle, ...sortable }} onClick={onClick('record_number')}>WO #{sortArrow(groupKey, 'record_number')}</th>
+          <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_name')}>Customer{sortArrow(groupKey, 'last_name')}</th>
+          <th style={thStyle}>Unit</th>
+          <th style={{ ...thStyle, ...sortable }} onClick={onClick('status')}>Status{sortArrow(groupKey, 'status')}</th>
+          {showDueDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('expected_completion_date')}>Due Date{sortArrow(groupKey, 'expected_completion_date')}</th>}
+          {canSeeFinancials && <th style={{ ...thStyle, ...sortable, textAlign: 'right' }} onClick={onClick('amount_due')}>Amount Due{sortArrow(groupKey, 'amount_due')}</th>}
+        </tr>
+      </thead>
+    );
+  };
 
   return (
     <div>
@@ -215,9 +258,9 @@ export default function RecordList() {
                 {!isCollapsed && (
                   <div style={{ backgroundColor: group.bg }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      {renderTableHead(group.key === 'active')}
+                      {renderTableHead(group.key !== 'closed', group.key)}
                       <tbody>
-                        {groupRecords.map(r => renderRow(r, group.key === 'active'))}
+                        {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, group.key !== 'closed'))}
                       </tbody>
                     </table>
                   </div>
