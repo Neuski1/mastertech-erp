@@ -521,9 +521,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
-              c.first_name, c.last_name, c.company_name, c.email_primary,
+              c.first_name, c.last_name, c.company_name, c.email_primary, c.phone_primary, c.account_number,
               c.address_street, c.address_city, c.address_state, c.address_zip,
-              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin
+              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin, u.license_plate
        FROM records r
        JOIN customers c ON c.id = r.customer_id
        LEFT JOIN units u ON u.id = r.unit_id
@@ -541,16 +541,22 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
     if (r.status === 'estimate') docType = 'Estimate';
     else if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status)) docType = 'Invoice';
 
-    // Fetch line items
-    const [laborRes, partsRes, freightRes] = await Promise.all([
+    // Fetch line items + payments
+    const [laborRes, partsRes, freightRes, payRes] = await Promise.all([
       pool.query('SELECT * FROM record_labor_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
       pool.query('SELECT * FROM record_parts_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
       pool.query('SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY id', [r.id]),
+      pool.query('SELECT * FROM payments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY payment_date, id', [r.id]),
     ]);
 
     const fmtCur = (v) => {
       const n = parseFloat(v) || 0;
       return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+    };
+    const fmtDate = (d) => {
+      if (!d) return '';
+      const dt = new Date(typeof d === 'string' && !d.includes('T') ? d + 'T12:00:00' : d);
+      return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-US', { timeZone: 'America/Denver' });
     };
 
     const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim();
@@ -575,22 +581,65 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
     const discount = parseFloat(r.discount_amount) || 0;
     const amountDue = parseFloat(r.amount_due) || 0;
 
+    const methodLabels = { credit_card: 'Card', check: 'Check', cash: 'Cash', zelle: 'Zelle' };
+    const payments = payRes.rows;
+    const deposit = parseFloat(r.deposit_amount) || 0;
+
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,sans-serif;">
 <div style="max-width:700px;margin:0 auto;background:#ffffff;">
-  <div style="background-color:#1e3a5f;padding:20px 32px;text-align:center;">
-    <h1 style="color:#ffffff;margin:0;font-size:20px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
-    <p style="color:#93c5fd;margin:4px 0 0;font-size:12px;font-style:italic;">Our Service Makes Happy Campers!</p>
+  <div style="background-color:#1e3a5f;padding:20px 32px;">
+    <table style="width:100%"><tr>
+      <td style="vertical-align:top;">
+        <h1 style="color:#ffffff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+        <p style="color:#93c5fd;margin:2px 0 0;font-size:11px;">6590 East 49th Avenue, Commerce City, CO 80022</p>
+        <p style="color:#93c5fd;margin:2px 0 0;font-size:11px;">(303) 557-2214 | service@mastertechrvrepair.com</p>
+        <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;font-style:italic;">Our Service Makes Happy Campers!</p>
+      </td>
+      <td style="text-align:right;vertical-align:top;">
+        <h2 style="color:#ffffff;margin:0;font-size:20px;">${docType}</h2>
+        <p style="color:#93c5fd;margin:2px 0;font-size:13px;">#${r.record_number}</p>
+        ${r.intake_date || r.created_at ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Date: ${fmtDate(r.intake_date || r.created_at)}</p>` : ''}
+        ${r.expected_completion_date ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
+      </td>
+    </tr></table>
   </div>
   <div style="padding:24px 32px;">
-    <div style="display:flex;justify-content:space-between;margin-bottom:16px;">
-      <div>
-        <h2 style="color:#1e3a5f;margin:0 0 4px;font-size:18px;">${docType} #${r.record_number}</h2>
-        <p style="margin:2px 0;font-size:13px;color:#374151;"><strong>Customer:</strong> ${customerName}${r.company_name ? ' (' + r.company_name + ')' : ''}</p>
-        ${address ? `<p style="margin:2px 0;font-size:13px;color:#374151;">${address}</p>` : ''}
-        <p style="margin:2px 0;font-size:13px;color:#374151;"><strong>Unit:</strong> ${unit}</p>
-      </div>
-    </div>
+    <!-- Customer & Unit Info -->
+    <table style="width:100%;margin-bottom:16px;font-size:13px;border:1px solid #e5e7eb;border-collapse:collapse;">
+      <tr style="background:#f9fafb;">
+        <td style="padding:10px 14px;border:1px solid #e5e7eb;vertical-align:top;width:50%;">
+          <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#6b7280;margin-bottom:4px;">Customer</div>
+          <div style="font-weight:600;color:#111;">${customerName}${r.company_name ? ' (' + r.company_name + ')' : ''}</div>
+          ${address ? `<div style="color:#374151;">${address}</div>` : ''}
+          ${r.phone_primary ? `<div style="color:#374151;">${r.phone_primary}</div>` : ''}
+          ${r.email_primary ? `<div style="color:#374151;">${r.email_primary}</div>` : ''}
+        </td>
+        <td style="padding:10px 14px;border:1px solid #e5e7eb;vertical-align:top;">
+          <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#6b7280;margin-bottom:4px;">Unit</div>
+          <div style="font-weight:600;color:#111;">${unit}</div>
+          ${r.vin ? `<div style="color:#374151;font-size:12px;">VIN: ${r.vin}</div>` : ''}
+          ${r.license_plate ? `<div style="color:#374151;font-size:12px;">Plate: ${r.license_plate}</div>` : ''}
+          ${r.key_number ? `<div style="color:#374151;font-size:12px;">Key #: ${r.key_number}</div>` : ''}
+        </td>
+      </tr>
+    </table>
+    ${r.insurance_company ? `
+    <div style="margin-bottom:12px;padding:8px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;font-size:12px;">
+      <strong>Insurance:</strong> ${r.insurance_company}${r.claim_number ? ' &nbsp; <strong>Claim #:</strong> ' + r.claim_number : ''}${r.policy_number ? ' &nbsp; <strong>Policy #:</strong> ' + r.policy_number : ''}
+    </div>` : ''}
+
+    ${r.job_description ? `
+    <div style="margin:0 0 16px;padding:12px 16px;background:#f8f9fa;border-left:4px solid #1e3a5f;border-radius:0 4px 4px 0;">
+      <div style="font-size:10px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Job Description</div>
+      <div style="font-size:13px;color:#1e3a5f;white-space:pre-wrap;">${r.job_description}</div>
+    </div>` : ''}
+
+    ${r.customer_notes ? `
+    <div style="margin:0 0 16px;padding:12px 16px;background:#fefce8;border-left:4px solid #f59e0b;border-radius:0 4px 4px 0;">
+      <div style="font-size:10px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Customer Notes</div>
+      <div style="font-size:13px;color:#374151;white-space:pre-wrap;">${r.customer_notes}</div>
+    </div>` : ''}
 
     ${laborRows ? `
     <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">LABOR</h3>
@@ -629,9 +678,19 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
         <tr style="border-top:2px solid #1e3a5f;"><td style="padding:8px 12px;font-weight:bold;font-size:15px;color:${amountDue > 0 ? '#dc2626' : '#065f46'};">AMOUNT DUE</td><td style="padding:8px 12px;text-align:right;font-weight:bold;font-size:15px;color:${amountDue > 0 ? '#dc2626' : '#065f46'};">${fmtCur(amountDue)}</td></tr>
       </table>
     </div>
+    ${(payments.length > 0 || deposit > 0) ? `
+    <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">PAYMENT DETAIL</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;"><th style="padding:6px 8px;text-align:left;">Date</th><th style="padding:6px 8px;text-align:left;">Method</th><th style="padding:6px 8px;text-align:left;">Reference</th><th style="padding:6px 8px;text-align:right;">Amount</th></tr></thead>
+      <tbody>
+        ${deposit > 0 ? `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${fmtDate(r.intake_date || r.created_at)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">Deposit</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">&mdash;</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${fmtCur(deposit)}</td></tr>` : ''}
+        ${payments.map(p => `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${fmtDate(p.payment_date)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${methodLabels[p.payment_method] || p.payment_method || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${p.reference_number || p.check_number || '&mdash;'}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${fmtCur(p.amount)}</td></tr>`).join('')}
+      </tbody>
+    </table>` : ''}
   </div>
   <div style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:12px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+    <p style="margin:6px 0 0;color:#9ca3af;font-size:11px;">Questions? Call (303) 557-2214 or reply to this email.</p>
   </div>
 </div></body></html>`;
 
@@ -641,7 +700,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
       cc: 'service@mastertechrvrepair.com',
       subject,
       html,
-      text: `${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\nAmount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.`,
+      text: `${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\n${r.job_description ? 'Job Description: ' + r.job_description + '\n' : ''}Amount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022\n(303) 557-2214`,
     });
 
     if (result.success) {
