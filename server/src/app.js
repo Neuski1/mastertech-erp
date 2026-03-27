@@ -61,7 +61,9 @@ app.use('/api/storage', requireAuth, require('./routes/storage'));
 app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
+app.use('/api/records', requireAuth, require('./routes/photos'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
+app.use('/api/records/approve', require('./routes/estimate-approval')); // No auth — customer clicks from email
 
 // Test email endpoint — quick debug, no auth required
 app.get('/api/test-email', async (req, res) => {
@@ -112,6 +114,16 @@ const pool = require('./db/pool');
       ('Electrical','ELEC'),('Hardware','HDWR'),('HVAC','HVAC'),('Misc/Shop Supplies','MISC'),
       ('Plumbing','PLMB'),('Roofing','ROOF'),('Solar','SOLR'),('Suspension','SUSP'),('Towing/Chassis','TOW')
       ON CONFLICT (prefix) DO NOTHING`);
+    // Migration 024: estimate approval + photos
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS approval_token UUID DEFAULT gen_random_uuid()');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS approval_token_expires_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS approved_by_customer_at TIMESTAMPTZ');
+    await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS approved_by_customer_ip VARCHAR(50)");
+    await pool.query(`CREATE TABLE IF NOT EXISTS record_photos (
+      id SERIAL PRIMARY KEY, record_id INTEGER REFERENCES records(id) ON DELETE CASCADE,
+      category VARCHAR(20), label VARCHAR(255), onedrive_url TEXT NOT NULL,
+      created_by INTEGER, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

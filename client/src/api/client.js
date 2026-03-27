@@ -83,6 +83,12 @@ export const api = {
   updatePart: (recordId, lineId, data) => request(`/parts/${recordId}/${lineId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePart: (recordId, lineId) => request(`/parts/${recordId}/${lineId}`, { method: 'DELETE' }),
 
+  // Record photos
+  getRecordPhotos: (recordId) => request(`/records/${recordId}/photos`),
+  addRecordPhoto: (recordId, data) => request(`/records/${recordId}/photos`, { method: 'POST', body: JSON.stringify(data) }),
+  updateRecordPhoto: (recordId, photoId, data) => request(`/records/${recordId}/photos/${photoId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRecordPhoto: (recordId, photoId) => request(`/records/${recordId}/photos/${photoId}`, { method: 'DELETE' }),
+
   // Freight lines
   getFreightLines: (recordId) => request(`/records/${recordId}/freight`),
   addFreightLine: (recordId, data) => request(`/records/${recordId}/freight`, { method: 'POST', body: JSON.stringify(data) }),

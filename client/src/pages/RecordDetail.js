@@ -7,6 +7,7 @@ import DocumentLabel from '../components/DocumentLabel';
 import LaborLinesTable from '../components/LaborLinesTable';
 import PartsLinesTable from '../components/PartsLinesTable';
 import CommunicationLog from '../components/CommunicationLog';
+import PhotoLinksSection from '../components/PhotoLinksSection';
 import SquarePayment from '../components/SquarePayment';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
@@ -1144,6 +1145,8 @@ ${paymentDetailHtml}
       </div>
 
       {/* Communication Log */}
+      <PhotoLinksSection recordId={record.id} isEditable={isEditable} />
+
       <CommunicationLog customerId={record.customer_id} recordId={record.id} />
     </div>
   );

@@ -584,12 +584,27 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
     if (r.status === 'estimate') docType = 'Estimate';
     else if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status)) docType = 'Invoice';
 
-    // Fetch line items + payments
-    const [laborRes, partsRes, freightRes, payRes] = await Promise.all([
+    // For estimates: generate/refresh approval token
+    let approvalUrl = null;
+    if (docType === 'Estimate' && r.status === 'estimate') {
+      const crypto = require('crypto');
+      const token = crypto.randomUUID();
+      const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+      await pool.query(
+        'UPDATE records SET approval_token = $1, approval_token_expires_at = $2 WHERE id = $3',
+        [token, expires, r.id]
+      );
+      const backendUrl = process.env.BACKEND_URL || process.env.FRONTEND_URL || 'https://mastertech-erp-production-cb96.up.railway.app';
+      approvalUrl = `${backendUrl}/api/records/approve/${token}`;
+    }
+
+    // Fetch line items + payments + photos
+    const [laborRes, partsRes, freightRes, payRes, photosRes] = await Promise.all([
       pool.query('SELECT * FROM record_labor_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
       pool.query('SELECT * FROM record_parts_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
       pool.query('SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY id', [r.id]),
       pool.query('SELECT * FROM payments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY payment_date, id', [r.id]),
+      pool.query('SELECT * FROM record_photos WHERE record_id = $1 ORDER BY category, created_at', [r.id]),
     ]);
 
     const fmtCur = (v) => {
@@ -730,6 +745,30 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
         ${payments.map(p => `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${fmtDate(p.payment_date)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${methodLabels[p.payment_method] || p.payment_method || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${p.reference_number || p.check_number || '&mdash;'}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${fmtCur(p.amount)}</td></tr>`).join('')}
       </tbody>
     </table>` : ''}
+
+    ${(() => {
+      const photos = photosRes.rows;
+      if (photos.length === 0) return '';
+      const catLabels = { before: 'Before', during: 'During', after: 'After', damage: 'Damage', other: 'Other' };
+      const grouped = {};
+      photos.forEach(p => { if (!grouped[p.category]) grouped[p.category] = []; grouped[p.category].push(p); });
+      let html = '<h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">PHOTOS</h3>';
+      for (const [cat, items] of Object.entries(grouped)) {
+        html += `<p style="font-weight:bold;font-size:12px;color:#374151;margin:8px 0 4px;">${catLabels[cat] || cat}</p>`;
+        items.forEach(p => {
+          html += `<p style="margin:2px 0;font-size:12px;">&bull; ${p.label || 'Photo'} — <a href="${p.onedrive_url}" target="_blank" style="color:#3b82f6;">View Photo &rarr;</a></p>`;
+        });
+      }
+      return html;
+    })()}
+
+    ${approvalUrl ? `
+    <div style="margin:24px 0;padding:24px;background:#f0fdf4;border:2px solid #bbf7d0;border-radius:8px;text-align:center;">
+      <p style="margin:0 0 12px;font-size:15px;font-weight:bold;color:#065f46;">Ready to proceed?</p>
+      <a href="${approvalUrl}" target="_blank" style="display:inline-block;padding:14px 32px;background:#059669;color:#fff;font-size:16px;font-weight:bold;text-decoration:none;border-radius:8px;">&#10003; APPROVE THIS ESTIMATE</a>
+      <p style="margin:12px 0 0;font-size:11px;color:#6b7280;">By clicking approve, you authorize Master Tech RV Repair &amp; Storage to proceed with the work described above.</p>
+      <p style="margin:8px 0 0;font-size:11px;color:#6b7280;">Questions? Call (303) 557-2214 or reply to this email.</p>
+    </div>` : ''}
   </div>
   <div style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:12px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
