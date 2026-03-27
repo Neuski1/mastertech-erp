@@ -284,7 +284,7 @@ export default function AppointmentForm() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} autoComplete="off">
           {/* Customer picker */}
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Customer *</label>
@@ -307,6 +307,7 @@ export default function AppointmentForm() {
                   placeholder="Search customer by name, phone, email..."
                   style={inputStyle}
                   autoFocus
+                  autoComplete="off"
                 />
                 {customerResults.length > 0 && (
                   <div style={dropdownStyle}>
@@ -422,11 +423,11 @@ export default function AppointmentForm() {
               <div style={row}>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Customer Email</label>
-                  <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="email@example.com" style={inputStyle} />
+                  <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="email@example.com" style={inputStyle} autoComplete="off" />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Customer Phone</label>
-                  <input type="tel" value={handlePhoneInput(customerPhone)} onChange={(e) => setCustomerPhone(handlePhoneInput(e.target.value))} placeholder="(303) 555-1234" style={inputStyle} />
+                  <input type="tel" value={handlePhoneInput(customerPhone)} onChange={(e) => setCustomerPhone(handlePhoneInput(e.target.value))} placeholder="(303) 555-1234" style={inputStyle} autoComplete="off" />
                 </div>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.875rem' }}>

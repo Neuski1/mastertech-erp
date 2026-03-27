@@ -1181,11 +1181,11 @@ function ScheduleModal({ record, onSuccess, onClose }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
               <label style={labelStyle}>Customer Email</label>
-              <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="customer@email.com" style={inputStyle} />
+              <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="customer@email.com" style={inputStyle} autoComplete="off" />
             </div>
             <div>
               <label style={labelStyle}>Customer Phone</label>
-              <input type="text" value={handlePhoneInput(customerPhone)} onChange={(e) => setCustomerPhone(handlePhoneInput(e.target.value))} placeholder="(303) 555-0000" style={inputStyle} />
+              <input type="text" value={handlePhoneInput(customerPhone)} onChange={(e) => setCustomerPhone(handlePhoneInput(e.target.value))} placeholder="(303) 555-0000" style={inputStyle} autoComplete="off" />
             </div>
           </div>
           <div>

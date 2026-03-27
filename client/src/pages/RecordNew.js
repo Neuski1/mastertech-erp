@@ -139,6 +139,7 @@ export default function RecordNew() {
               onChange={(e) => setCustomerSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && searchCustomers()}
               style={{ ...inputStyle, flex: 1 }}
+              autoComplete="off"
             />
             <button onClick={searchCustomers} style={btnPrimary}>Search</button>
             <button onClick={() => setShowNewCustomer(true)} style={btnSecondary}>+ New Customer</button>

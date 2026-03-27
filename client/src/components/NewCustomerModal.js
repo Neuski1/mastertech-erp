@@ -37,46 +37,46 @@ export default function NewCustomerModal({ onClose, onCreated }) {
           <button onClick={onClose} style={closeBtnStyle}>&times;</button>
         </div>
         {error && <div style={errorBox}>{error}</div>}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }} autoComplete="off">
           <div>
             <label style={labelStyle}>First Name</label>
-            <input type="text" value={form.first_name} onChange={(e) => handleChange('first_name', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.first_name} onChange={(e) => handleChange('first_name', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>Last Name *</label>
-            <input type="text" value={form.last_name} onChange={(e) => handleChange('last_name', e.target.value)} style={inputStyle} autoFocus />
+            <input type="text" value={form.last_name} onChange={(e) => handleChange('last_name', e.target.value)} style={inputStyle} autoFocus autoComplete="off" />
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={labelStyle}>Company</label>
-            <input type="text" value={form.company_name} onChange={(e) => handleChange('company_name', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.company_name} onChange={(e) => handleChange('company_name', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>Phone 1</label>
-            <input type="text" value={handlePhoneInput(form.phone_primary)} onChange={(e) => handleChange('phone_primary', handlePhoneInput(e.target.value))} style={inputStyle} />
+            <input type="text" value={handlePhoneInput(form.phone_primary)} onChange={(e) => handleChange('phone_primary', handlePhoneInput(e.target.value))} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>Phone 2</label>
-            <input type="text" value={handlePhoneInput(form.phone_secondary)} onChange={(e) => handleChange('phone_secondary', handlePhoneInput(e.target.value))} style={inputStyle} />
+            <input type="text" value={handlePhoneInput(form.phone_secondary)} onChange={(e) => handleChange('phone_secondary', handlePhoneInput(e.target.value))} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>Email</label>
-            <input type="text" value={form.email_primary} onChange={(e) => handleChange('email_primary', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.email_primary} onChange={(e) => handleChange('email_primary', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={labelStyle}>Street</label>
-            <input type="text" value={form.address_street} onChange={(e) => handleChange('address_street', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.address_street} onChange={(e) => handleChange('address_street', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>City</label>
-            <input type="text" value={form.address_city} onChange={(e) => handleChange('address_city', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.address_city} onChange={(e) => handleChange('address_city', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>State</label>
-            <input type="text" value={form.address_state} onChange={(e) => handleChange('address_state', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.address_state} onChange={(e) => handleChange('address_state', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div>
             <label style={labelStyle}>ZIP</label>
-            <input type="text" value={form.address_zip} onChange={(e) => handleChange('address_zip', e.target.value)} style={inputStyle} />
+            <input type="text" value={form.address_zip} onChange={(e) => handleChange('address_zip', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
