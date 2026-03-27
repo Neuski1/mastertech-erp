@@ -73,7 +73,8 @@ async function recalculateTotals(recordId, client) {
       [recordId]
     );
     const taxableTotal = parseFloat(taxRes.rows[0].taxable_total);
-    taxAmount = parseFloat((taxableTotal * parseFloat(rec.tax_rate)).toFixed(2));
+    // Tax applies to taxable parts + shop supplies
+    taxAmount = parseFloat(((taxableTotal + shopSuppliesAmount) * parseFloat(rec.tax_rate)).toFixed(2));
   }
 
   const totalSales = parseFloat(

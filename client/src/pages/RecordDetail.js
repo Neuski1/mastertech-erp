@@ -510,7 +510,7 @@ ${(r.freight_lines || []).length > 0 ? `
     ${underWarranty > 0 ? `<div class="row"><span>UNDER WARRANTY</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
     ${noCharge > 0 ? `<div class="row"><span>NOT COVERED</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
     ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row"><span>DISCOUNT${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
-    <div class="row"><span>TOTAL TAX</span><span>${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</span></div>
+    <div class="row"><span>TOTAL TAX (Parts + Supplies)</span><span>${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</span></div>
     <div class="row bold divider"><span>TOTAL SALES</span><span>${fmtCur(r.total_sales)}</span></div>
     <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur((parseFloat(r.total_collected) || 0) + deposit)}</span></div>
     <div class="row bold divider" style="color:${(parseFloat(r.amount_due) || 0) > 0 ? '#dc2626' : '#111'}"><span>AMOUNT DUE</span><span>${fmtCur(r.amount_due)}</span></div>
@@ -931,7 +931,7 @@ ${paymentDetailHtml}
             {/* Tax toggle */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.875rem' }}>
               <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Tax ({((parseFloat(record.tax_rate) || 0.0975) * 100).toFixed(2)}% on parts)
+                Tax ({((parseFloat(record.tax_rate) || 0.0975) * 100).toFixed(2)}% on parts + supplies)
                 {isEditable && (
                   <ToggleSwitch
                     checked={!record.tax_waived}
