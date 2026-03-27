@@ -6,8 +6,10 @@ import { useAuth } from '../context/AuthContext';
 const APPT_TYPES = [
   { value: 'drop_off', label: 'Drop Off' },
   { value: 'pick_up', label: 'Pick Up' },
-  { value: 'storage', label: 'Storage' },
   { value: 'rv_repair', label: 'RV Repair' },
+  { value: 'parts', label: 'Parts' },
+  { value: 'storage', label: 'Storage' },
+  { value: 'other', label: 'Other' },
 ];
 
 const STATUS_COLORS = {
@@ -25,6 +27,8 @@ const TYPE_COLORS = {
   pick_up: '#10b981',
   storage: '#f59e0b',
   rv_repair: '#8b5cf6',
+  parts: '#06b6d4',
+  other: '#6b7280',
 };
 
 const TYPE_LABELS = {};

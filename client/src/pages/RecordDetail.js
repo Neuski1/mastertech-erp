@@ -1215,8 +1215,10 @@ function ScheduleModal({ record, onSuccess, onClose }) {
               <select value={apptType} onChange={(e) => setApptType(e.target.value)} style={inputStyle}>
                 <option value="drop_off">Drop Off</option>
                 <option value="pick_up">Pick Up</option>
-                <option value="storage">Storage</option>
                 <option value="rv_repair">RV Repair</option>
+                <option value="parts">Parts</option>
+                <option value="storage">Storage</option>
+                <option value="other">Other</option>
               </select>
             </div>
             <div>

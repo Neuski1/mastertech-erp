@@ -7,8 +7,10 @@ import NewCustomerModal from '../components/NewCustomerModal';
 const APPT_TYPES = [
   { value: 'drop_off', label: 'Drop Off' },
   { value: 'pick_up', label: 'Pick Up' },
-  { value: 'storage', label: 'Storage' },
   { value: 'rv_repair', label: 'RV Repair' },
+  { value: 'parts', label: 'Parts' },
+  { value: 'storage', label: 'Storage' },
+  { value: 'other', label: 'Other' },
 ];
 
 const STATUSES = ['scheduled', 'confirmed', 'arrived', 'in_progress', 'complete', 'cancelled', 'no_show'];
