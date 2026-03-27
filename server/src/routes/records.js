@@ -594,7 +594,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer'), async
         'UPDATE records SET approval_token = $1, approval_token_expires_at = $2 WHERE id = $3',
         [token, expires, r.id]
       );
-      const backendUrl = process.env.BACKEND_URL || process.env.FRONTEND_URL || 'https://mastertech-erp-production-cb96.up.railway.app';
+      const backendUrl = process.env.BACKEND_URL || 'https://mastertech-erp-production-cb96.up.railway.app';
       approvalUrl = `${backendUrl}/api/records/approve/${token}`;
     }
 
