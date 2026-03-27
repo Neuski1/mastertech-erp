@@ -43,7 +43,7 @@ router.get('/search', async (req, res) => {
               qty_on_hand, cost_each, sale_price_each
        FROM inventory
        WHERE deleted_at IS NULL AND is_active = TRUE
-         AND (description ILIKE $1 OR part_number ILIKE $1)
+         AND (description ILIKE $1 OR part_number ILIKE $1 OR vendor_part_number ILIKE $1 OR vendor ILIKE $1)
        ORDER BY description
        LIMIT 20`,
       [`%${q}%`]
@@ -127,7 +127,7 @@ router.get('/', async (req, res) => {
   let paramIdx = 1;
 
   if (search) {
-    conditions.push(`(i.description ILIKE $${paramIdx} OR i.part_number ILIKE $${paramIdx})`);
+    conditions.push(`(i.description ILIKE $${paramIdx} OR i.part_number ILIKE $${paramIdx} OR i.vendor_part_number ILIKE $${paramIdx} OR i.vendor ILIKE $${paramIdx} OR i.category ILIKE $${paramIdx} OR i.location ILIKE $${paramIdx})`);
     params.push(`%${search}%`);
     paramIdx++;
   }

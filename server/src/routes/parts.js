@@ -23,7 +23,7 @@ router.get('/search', async (req, res) => {
              'inventory' AS source
       FROM inventory
       WHERE deleted_at IS NULL AND is_active = TRUE
-        AND (description ILIKE $1 OR part_number ILIKE $1 OR vendor_part_number ILIKE $1)
+        AND (description ILIKE $1 OR part_number ILIKE $1 OR vendor_part_number ILIKE $1 OR vendor ILIKE $1)
       ORDER BY description
       LIMIT 20`;
 
@@ -34,7 +34,7 @@ router.get('/search', async (req, res) => {
              times_used, last_used_date,
              'catalog' AS source
       FROM parts_catalog
-      WHERE description ILIKE $1 OR vendor_part_number ILIKE $1
+      WHERE description ILIKE $1 OR vendor_part_number ILIKE $1 OR vendor ILIKE $1
       ORDER BY times_used DESC, last_used_date DESC NULLS LAST
       LIMIT 20`;
 

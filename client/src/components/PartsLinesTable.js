@@ -244,7 +244,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             <div style={{ marginBottom: '12px', position: 'relative' }}>
               <input
                 type="text"
-                placeholder="Search inventory by description or part number..."
+                placeholder="Search by description, part #, vendor part #, vendor..."
                 value={searchQuery}
                 onChange={(e) => handleInventorySearch(e.target.value)}
                 style={{ ...inlineInput, width: '100%' }}
@@ -309,7 +309,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   <input
                     value={catalogQuery}
                     onChange={(e) => handleCatalogSearch(e.target.value)}
-                    placeholder="Search all parts by description, part #, or vendor part #..."
+                    placeholder="Search by description, part #, vendor part #, vendor..."
                     style={{ ...inlineInput, width: '100%' }}
                     autoFocus
                   />

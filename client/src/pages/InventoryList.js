@@ -561,7 +561,7 @@ export default function InventoryList() {
       <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="Search by part # or description..."
+          placeholder="Search by description, part #, vendor part #, vendor..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           style={{ ...inputStyle, flex: 1, minWidth: '200px' }}
