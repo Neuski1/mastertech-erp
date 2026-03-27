@@ -429,7 +429,8 @@ export default function RecordDetail() {
 
     const html = `<!DOCTYPE html><html><head><title>${docTitle} ${r.record_number}</title>
 <style>
-  @media print { @page { margin: 0.5in; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
+  html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  @media print { @page { margin: 0.5in; } html, body, * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
   body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 20px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 3px solid #1a2a4a; padding-bottom: 12px; }
   .header-left { display: flex; align-items: flex-start; gap: 12px; }
@@ -437,22 +438,22 @@ export default function RecordDetail() {
   .header-left h1 { color: #1a2a4a; margin: 0; font-size: 16px; font-weight: bold; }
   .header-left p { margin: 2px 0; font-size: 10px; color: #333; }
   .header-right { text-align: right; }
-  .header-right h2 { color: #fff; background: ${docColor}; margin: 0; font-size: 18px; font-weight: bold; padding: 6px 14px; border-radius: 4px; display: inline-block; }
+  .header-right h2 { color: #fff !important; background: ${docColor} !important; margin: 0; font-size: 18px; font-weight: bold; padding: 6px 14px; border-radius: 4px; display: inline-block; }
   .header-right p { color: #333; font-size: 10px; margin: 3px 0; }
-  .info-block { display: flex; gap: 20px; margin-bottom: 16px; padding: 10px; background: #f9fafb; border: 1px solid #ccc; border-radius: 4px; }
+  .info-block { display: flex; gap: 20px; margin-bottom: 16px; padding: 10px; background: #f9fafb !important; border: 1px solid #ccc; border-radius: 4px; }
   .info-block div { flex: 1; }
   .info-block label { font-weight: bold; font-size: 9px; text-transform: uppercase; color: #1a2a4a; display: block; }
   .info-block span { font-size: 11px; color: #111; }
   table.lines { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  table.lines th { background: #1a2a4a; color: #fff; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #1a2a4a; letter-spacing: 0.02em; }
+  table.lines th { background: #1a2a4a !important; color: #fff !important; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #1a2a4a; letter-spacing: 0.02em; }
   table.lines td { padding: 4px 8px; border-bottom: 1px solid #ddd; font-size: 11px; color: #111; }
   .totals-block { margin-top: 16px; display: flex; justify-content: flex-end; }
   .auth-section { margin-top: 20px; }
   .auth-text { font-size: 9px; color: #333; line-height: 1.5; }
   .totals { width: 280px; }
   .totals .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 10px; color: #000; }
-  .totals .row.bold { font-weight: bold; font-size: 12px; color: #1a2a4a; }
-  .totals .row.divider { border-top: 2px solid #1a2a4a; margin-top: 4px; padding-top: 4px; }
+  .totals .row.bold { font-weight: bold; font-size: 12px; color: #1a2a4a !important; }
+  .totals .row.divider { border-top: 2px solid #1a2a4a !important; margin-top: 4px; padding-top: 4px; }
 </style></head><body>
 <div class="header">
   <div class="header-left">
