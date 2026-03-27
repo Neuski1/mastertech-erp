@@ -39,6 +39,9 @@ app.get('/health', (req, res) => {
 // Auth routes (no auth required for login/seed-admin)
 app.use('/api/auth', require('./routes/auth'));
 
+// Public routes (no auth)
+app.use('/api/records/approve', require('./routes/estimate-approval')); // Customer clicks from email
+
 // Protected API routes — all require authentication
 app.use('/api/records', requireAuth, require('./routes/records'));
 app.use('/api/records', requireAuth, require('./routes/freight'));
@@ -63,7 +66,6 @@ app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
-app.use('/api/records/approve', require('./routes/estimate-approval')); // No auth — customer clicks from email
 
 // Test email endpoint — quick debug, no auth required
 app.get('/api/test-email', async (req, res) => {
