@@ -472,6 +472,26 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper')
       );
     }
 
+    // Reverse inventory when voiding — restore qty for all inventory parts
+    if (newStatus === 'void' && record.status !== 'void') {
+      const { rows: invParts } = await client.query(
+        `SELECT id, inventory_id, quantity FROM record_parts_lines
+         WHERE record_id = $1 AND deleted_at IS NULL
+           AND is_inventory_part = true AND inventory_id IS NOT NULL`,
+        [req.params.id]
+      );
+      for (const part of invParts) {
+        await client.query(
+          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
+          [parseFloat(part.quantity), part.inventory_id]
+        );
+        console.log(`Inventory reversal: +${part.quantity} units returned to inventory #${part.inventory_id} from voided record #${record.record_number}`);
+      }
+      if (invParts.length > 0) {
+        console.log(`Total: ${invParts.length} inventory items restored for voided record #${record.record_number}`);
+      }
+    }
+
     // Recalculate totals on status change (shop supplies calculated at complete)
     await recalculateTotals(req.params.id, client);
 
@@ -495,8 +515,11 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper')
 // DELETE /api/records/:id — Soft delete (set deleted_at, status = void)
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
       `UPDATE records SET deleted_at = NOW(), status = 'void'
        WHERE id = $1 AND deleted_at IS NULL
        RETURNING id, record_number, status`,
@@ -504,13 +527,33 @@ router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) =
     );
 
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Record not found' });
     }
 
-    res.json({ message: 'Record voided', record: rows[0] });
+    // Reverse inventory for all inventory parts on this record
+    const { rows: invParts } = await client.query(
+      `SELECT id, inventory_id, quantity FROM record_parts_lines
+       WHERE record_id = $1 AND deleted_at IS NULL
+         AND is_inventory_part = true AND inventory_id IS NOT NULL`,
+      [req.params.id]
+    );
+    for (const part of invParts) {
+      await client.query(
+        'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
+        [parseFloat(part.quantity), part.inventory_id]
+      );
+      console.log(`Inventory reversal: +${part.quantity} units returned to inventory #${part.inventory_id} from deleted record #${rows[0].record_number}`);
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Record voided', record: rows[0], inventory_restored: invParts.length });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('DELETE /api/records/:id error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
