@@ -127,7 +127,7 @@ router.get('/', async (req, res) => {
   let paramIdx = 1;
 
   if (search) {
-    conditions.push(`(i.description ILIKE $${paramIdx} OR i.part_number ILIKE $${paramIdx} OR i.vendor_part_number ILIKE $${paramIdx} OR i.vendor ILIKE $${paramIdx} OR i.category ILIKE $${paramIdx} OR i.location ILIKE $${paramIdx})`);
+    conditions.push(`(i.description ILIKE $${paramIdx} OR i.part_number ILIKE $${paramIdx} OR i.vendor_part_number ILIKE $${paramIdx} OR i.vendor ILIKE $${paramIdx} OR i.category ILIKE $${paramIdx} OR i.location::text ILIKE $${paramIdx})`);
     params.push(`%${search}%`);
     paramIdx++;
   }
