@@ -73,7 +73,7 @@ export default function InventoryList() {
   useEffect(() => { fetchCategories(); }, [fetchCategories]);
 
   const categoryLabels = {};
-  categories.forEach(c => { categoryLabels[c.name] = c.name; categoryLabels[c.prefix] = c.name; });
+  categories.forEach(c => { categoryLabels[c.name] = c.name; categoryLabels[c.name.toUpperCase()] = c.name; categoryLabels[c.prefix] = c.name; });
 
   const vendorNames = vendorList.length > 0
     ? [...new Set([...vendorList.map(v => v.name), ...FALLBACK_VENDORS])].sort()
@@ -583,7 +583,7 @@ export default function InventoryList() {
         >
           <option value="">All Categories</option>
           {categories.map((c) => (
-            <option key={c.id} value={c.prefix}>{c.name}</option>
+            <option key={c.id} value={c.name.toUpperCase()}>{c.name}</option>
           ))}
         </select>
         <select
