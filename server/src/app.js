@@ -49,6 +49,7 @@ app.use('/api/customers', requireAuth, require('./routes/customers'));
 app.use('/api/units', requireAuth, require('./routes/units'));
 app.use('/api/technicians', requireAuth, require('./routes/technicians'));
 app.use('/api/inventory', requireAuth, require('./routes/inventory'));
+app.use('/api/inventory-categories', requireAuth, require('./routes/inventoryCategories'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/appointments', requireAuth, require('./routes/appointments'));
 app.use('/api/communications', requireAuth, require('./routes/communications'));
@@ -103,6 +104,14 @@ const pool = require('./db/pool');
     await pool.query("ALTER TYPE appointment_status_type ADD VALUE IF NOT EXISTS 'arrived'");
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0.00');
     await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_description VARCHAR(255)");
+    await pool.query(`CREATE TABLE IF NOT EXISTS inventory_categories (
+      id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, prefix VARCHAR(10) NOT NULL UNIQUE, created_at TIMESTAMP DEFAULT NOW()
+    )`);
+    await pool.query(`INSERT INTO inventory_categories (name, prefix) VALUES
+      ('Airstream','AS'),('Awning','AWN'),('Battery','BAT'),('Doors/Windows','DOOR'),
+      ('Electrical','ELEC'),('Hardware','HDWR'),('HVAC','HVAC'),('Misc/Shop Supplies','MISC'),
+      ('Plumbing','PLMB'),('Roofing','ROOF'),('Solar','SOLR'),('Suspension','SUSP'),('Towing/Chassis','TOW')
+      ON CONFLICT (prefix) DO NOTHING`);
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

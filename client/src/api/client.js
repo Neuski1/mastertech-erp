@@ -109,6 +109,10 @@ export const api = {
   getReorderAlerts: () => request('/inventory/reorder-alerts'),
   getLowStockReport: () => request('/inventory/reports/low-stock'),
   getInStockReport: () => request('/inventory/reports/in-stock'),
+  getInventoryCategories: () => request('/inventory-categories'),
+  createInventoryCategory: (data) => request('/inventory-categories', { method: 'POST', body: JSON.stringify(data) }),
+  updateInventoryCategory: (id, data) => request(`/inventory-categories/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteInventoryCategory: (id) => request(`/inventory-categories/${id}`, { method: 'DELETE' }),
 
   // Appointments
   getAppointments: (params = {}) => {

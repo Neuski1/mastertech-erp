@@ -5,21 +5,6 @@ import VendorSelect from '../components/VendorSelect';
 
 const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
-const CATEGORIES = [
-  { label: 'Airstream', value: 'AIRSTREAM', prefix: 'AS' },
-  { label: 'Awning', value: 'AWNING', prefix: 'AWN' },
-  { label: 'Battery', value: 'BATTERY', prefix: 'BAT' },
-  { label: 'Doors/Windows', value: 'DOORS/WINDOWS', prefix: 'DOOR' },
-  { label: 'Electrical', value: 'ELECTRICAL', prefix: 'ELEC' },
-  { label: 'Hardware', value: 'HARDWARE', prefix: 'HDWR' },
-  { label: 'HVAC', value: 'HVAC', prefix: 'HVAC' },
-  { label: 'Misc/Shop Supplies', value: 'MISC/SHOP SUPPLIES', prefix: 'MISC' },
-  { label: 'Plumbing', value: 'PLUMBING', prefix: 'PLMB' },
-  { label: 'Roofing', value: 'ROOFING', prefix: 'ROOF' },
-  { label: 'Solar', value: 'SOLAR', prefix: 'SOLR' },
-  { label: 'Suspension', value: 'SUSPENSION', prefix: 'SUSP' },
-  { label: 'Towing/Chassis', value: 'TOWING/CHASSIS', prefix: 'TOW' },
-];
 
 const emptyForm = {
   part_number: '',
@@ -45,6 +30,10 @@ export default function InventoryForm() {
   const [error, setError] = useState(null);
   const [showDelete, setShowDelete] = useState(false);
   const [fetchingPartNum, setFetchingPartNum] = useState(false);
+  const [categories, setCategories] = useState([]);
+  useEffect(() => {
+    api.getInventoryCategories().then(setCategories).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -81,17 +70,14 @@ export default function InventoryForm() {
 
     // Auto-fetch next part number for new items only
     if (!isEdit && newCategory) {
-      const cat = CATEGORIES.find(c => c.value === newCategory);
-      if (cat) {
-        setFetchingPartNum(true);
-        try {
-          const result = await api.getNextPartNumber(cat.prefix);
-          setForm(f => ({ ...f, part_number: result.part_number }));
-        } catch (err) {
-          console.error('Failed to fetch next part number:', err);
-        } finally {
-          setFetchingPartNum(false);
-        }
+      setFetchingPartNum(true);
+      try {
+        const result = await api.getNextPartNumber(newCategory);
+        setForm(f => ({ ...f, part_number: result.part_number }));
+      } catch (err) {
+        console.error('Failed to fetch next part number:', err);
+      } finally {
+        setFetchingPartNum(false);
       }
     }
   };
@@ -167,8 +153,8 @@ export default function InventoryForm() {
                 style={inputStyle}
               >
                 <option value="">-- Select --</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.prefix}>{c.name} ({c.prefix})</option>
                 ))}
               </select>
             </div>

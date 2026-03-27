@@ -10,24 +10,6 @@ const FALLBACK_VENDORS = [
 
 const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
-const CATEGORIES = [
-  { label: 'Airstream', value: 'AIRSTREAM', prefix: 'AS' },
-  { label: 'Awning', value: 'AWNING', prefix: 'AWN' },
-  { label: 'Battery', value: 'BATTERY', prefix: 'BAT' },
-  { label: 'Doors/Windows', value: 'DOORS/WINDOWS', prefix: 'DOOR' },
-  { label: 'Electrical', value: 'ELECTRICAL', prefix: 'ELEC' },
-  { label: 'Hardware', value: 'HARDWARE', prefix: 'HDWR' },
-  { label: 'HVAC', value: 'HVAC', prefix: 'HVAC' },
-  { label: 'Misc/Shop Supplies', value: 'MISC/SHOP SUPPLIES', prefix: 'MISC' },
-  { label: 'Plumbing', value: 'PLUMBING', prefix: 'PLMB' },
-  { label: 'Roofing', value: 'ROOFING', prefix: 'ROOF' },
-  { label: 'Solar', value: 'SOLAR', prefix: 'SOLR' },
-  { label: 'Suspension', value: 'SUSPENSION', prefix: 'SUSP' },
-  { label: 'Towing/Chassis', value: 'TOWING/CHASSIS', prefix: 'TOW' },
-];
-
-const CATEGORY_LABELS = {};
-CATEGORIES.forEach(c => { CATEGORY_LABELS[c.value] = c.label; });
 
 export default function InventoryList() {
   const [items, setItems] = useState([]);
@@ -49,6 +31,10 @@ export default function InventoryList() {
   const [vendorReassignments, setVendorReassignments] = useState({}); // { partId: newVendor }
   const [bulkReassignVendor, setBulkReassignVendor] = useState('');
   const [vendorSaving, setVendorSaving] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [showCategoryPanel, setShowCategoryPanel] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatPrefix, setNewCatPrefix] = useState('');
   const reportsRef = useRef(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -77,6 +63,17 @@ export default function InventoryList() {
   }, []);
 
   useEffect(() => { fetchVendors(); }, [fetchVendors]);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const data = await api.getInventoryCategories();
+      setCategories(data);
+    } catch { setCategories([]); }
+  }, []);
+  useEffect(() => { fetchCategories(); }, [fetchCategories]);
+
+  const categoryLabels = {};
+  categories.forEach(c => { categoryLabels[c.name] = c.name; categoryLabels[c.prefix] = c.name; });
 
   const vendorNames = vendorList.length > 0
     ? [...new Set([...vendorList.map(v => v.name), ...FALLBACK_VENDORS])].sort()
@@ -108,7 +105,7 @@ export default function InventoryList() {
       return `<tr style="background:${i % 2 === 0 ? '#fff' : '#f3f4f6'}">
         <td style="padding:4px 8px;border:1px solid #d1d5db;font-family:monospace;font-size:9px">${item.part_number || '—'}</td>
         <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${item.description || ''}</td>
-        <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${CATEGORY_LABELS[item.category] || item.category || '—'}</td>
+        <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${categoryLabels[item.category] || item.category || '—'}</td>
         <td style="padding:4px 8px;border:1px solid #d1d5db;font-size:9px">${item.vendor || '—'}</td>
         <td style="padding:4px 8px;border:1px solid #d1d5db;text-align:right;font-size:9px;font-weight:700;color:#dc2626">${qty}</td>
         <td style="padding:4px 8px;border:1px solid #d1d5db;text-align:right;font-size:9px">${reorder}</td>
@@ -205,7 +202,7 @@ export default function InventoryList() {
     let rows = '';
     categoryKeys.forEach(cat => {
       const catItems = groups[cat];
-      const catLabel = CATEGORY_LABELS[cat] || cat;
+      const catLabel = categoryLabels[cat] || cat;
       rows += `<tr><td colspan="7" style="padding:8px 10px;background:#e8eef5;font-weight:700;font-size:10px;color:#1e3a5f;border:1px solid #d1d5db;">
         \u258C ${catLabel} (${catItems.length} item${catItems.length !== 1 ? 's' : ''})
       </td></tr>`;
@@ -431,7 +428,7 @@ export default function InventoryList() {
     const activeFilters = [];
     if (search) activeFilters.push(`Search: "${search}"`);
     if (vendor) activeFilters.push(`Vendor: ${vendor}`);
-    if (category) activeFilters.push(`Category: ${CATEGORY_LABELS[category] || category}`);
+    if (category) activeFilters.push(`Category: ${categoryLabels[category] || category}`);
     if (location) activeFilters.push(`Location: ${location}`);
     if (lowStockOnly) activeFilters.push('Low Stock Only');
 
@@ -458,7 +455,7 @@ export default function InventoryList() {
         <td style="padding:3px 6px;border:1px solid #ddd;font-size:8px">${item.description || ''}</td>
         <td style="padding:3px 6px;border:1px solid #ddd;font-size:8px">${item.vendor_part_number || '—'}</td>
         <td style="padding:3px 6px;border:1px solid #ddd;font-size:8px">${item.vendor || '—'}</td>
-        <td style="padding:3px 6px;border:1px solid #ddd;font-size:8px">${CATEGORY_LABELS[item.category] || item.category || '—'}</td>
+        <td style="padding:3px 6px;border:1px solid #ddd;font-size:8px">${categoryLabels[item.category] || item.category || '—'}</td>
         <td style="padding:3px 6px;border:1px solid #ddd;text-align:right;font-size:8px;font-weight:600">${qty}</td>
         <td style="padding:3px 6px;border:1px solid #ddd;text-align:right;font-size:8px">${item.reorder_level != null ? parseFloat(item.reorder_level) : '—'}</td>
         <td style="padding:3px 6px;border:1px solid #ddd;text-align:right;font-size:8px">${fmtCur(cost)}</td>
@@ -555,6 +552,7 @@ export default function InventoryList() {
           </div>
           <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>
           {isAdmin && <button onClick={() => setShowVendorPanel(!showVendorPanel)} style={btnSecondary}>Manage Vendors</button>}
+          {isAdmin && <button onClick={() => setShowCategoryPanel(!showCategoryPanel)} style={btnSecondary}>Manage Categories</button>}
           <button onClick={() => navigate('/inventory/new')} style={btnPrimary}>+ New Part</button>
         </div>
       </div>
@@ -584,8 +582,8 @@ export default function InventoryList() {
           style={inputStyle}
         >
           <option value="">All Categories</option>
-          {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>{c.label}</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.prefix}>{c.name}</option>
           ))}
         </select>
         <select
@@ -695,6 +693,44 @@ export default function InventoryList() {
         </div>
       )}
 
+      {showCategoryPanel && isAdmin && (
+        <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, color: '#1e3a5f', fontSize: '1rem' }}>Category Management</h3>
+            <button onClick={() => setShowCategoryPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: '#6b7280' }}>&times;</button>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            <input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="Category Name" style={{ ...inputStyle, flex: 1 }} autoComplete="off" />
+            <input value={newCatPrefix} onChange={(e) => setNewCatPrefix(e.target.value.toUpperCase())} placeholder="Prefix (e.g. ELEC)" style={{ ...inputStyle, width: '120px' }} autoComplete="off" />
+            <button onClick={async () => {
+              if (!newCatName || !newCatPrefix) return;
+              try { await api.createInventoryCategory({ name: newCatName, prefix: newCatPrefix }); setNewCatName(''); setNewCatPrefix(''); fetchCategories(); } catch (err) { alert(err.message); }
+            }} style={{ ...btnPrimary, whiteSpace: 'nowrap', padding: '8px 16px' }}>+ Add</button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              <th style={{ ...thStyle, padding: '8px 12px' }}>Name</th>
+              <th style={{ ...thStyle, padding: '8px 12px' }}>Prefix</th>
+              <th style={{ ...thStyle, padding: '8px 12px', width: '80px' }}></th>
+            </tr></thead>
+            <tbody>
+              {categories.map(c => (
+                <tr key={c.id}>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>{c.name}</td>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', fontFamily: 'monospace' }}>{c.prefix}</td>
+                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6' }}>
+                    <button onClick={async () => {
+                      if (!window.confirm(`Delete category "${c.name}"?`)) return;
+                      try { await api.deleteInventoryCategory(c.id); fetchCategories(); } catch (err) { alert(err.message); }
+                    }} style={{ padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' }}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Table */}
       {/* Top Pagination */}
       {total > 50 && (
@@ -741,7 +777,7 @@ export default function InventoryList() {
                 </td>
                 <td style={tdStyle}><span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{item.vendor_part_number || '—'}</span></td>
                 <td style={tdStyle}>{item.vendor || '—'}</td>
-                <td style={tdStyle}>{CATEGORY_LABELS[item.category] || item.category || '—'}</td>
+                <td style={tdStyle}>{categoryLabels[item.category] || item.category || '—'}</td>
                 <td style={tdStyle}>{item.location || '—'}</td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>
                   <span style={{

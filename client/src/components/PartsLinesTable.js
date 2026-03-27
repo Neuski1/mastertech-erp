@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import VendorSelect from './VendorSelect';
@@ -543,17 +543,10 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
 
 // ─── Add to Inventory Modal (2-step) ─────────────────────────────────────────
 function AddToInventoryModal({ line, onClose }) {
-  const CATEGORIES = [
-    { label: 'Airstream', prefix: 'AS' },
-    { label: 'Electrical', prefix: 'ELEC' },
-    { label: 'Plumbing', prefix: 'PLMB' },
-    { label: 'Roofing', prefix: 'ROOF' },
-    { label: 'Solar', prefix: 'SOLR' },
-    { label: 'HVAC', prefix: 'HVAC' },
-    { label: 'Hardware', prefix: 'HDWR' },
-    { label: 'Door/Window', prefix: 'DOOR' },
-    { label: 'Miscellaneous', prefix: 'MISC' },
-  ];
+  const [categories, setCategories] = useState([]);
+  useEffect(() => {
+    api.getInventoryCategories().then(setCategories).catch(() => {});
+  }, []);
 
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
@@ -683,8 +676,8 @@ function AddToInventoryModal({ line, onClose }) {
                   <label style={modalLabel}>Category *</label>
                   <select value={form.category} onChange={(e) => handleCategoryChange(e.target.value)} style={modalInput}>
                     <option value="">— Select Category —</option>
-                    {CATEGORIES.map(c => (
-                      <option key={c.prefix} value={c.prefix}>{c.label} ({c.prefix})</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.prefix}>{c.name} ({c.prefix})</option>
                     ))}
                   </select>
                 </div>
