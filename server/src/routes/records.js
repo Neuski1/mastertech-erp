@@ -152,7 +152,7 @@ router.get('/', async (req, res) => {
               u.year, u.make, u.model, u.vin, u.license_plate
        FROM records r
        JOIN customers c ON c.id = r.customer_id
-       JOIN units u ON u.id = r.unit_id
+       LEFT JOIN units u ON u.id = r.unit_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY ${sortCol} ${sortOrder}
        LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
