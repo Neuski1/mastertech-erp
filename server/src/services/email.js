@@ -349,4 +349,28 @@ Our Service Makes Happy Campers!`;
   }
 }
 
-module.exports = { sendAppointmentConfirmation };
+/**
+ * Send a generic HTML email via Resend or SMTP
+ */
+async function sendEmail({ to, cc, subject, html, text }) {
+  if (!to) return { success: false, error: 'No recipient' };
+  if (!useResend && !transporter) return { success: false, error: 'Email not configured' };
+
+  const fromAddr = process.env.EMAIL_FROM || '"Master Tech RV Repair & Storage" <service@mastertechrvrepair.com>';
+  const mailOptions = { from: fromAddr, to, cc, subject, html, text };
+
+  try {
+    if (useResend) {
+      await sendViaResend(mailOptions);
+    } else {
+      await transporter.sendMail(mailOptions);
+    }
+    console.log(`Email sent to ${to}: ${subject}`);
+    return { success: true };
+  } catch (err) {
+    console.error('sendEmail failed:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+module.exports = { sendAppointmentConfirmation, sendEmail };

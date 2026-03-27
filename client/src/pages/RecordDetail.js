@@ -76,6 +76,8 @@ export default function RecordDetail() {
   const [showSignModal, setShowSignModal] = useState(false);
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailMsg, setEmailMsg] = useState(null);
 
   // Section-level inline editing
   const [editingDates, setEditingDates] = useState(false);
@@ -302,6 +304,24 @@ export default function RecordDetail() {
       await fetchRecord();
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const handleEmailDocument = async () => {
+    const email = record.email_primary;
+    if (!email) { alert('No email address on file for this customer.'); return; }
+    if (!window.confirm(`Email this document to ${email}?`)) return;
+    setEmailing(true);
+    setEmailMsg(null);
+    try {
+      const result = await api.emailDocument(record.id);
+      setEmailMsg({ type: 'success', text: `${result.docType} emailed to ${result.sentTo}` });
+      setTimeout(() => setEmailMsg(null), 6000);
+    } catch (err) {
+      setEmailMsg({ type: 'error', text: err.message });
+      setTimeout(() => setEmailMsg(null), 6000);
+    } finally {
+      setEmailing(false);
     }
   };
 
@@ -623,7 +643,12 @@ ${paymentDetailHtml}
             </>
           )}
           {!editing && (
-            <button onClick={handlePrint} style={btnPrint}>Print</button>
+            <>
+              <button onClick={handlePrint} style={btnPrint}>Print</button>
+              <button onClick={handleEmailDocument} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
+                {emailing ? 'Sending...' : '\u2709 Email'}
+              </button>
+            </>
           )}
           {canEditRecords && !editing && record.status !== 'void' && (
             <button onClick={() => setShowScheduleModal(true)} style={btnSchedule}>Add to Schedule</button>
@@ -633,6 +658,15 @@ ${paymentDetailHtml}
           )}
         </div>
       </div>
+
+      {emailMsg && (
+        <div style={{
+          padding: '10px 16px', marginBottom: '12px', borderRadius: '6px', fontSize: '0.875rem',
+          backgroundColor: emailMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
+          color: emailMsg.type === 'success' ? '#065f46' : '#dc2626',
+          border: `1px solid ${emailMsg.type === 'success' ? '#bbf7d0' : '#fca5a5'}`,
+        }}>{emailMsg.text}</div>
+      )}
 
       {/* Edit mode banner */}
       {editing && (

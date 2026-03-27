@@ -51,6 +51,7 @@ export const api = {
   updateRecord: (id, data) => request(`/records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   updateRecordStatus: (id, status, manualOverride = false) => request(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, manual_override: manualOverride }) }),
   deleteRecord: (id) => request(`/records/${id}`, { method: 'DELETE' }),
+  emailDocument: (id) => request(`/records/${id}/email-document`, { method: 'POST' }),
 
   // Customers
   getCustomers: (params = {}) => {

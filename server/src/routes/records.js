@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { getSetting, recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
+const { sendEmail } = require('../services/email');
 
 // ---------------------------------------------------------------------------
 // Status transition rules
@@ -509,6 +510,157 @@ router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) =
     res.json({ message: 'Record voided', record: rows[0] });
   } catch (err) {
     console.error('DELETE /api/records/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/records/:id/email-document — Email document to customer
+// ---------------------------------------------------------------------------
+router.post('/:id/email-document', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.*,
+              c.first_name, c.last_name, c.company_name, c.email_primary,
+              c.address_street, c.address_city, c.address_state, c.address_zip,
+              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin
+       FROM records r
+       JOIN customers c ON c.id = r.customer_id
+       LEFT JOIN units u ON u.id = r.unit_id
+       WHERE r.id = $1 AND r.deleted_at IS NULL`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Record not found' });
+
+    const r = rows[0];
+    const email = r.email_primary;
+    if (!email) return res.status(400).json({ error: 'No email address on file for this customer.' });
+
+    // Determine document type
+    let docType = 'Work Order';
+    if (r.status === 'estimate') docType = 'Estimate';
+    else if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status)) docType = 'Invoice';
+
+    // Fetch line items
+    const [laborRes, partsRes, freightRes] = await Promise.all([
+      pool.query('SELECT * FROM record_labor_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
+      pool.query('SELECT * FROM record_parts_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
+      pool.query('SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY id', [r.id]),
+    ]);
+
+    const fmtCur = (v) => {
+      const n = parseFloat(v) || 0;
+      return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+    };
+
+    const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim();
+    const unit = [r.unit_year, r.unit_make, r.unit_model].filter(Boolean).join(' ') || 'N/A';
+    const address = [r.address_street, r.address_city, r.address_state, r.address_zip].filter(Boolean).join(', ');
+
+    // Build labor table rows
+    const laborRows = laborRes.rows.map(l =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${l.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(l.hours||0).toFixed(2)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.rate)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.line_total)}</td></tr>`
+    ).join('');
+
+    const partsRows = partsRes.rows.map(p =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(p.quantity||0)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(p.sale_price_each)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(p.line_total)}</td></tr>`
+    ).join('');
+
+    const freightRows = freightRes.rows.map(f =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${f.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">1</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(f.amount)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(f.amount)}</td></tr>`
+    ).join('');
+
+    const underWarranty = parseFloat(r.under_warranty_amount) || 0;
+    const noCharge = parseFloat(r.no_charge_amount) || 0;
+    const discount = parseFloat(r.discount_amount) || 0;
+    const amountDue = parseFloat(r.amount_due) || 0;
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:700px;margin:0 auto;background:#ffffff;">
+  <div style="background-color:#1e3a5f;padding:20px 32px;text-align:center;">
+    <h1 style="color:#ffffff;margin:0;font-size:20px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+    <p style="color:#93c5fd;margin:4px 0 0;font-size:12px;font-style:italic;">Our Service Makes Happy Campers!</p>
+  </div>
+  <div style="padding:24px 32px;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <h2 style="color:#1e3a5f;margin:0 0 4px;font-size:18px;">${docType} #${r.record_number}</h2>
+        <p style="margin:2px 0;font-size:13px;color:#374151;"><strong>Customer:</strong> ${customerName}${r.company_name ? ' (' + r.company_name + ')' : ''}</p>
+        ${address ? `<p style="margin:2px 0;font-size:13px;color:#374151;">${address}</p>` : ''}
+        <p style="margin:2px 0;font-size:13px;color:#374151;"><strong>Unit:</strong> ${unit}</p>
+      </div>
+    </div>
+
+    ${laborRows ? `
+    <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">LABOR</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;"><th style="padding:6px 8px;text-align:left;">Description</th><th style="padding:6px 8px;text-align:right;">Hours</th><th style="padding:6px 8px;text-align:right;">Rate</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead>
+      <tbody>${laborRows}</tbody>
+    </table>` : ''}
+
+    ${partsRows ? `
+    <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">PARTS</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;"><th style="padding:6px 8px;text-align:left;">Description</th><th style="padding:6px 8px;text-align:right;">Qty</th><th style="padding:6px 8px;text-align:right;">Price</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead>
+      <tbody>${partsRows}</tbody>
+    </table>` : ''}
+
+    ${freightRows ? `
+    <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">FREIGHT / MISC</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;"><th style="padding:6px 8px;text-align:left;">Description</th><th style="padding:6px 8px;text-align:right;">Qty</th><th style="padding:6px 8px;text-align:right;">Price</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead>
+      <tbody>${freightRows}</tbody>
+    </table>` : ''}
+
+    <div style="margin-top:20px;text-align:right;">
+      <table style="margin-left:auto;font-size:13px;">
+        <tr><td style="padding:3px 12px;color:#6b7280;">Labor Subtotal</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.labor_subtotal)}</td></tr>
+        <tr><td style="padding:3px 12px;color:#6b7280;">Parts Subtotal</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.parts_subtotal)}</td></tr>
+        ${parseFloat(r.freight_subtotal) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">Freight/Misc</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.freight_subtotal)}</td></tr>` : ''}
+        ${parseFloat(r.shop_supplies_amount) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">Shop Supplies</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.shop_supplies_amount)}</td></tr>` : ''}
+        ${parseFloat(r.cc_fee_amount) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">CC Fee</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.cc_fee_amount)}</td></tr>` : ''}
+        <tr><td style="padding:3px 12px;color:#6b7280;">Tax</td><td style="padding:3px 12px;text-align:right;">${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</td></tr>
+        <tr style="border-top:2px solid #1e3a5f;"><td style="padding:6px 12px;font-weight:bold;color:#1e3a5f;">Total Sales</td><td style="padding:6px 12px;text-align:right;font-weight:bold;">${fmtCur(r.total_sales)}</td></tr>
+        ${underWarranty > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Under Warranty</td><td style="padding:3px 12px;text-align:right;color:#dc2626;">-${fmtCur(underWarranty)}</td></tr>` : ''}
+        ${noCharge > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Not Covered</td><td style="padding:3px 12px;text-align:right;color:#dc2626;">-${fmtCur(noCharge)}</td></tr>` : ''}
+        ${discount > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Discount${r.discount_description ? ' — ' + r.discount_description : ''}</td><td style="padding:3px 12px;text-align:right;color:#dc2626;">-${fmtCur(discount)}</td></tr>` : ''}
+        <tr><td style="padding:3px 12px;color:#6b7280;">Total Collected</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.total_collected)}</td></tr>
+        <tr style="border-top:2px solid #1e3a5f;"><td style="padding:8px 12px;font-weight:bold;font-size:15px;color:${amountDue > 0 ? '#dc2626' : '#065f46'};">AMOUNT DUE</td><td style="padding:8px 12px;text-align:right;font-weight:bold;font-size:15px;color:${amountDue > 0 ? '#dc2626' : '#065f46'};">${fmtCur(amountDue)}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
+    <p style="margin:0;color:#6b7280;font-size:12px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+  </div>
+</div></body></html>`;
+
+    const subject = `${docType} #${r.record_number} — Master Tech RV Repair & Storage`;
+    const result = await sendEmail({
+      to: email,
+      cc: 'service@mastertechrvrepair.com',
+      subject,
+      html,
+      text: `${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\nAmount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.`,
+    });
+
+    if (result.success) {
+      // Log to communication_log
+      try {
+        await pool.query(
+          `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
+           VALUES ($1, $2, 'email', 'document_emailed', $3)`,
+          [r.customer_id, r.id, `${docType} #${r.record_number} emailed to ${email}`]
+        );
+      } catch (logErr) {
+        console.error('Comm log error (non-blocking):', logErr.message);
+      }
+      res.json({ success: true, sentTo: email, docType });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    console.error('POST /api/records/:id/email-document error:', err);
     res.status(500).json({ error: err.message });
   }
 });
