@@ -244,4 +244,33 @@ router.get('/payment/:id', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/square/devices — List Square devices (admin only, for Terminal setup)
+// ---------------------------------------------------------------------------
+router.get('/devices', requireRole('admin'), async (req, res) => {
+  const baseUrl = environment === 'production'
+    ? 'https://connect.squareup.com'
+    : 'https://connect.squareupsandbox.com';
+  try {
+    const response = await fetch(`${baseUrl}/v2/devices`, {
+      headers: { 'Authorization': `Bearer ${process.env.SQUARE_ACCESS_TOKEN}` },
+    });
+    const data = await response.json();
+    if (data.errors) {
+      return res.status(400).json({ errors: data.errors });
+    }
+    const devices = (data.devices || []).map(d => ({
+      id: d.id,
+      name: d.attributes?.name || d.name || 'Unnamed',
+      type: d.attributes?.type || '',
+      model: d.attributes?.model || '',
+      status: d.status?.category || '',
+      locationId: d.location_id || '',
+    }));
+    res.json({ environment, devices });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

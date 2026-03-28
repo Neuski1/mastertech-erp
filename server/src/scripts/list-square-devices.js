@@ -3,44 +3,94 @@
  * List all Square Terminal devices connected to your account.
  * Run: node server/src/scripts/list-square-devices.js
  *
- * Copy the Device ID for your terminal and add it to .env as:
- *   SQUARE_TERMINAL_DEVICE_ID=<device_id>
+ * NOTE: This uses credentials from your local .env file.
+ * To list PRODUCTION devices, temporarily set SQUARE_ENVIRONMENT=production
+ * and use the production access token in .env, then run the script.
+ * REMEMBER to restore sandbox credentials after.
  */
 
 require('dotenv').config();
-const { client } = require('../services/square');
+
+const env = process.env.SQUARE_ENVIRONMENT || 'sandbox';
+const token = process.env.SQUARE_ACCESS_TOKEN;
+const baseUrl = env === 'production'
+  ? 'https://connect.squareup.com'
+  : 'https://connect.squareupsandbox.com';
 
 async function listDevices() {
   console.log('Fetching Square devices...\n');
-  console.log(`Environment: ${process.env.SQUARE_ENVIRONMENT || 'sandbox'}`);
-  console.log(`Access Token: ${process.env.SQUARE_ACCESS_TOKEN ? '***set' : 'NOT SET'}\n`);
+  console.log(`Environment: ${env}`);
+  console.log(`Access Token: ${token ? '***set' : 'NOT SET'}\n`);
+
+  if (!token) {
+    console.error('SQUARE_ACCESS_TOKEN is not set in .env');
+    return;
+  }
 
   try {
-    const response = await client.devices.list();
-    const devices = response.data?.devices || [];
+    // List device codes
+    const res = await fetch(`${baseUrl}/v2/devices/codes`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
 
-    if (devices.length === 0) {
-      console.log('No devices found. Make sure your Square Terminal is paired in Square Dashboard.');
+    if (data.errors) {
+      console.error('API Error:', data.errors.map(e => e.detail).join('; '));
       return;
     }
 
-    console.log(`Found ${devices.length} device(s):\n`);
-    devices.forEach((d, i) => {
-      console.log(`  ${i + 1}. ${d.name || 'Unnamed Device'}`);
-      console.log(`     Device ID: ${d.id}`);
-      console.log(`     Status:    ${d.status || '—'}`);
-      console.log(`     Product:   ${d.productType || '—'}`);
-      console.log(`     Location:  ${d.locationId || '—'}`);
-      console.log('');
-    });
+    const codes = data.device_codes || [];
+    if (codes.length === 0) {
+      console.log('No terminal device codes found.\n');
+    } else {
+      console.log(`Found ${codes.length} device code(s):\n`);
+      codes.forEach((d, i) => {
+        console.log(`  ${i + 1}. ${d.name || 'Unnamed'}`);
+        console.log(`     Device ID:   ${d.device_id || '—'}`);
+        console.log(`     Code:        ${d.code || '—'}`);
+        console.log(`     Status:      ${d.status || '—'}`);
+        console.log(`     Product:     ${d.product_type || '—'}`);
+        console.log(`     Location:    ${d.location_id || '—'}`);
+        console.log(`     Paired At:   ${d.paired_at || '—'}`);
+        console.log('');
+      });
+      const paired = codes.find(d => d.status === 'PAIRED');
+      if (paired && paired.device_id) {
+        console.log('>> Add to Railway env vars:');
+        console.log(`   SQUARE_TERMINAL_DEVICE_ID=${paired.device_id}\n`);
+      }
+    }
 
-    console.log('Copy the Device ID above and add to .env:');
-    console.log(`  SQUARE_TERMINAL_DEVICE_ID=${devices[0].id}`);
+    // Also list devices directly
+    const devRes = await fetch(`${baseUrl}/v2/devices`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    });
+    const devData = await devRes.json();
+    const devices = devData.devices || [];
+
+    if (devices.length > 0) {
+      console.log(`Found ${devices.length} device(s):\n`);
+      devices.forEach((d, i) => {
+        console.log(`  ${i + 1}. ${d.attributes?.name || d.name || 'Unnamed'}`);
+        console.log(`     Device ID:   ${d.id}`);
+        console.log(`     Type:        ${d.attributes?.type || '—'}`);
+        console.log(`     Status:      ${d.status?.category || '—'}`);
+        console.log(`     Location:    ${d.location_id || '—'}`);
+        console.log('');
+      });
+    }
+
   } catch (err) {
-    const detail = err.errors
-      ? err.errors.map(e => e.detail).join('; ')
-      : err.message;
-    console.error('Error listing devices:', detail);
+    console.error('Error:', err.message);
+  }
+
+  if (env === 'sandbox') {
+    console.log('---');
+    console.log('Running against SANDBOX. To list production devices:');
+    console.log('1. Temporarily set SQUARE_ENVIRONMENT=production in .env');
+    console.log('2. Set SQUARE_ACCESS_TOKEN to your production token');
+    console.log('3. Re-run this script');
+    console.log('4. Restore sandbox credentials after');
   }
 }
 
