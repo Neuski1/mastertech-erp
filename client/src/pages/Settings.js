@@ -242,6 +242,102 @@ export default function Settings() {
           </>
         )}
       </div>
+      {/* Square Terminal Setup */}
+      <SquareDevicesSection onMessage={setActionMsg} />
+    </div>
+  );
+}
+
+function SquareDevicesSection({ onMessage }) {
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const fetchDevices = async () => {
+    setLoading(true);
+    try {
+      const data = await api.getSquareDevices();
+      setDevices(data.devices || []);
+      setFetched(true);
+      if ((data.devices || []).length === 0) {
+        onMessage({ type: 'error', text: 'No Square devices found. Make sure a Terminal device is paired in your Square Dashboard.' });
+      }
+    } catch (err) {
+      onMessage({ type: 'error', text: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyDeviceId = (deviceId) => {
+    navigator.clipboard.writeText(deviceId);
+    setCopiedId(deviceId);
+    onMessage({ type: 'success', text: `Device ID copied to clipboard` });
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <div style={sectionStyle}>
+      <h2 style={sectionTitle}>Square Terminal Setup</h2>
+      <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '16px' }}>
+        Find your Terminal Device ID to enable card reader payments.
+      </p>
+
+      {!fetched && (
+        <button onClick={fetchDevices} disabled={loading} style={btnListDevices}>
+          {loading ? 'Loading...' : 'List Square Devices'}
+        </button>
+      )}
+
+      {fetched && devices.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Device Name</th>
+                <th style={thStyle}>Device ID</th>
+                <th style={thStyle}>Status</th>
+                <th style={thStyle}>Location ID</th>
+                <th style={{ ...thStyle, width: '100px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.map(d => (
+                <tr key={d.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={tdStyle}>{d.name}</td>
+                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.75rem' }}>{d.id}</td>
+                  <td style={tdStyle}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600,
+                      backgroundColor: d.status === 'PAIRED' ? '#d1fae5' : '#fef3c7',
+                      color: d.status === 'PAIRED' ? '#065f46' : '#92400e',
+                    }}>{d.status}</span>
+                  </td>
+                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.75rem' }}>{d.locationId}</td>
+                  <td style={tdStyle}>
+                    <button onClick={() => copyDeviceId(d.id)} style={copiedId === d.id ? btnCopied : btnCopy}>
+                      {copiedId === d.id ? 'Copied!' : 'Copy ID'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button onClick={fetchDevices} disabled={loading} style={{ ...btnRefresh, marginTop: '12px' }}>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+      )}
+
+      {fetched && devices.length === 0 && (
+        <div style={{ padding: '16px', backgroundColor: '#fef3c7', borderRadius: '6px', fontSize: '0.85rem', color: '#92400e' }}>
+          No devices found. Pair a Terminal device in your Square Dashboard first.
+          <button onClick={fetchDevices} disabled={loading} style={{ ...btnRefresh, marginLeft: '12px' }}>
+            {loading ? 'Refreshing...' : 'Try Again'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -295,3 +391,24 @@ const btnAddTech = {
   padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff',
   border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap',
 };
+const btnListDevices = {
+  padding: '10px 20px', backgroundColor: '#1e3a5f', color: '#fff',
+  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
+};
+const btnCopy = {
+  padding: '4px 10px', backgroundColor: '#f3f4f6', color: '#374151',
+  border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem',
+};
+const btnCopied = {
+  padding: '4px 10px', backgroundColor: '#d1fae5', color: '#065f46',
+  border: '1px solid #86efac', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+};
+const btnRefresh = {
+  padding: '6px 14px', backgroundColor: '#fff', color: '#374151',
+  border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem',
+};
+const thStyle = {
+  padding: '8px 10px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280',
+  textTransform: 'uppercase', borderBottom: '2px solid #e5e7eb', letterSpacing: '0.05em',
+};
+const tdStyle = { padding: '8px 10px', fontSize: '0.85rem' };

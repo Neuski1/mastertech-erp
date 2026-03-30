@@ -155,6 +155,9 @@ export const api = {
   squareTerminalCancel: (checkoutId) => request(`/square/terminal/checkout/${checkoutId}/cancel`, { method: 'POST' }),
   squareTerminalComplete: (data) => request('/square/terminal/complete-payment', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Square Devices
+  getSquareDevices: () => request('/square/devices'),
+
   // Estimates
   signEstimate: (recordId, signatureData) => request(`/estimates/${recordId}/sign`, { method: 'POST', body: JSON.stringify({ signature_data: signatureData }) }),
 
