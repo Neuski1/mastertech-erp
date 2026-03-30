@@ -65,7 +65,7 @@ export default function RecordDetail() {
   const location = useLocation();
   const fromCustomer = location.state?.from === 'customer';
   const fromCustomerId = location.state?.customerId;
-  const { canSeeFinancials, canEditRecords, canPostPayments, isAdmin, isBookkeeper, user } = useAuth();
+  const { canSeeFinancials, canEditRecords, canPostPayments, isAdmin, isBookkeeper } = useAuth();
   const [record, setRecord] = useState(null);
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({});
