@@ -37,7 +37,7 @@ router.post('/:recordId/photos', requireRole('admin', 'service_writer', 'technic
 });
 
 // PATCH /api/records/:recordId/photos/:photoId
-router.patch('/:recordId/photos/:photoId', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:recordId/photos/:photoId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { category, label } = req.body;
   const updates = [];
   const values = [];

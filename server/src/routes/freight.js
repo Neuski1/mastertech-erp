@@ -20,7 +20,7 @@ router.get('/:id/freight', async (req, res) => {
 });
 
 // POST /api/records/:id/freight — Add a freight line
-router.post('/:id/freight', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/freight', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { description, amount } = req.body;
   if (!description || amount === undefined) {
     return res.status(400).json({ error: 'description and amount are required' });
@@ -41,7 +41,7 @@ router.post('/:id/freight', requireRole('admin', 'service_writer'), async (req, 
 });
 
 // PATCH /api/records/:id/freight/:fid — Update a freight line
-router.patch('/:id/freight/:fid', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id/freight/:fid', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { description, amount } = req.body;
   const updates = [];
   const values = [];

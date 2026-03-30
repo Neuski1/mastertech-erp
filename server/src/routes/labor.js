@@ -183,7 +183,7 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
 // ---------------------------------------------------------------------------
 // DELETE /api/labor/:recordId/:lineId — Soft delete
 // ---------------------------------------------------------------------------
-router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
 
   const client = await pool.connect();

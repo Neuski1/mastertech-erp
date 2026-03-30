@@ -47,6 +47,7 @@ export default function Login() {
               placeholder="your@email.com"
               required
               autoFocus
+              autoComplete="new-password"
               style={inputStyle}
             />
           </div>
@@ -59,6 +60,7 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
               required
+              autoComplete="new-password"
               style={inputStyle}
             />
           </div>

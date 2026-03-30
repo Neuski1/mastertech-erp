@@ -124,7 +124,7 @@ router.get('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/appointments — Create appointment
 // ---------------------------------------------------------------------------
-router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     customer_id, unit_id, record_id, appointment_type,
     scheduled_date, scheduled_time, duration_minutes,

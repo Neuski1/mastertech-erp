@@ -60,7 +60,7 @@ router.get('/search', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/parts/:recordId — Add parts line
 // ---------------------------------------------------------------------------
-router.post('/:recordId', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId } = req.params;
   const {
     inventory_id, is_inventory_part,
@@ -248,7 +248,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer'), async (req, re
 // ---------------------------------------------------------------------------
 // PATCH /api/parts/:recordId/:lineId — Edit parts line
 // ---------------------------------------------------------------------------
-router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
   const { description, quantity, sale_price_each, taxable, cost_each } = req.body;
 
@@ -348,7 +348,7 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer'), async
 // ---------------------------------------------------------------------------
 // DELETE /api/parts/:recordId/:lineId — Soft delete + restore inventory
 // ---------------------------------------------------------------------------
-router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
 
   const client = await pool.connect();

@@ -124,7 +124,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper'), 
 // ---------------------------------------------------------------------------
 // GET /api/payments/:recordId — List payments for a record
 // ---------------------------------------------------------------------------
-router.get('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.get('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
     // Verify record exists
     const { rows: recRows } = await pool.query(

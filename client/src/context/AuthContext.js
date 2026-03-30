@@ -54,10 +54,10 @@ export function AuthProvider({ children }) {
   const isServiceWriter = user?.role === 'service_writer';
 
   // Can this user see financial data (dollar amounts)?
-  const canSeeFinancials = !isTechnician;
+  const canSeeFinancials = isAdmin || isServiceWriter || isBookkeeper || isTechnician;
 
   // Can this user edit records (labor/parts/status/fields)?
-  const canEditRecords = isAdmin || isServiceWriter;
+  const canEditRecords = isAdmin || isServiceWriter || isTechnician;
 
   // Can this user post payments?
   const canPostPayments = isAdmin || isServiceWriter || isBookkeeper;

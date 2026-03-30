@@ -241,7 +241,7 @@ router.get('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/records/:id — Update record fields
 // ---------------------------------------------------------------------------
-router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const allowedFields = [
     'key_number', 'job_description', 'intake_date', 'start_date',
     'expected_completion_date', 'mileage_at_intake',

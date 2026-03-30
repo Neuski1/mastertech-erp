@@ -252,7 +252,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/inventory/:id — Update inventory item
 // ---------------------------------------------------------------------------
-router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const allowedFields = [
     'part_number', 'description', 'vendor', 'vendor_part_number', 'category', 'location',
     'qty_on_hand', 'reorder_level', 'cost_each', 'sale_price_each', 'is_active',
