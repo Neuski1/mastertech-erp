@@ -191,6 +191,20 @@ export const api = {
   addMarketingNote: (data) => request('/marketing/note', { method: 'POST', body: JSON.stringify(data) }),
   logCampaign: (data) => request('/marketing/log-campaign', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Parts Sales
+  getPartsSales: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/parts-sales${qs ? `?${qs}` : ''}`);
+  },
+  getPartsSale: (id) => request(`/parts-sales/${id}`),
+  createPartsSale: (data) => request('/parts-sales', { method: 'POST', body: JSON.stringify(data) }),
+  updatePartsSale: (id, data) => request(`/parts-sales/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  voidPartsSale: (id) => request(`/parts-sales/${id}`, { method: 'DELETE' }),
+  addPartsSaleLine: (saleId, data) => request(`/parts-sales/${saleId}/lines`, { method: 'POST', body: JSON.stringify(data) }),
+  updatePartsSaleLine: (saleId, lineId, data) => request(`/parts-sales/${saleId}/lines/${lineId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePartsSaleLine: (saleId, lineId) => request(`/parts-sales/${saleId}/lines/${lineId}`, { method: 'DELETE' }),
+  recordPartsSalePayment: (saleId, data) => request(`/parts-sales/${saleId}/payment`, { method: 'POST', body: JSON.stringify(data) }),
+
   // Vendors
   getVendors: () => request('/vendors'),
   createVendor: (name) => request('/vendors', { method: 'POST', body: JSON.stringify({ name }) }),

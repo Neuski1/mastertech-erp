@@ -14,6 +14,8 @@ import UserManagement from './pages/UserManagement';
 import Storage from './pages/Storage';
 import CustomerList from './pages/CustomerList';
 import CustomerDetail from './pages/CustomerDetail';
+import PartsSalesList from './pages/PartsSalesList';
+import PartsSaleDetail from './pages/PartsSaleDetail';
 import QBStatusDot from './components/QBStatusDot';
 
 function RequireAuth({ children }) {
@@ -57,6 +59,7 @@ function AppLayout() {
           <Link to="/records" style={navLink}>Records</Link>
           <Link to="/inventory" style={navLink}>Inventory</Link>
           <Link to="/schedule" style={navLink}>Schedule</Link>
+          <Link to="/parts-sales" style={navLink}>Parts Sale</Link>
           <Link to="/storage" style={navLink}>Storage</Link>
           {canManageSettings && <Link to="/settings" style={navLink}>Settings</Link>}
           {canManageUsers && <Link to="/users" style={navLink}>Users</Link>}
@@ -87,6 +90,8 @@ function AppLayout() {
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/schedule/new" element={<AppointmentForm />} />
           <Route path="/schedule/:id" element={<AppointmentForm />} />
+          <Route path="/parts-sales" element={<PartsSalesList />} />
+          <Route path="/parts-sales/:id" element={<PartsSaleDetail />} />
           <Route path="/storage" element={<Storage />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
