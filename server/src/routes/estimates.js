@@ -11,7 +11,7 @@ const path = require('path');
 // POST /api/estimates/:id/sign — Customer sign-off on estimate
 // Accepts drawn signature, generates PDF, saves to OneDrive, auto-approves
 // ---------------------------------------------------------------------------
-router.post('/:id/sign', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/sign', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { signature_data } = req.body;
 
   if (!signature_data) {

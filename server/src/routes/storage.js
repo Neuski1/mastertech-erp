@@ -59,7 +59,7 @@ router.get('/', async (req, res) => {
 // GET /api/storage/billing-report — Monthly billing summary
 // Query params: month (YYYY-MM), defaults to current month
 // ---------------------------------------------------------------------------
-router.get('/billing-report', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.get('/billing-report', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { month } = req.query;
   const targetMonth = month || new Date().toISOString().slice(0, 7); // YYYY-MM
 
@@ -156,7 +156,7 @@ router.post('/spaces', requireRole('admin'), async (req, res) => {
 // Body: { space_id, customer_id, unit_id?, monthly_rate?, due_day?,
 //         square_customer_id?, square_sub_id? }
 // ---------------------------------------------------------------------------
-router.post('/assign', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/assign', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     space_id, customer_id, unit_id,
     monthly_rate, due_day,
@@ -269,7 +269,7 @@ router.post('/assign', requireRole('admin', 'service_writer'), async (req, res) 
 // PATCH /api/storage/:id — Update a storage billing record
 // Allowed: monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes
 // ---------------------------------------------------------------------------
-router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type } = req.body;
 
   const updates = [];
@@ -353,7 +353,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
 // ---------------------------------------------------------------------------
 // DELETE /api/storage/:id — End storage (set billing_end_date)
 // ---------------------------------------------------------------------------
-router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const endDate = req.body?.end_date || new Date().toISOString().split('T')[0];
 
   try {
@@ -500,7 +500,7 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/storage/charges — List charge history by month
 // ---------------------------------------------------------------------------
-router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { month } = req.query;
   const conditions = [];
   const params = [];

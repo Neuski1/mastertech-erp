@@ -694,8 +694,8 @@ ${paymentDetailHtml}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontWeight: 600, color: '#374151' }}>Status:</span>
           <StatusBadge status={record.status} />
-          {/* Manual status override dropdown — hidden for technicians */}
-          {(isAdmin || canEditRecords || isBookkeeper) && !editing && user?.role !== 'technician' && (
+          {/* Manual status override dropdown */}
+          {(isAdmin || canEditRecords || isBookkeeper) && !editing && (
             <select
               value={record.status}
               onChange={(e) => handleManualStatusChange(e.target.value)}

@@ -27,7 +27,7 @@ const VALID_TRANSITIONS = {
 // ---------------------------------------------------------------------------
 // POST /api/records — Create new record (starts as estimate)
 // ---------------------------------------------------------------------------
-router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     customer_id, unit_id, key_number, job_description,
     is_insurance_job, insurance_company, insurance_contact_name,
@@ -347,7 +347,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 // ---------------------------------------------------------------------------
 // PATCH /api/records/:id/status — Change status with validation
 // ---------------------------------------------------------------------------
-router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { status: newStatus, manual_override } = req.body;
 
   if (!newStatus) {
@@ -514,7 +514,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper')
 // ---------------------------------------------------------------------------
 // DELETE /api/records/:id — Soft delete (set deleted_at, status = void)
 // ---------------------------------------------------------------------------
-router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -560,7 +560,7 @@ router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) =
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/email-document — Email document to customer
 // ---------------------------------------------------------------------------
-router.post('/:id/email-document', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/email-document', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT r.*,

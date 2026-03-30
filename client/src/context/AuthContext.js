@@ -60,7 +60,7 @@ export function AuthProvider({ children }) {
   const canEditRecords = isAdmin || isServiceWriter || isTechnician;
 
   // Can this user post payments?
-  const canPostPayments = isAdmin || isServiceWriter || isBookkeeper;
+  const canPostPayments = isAdmin || isServiceWriter || isBookkeeper || isTechnician;
 
   // Can this user manage users?
   const canManageUsers = isAdmin;

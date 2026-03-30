@@ -262,7 +262,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
 // ---------------------------------------------------------------------------
 // PATCH /api/appointments/:id — Update appointment
 // ---------------------------------------------------------------------------
-router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     customer_id, unit_id, record_id, appointment_type,
     scheduled_date, scheduled_time, duration_minutes,
@@ -324,7 +324,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
 // ---------------------------------------------------------------------------
 // POST /api/appointments/:id/resend-confirmation — Resend confirmation email
 // ---------------------------------------------------------------------------
-router.post('/:id/resend-confirmation', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/resend-confirmation', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT a.*,
@@ -436,7 +436,7 @@ router.post('/bulk-resend', requireRole('admin'), async (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/appointments/:id — Soft delete
 // ---------------------------------------------------------------------------
-router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE appointments SET deleted_at = NOW()

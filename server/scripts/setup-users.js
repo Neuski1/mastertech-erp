@@ -2,106 +2,106 @@
  * One-time script: Update admin credentials + create shared technician login.
  *
  * Usage:
- *   node server/scripts/setup-users.js
+ *   railway run node server/scripts/setup-users.js
  *
- * Reads DATABASE_URL from .env in project root.
+ * Connects to DATABASE_URL (set by Railway environment).
  * Generates strong passwords and prints them ONCE to the terminal.
  */
 
-require('dotenv').config();
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
 });
 
-function generatePassword(length = 16) {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%';
-  let pw = '';
-  const bytes = crypto.randomBytes(length);
-  for (let i = 0; i < length; i++) {
-    pw += chars[bytes[i] % chars.length];
-  }
-  return pw;
+function generatePassword() {
+  return crypto.randomBytes(12).toString('base64');
 }
 
 async function main() {
   const client = await pool.connect();
 
   try {
-    // ── 1. Update admin credentials ──────────────────────────────────
+    // ── 1. Update admin account ─────────────────────────────────────
     const adminPassword = generatePassword();
     const adminHash = await bcrypt.hash(adminPassword, 10);
 
     const { rows: adminRows } = await client.query(
       `UPDATE users
-         SET password_hash = $1,
-             email = 'carol@mastertechrvrepair.com',
+         SET email = 'carol@mastertechrvrepair.com',
+             password_hash = $1,
              updated_at = NOW()
-       WHERE role = 'admin' AND deleted_at IS NULL
+       WHERE email = 'admin@mastertechrvrepair.com' AND deleted_at IS NULL
        RETURNING id, name, email, role`,
       [adminHash]
     );
 
     if (adminRows.length === 0) {
-      console.log('⚠  No admin user found — creating one...');
-      const { rows: newAdmin } = await client.query(
-        `INSERT INTO users (name, email, password_hash, role)
-         VALUES ('Carol', $1, $2, 'admin')
+      // Try finding by role if email doesn't match
+      const { rows: byRole } = await client.query(
+        `UPDATE users
+           SET email = 'carol@mastertechrvrepair.com',
+               password_hash = $1,
+               updated_at = NOW()
+         WHERE role = 'admin' AND deleted_at IS NULL
          RETURNING id, name, email, role`,
-        ['carol@mastertechrvrepair.com', adminHash]
+        [adminHash]
       );
-      console.log('   Created admin:', newAdmin[0]);
+
+      if (byRole.length === 0) {
+        console.log('No admin user found — creating one...');
+        await client.query(
+          `INSERT INTO users (name, email, password_hash, role, is_active)
+           VALUES ('Carol', 'carol@mastertechrvrepair.com', $1, 'admin', TRUE)`,
+          [adminHash]
+        );
+      } else {
+        console.log('Updated admin (found by role):', byRole[0]);
+      }
     } else {
-      console.log('   Updated admin:', adminRows[0]);
+      console.log('Updated admin:', adminRows[0]);
     }
 
-    console.log('');
-    console.log('┌─────────────────────────────────────────────────┐');
-    console.log('│  ADMIN LOGIN                                    │');
-    console.log('│  Email:    carol@mastertechrvrepair.com          │');
-    console.log(`│  Password: ${adminPassword.padEnd(37)}│`);
-    console.log('└─────────────────────────────────────────────────┘');
-    console.log('');
-
-    // ── 2. Create shared technician account ──────────────────────────
+    // ── 2. Create shared technician account ─────────────────────────
     const techPassword = generatePassword();
     const techHash = await bcrypt.hash(techPassword, 10);
 
-    // Check if technician account already exists
     const { rows: existingTech } = await client.query(
       `SELECT id FROM users WHERE email = 'tech@mastertechrvrepair.com' AND deleted_at IS NULL`
     );
 
     if (existingTech.length > 0) {
-      // Update existing
       await client.query(
         `UPDATE users SET password_hash = $1, name = 'Tech Team', is_active = TRUE, updated_at = NOW()
          WHERE email = 'tech@mastertechrvrepair.com' AND deleted_at IS NULL`,
         [techHash]
       );
-      console.log('   Updated existing technician account');
+      console.log('Updated existing technician account');
     } else {
-      const { rows: techRows } = await client.query(
+      await client.query(
         `INSERT INTO users (name, email, password_hash, role, is_active)
-         VALUES ('Tech Team', 'tech@mastertechrvrepair.com', $1, 'technician', TRUE)
-         RETURNING id, name, email, role`,
+         VALUES ('Tech Team', 'tech@mastertechrvrepair.com', $1, 'technician', TRUE)`,
         [techHash]
       );
-      console.log('   Created technician:', techRows[0]);
+      console.log('Created technician account');
     }
 
+    // ── 3. Display credentials ──────────────────────────────────────
     console.log('');
-    console.log('┌─────────────────────────────────────────────────┐');
-    console.log('│  TECHNICIAN LOGIN (shared by all techs)         │');
-    console.log('│  Email:    tech@mastertechrvrepair.com           │');
-    console.log(`│  Password: ${techPassword.padEnd(37)}│`);
-    console.log('└─────────────────────────────────────────────────┘');
+    console.log('================================');
+    console.log('ADMIN LOGIN:');
+    console.log('  Email:    carol@mastertechrvrepair.com');
+    console.log('  Password: ' + adminPassword);
     console.log('');
-    console.log('Copy these passwords now — they will NOT be shown again.');
+    console.log('TECHNICIAN LOGIN:');
+    console.log('  Email:    tech@mastertechrvrepair.com');
+    console.log('  Password: ' + techPassword);
+    console.log('');
+    console.log('SAVE THESE NOW — they will not be shown again.');
+    console.log('================================');
 
   } catch (err) {
     console.error('Error:', err.message);

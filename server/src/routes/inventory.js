@@ -211,7 +211,7 @@ router.get('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/inventory — Create new inventory item
 // ---------------------------------------------------------------------------
-router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     part_number, description, vendor, vendor_part_number, category, location,
     qty_on_hand, reorder_level, cost_each, sale_price_each
@@ -304,7 +304,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 // ---------------------------------------------------------------------------
 // DELETE /api/inventory/:id — Soft delete
 // ---------------------------------------------------------------------------
-router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE inventory SET deleted_at = NOW(), is_active = FALSE

@@ -44,7 +44,7 @@ async function autoTransitionStatus(recordId, client) {
 // ---------------------------------------------------------------------------
 // POST /api/payments/:recordId — Add a payment
 // ---------------------------------------------------------------------------
-router.post('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { recordId } = req.params;
   const {
     payment_type, payment_method, amount, payment_date,
@@ -163,7 +163,7 @@ router.get('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper', 't
 // ---------------------------------------------------------------------------
 // PATCH /api/payments/:recordId/:paymentId — Edit a payment
 // ---------------------------------------------------------------------------
-router.patch('/:recordId/:paymentId', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.patch('/:recordId/:paymentId', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { recordId, paymentId } = req.params;
   const {
     payment_type, payment_method, amount, payment_date,
@@ -274,7 +274,7 @@ router.patch('/:recordId/:paymentId', requireRole('admin', 'service_writer', 'bo
 // ---------------------------------------------------------------------------
 // DELETE /api/payments/:recordId/:paymentId — Soft delete a payment
 // ---------------------------------------------------------------------------
-router.delete('/:recordId/:paymentId', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.delete('/:recordId/:paymentId', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { recordId, paymentId } = req.params;
 
   const client = await pool.connect();

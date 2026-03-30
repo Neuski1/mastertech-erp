@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/inventory-categories
-router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { name, prefix } = req.body;
   if (!name || !prefix) return res.status(400).json({ error: 'name and prefix are required' });
   try {
@@ -30,7 +30,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
 });
 
 // PATCH /api/inventory-categories/:id
-router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { name, prefix } = req.body;
   const updates = [];
   const values = [];

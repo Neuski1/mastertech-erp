@@ -44,7 +44,7 @@ router.get('/config', (req, res) => {
 // POST /api/square/terminal/checkout — Create Terminal checkout
 // Body: { recordId, amount, paymentType, notes }
 // ---------------------------------------------------------------------------
-router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { recordId, amount, paymentType, notes } = req.body;
   const deviceId = process.env.SQUARE_TERMINAL_DEVICE_ID;
 
@@ -119,7 +119,7 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper'), a
 // ---------------------------------------------------------------------------
 // GET /api/square/terminal/checkout/:checkoutId/status — Poll checkout status
 // ---------------------------------------------------------------------------
-router.get('/checkout/:checkoutId/status', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.get('/checkout/:checkoutId/status', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
     const response = await squareClient.terminal.checkouts.get(req.params.checkoutId);
     const checkout = response.data.checkout;
@@ -142,7 +142,7 @@ router.get('/checkout/:checkoutId/status', requireRole('admin', 'service_writer'
 // ---------------------------------------------------------------------------
 // POST /api/square/terminal/checkout/:checkoutId/cancel — Cancel checkout
 // ---------------------------------------------------------------------------
-router.post('/checkout/:checkoutId/cancel', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/checkout/:checkoutId/cancel', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
     await squareClient.terminal.checkouts.cancel(req.params.checkoutId);
     res.json({ status: 'CANCELED' });
@@ -160,7 +160,7 @@ router.post('/checkout/:checkoutId/cancel', requireRole('admin', 'service_writer
 // Called by frontend after polling confirms COMPLETED, or by webhook
 // Body: { checkoutId, recordId, paymentType }
 // ---------------------------------------------------------------------------
-router.post('/complete-payment', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/complete-payment', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { checkoutId, recordId, paymentType } = req.body;
 
   if (!checkoutId || !recordId) {

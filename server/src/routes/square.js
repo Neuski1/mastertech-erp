@@ -49,7 +49,7 @@ router.get('/config', (req, res) => {
 // POST /api/square/create-payment — Process a card charge via Square
 // Body: { record_id, source_id (nonce), amount, payment_type, notes }
 // ---------------------------------------------------------------------------
-router.post('/create-payment', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/create-payment', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { record_id, source_id, amount, payment_type, notes } = req.body;
 
   if (!record_id || !source_id || !amount) {
@@ -160,7 +160,7 @@ router.post('/create-payment', requireRole('admin', 'service_writer', 'bookkeepe
 // POST /api/square/create-customer — Sync an ERP customer to Square
 // Body: { customer_id }
 // ---------------------------------------------------------------------------
-router.post('/create-customer', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/create-customer', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { customer_id } = req.body;
 
   if (!customer_id) {

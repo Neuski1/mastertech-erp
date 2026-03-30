@@ -7,7 +7,7 @@ const { requireRole } = require('../middleware/auth');
 // POST /api/marketing/log-campaign — Log a campaign against multiple customers
 // Body: { customer_ids: [1,2,3], campaign_name, channel, notes }
 // ---------------------------------------------------------------------------
-router.post('/log-campaign', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/log-campaign', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { customer_ids, campaign_name, channel, notes } = req.body;
 
   if (!customer_ids || !customer_ids.length || !campaign_name) {
@@ -59,7 +59,7 @@ router.get('/customer/:customerId', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/marketing/note — Add a single marketing note for a customer
 // ---------------------------------------------------------------------------
-router.post('/note', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/note', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { customer_id, channel, notes } = req.body;
 
   if (!customer_id || !notes) {

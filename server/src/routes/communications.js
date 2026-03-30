@@ -6,7 +6,7 @@ const { requireRole } = require('../middleware/auth');
 // ---------------------------------------------------------------------------
 // POST /api/communications — Log a new communication entry (append-only)
 // ---------------------------------------------------------------------------
-router.post('/', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const {
     customer_id, record_id, channel, trigger_event,
     message_content, delivery_status, is_manual, sent_by_user_id

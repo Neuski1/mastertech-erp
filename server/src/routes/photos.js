@@ -59,7 +59,7 @@ router.patch('/:recordId/photos/:photoId', requireRole('admin', 'service_writer'
 });
 
 // DELETE /api/records/:recordId/photos/:photoId
-router.delete('/:recordId/photos/:photoId', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:recordId/photos/:photoId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       'DELETE FROM record_photos WHERE id = $1 AND record_id = $2 RETURNING id',

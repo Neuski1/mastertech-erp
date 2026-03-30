@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
 
 // POST /api/units — Create unit for a customer
-router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { customer_id, year, make, model, vin, license_plate, unit_notes, unit_type, color } = req.body;
 
   if (!customer_id) {
@@ -26,7 +26,7 @@ router.post('/', requireRole('admin', 'service_writer'), async (req, res) => {
 });
 
 // PATCH /api/units/:id — Update unit fields
-router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const allowedFields = ['year', 'make', 'model', 'vin', 'license_plate', 'unit_notes', 'unit_type', 'color'];
   const updates = [];
   const values = [];

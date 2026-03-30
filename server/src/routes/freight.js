@@ -76,7 +76,7 @@ router.patch('/:id/freight/:fid', requireRole('admin', 'service_writer', 'techni
 });
 
 // DELETE /api/records/:id/freight/:fid — Soft delete a freight line
-router.delete('/:id/freight/:fid', requireRole('admin', 'service_writer'), async (req, res) => {
+router.delete('/:id/freight/:fid', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE record_freight_lines SET deleted_at = NOW()
