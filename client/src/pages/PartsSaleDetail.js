@@ -46,7 +46,7 @@ export default function PartsSaleDetail() {
     }
   };
 
-  useEffect(() => { fetchSale(); }, [id]);
+  useEffect(() => { fetchSale(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const formatCurrency = (val) =>
     parseFloat(val || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -281,7 +281,6 @@ export default function PartsSaleDetail() {
 
   const isOpen = sale.status === 'open';
   const isPaid = sale.status === 'paid';
-  const isVoid = sale.status === 'void';
   const lines = sale.lines || [];
 
   return (

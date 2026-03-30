@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 
 export default function PartsSalesList() {
@@ -23,7 +23,7 @@ export default function PartsSalesList() {
     }
   };
 
-  useEffect(() => { fetchSales(); }, [statusFilter]);
+  useEffect(() => { fetchSales(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearch = (e) => {
     if (e.key === 'Enter') fetchSales();
