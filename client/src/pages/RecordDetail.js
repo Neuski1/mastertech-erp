@@ -529,7 +529,7 @@ ${(r.freight_lines || []).length > 0 ? `
   <div class="totals">
     <div class="row"><span>SUBTOTAL — PARTS</span><span>${fmtCur(r.parts_subtotal)}</span></div>
     ${freightSub > 0 ? `<div class="row"><span>SUBTOTAL — FREIGHT/MISC</span><span>${fmtCur(freightSub)}</span></div>` : ''}
-    <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; Shop Supplies (5%)</span><span>${r.shop_supplies_exempt ? 'WAIVED' : fmtCur(r.shop_supplies_amount)}</span></div>
+    <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; Shop Supplies</span><span>${r.shop_supplies_exempt ? 'WAIVED' : fmtCur(r.shop_supplies_amount)}</span></div>
     <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; CC Fee (3%)</span><span>${r.cc_fee_applied ? fmtCur(r.cc_fee_amount) : 'N/A'}</span></div>
     <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; SUBTOTAL — OTHERS</span><span>${fmtCur(r.subtotal_others)}</span></div>
     ${underWarranty > 0 ? `<div class="row"><span>UNDER WARRANTY</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
@@ -972,9 +972,9 @@ ${paymentDetailHtml}
             )}
 
             {/* Shop Supplies toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.875rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '16px', fontSize: '0.85rem' }}>
               <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Shop Supplies (5%)
+                Shop Supplies
                 {isEditable && (
                   <ToggleSwitch
                     checked={!record.shop_supplies_exempt}
@@ -987,7 +987,7 @@ ${paymentDetailHtml}
             </div>
 
             {/* CC Fee toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.875rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '16px', fontSize: '0.85rem' }}>
               <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 CC Fee (3%)
                 {isEditable && (
