@@ -527,16 +527,16 @@ ${(r.freight_lines || []).length > 0 ? `
 
 <div class="totals-block">
   <div class="totals">
+    <div class="row"><span>SUBTOTAL — LABOR</span><span>${fmtCur(r.labor_subtotal)}</span></div>
     <div class="row"><span>SUBTOTAL — PARTS</span><span>${fmtCur(r.parts_subtotal)}</span></div>
     ${freightSub > 0 ? `<div class="row"><span>SUBTOTAL — FREIGHT/MISC</span><span>${fmtCur(freightSub)}</span></div>` : ''}
-    <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; Shop Supplies</span><span>${r.shop_supplies_exempt ? 'WAIVED' : fmtCur(r.shop_supplies_amount)}</span></div>
-    <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; CC Fee (3%)</span><span>${r.cc_fee_applied ? fmtCur(r.cc_fee_amount) : 'N/A'}</span></div>
-    <div class="row" style="padding-left:20px;font-size:9px;color:#333"><span>&rarr; SUBTOTAL — OTHERS</span><span>${fmtCur(r.subtotal_others)}</span></div>
-    ${underWarranty > 0 ? `<div class="row"><span>UNDER WARRANTY</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
-    ${noCharge > 0 ? `<div class="row"><span>NOT COVERED</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
-    ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row"><span>DISCOUNT${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
+    <div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Shop Supplies</span><span>${r.shop_supplies_exempt ? 'WAIVED' : fmtCur(r.shop_supplies_amount)}</span></div>
+    <div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; CC Fee (3%)</span><span>${r.cc_fee_applied ? fmtCur(r.cc_fee_amount) : 'N/A'}</span></div>
     <div class="row"><span>TOTAL TAX (Parts + Supplies)</span><span>${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</span></div>
     <div class="row bold divider"><span>TOTAL SALES</span><span>${fmtCur(r.total_sales)}</span></div>
+    ${underWarranty > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Under Warranty</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
+    ${noCharge > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Not Covered</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
+    ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Discount${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
     <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur((parseFloat(r.total_collected) || 0) + deposit)}</span></div>
     <div class="row bold divider" style="color:${(parseFloat(r.amount_due) || 0) > 0 ? '#dc2626' : '#111'}"><span>AMOUNT DUE</span><span>${fmtCur(r.amount_due)}</span></div>
   </div>
@@ -971,15 +971,16 @@ ${paymentDetailHtml}
         <div style={{ ...sectionStyle, backgroundColor: '#f9fafb' }}>
           <h2 style={sectionTitle}>Invoice Totals</h2>
           <div style={{ maxWidth: '440px', marginLeft: 'auto' }}>
+            <TotalRow label="Subtotal — Labor" value={formatCurrency(record.labor_subtotal)} />
             <TotalRow label="Subtotal — Parts" value={formatCurrency(record.parts_subtotal)} />
             {parseFloat(record.freight_subtotal) > 0 && (
               <TotalRow label="Subtotal — Freight / Misc." value={formatCurrency(record.freight_subtotal)} />
             )}
 
             {/* Shop Supplies toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '16px', fontSize: '0.85rem' }}>
-              <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                Shop Supplies
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '24px', fontSize: '0.8rem' }}>
+              <span style={{ color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                &mdash; Shop Supplies
                 {isEditable && (
                   <ToggleSwitch
                     checked={!record.shop_supplies_exempt}
@@ -992,9 +993,9 @@ ${paymentDetailHtml}
             </div>
 
             {/* CC Fee toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '16px', fontSize: '0.85rem' }}>
-              <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                CC Fee (3%)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '24px', fontSize: '0.8rem' }}>
+              <span style={{ color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                &mdash; CC Fee (3%)
                 {isEditable && (
                   <ToggleSwitch
                     checked={!!record.cc_fee_applied}
@@ -1028,9 +1029,9 @@ ${paymentDetailHtml}
 
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
               <TotalRow label="Total Sales" value={formatCurrency(record.total_sales)} bold />
-              {parseFloat(record.under_warranty_amount) > 0 && <TotalRow label="Under Warranty" value={`-${formatCurrency(record.under_warranty_amount)}`} color="#dc2626" />}
-              {parseFloat(record.no_charge_amount) > 0 && <TotalRow label="Not Covered" value={`-${formatCurrency(record.no_charge_amount)}`} color="#dc2626" />}
-              {parseFloat(record.discount_amount) > 0 && <TotalRow label={`Discount${record.discount_description ? ' — ' + record.discount_description : ''}`} value={`-${formatCurrency(record.discount_amount)}`} color="#dc2626" />}
+              {parseFloat(record.under_warranty_amount) > 0 && <TotalRow label="Under Warranty" value={`-${formatCurrency(record.under_warranty_amount)}`} color="#dc2626" indent />}
+              {parseFloat(record.no_charge_amount) > 0 && <TotalRow label="Not Covered" value={`-${formatCurrency(record.no_charge_amount)}`} color="#dc2626" indent />}
+              {parseFloat(record.discount_amount) > 0 && <TotalRow label={`Discount${record.discount_description ? ' — ' + record.discount_description : ''}`} value={`-${formatCurrency(record.discount_amount)}`} color="#dc2626" indent />}
               <TotalRow label="Total Collected" value={formatCurrency(record.total_collected)} />
               <TotalRow label="Amount Due" value={formatCurrency(record.amount_due)} bold color={parseFloat(record.amount_due) > 0 ? '#dc2626' : '#065f46'} />
             </div>
@@ -1552,10 +1553,10 @@ function EditableField({ label, field, value, editing, onChange, type = 'text' }
   );
 }
 
-function TotalRow({ label, value, bold, color }) {
+function TotalRow({ label, value, bold, color, indent }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '0.875rem' }}>
-      <span style={{ color: '#6b7280' }}>{label}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: indent ? '0.8rem' : '0.875rem', paddingLeft: indent ? '24px' : 0 }}>
+      <span style={{ color: indent ? '#9ca3af' : '#6b7280' }}>{indent ? `\u2014 ${label}` : label}</span>
       <span style={{ fontWeight: bold ? 700 : 400, color: color || '#111827' }}>{value}</span>
     </div>
   );
