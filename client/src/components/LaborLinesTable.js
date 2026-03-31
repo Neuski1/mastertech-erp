@@ -108,17 +108,18 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <tr key={line.id} style={hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined}>
               <td style={tdStyle}>L</td>
 
-              {/* Description — always editable */}
+              {/* Description — always editable, auto-expands */}
               <td style={tdStyle}>
                 {canEdit ? (
                   <textarea
                     defaultValue={line.description}
+                    ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                    onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
                     onBlur={(e) => {
                       if (e.target.value !== line.description) handleInlineSave(line.id, 'description', e.target.value);
                     }}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
-                    style={{ ...inlineEditable, minHeight: '40px', resize: 'vertical', whiteSpace: 'pre-wrap' }}
-                    rows={1}
+                    style={{ ...inlineEditable, minHeight: '36px', resize: 'none', whiteSpace: 'pre-wrap', overflow: 'hidden' }}
                   />
                 ) : (
                   <span style={{ whiteSpace: 'pre-wrap' }}>{line.description}</span>
