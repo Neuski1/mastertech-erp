@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 
 const TEMPLATES = [
-  { value: 'seasonal', label: 'Seasonal Promotion', icon: '\uD83C\uDF38', defaultSubject: 'Get Your RV Ready for the Season \u2014 Master Tech RV', defaultBody: '<p>It\'s the perfect time to get your RV ready for the season! Whether you need a roof inspection, AC service, or a full systems check, our team is ready to help.</p>' },
+  { value: 'seasonal', label: 'Seasonal Promotion', icon: '\uD83C\uDF38', defaultSubject: 'Get Your RV Ready for the Season \u2014 Master Tech RV', defaultBody: '<p>Don\'t wait until you\'re packed and ready to roll to find out something\'s wrong. A quick seasonal checkup from our certified techs can catch small problems before they become expensive ones \u2014 and get you on the road with total peace of mind. Come in now before the spring rush hits and avoid the wait!</p>' },
   { value: 'service_reminder', label: 'Service Reminder', icon: '\uD83D\uDD27', defaultSubject: 'Time for Your Annual RV Checkup \u2014 Master Tech RV Repair & Storage', defaultBody: '<p>It\'s been a while since we\'ve seen your RV, and we want to make sure it\'s in top shape for your next adventure!</p>' },
 ];
 
