@@ -11,11 +11,18 @@ const BATCH_DELAY_MS = 1000;
 // ---------------------------------------------------------------------------
 // Email template builders
 // ---------------------------------------------------------------------------
+function getLogoUrl() {
+  const frontend = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+  return `${frontend}/master-rvtech-logo-dark.jpg`;
+}
+
 function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
+  const logoUrl = getLogoUrl();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
   <div style="background:#1e3a5f;padding:20px 24px;text-align:center;">
+    <img src="${logoUrl}" alt="Master Tech RV" style="height:80px;max-width:250px;object-fit:contain;margin-bottom:8px;" />
     <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
   </div>
@@ -50,10 +57,12 @@ function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
 }
 
 function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUrl }) {
+  const logoUrl = getLogoUrl();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
   <div style="background:#1e3a5f;padding:20px 24px;text-align:center;">
+    <img src="${logoUrl}" alt="Master Tech RV" style="height:80px;max-width:250px;object-fit:contain;margin-bottom:8px;" />
     <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
   </div>
