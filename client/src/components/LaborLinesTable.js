@@ -6,12 +6,10 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   const { canSeeFinancials, isTechnician } = useAuth();
   const [technicians, setTechnicians] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ technician_id: '', description: '', hours: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [quickEditId, setQuickEditId] = useState(null);
-  const [quickEditHours, setQuickEditHours] = useState('');
+  const [savedLineId, setSavedLineId] = useState(null);
 
   useEffect(() => {
     api.getTechnicians().then(setTechnicians).catch(() => {});
@@ -51,35 +49,6 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     }
   };
 
-  const handleEdit = (line) => {
-    setEditingId(line.id);
-    setForm({
-      technician_id: line.technician_id || '',
-      description: line.description,
-      hours: parseFloat(line.hours),
-    });
-    setError('');
-  };
-
-  const handleSaveEdit = async () => {
-    setSaving(true);
-    setError('');
-    try {
-      await api.updateLabor(recordId, editingId, {
-        technician_id: form.technician_id ? parseInt(form.technician_id) : undefined,
-        description: form.description,
-        hours: parseFloat(form.hours || 0),
-      });
-      setEditingId(null);
-      resetForm();
-      onUpdate();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleDelete = async (lineId) => {
     if (!window.confirm('Delete this labor line?')) return;
     try {
@@ -90,42 +59,30 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     }
   };
 
-  // Quick inline hours edit
-  const startQuickEdit = (line) => {
-    setQuickEditId(line.id);
-    setQuickEditHours(parseFloat(line.hours).toString());
-  };
-
-  const saveQuickEdit = async (lineId) => {
-    const newHours = parseFloat(quickEditHours || 0);
-    if (isNaN(newHours) || newHours < 0) return;
+  // Inline save for any field
+  const handleInlineSave = async (lineId, field, value) => {
     try {
-      await api.updateLabor(recordId, lineId, { hours: newHours });
-      setQuickEditId(null);
-      setQuickEditHours('');
+      const data = {};
+      if (field === 'technician_id') data.technician_id = value ? parseInt(value) : null;
+      if (field === 'description') data.description = value;
+      if (field === 'hours') data.hours = parseFloat(value || 0);
+      await api.updateLabor(recordId, lineId, data);
+      setSavedLineId(lineId);
+      setTimeout(() => setSavedLineId(null), 1500);
       onUpdate();
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const handleQuickEditKeyDown = (e, lineId) => {
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      saveQuickEdit(lineId);
-    } else if (e.key === 'Escape') {
-      setQuickEditId(null);
-      setQuickEditHours('');
-    }
-  };
-
+  const canEdit = isEditable || isTechnician;
   const hoursNeedAttention = (line) => parseFloat(line.hours || 0) === 0;
 
   return (
     <div style={sectionStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={sectionTitle}>Labor Lines</h2>
-        {(isEditable || isTechnician) && !showAddForm && (
+        {canEdit && !showAddForm && (
           <button onClick={() => { setShowAddForm(true); resetForm(); }} style={btnSmallPrimary}>
             + Add Labor
           </button>
@@ -143,83 +100,84 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <th style={{ ...thStyle, textAlign: 'right' }}>Hours</th>
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
-            {(isEditable || isTechnician) && <th style={{ ...thStyle, width: '80px' }}></th>}
+            {canEdit && <th style={{ ...thStyle, width: '50px' }}></th>}
           </tr>
         </thead>
         <tbody>
-          {(laborLines || []).map((line) =>
-            editingId === line.id ? (
-              <tr key={line.id} style={{ backgroundColor: '#fffbeb' }}>
-                <td style={tdStyle}>L</td>
-                <td style={tdStyle}>
-                  <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} />
-                </td>
-                <td style={tdStyle}>
-                  <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
-                    <option value="">Unassigned</option>
-                    {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </td>
-                <td style={tdStyle}>
-                  <input type="number" step="0.25" min="0" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} style={{ ...inlineInput, width: '70px', textAlign: 'right' }} />
-                </td>
-                {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>{formatCurrency(line.rate)}</td>}
-                {canSeeFinancials && (
-                  <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>
-                    {form.hours ? formatCurrency(parseFloat(form.hours) * parseFloat(line.rate)) : '$0.00'}
-                  </td>
+          {(laborLines || []).map((line) => (
+            <tr key={line.id} style={hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined}>
+              <td style={tdStyle}>L</td>
+
+              {/* Description — always editable */}
+              <td style={tdStyle}>
+                {canEdit ? (
+                  <textarea
+                    defaultValue={line.description}
+                    onBlur={(e) => {
+                      if (e.target.value !== line.description) handleInlineSave(line.id, 'description', e.target.value);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
+                    style={{ ...inlineEditable, minHeight: '40px', resize: 'vertical', whiteSpace: 'pre-wrap' }}
+                    rows={1}
+                  />
+                ) : (
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{line.description}</span>
                 )}
-                <td style={tdStyle}>
-                  <button onClick={handleSaveEdit} disabled={saving} style={btnTiny}>Save</button>
-                  <button onClick={() => { setEditingId(null); resetForm(); }} style={btnTinyGray}>Cancel</button>
-                </td>
-              </tr>
-            ) : (
-              <tr key={line.id} style={hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined}>
-                <td style={tdStyle}>{line.line_type}</td>
-                <td style={{ ...tdStyle, whiteSpace: 'pre-wrap' }}>{line.description}</td>
-                <td style={tdStyle}>{line.technician_name || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Unassigned</span>}</td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>
-                  {quickEditId === line.id ? (
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      value={quickEditHours}
-                      onChange={(e) => setQuickEditHours(e.target.value)}
-                      onKeyDown={(e) => handleQuickEditKeyDown(e, line.id)}
-                      onBlur={() => saveQuickEdit(line.id)}
-                      autoFocus
-                      style={{ ...inlineInput, width: '70px', textAlign: 'right' }}
-                    />
-                  ) : (
-                    <span
-                      onClick={(isEditable || isTechnician) ? () => startQuickEdit(line) : undefined}
-                      style={(isEditable || isTechnician) ? { cursor: 'pointer', padding: '2px 6px', borderRadius: '3px', display: 'inline-flex', alignItems: 'center', gap: '6px' } : undefined}
-                      title={(isEditable || isTechnician) ? 'Click to edit hours' : undefined}
+              </td>
+
+              {/* Technician — always a dropdown */}
+              <td style={tdStyle}>
+                {canEdit ? (
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <select
+                      defaultValue={line.technician_id || ''}
+                      onChange={(e) => handleInlineSave(line.id, 'technician_id', e.target.value)}
+                      style={inlineSelect}
                     >
-                      {parseFloat(line.hours).toFixed(2)}
-                      {hoursNeedAttention(line) && (
-                        <span style={{ color: '#d97706', fontSize: '0.75rem', fontWeight: 600 }}>&#9888; Hours needed</span>
-                      )}
-                    </span>
-                  )}
-                </td>
-                {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.rate)}</td>}
-                {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
-                {(isEditable || isTechnician) && (
-                  <td style={tdStyle}>
-                    {(isEditable || isTechnician) && (
-                      <>
-                        <button onClick={() => handleEdit(line)} style={btnTinyGray} title="Edit labor line">&#9998;</button>
-                        <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
-                      </>
-                    )}
-                  </td>
+                      <option value="">Unassigned</option>
+                      {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                    {savedLineId === line.id && <span style={savedBadge}>Saved</span>}
+                  </div>
+                ) : (
+                  line.technician_name || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Unassigned</span>
                 )}
-              </tr>
-            )
-          )}
+              </td>
+
+              {/* Hours — always editable */}
+              <td style={{ ...tdStyle, textAlign: 'right' }}>
+                {canEdit ? (
+                  <input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    defaultValue={parseFloat(line.hours).toFixed(2)}
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (v !== parseFloat(line.hours)) handleInlineSave(line.id, 'hours', e.target.value);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                    style={{ ...inlineEditable, width: '70px', textAlign: 'right' }}
+                  />
+                ) : (
+                  <span>
+                    {parseFloat(line.hours).toFixed(2)}
+                    {hoursNeedAttention(line) && (
+                      <span style={{ color: '#d97706', fontSize: '0.75rem', fontWeight: 600, marginLeft: '4px' }}>&#9888;</span>
+                    )}
+                  </span>
+                )}
+              </td>
+
+              {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.rate)}</td>}
+              {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
+              {canEdit && (
+                <td style={tdStyle}>
+                  <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
+                </td>
+              )}
+            </tr>
+          ))}
 
           {/* Add form row */}
           {showAddForm && (
@@ -261,7 +219,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{totalHours.toFixed(2)}</td>
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}></td>}
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{formatCurrency(laborSubtotal)}</td>}
-            {(isEditable || isTechnician) && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
+            {canEdit && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
           </tr>
         </tfoot>
       </table>
@@ -274,6 +232,9 @@ const sectionTitle = { fontSize: '1rem', fontWeight: 700, color: '#1e3a5f', marg
 const thStyle = { textAlign: 'left', padding: '8px 12px', backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' };
 const tdStyle = { padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' };
 const inlineInput = { padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' };
+const inlineEditable = { padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box', backgroundColor: '#fefce8' };
+const inlineSelect = { padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '0.8rem', backgroundColor: '#fefce8', cursor: 'pointer' };
+const savedBadge = { position: 'absolute', top: '-6px', right: '-8px', fontSize: '0.6rem', color: '#059669', fontWeight: 700, backgroundColor: '#d1fae5', padding: '1px 4px', borderRadius: '3px' };
 const errorStyle = { color: 'red', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.8rem' };
 const btnSmallPrimary = { padding: '6px 14px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };
 const btnTiny = { padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
