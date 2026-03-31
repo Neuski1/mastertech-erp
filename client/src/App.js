@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
@@ -35,6 +35,8 @@ function RequireAuth({ children }) {
 
 function AppLayout() {
   const { user, logout, canManageUsers, canManageSettings } = useAuth();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const location = useLocation();
 
   const roleLabelMap = {
     admin: 'Admin',
@@ -42,6 +44,11 @@ function AppLayout() {
     technician: 'Technician',
     bookkeeper: 'Bookkeeper',
   };
+
+  // Close mobile nav on route change
+  React.useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
@@ -51,10 +58,13 @@ function AppLayout() {
         display: 'flex', alignItems: 'center', height: '56px',
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
       }}>
+        <button className="mobile-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+          {mobileNavOpen ? '\u2715' : '\u2630'}
+        </button>
         <Link to="/records" style={{ color: '#fff', textDecoration: 'none', fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.025em' }}>
           MASTER TECH ERP
         </Link>
-        <nav style={{ marginLeft: '32px', display: 'flex', gap: '20px' }}>
+        <nav className={`desktop-nav${mobileNavOpen ? ' mobile-open' : ''}`} style={{ marginLeft: '32px', display: 'flex', gap: '20px' }}>
           <Link to="/customers" style={navLink}>Customers</Link>
           <Link to="/records" style={navLink}>Records</Link>
           <Link to="/inventory" style={navLink}>Inventory</Link>
@@ -64,10 +74,10 @@ function AppLayout() {
           {canManageSettings && <Link to="/settings" style={navLink}>Settings</Link>}
           {canManageUsers && <Link to="/users" style={navLink}>Users</Link>}
         </nav>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <QBStatusDot />
+        <div className="header-user-info" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <span className="qb-dot"><QBStatusDot /></span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+            <span className="user-label" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
               {user?.name} <span style={{ opacity: 0.7 }}>({roleLabelMap[user?.role] || user?.role})</span>
             </span>
             <button onClick={logout} style={logoutBtn}>Logout</button>
