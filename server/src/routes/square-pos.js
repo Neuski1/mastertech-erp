@@ -18,10 +18,10 @@ async function autoTransitionStatus(recordId, dbClient) {
   const rec = rows[0];
   const amountDue = parseFloat(rec.amount_due);
   const totalCollected = parseFloat(rec.total_collected);
-  if (!['complete', 'payment_pending', 'partial'].includes(rec.status)) return;
+  if (['estimate', 'approved', 'void'].includes(rec.status)) return;
   if (amountDue <= 0 && totalCollected > 0) {
     await dbClient.query("UPDATE records SET status = 'paid' WHERE id = $1", [recordId]);
-  } else if (totalCollected > 0 && amountDue > 0 && ['complete', 'payment_pending'].includes(rec.status)) {
+  } else if (totalCollected > 0 && amountDue > 0 && !['partial', 'in_progress'].includes(rec.status)) {
     await dbClient.query("UPDATE records SET status = 'partial' WHERE id = $1", [recordId]);
   }
 }

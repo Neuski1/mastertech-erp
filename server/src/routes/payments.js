@@ -19,15 +19,16 @@ async function autoTransitionStatus(recordId, client) {
   const amountDue = parseFloat(rec.amount_due);
   const totalCollected = parseFloat(rec.total_collected);
 
-  // Only auto-transition from 'complete', 'payment_pending', or 'partial'
-  if (!['complete', 'payment_pending', 'partial'].includes(rec.status)) return;
+  // Don't auto-transition from estimate, approved, or void
+  if (['estimate', 'approved', 'void'].includes(rec.status)) return;
 
   if (amountDue <= 0 && totalCollected > 0) {
+    // Paid in full → move to 'paid' (closed)
     await client.query(
       "UPDATE records SET status = 'paid' WHERE id = $1",
       [recordId]
     );
-  } else if (totalCollected > 0 && amountDue > 0 && ['complete', 'payment_pending'].includes(rec.status)) {
+  } else if (totalCollected > 0 && amountDue > 0 && !['partial', 'in_progress'].includes(rec.status)) {
     await client.query(
       "UPDATE records SET status = 'partial' WHERE id = $1",
       [recordId]
