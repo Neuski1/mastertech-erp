@@ -86,6 +86,9 @@ export default function RecordDetail() {
   const [sectionForm, setSectionForm] = useState({});
   const [sectionSaving, setSectionSaving] = useState(false);
 
+  // Collapsible sections
+  const [expandedSections, setExpandedSections] = useState({});
+
   const startSectionEdit = (section) => {
     setSectionForm({ ...record });
     if (section === 'dates') setEditingDates(true);
@@ -805,51 +808,66 @@ ${paymentDetailHtml}
         const insFields = ['mileage_at_intake', 'under_warranty_amount', 'no_charge_amount', 'discount_amount', 'discount_description', 'deductible_amount',
           'is_insurance_job', 'insurance_company', 'insurance_contact_name', 'insurance_phone',
           'insurance_email', 'claim_number', 'policy_number'];
+        const hasInsData = record.insurance_company || record.claim_number || record.policy_number
+          || record.insurance_contact_name || record.insurance_phone || record.insurance_email
+          || parseFloat(record.deductible_amount) > 0 || record.is_insurance_job;
+        const insExpanded = expandedSections.insurance !== undefined ? expandedSections.insurance : !!hasInsData;
+        const toggleIns = () => setExpandedSections(s => ({ ...s, insurance: !insExpanded }));
         return (
           <div style={editSectionStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: insExpanded ? '12px' : 0, cursor: 'pointer' }} onClick={!insEditing ? toggleIns : undefined}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Insurance / Warranty</h2>
+                <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
+                  <span style={{ fontSize: '0.7rem', marginRight: '6px' }}>{insExpanded ? '\u25BC' : '\u25B6'}</span>
+                  Insurance / Warranty
+                </h2>
                 {insEditing ? (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }} onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={insForm.is_insurance_job || false} onChange={(e) => insChange('is_insurance_job', e.target.checked)} />
                     Insurance Job
                   </label>
                 ) : (
                   record.is_insurance_job && <StatusBadge status="estimate" />
                 )}
+                {!insExpanded && !hasInsData && (
+                  <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 500 }}>+ Add Insurance Info</span>
+                )}
               </div>
-              {canEditRecords && !editing && !editingInsurance && statusEditable && (
-                <button onClick={() => startSectionEdit('insurance')} style={btnSectionEdit}>Edit</button>
+              {canEditRecords && !editing && !editingInsurance && statusEditable && insExpanded && (
+                <button onClick={(e) => { e.stopPropagation(); startSectionEdit('insurance'); }} style={btnSectionEdit}>Edit</button>
               )}
             </div>
-            {/* Row 1: Insurance Company, Claim #, Policy #, Deductible */}
-            <div style={gridStyle}>
-              <EditableField label="Insurance Company" field="insurance_company" value={insEditing ? (insForm.insurance_company || '') : (record.insurance_company || '')} editing={insEditing} onChange={insChange} />
-              <EditableField label="Claim #" field="claim_number" value={insEditing ? (insForm.claim_number || '') : (record.claim_number || '')} editing={insEditing} onChange={insChange} />
-              <EditableField label="Policy #" field="policy_number" value={insEditing ? (insForm.policy_number || '') : (record.policy_number || '')} editing={insEditing} onChange={insChange} />
-              <EditableField label="Deductible" field="deductible_amount" value={insEditing ? (insForm.deductible_amount || '') : (record.deductible_amount || '')} editing={insEditing} onChange={insChange} type="number" />
-            </div>
-            {/* Row 2: Contact Name, Phone, Email, Not Covered Amount */}
-            <div style={{ ...gridStyle, marginTop: '12px' }}>
-              <EditableField label="Contact Name" field="insurance_contact_name" value={insEditing ? (insForm.insurance_contact_name || '') : (record.insurance_contact_name || '')} editing={insEditing} onChange={insChange} />
-              <EditableField label="Phone" field="insurance_phone" value={insEditing ? (insForm.insurance_phone || '') : (record.insurance_phone || '')} editing={insEditing} onChange={insChange} />
-              <EditableField label="Email" field="insurance_email" value={insEditing ? (insForm.insurance_email || '') : (record.insurance_email || '')} editing={insEditing} onChange={insChange} />
-              <EditableField label="Not Covered Amount" field="no_charge_amount" value={insEditing ? (insForm.no_charge_amount || '') : (record.no_charge_amount || '')} editing={insEditing} onChange={insChange} type="number" />
-            </div>
-            {/* Row 3: Under Warranty Amount, Mileage at Intake */}
-            <div style={{ ...gridStyle, marginTop: '12px' }}>
-              <EditableField label="Under Warranty Amount" field="under_warranty_amount" value={insEditing ? (insForm.under_warranty_amount || '') : (record.under_warranty_amount || '')} editing={insEditing} onChange={insChange} type="number" />
-              <EditableField label="Mileage at Intake" field="mileage_at_intake" value={insEditing ? (insForm.mileage_at_intake || '') : (record.mileage_at_intake || '')} editing={insEditing} onChange={insChange} type="number" />
-            </div>
-            {!insEditing && !record.is_insurance_job && (
-              <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: '12px 0 0' }}>Not an insurance job</p>
-            )}
-            {editingInsurance && !editing && (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <button onClick={() => handleSectionSave('insurance', insFields)} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
-                <button onClick={() => cancelSectionEdit('insurance')} style={btnSecondary}>Cancel</button>
-              </div>
+            {insExpanded && (
+              <>
+                {/* Row 1: Insurance Company, Claim #, Policy #, Deductible */}
+                <div style={gridStyle}>
+                  <EditableField label="Insurance Company" field="insurance_company" value={insEditing ? (insForm.insurance_company || '') : (record.insurance_company || '')} editing={insEditing} onChange={insChange} />
+                  <EditableField label="Claim #" field="claim_number" value={insEditing ? (insForm.claim_number || '') : (record.claim_number || '')} editing={insEditing} onChange={insChange} />
+                  <EditableField label="Policy #" field="policy_number" value={insEditing ? (insForm.policy_number || '') : (record.policy_number || '')} editing={insEditing} onChange={insChange} />
+                  <EditableField label="Deductible" field="deductible_amount" value={insEditing ? (insForm.deductible_amount || '') : (record.deductible_amount || '')} editing={insEditing} onChange={insChange} type="number" />
+                </div>
+                {/* Row 2: Contact Name, Phone, Email, Not Covered Amount */}
+                <div style={{ ...gridStyle, marginTop: '12px' }}>
+                  <EditableField label="Contact Name" field="insurance_contact_name" value={insEditing ? (insForm.insurance_contact_name || '') : (record.insurance_contact_name || '')} editing={insEditing} onChange={insChange} />
+                  <EditableField label="Phone" field="insurance_phone" value={insEditing ? (insForm.insurance_phone || '') : (record.insurance_phone || '')} editing={insEditing} onChange={insChange} />
+                  <EditableField label="Email" field="insurance_email" value={insEditing ? (insForm.insurance_email || '') : (record.insurance_email || '')} editing={insEditing} onChange={insChange} />
+                  <EditableField label="Not Covered Amount" field="no_charge_amount" value={insEditing ? (insForm.no_charge_amount || '') : (record.no_charge_amount || '')} editing={insEditing} onChange={insChange} type="number" />
+                </div>
+                {/* Row 3: Under Warranty Amount, Mileage at Intake */}
+                <div style={{ ...gridStyle, marginTop: '12px' }}>
+                  <EditableField label="Under Warranty Amount" field="under_warranty_amount" value={insEditing ? (insForm.under_warranty_amount || '') : (record.under_warranty_amount || '')} editing={insEditing} onChange={insChange} type="number" />
+                  <EditableField label="Mileage at Intake" field="mileage_at_intake" value={insEditing ? (insForm.mileage_at_intake || '') : (record.mileage_at_intake || '')} editing={insEditing} onChange={insChange} type="number" />
+                </div>
+                {!insEditing && !record.is_insurance_job && (
+                  <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: '12px 0 0' }}>Not an insurance job</p>
+                )}
+                {editingInsurance && !editing && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button onClick={() => handleSectionSave('insurance', insFields)} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
+                    <button onClick={() => cancelSectionEdit('insurance')} style={btnSecondary}>Cancel</button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         );
@@ -916,12 +934,24 @@ ${paymentDetailHtml}
       />
 
       {/* Freight Lines */}
-      <FreightLinesTable
-        recordId={record.id}
-        freightLines={record.freight_lines}
-        isEditable={isEditable}
-        onUpdate={fetchRecord}
-      />
+      {(() => {
+        const hasFreight = (record.freight_lines || []).length > 0;
+        const freightExpanded = expandedSections.freight !== undefined ? expandedSections.freight : hasFreight;
+        if (freightExpanded) {
+          return <FreightLinesTable recordId={record.id} freightLines={record.freight_lines} isEditable={isEditable} onUpdate={fetchRecord} />;
+        }
+        return (
+          <div style={editSectionStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedSections(s => ({ ...s, freight: true }))}>
+              <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
+                <span style={{ fontSize: '0.7rem', marginRight: '6px' }}>{'\u25B6'}</span>
+                Freight / Shipping Charges
+              </h2>
+              {isEditable && <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 500 }}>+ Add Freight</span>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ─── Invoice Totals ─── */}
       {canSeeFinancials && (
@@ -1144,7 +1174,7 @@ ${paymentDetailHtml}
         </div>
       </div>
 
-      {/* Communication Log */}
+      {/* Photos */}
       <PhotoLinksSection recordId={record.id} isEditable={isEditable} />
 
       <CommunicationLog customerId={record.customer_id} recordId={record.id} />

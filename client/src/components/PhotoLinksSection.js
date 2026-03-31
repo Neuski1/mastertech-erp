@@ -18,6 +18,7 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
   const [form, setForm] = useState({ category: 'before', label: '', onedrive_url: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState(null); // null = auto (based on data), true/false = manual
 
   const fetchPhotos = async () => {
     try {
@@ -60,14 +61,27 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
     return url.substring(0, 47) + '...';
   };
 
+  const isExpanded = expanded !== null ? expanded : photos.length > 0;
+
   return (
     <div style={sectionStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={sectionTitle}>Photos</h2>
-        {isEditable && !showForm && (
-          <button onClick={() => setShowForm(true)} style={btnSmallPrimary}>+ Add Photo Link</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpanded(!isExpanded)}>
+        <h2 style={{ ...sectionTitle, marginBottom: isExpanded ? undefined : 0 }}>
+          <span style={{ fontSize: '0.7rem', marginRight: '6px' }}>{isExpanded ? '\u25BC' : '\u25B6'}</span>
+          Photos
+          {!isExpanded && photos.length === 0 && (
+            <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 500, marginLeft: '12px' }}>+ Add Photo Link</span>
+          )}
+          {!isExpanded && photos.length > 0 && (
+            <span style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 400, marginLeft: '12px' }}>({photos.length})</span>
+          )}
+        </h2>
+        {isEditable && !showForm && isExpanded && (
+          <button onClick={(e) => { e.stopPropagation(); setShowForm(true); }} style={btnSmallPrimary}>+ Add Photo Link</button>
         )}
       </div>
+      {!isExpanded ? null : (<>
+
 
       {error && <div style={errorStyle}>{error}</div>}
 
@@ -109,6 +123,7 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
           </div>
         );
       })}
+      </>)}
     </div>
   );
 }
