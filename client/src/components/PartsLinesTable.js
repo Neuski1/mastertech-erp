@@ -197,6 +197,21 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     }
   };
 
+  // Inline save for qty/price without entering full edit mode
+  const handleInlineSave = async (lineId, field, value) => {
+    const numVal = parseFloat(value);
+    if (isNaN(numVal) || numVal < 0) return;
+    try {
+      const data = {};
+      if (field === 'quantity') data.quantity = numVal;
+      if (field === 'sale_price_each') data.sale_price_each = numVal;
+      await api.updatePart(recordId, lineId, data);
+      onUpdate();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleDelete = async (lineId) => {
     if (!window.confirm('Delete this parts line?')) return;
     try {
@@ -476,7 +491,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 </td>
                 <td style={tdStyle}>
                   <input type="number" step="0.01" value={form.sale_price_each} onChange={(e) => setForm({ ...form, sale_price_each: e.target.value })}
-                    disabled={line.is_inventory_part} style={{ ...inlineInput, width: '80px', textAlign: 'right' }} />
+                    style={{ ...inlineInput, width: '80px', textAlign: 'right' }} />
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>
                   {form.quantity && form.sale_price_each ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each)) : '—'}
@@ -499,8 +514,36 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     {line.taxable ? '\u2713' : '\u2717'}
                   </td>
                 )}
-                <td style={{ ...tdStyle, textAlign: 'right' }}>{parseFloat(line.quantity).toFixed(2)}</td>
-                {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.sale_price_each)}</td>}
+                <td style={{ ...tdStyle, textAlign: 'right' }}>
+                  {isEditable ? (
+                    <input
+                      type="number" step="1" min="1"
+                      defaultValue={parseFloat(line.quantity)}
+                      onBlur={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (v !== parseFloat(line.quantity)) handleInlineSave(line.id, 'quantity', e.target.value);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                      style={inlineEditableStyle}
+                    />
+                  ) : parseFloat(line.quantity).toFixed(2)}
+                </td>
+                {canSeeFinancials && (
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {isEditable ? (
+                      <input
+                        type="number" step="0.01" min="0"
+                        defaultValue={parseFloat(line.sale_price_each).toFixed(2)}
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (v !== parseFloat(line.sale_price_each)) handleInlineSave(line.id, 'sale_price_each', e.target.value);
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                        style={inlineEditableStyle}
+                      />
+                    ) : formatCurrency(line.sale_price_each)}
+                  </td>
+                )}
                 {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
                 {isEditable && (
                   <td style={tdStyle}>
@@ -718,6 +761,7 @@ const btnSmallPrimary = { padding: '6px 14px', backgroundColor: '#1e3a5f', color
 const btnSmallGray = { padding: '6px 14px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' };
 const btnTiny = { padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
 const btnTinyGray = { padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
+const inlineEditableStyle = { padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '0.8rem', width: '70px', textAlign: 'right', boxSizing: 'border-box', backgroundColor: '#fefce8' };
 const btnTinyDanger = { padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' };
 const btnTinyInv = { padding: '2px 8px', backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px', fontWeight: 600 };
 const toggleActive = { padding: '6px 14px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };
