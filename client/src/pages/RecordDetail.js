@@ -12,7 +12,7 @@ import SquarePayment from '../components/SquarePayment';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
-import BulletTextarea, { BulletDisplay } from '../components/BulletTextarea';
+import { BulletDisplay } from '../components/BulletTextarea';
 
 const NEXT_STATUS = {
   estimate: 'approved',
@@ -888,15 +888,14 @@ ${paymentDetailHtml}
       {/* ─── Job Description ─── */}
       <div style={editSectionStyle}>
         <h2 style={sectionTitle}>Job Description</h2>
-        {editing ? (
-          <BulletTextarea
-            value={formData.job_description || ''}
-            onChange={(val) => handleFieldChange('job_description', val)}
-            placeholder="• Describe the work needed..."
-            style={{ ...inputStyle, width: '100%', minHeight: '80px', resize: 'vertical' }}
-          />
-        ) : (
+        {record.status === 'void' ? (
           <BulletDisplay text={record.job_description} />
+        ) : (
+          <AutoSaveBulletTextarea
+            value={record.job_description || ''}
+            recordId={id}
+            onSaved={fetchRecord}
+          />
         )}
       </div>
 
@@ -1392,6 +1391,89 @@ function AutoSaveTextarea({ value, field, recordId, onSaved }) {
         onChange={(e) => setText(e.target.value)}
         onBlur={handleBlur}
         style={{ ...inputStyle, width: '100%', minHeight: '80px', resize: 'vertical', boxSizing: 'border-box' }}
+      />
+      {saving && <span style={{ position: 'absolute', top: '4px', right: '8px', fontSize: '0.7rem', color: '#6b7280' }}>Saving...</span>}
+      {saved && <span style={{ position: 'absolute', top: '4px', right: '8px', fontSize: '0.7rem', color: '#059669' }}>Saved</span>}
+    </div>
+  );
+}
+
+function AutoSaveBulletTextarea({ value, recordId, onSaved }) {
+  const [text, setText] = React.useState(value);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => { setText(value); }, [value]);
+
+  const toBullets = (t) => {
+    if (!t) return '';
+    return t.split('\n').map(line => line.startsWith('\u2022 ') ? line : '\u2022 ' + line).join('\n');
+  };
+  const fromBullets = (t) => t.split('\n').map(line => line.replace(/^\u2022 ?/, '')).join('\n');
+
+  const handleChange = (e) => {
+    const raw = e.target.value;
+    const fixed = raw.split('\n').map(line => {
+      if (line.startsWith('\u2022 ')) return line;
+      if (line.startsWith('\u2022')) return '\u2022 ' + line.slice(1);
+      return '\u2022 ' + line;
+    }).join('\n');
+    setText(fromBullets(fixed));
+  };
+
+  const handleKeyDown = (e) => {
+    const ta = ref.current;
+    if (!ta) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const pos = ta.selectionStart;
+      const val = ta.value;
+      const newVal = val.slice(0, pos) + '\n\u2022 ' + val.slice(pos);
+      setText(fromBullets(newVal));
+      setTimeout(() => { ta.selectionStart = ta.selectionEnd = pos + 3; }, 0);
+    }
+    if (e.key === 'Backspace') {
+      const pos = ta.selectionStart;
+      const val = ta.value;
+      const lines = val.slice(0, pos).split('\n');
+      const currentLine = lines[lines.length - 1];
+      if (currentLine === '\u2022 ' && lines.length > 1) {
+        e.preventDefault();
+        const afterCursor = val.slice(pos);
+        lines.pop();
+        const newVal = lines.join('\n') + afterCursor;
+        setText(fromBullets(newVal));
+        setTimeout(() => { const np = lines.join('\n').length; ta.selectionStart = ta.selectionEnd = np; }, 0);
+      }
+    }
+  };
+
+  const handleBlur = async () => {
+    if (text === value) return;
+    setSaving(true);
+    try {
+      await api.updateRecord(recordId, { job_description: text });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      if (onSaved) onSaved();
+    } catch (err) {
+      console.error('Save job description error:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea
+        ref={ref}
+        value={toBullets(text) || '\u2022 '}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+        onFocus={(e) => { if (!e.target.value || e.target.value === '\u2022 ') setText(''); }}
+        placeholder="\u2022 Describe the work needed..."
+        style={{ ...inputStyle, width: '100%', minHeight: '80px', resize: 'vertical', boxSizing: 'border-box', backgroundColor: '#fefce8', border: '1px solid #e5e7eb' }}
       />
       {saving && <span style={{ position: 'absolute', top: '4px', right: '8px', fontSize: '0.7rem', color: '#6b7280' }}>Saving...</span>}
       {saved && <span style={{ position: 'absolute', top: '4px', right: '8px', fontSize: '0.7rem', color: '#059669' }}>Saved</span>}
