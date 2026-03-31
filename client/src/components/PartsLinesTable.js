@@ -481,7 +481,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 <td style={tdStyle}>{line.part_number || '—'}</td>
                 <td style={tdStyle}>
                   <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    disabled={line.is_inventory_part} style={inlineInput} />
+                    style={inlineInput} />
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>
                   <input type="checkbox" checked={form.taxable} onChange={(e) => setForm({ ...form, taxable: e.target.checked })} />
