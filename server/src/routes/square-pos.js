@@ -85,18 +85,36 @@ router.post('/checkout', requireAuth, requireRole('admin', 'service_writer', 'bo
       },
     });
 
-    const paymentLink = response.data.paymentLink;
-    const orderId = response.data.relatedResources?.orders?.[0]?.id
-      || paymentLink.orderId
+    // Square SDK response varies by version — try all known shapes
+    console.log('Square payment link response keys:', Object.keys(response || {}));
+    console.log('Square payment link response.data keys:', Object.keys(response?.data || {}));
+    console.log('Square payment link full response:', JSON.stringify(response, (key, val) => typeof val === 'bigint' ? val.toString() : val, 2));
+
+    const data = response?.data || response?.result || response || {};
+    const paymentLink = data.paymentLink || data.payment_link || {};
+    const relatedResources = data.relatedResources || data.related_resources || {};
+
+    const checkoutUrl = paymentLink.url || paymentLink.longUrl || paymentLink.long_url;
+    const orderId = relatedResources?.orders?.[0]?.id
+      || paymentLink.orderId || paymentLink.order_id
       || null;
 
+    if (!checkoutUrl) {
+      console.error('No payment link URL in response:', JSON.stringify(data, (key, val) => typeof val === 'bigint' ? val.toString() : val));
+      return res.status(500).json({
+        error: 'Square did not return a payment link URL',
+        responseKeys: Object.keys(data),
+      });
+    }
+
     res.status(201).json({
-      checkoutUrl: paymentLink.url || paymentLink.longUrl,
-      orderId: orderId,
+      checkoutUrl,
+      orderId,
       paymentLinkId: paymentLink.id,
     });
   } catch (err) {
     console.error('POST /api/square/pos/checkout error:', err);
+    console.error('Error details:', JSON.stringify(err, null, 2));
     const errorDetail = err.errors
       ? err.errors.map(e => `${e.code}: ${e.detail}`).join('; ')
       : err.message || 'Square checkout creation failed';
@@ -134,7 +152,9 @@ router.get('/callback', async (req, res) => {
         let amountDollars = 0;
         try {
           const paymentResponse = await squareClient.payments.get(transactionId);
-          amountDollars = Number(paymentResponse.data.payment.amountMoney.amount) / 100;
+          const payData = paymentResponse?.data || paymentResponse?.result || paymentResponse || {};
+          const pay = payData.payment || payData;
+          amountDollars = Number(pay.amountMoney?.amount || pay.amount_money?.amount || 0) / 100;
         } catch (e) {
           // If we can't fetch amount, get it from amount_due
           const { rows: recRows } = await dbClient.query(
@@ -176,20 +196,22 @@ router.get('/status/:orderId', requireAuth, requireRole('admin', 'service_writer
     const response = await squareClient.orders.get({
       orderId: req.params.orderId,
     });
-    const order = response.data.order;
+    const orderData = response?.data || response?.result || response || {};
+    const order = orderData.order || orderData;
     const isPaid = order.state === 'COMPLETED';
     const tenders = order.tenders || [];
-    const transactionId = tenders.length > 0 ? tenders[0].paymentId : null;
+    const transactionId = tenders.length > 0 ? (tenders[0].paymentId || tenders[0].payment_id) : null;
+    const totalMoney = order.totalMoney || order.total_money;
 
     res.json({
       state: order.state,
       isPaid,
       transactionId,
-      totalMoney: order.totalMoney,
+      totalMoney,
     });
   } catch (err) {
     // Order may not exist yet if payment link hasn't been used
-    if (err.statusCode === 404) {
+    if (err.statusCode === 404 || err.status === 404) {
       return res.json({ state: 'PENDING', isPaid: false });
     }
     console.error('Square POS status error:', err);
@@ -214,7 +236,8 @@ router.post('/record-payment', requireAuth, requireRole('admin', 'service_writer
 
     // Get order from Square
     const orderResponse = await squareClient.orders.get({ orderId });
-    const order = orderResponse.data.order;
+    const orderData = orderResponse?.data || orderResponse?.result || orderResponse || {};
+    const order = orderData.order || orderData;
 
     if (order.state !== 'COMPLETED') {
       await dbClient.query('ROLLBACK');
@@ -222,8 +245,9 @@ router.post('/record-payment', requireAuth, requireRole('admin', 'service_writer
     }
 
     const tenders = order.tenders || [];
-    const transactionId = tenders.length > 0 ? tenders[0].paymentId : orderId;
-    const amountDollars = Number(order.totalMoney.amount) / 100;
+    const transactionId = tenders.length > 0 ? (tenders[0].paymentId || tenders[0].payment_id) : orderId;
+    const totalMoney = order.totalMoney || order.total_money || {};
+    const amountDollars = Number(totalMoney.amount || 0) / 100;
 
     // Check if already recorded
     const { rows: existing } = await dbClient.query(
