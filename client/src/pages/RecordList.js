@@ -289,6 +289,11 @@ export default function RecordList() {
           <button disabled={page >= Math.ceil(total / 50)} onClick={() => setPage(p => p + 1)} style={btnSecondary}>Next</button>
         </div>
       )}
+
+      {/* Mobile floating action button */}
+      {canEditRecords && (
+        <button className="mobile-fab" onClick={() => navigate('/records/new')}>+</button>
+      )}
     </div>
   );
 }

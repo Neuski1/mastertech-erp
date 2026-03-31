@@ -75,6 +75,16 @@ function addMonths(date, n) {
   return d;
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
+
 export default function Schedule() {
   const [view, setView] = useState('week');
   const [weekStart, setWeekStart] = useState(getWeekStart(new Date()));
@@ -86,9 +96,11 @@ export default function Schedule() {
   const [filterTech, setFilterTech] = useState('all');
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
+  const [mobileDayOffset, setMobileDayOffset] = useState(new Date().getDay()); // 0-6, start on today
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isMobile = useIsMobile();
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
@@ -352,55 +364,117 @@ export default function Schedule() {
         <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>Loading...</div>
       ) : view === 'week' ? (
         /* ---- WEEK VIEW ---- */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
-          {days.map(day => {
-            const key = formatDate(day);
-            const isToday = key === todayStr;
-            const dayAppts = appointmentsByDate[key] || [];
-
+        isMobile ? (
+          /* Mobile: one day at a time */
+          (() => {
+            const mobileDay = days[mobileDayOffset] || days[0];
+            const mobileKey = formatDate(mobileDay);
+            const mobileAppts = appointmentsByDate[mobileKey] || [];
+            const isToday = mobileKey === todayStr;
             return (
-              <div key={key} style={{
-                ...dayColumn,
-                borderColor: isToday ? '#3b82f6' : '#e5e7eb',
-                borderWidth: isToday ? '2px' : '1px',
-              }}>
-                <div style={{
-                  ...dayHeader,
-                  backgroundColor: isToday ? '#eff6ff' : '#f9fafb',
-                  color: isToday ? '#1e40af' : '#374151',
-                }}>
-                  {formatShortDate(day)}
-                </div>
-                <div style={{ padding: '4px', minHeight: '120px' }}>
-                  {dayAppts.length === 0 ? (
-                    <div style={{ color: '#d1d5db', fontSize: '0.75rem', textAlign: 'center', padding: '16px 0' }}>—</div>
-                  ) : dayAppts.map(appt => (
-                    <div
-                      key={appt.id}
-                      onClick={() => navigate(`/schedule/${appt.id}`)}
-                      style={{
-                        ...apptCard,
-                        backgroundColor: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).bg,
-                        color: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text,
-                        borderLeft: `3px solid ${(STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text}`,
-                      }}
-                    >
-                      <div style={{ fontWeight: 600, fontSize: '0.7rem' }}>
-                        {formatTime(appt.scheduled_at)}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', marginTop: '2px' }}>
-                        {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
-                      </div>
-                      <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.8 }}>
-                        {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
-                      </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <button onClick={() => setMobileDayOffset(Math.max(0, mobileDayOffset - 1))} disabled={mobileDayOffset === 0} style={{ ...btnNav, fontSize: '1.2rem', padding: '8px 16px', opacity: mobileDayOffset === 0 ? 0.3 : 1 }}>&larr;</button>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: isToday ? '#1e40af' : '#1e3a5f' }}>
+                      {mobileDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                     </div>
+                    {isToday && <div style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600 }}>Today</div>}
+                  </div>
+                  <button onClick={() => setMobileDayOffset(Math.min(6, mobileDayOffset + 1))} disabled={mobileDayOffset === 6} style={{ ...btnNav, fontSize: '1.2rem', padding: '8px 16px', opacity: mobileDayOffset === 6 ? 0.3 : 1 }}>&rarr;</button>
+                </div>
+                {/* Day dots */}
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginBottom: '16px' }}>
+                  {days.map((d, i) => (
+                    <button key={i} onClick={() => setMobileDayOffset(i)} style={{
+                      width: '32px', height: '32px', borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600,
+                      backgroundColor: i === mobileDayOffset ? '#1e3a5f' : formatDate(d) === todayStr ? '#dbeafe' : '#f3f4f6',
+                      color: i === mobileDayOffset ? '#fff' : formatDate(d) === todayStr ? '#1e40af' : '#6b7280',
+                    }}>
+                      {d.toLocaleDateString('en-US', { weekday: 'narrow' })}
+                    </button>
                   ))}
                 </div>
+                {mobileAppts.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>No appointments</div>
+                ) : mobileAppts.map(appt => (
+                  <div key={appt.id} onClick={() => navigate(`/schedule/${appt.id}`)} style={{
+                    padding: '14px', marginBottom: '8px', borderRadius: '8px', cursor: 'pointer',
+                    backgroundColor: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).bg,
+                    borderLeft: `4px solid ${(STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text}`,
+                  }}>
+                    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1e3a5f' }}>{formatTime(appt.scheduled_at)}</div>
+                    <div style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '4px' }}>
+                      {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#fff', backgroundColor: TYPE_COLORS[appt.appointment_type] || '#6b7280' }}>
+                        {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
+                      </span>
+                      {appt.technician_name && <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{appt.technician_name}</span>}
+                    </div>
+                    {(appt.unit_year || appt.unit_make || appt.unit_model) && (
+                      <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px' }}>
+                        {[appt.unit_year, appt.unit_make, appt.unit_model].filter(Boolean).join(' ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             );
-          })}
-        </div>
+          })()
+        ) : (
+          /* Desktop: 7-column grid */
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
+            {days.map(day => {
+              const key = formatDate(day);
+              const isToday = key === todayStr;
+              const dayAppts = appointmentsByDate[key] || [];
+
+              return (
+                <div key={key} style={{
+                  ...dayColumn,
+                  borderColor: isToday ? '#3b82f6' : '#e5e7eb',
+                  borderWidth: isToday ? '2px' : '1px',
+                }}>
+                  <div style={{
+                    ...dayHeader,
+                    backgroundColor: isToday ? '#eff6ff' : '#f9fafb',
+                    color: isToday ? '#1e40af' : '#374151',
+                  }}>
+                    {formatShortDate(day)}
+                  </div>
+                  <div style={{ padding: '4px', minHeight: '120px' }}>
+                    {dayAppts.length === 0 ? (
+                      <div style={{ color: '#d1d5db', fontSize: '0.75rem', textAlign: 'center', padding: '16px 0' }}>—</div>
+                    ) : dayAppts.map(appt => (
+                      <div
+                        key={appt.id}
+                        onClick={() => navigate(`/schedule/${appt.id}`)}
+                        style={{
+                          ...apptCard,
+                          backgroundColor: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).bg,
+                          color: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text,
+                          borderLeft: `3px solid ${(STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text}`,
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: '0.7rem' }}>
+                          {formatTime(appt.scheduled_at)}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', marginTop: '2px' }}>
+                          {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.8 }}>
+                          {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
       ) : view === 'month' ? (
         /* ---- MONTH VIEW ---- */
         <div>
@@ -427,6 +501,7 @@ export default function Schedule() {
                       navigate('/schedule/new', { state: { date: cellKey } });
                     }
                   }}
+                  className="month-grid-cell"
                   style={{
                     ...monthCell,
                     backgroundColor: isToday ? '#eff6ff' : '#fff',
@@ -444,6 +519,7 @@ export default function Schedule() {
                   {cell.inMonth && showAppts.map(appt => (
                     <div
                       key={appt.id}
+                      className="month-pill"
                       onClick={(e) => { e.stopPropagation(); navigate(`/schedule/${appt.id}`); }}
                       style={{
                         ...monthPill,
@@ -524,6 +600,11 @@ export default function Schedule() {
             );
           })}
         </div>
+      )}
+
+      {/* Mobile floating action button */}
+      {isMobile && (
+        <button className="mobile-fab" onClick={() => navigate('/schedule/new')}>+</button>
       )}
     </div>
   );

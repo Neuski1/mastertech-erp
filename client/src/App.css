@@ -42,6 +42,11 @@ button:hover {
   line-height: 1;
 }
 
+/* Mobile floating action button (hidden on desktop) */
+.mobile-fab {
+  display: none;
+}
+
 @media (max-width: 768px) {
   /* Prevent horizontal overflow */
   body {
@@ -174,9 +179,53 @@ button:hover {
     margin-left: 0 !important;
   }
 
-  /* ── Schedule specific ── */
-  .schedule-grid {
-    grid-template-columns: 1fr !important;
+  /* ── Schedule month view on mobile ── */
+  .month-grid-cell {
+    min-height: 60px !important;
+    padding: 4px !important;
+  }
+  .month-pill {
+    font-size: 0 !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    margin: 1px !important;
+    display: inline-block !important;
+  }
+
+  /* ── Floating action button on mobile ── */
+  .mobile-fab {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    z-index: 50 !important;
+    width: 56px !important;
+    height: 56px !important;
+    border-radius: 50% !important;
+    background-color: #1e3a5f !important;
+    color: #fff !important;
+    border: none !important;
+    font-size: 1.5rem !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    cursor: pointer;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+  .mobile-fab-label {
+    position: fixed;
+    bottom: 24px;
+    right: 84px;
+    z-index: 50;
+    background: #1e3a5f;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
 
   /* ── Two-column grids → single column ── */
