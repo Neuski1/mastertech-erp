@@ -562,7 +562,7 @@ ${paymentDetailHtml}
     <p>I understand that Master Tech RV Repair &amp; Storage takes reasonable care of all units in our possession; however, we are not responsible for loss or damage to the RV or personal belongings left inside in the event of fire, theft, weather events, or other circumstances beyond our control. We recommend removing valuables prior to drop-off.</p>
     <p>I grant Master Tech RV Repair &amp; Storage permission to operate my RV/unit as needed for testing, inspection, and the safe movement of the vehicle within our facility.</p>
     ` : `
-    <p>I understand that TWO (2) days after notice of completion of services rendered, that an OUTDOOR storage charge of $25 per day will be charged unless otherwise agreed to in writing.</p>
+    <p>I understand that if my RV is not picked up within two (2) days of completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
     <p>WARRANTY - 60 days on parts and labor unless otherwise stated from parts manufacturer. If customer provides parts, warranty is only on labor.</p>
     <p>If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
     `}
