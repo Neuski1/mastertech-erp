@@ -87,7 +87,7 @@ router.post('/:id/sign', requireRole('admin', 'service_writer', 'technician'), a
     // Auto-stamp intake_date if not set
     if (!record.intake_date) {
       extraUpdates.push(`intake_date = $${idx++}`);
-      extraValues.push(now.toISOString().split('T')[0]);
+      extraValues.push(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }));
     }
 
     await client.query(
@@ -134,7 +134,7 @@ async function generateEstimatePdf(record, laborLines, partsLines, signatureData
 
   const customerName = [record.last_name, record.first_name].filter(Boolean).join(', ');
   const safeCustomerName = customerName.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
-  const dateStr = signedAt.toISOString().split('T')[0];
+  const dateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   const fileName = `Estimate_${record.record_number}_${safeCustomerName}_${dateStr}.pdf`;
   const filePath = path.join(oneDrivePath, fileName);
 

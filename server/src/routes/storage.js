@@ -212,7 +212,7 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
       rate = await getSetting(settingKey) || (space.space_type === 'indoor' ? '250.00' : '150.00');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
     const { rows } = await client.query(
       `INSERT INTO storage_billing
@@ -354,7 +354,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 // DELETE /api/storage/:id — End storage (set billing_end_date)
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const endDate = req.body?.end_date || new Date().toISOString().split('T')[0];
+  const endDate = req.body?.end_date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
   try {
     const { rows } = await pool.query(

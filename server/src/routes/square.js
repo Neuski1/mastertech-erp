@@ -118,7 +118,7 @@ router.post('/create-payment', requireRole('admin', 'service_writer', 'bookkeepe
     }
 
     // Square charge succeeded — create ERP payment record
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
     const { rows: paymentRows } = await dbClient.query(
       `INSERT INTO payments

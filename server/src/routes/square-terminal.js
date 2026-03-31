@@ -195,7 +195,7 @@ router.post('/complete-payment', requireRole('admin', 'service_writer', 'bookkee
       ? checkout.paymentIds[0]
       : checkoutId;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
     const { rows: paymentRows } = await dbClient.query(
       `INSERT INTO payments

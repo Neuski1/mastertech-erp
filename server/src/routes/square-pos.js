@@ -164,7 +164,7 @@ router.get('/callback', async (req, res) => {
         }
 
         if (amountDollars > 0) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
           await dbClient.query(
             `INSERT INTO payments (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes)
              VALUES ($1, $2, 'credit_card', $3, $4, $5, $6)`,
@@ -260,7 +260,7 @@ router.post('/record-payment', requireAuth, requireRole('admin', 'service_writer
       return res.json({ message: 'Payment already recorded', paymentId: existing[0].id });
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
     const { rows: paymentRows } = await dbClient.query(
       `INSERT INTO payments (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes)
        VALUES ($1, $2, 'credit_card', $3, $4, $5, $6)

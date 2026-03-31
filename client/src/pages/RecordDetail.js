@@ -602,18 +602,26 @@ ${paymentDetailHtml}
 
   const formatDate = (val) => {
     if (!val) return '—';
+    // Parse as date-only string to avoid timezone shift
+    const s = typeof val === 'string' ? val : '';
+    const match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${parseInt(match[2])}/${parseInt(match[3])}/${match[1]}`;
     const d = new Date(val);
     if (isNaN(d.getTime())) return val;
-    return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    return d.toLocaleDateString('en-US', { timeZone: 'America/Denver' });
   };
 
   const toDateVal = (val) => {
     if (!val) return '';
     const s = typeof val === 'string' ? val : '';
+    // If already YYYY-MM-DD, return as-is
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // Extract date portion before any T to avoid timezone shift
+    const match = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
     const d = new Date(s);
     if (isNaN(d.getTime())) return '';
-    return d.toISOString().split('T')[0];
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   };
 
   if (error && !record) return <div style={{ color: 'red', padding: '40px' }}>Error: {error}</div>;
@@ -1185,7 +1193,7 @@ ${paymentDetailHtml}
 // ─── Manual Payment Modal (Check / Cash / Zelle) ────────────────────────────
 // ─── Schedule Modal ─────────────────────────────────────────────────────────
 function ScheduleModal({ record, onSuccess, onClose }) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   const [date, setDate] = useState(today);
   const [time, setTime] = useState('09:00');
   const [apptType, setApptType] = useState('drop_off');
@@ -1295,7 +1303,7 @@ function ManualPaymentModal({ method, amountDue, recordId, onSuccess, onClose })
   const [amount, setAmount] = useState(amountDue > 0 ? amountDue.toFixed(2) : '');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }));
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
 

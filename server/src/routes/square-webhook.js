@@ -94,7 +94,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       }
 
       const amountDollars = Number(checkout.amount_money.amount) / 100;
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
       await dbClient.query(
         `INSERT INTO payments

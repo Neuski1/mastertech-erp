@@ -57,7 +57,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     const shopSuppliesExempt = is_insurance_job === true;
     const ccFeeApplied = true;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
     const { rows } = await client.query(
       `INSERT INTO records (
@@ -414,14 +414,14 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
     // When status → approved: auto-stamp intake_date if not already set
     if (newStatus === 'approved' && !record.intake_date) {
       extraUpdates.push(`intake_date = $${paramIdx++}`);
-      extraValues.push(new Date().toISOString().split('T')[0]);
+      extraValues.push(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }));
     }
 
     // When status → complete: auto-stamp actual_completion_date, recalculate shop supplies
     if (newStatus === 'complete') {
       if (!record.actual_completion_date) {
         extraUpdates.push(`actual_completion_date = $${paramIdx++}`);
-        extraValues.push(new Date().toISOString().split('T')[0]);
+        extraValues.push(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }));
       }
     }
 

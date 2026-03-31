@@ -258,7 +258,7 @@ router.post('/sync/:recordId', requireRole('admin', 'service_writer', 'bookkeepe
     const invoiceBody = {
       CustomerRef: { value: qbCustomerId },
       DocNumber: String(record.record_number),
-      TxnDate: record.actual_completion_date || new Date().toISOString().split('T')[0],
+      TxnDate: record.actual_completion_date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }),
       Line: invoiceLines,
       CustomerMemo: { value: record.job_description || `WO #${record.record_number}` },
     };
