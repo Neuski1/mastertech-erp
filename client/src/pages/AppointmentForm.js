@@ -50,6 +50,9 @@ export default function AppointmentForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [showDelete, setShowDelete] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [sendCancelEmail, setSendCancelEmail] = useState(false);
+  const [cancelResult, setCancelResult] = useState(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newUnitYear, setNewUnitYear] = useState('');
   const [newUnitMake, setNewUnitMake] = useState('');
@@ -206,12 +209,30 @@ export default function AppointmentForm() {
   };
 
   const handleDelete = async () => {
+    setSaving(true);
     try {
-      await api.deleteAppointment(id);
-      navigate('/schedule');
+      const result = await api.deleteAppointment(id, {
+        send_cancellation_email: sendCancelEmail,
+        cancellation_reason: cancelReason || null,
+      });
+      if (result.emailSent) {
+        setCancelResult(`Appointment cancelled — confirmation email sent to ${customerEmail}`);
+      } else if (result.emailError) {
+        setCancelResult(`Appointment cancelled — email could not be sent`);
+      }
+      setTimeout(() => navigate('/schedule'), 1500);
     } catch (err) {
       setError(err.message);
+      setSaving(false);
     }
+  };
+
+  // When opening delete modal, default email checkbox based on customer email
+  const openCancelModal = () => {
+    setShowDelete(true);
+    setCancelReason('');
+    setSendCancelEmail(!!customerEmail);
+    setCancelResult(null);
   };
 
   const handleCreateRecord = async () => {
@@ -480,15 +501,7 @@ export default function AppointmentForm() {
 
             {isEdit && (
               <div style={{ marginLeft: 'auto' }}>
-                {showDelete ? (
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.85rem', color: '#dc2626' }}>Delete this appointment?</span>
-                    <button type="button" onClick={handleDelete} style={btnDanger}>Yes, Delete</button>
-                    <button type="button" onClick={() => setShowDelete(false)} style={btnSecondary}>No</button>
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => setShowDelete(true)} style={btnDangerOutline}>Delete</button>
-                )}
+                <button type="button" onClick={openCancelModal} style={btnDangerOutline}>Cancel Appointment</button>
               </div>
             )}
           </div>
@@ -502,6 +515,71 @@ export default function AppointmentForm() {
             selectCustomer(created);
           }}
         />
+      )}
+
+      {/* Cancellation Modal */}
+      {showDelete && (
+        <div style={overlayStyle}>
+          <div style={modalStyle}>
+            <h2 style={{ margin: '0 0 16px', color: '#dc2626', fontSize: '1.1rem' }}>Cancel Appointment</h2>
+
+            {cancelResult ? (
+              <div>
+                <div style={{ padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '6px', color: '#065f46', fontSize: '0.9rem', marginBottom: '16px' }}>
+                  {cancelResult}
+                </div>
+                <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: '0.85rem' }}>Redirecting to schedule...</div>
+              </div>
+            ) : (
+              <div>
+                {/* Appointment summary */}
+                <div style={{ padding: '12px', backgroundColor: '#f9fafb', borderRadius: '6px', marginBottom: '16px', fontSize: '0.85rem' }}>
+                  <div style={{ marginBottom: '4px' }}><strong>Customer:</strong> {selectedCustomer ? `${selectedCustomer.last_name}${selectedCustomer.first_name ? ', ' + selectedCustomer.first_name : ''}` : '—'}</div>
+                  <div style={{ marginBottom: '4px' }}><strong>Date:</strong> {form.scheduled_date} at {form.scheduled_time}</div>
+                  <div><strong>Type:</strong> {APPT_TYPES.find(t => t.value === form.appointment_type)?.label || form.appointment_type}</div>
+                </div>
+
+                {/* Cancellation reason */}
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>
+                    Reason for cancellation (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="e.g. Customer requested reschedule..."
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                {/* Email checkbox */}
+                <div style={{ marginBottom: '20px' }}>
+                  {customerEmail ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={sendCancelEmail} onChange={(e) => setSendCancelEmail(e.target.checked)} />
+                      Send cancellation email to {customerEmail}
+                    </label>
+                  ) : (
+                    <div style={{ fontSize: '0.8rem', color: '#9ca3af', fontStyle: 'italic' }}>
+                      No email on file for this customer
+                    </div>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button type="button" onClick={handleDelete} disabled={saving} style={{ padding: '10px 20px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem', opacity: saving ? 0.6 : 1 }}>
+                    {saving ? 'Cancelling...' : 'Cancel Appointment'}
+                  </button>
+                  <button type="button" onClick={() => setShowDelete(false)} disabled={saving} style={{ padding: '10px 20px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                    Keep Appointment
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -541,13 +619,18 @@ const btnSmall = {
   padding: '4px 10px', backgroundColor: '#f3f4f6', color: '#374151',
   border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem',
 };
-const btnDanger = {
-  padding: '8px 16px', backgroundColor: '#dc2626', color: '#fff',
-  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
-};
 const btnDangerOutline = {
   padding: '8px 16px', backgroundColor: '#fff', color: '#dc2626',
   border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+};
+const overlayStyle = {
+  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+  justifyContent: 'center', alignItems: 'center', zIndex: 1000,
+};
+const modalStyle = {
+  backgroundColor: '#fff', borderRadius: '12px', padding: '24px',
+  width: '460px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
 };
 const dropdownStyle = {
   position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff',

@@ -129,7 +129,7 @@ export const api = {
   getAppointment: (id) => request(`/appointments/${id}`),
   createAppointment: (data) => request('/appointments', { method: 'POST', body: JSON.stringify(data) }),
   updateAppointment: (id, data) => request(`/appointments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteAppointment: (id) => request(`/appointments/${id}`, { method: 'DELETE' }),
+  deleteAppointment: (id, data = {}) => request(`/appointments/${id}`, { method: 'DELETE', body: JSON.stringify(data) }),
   resendConfirmation: (id) => request(`/appointments/${id}/resend-confirmation`, { method: 'POST' }),
   bulkResendConfirmations: () => request('/appointments/bulk-resend', { method: 'POST' }),
 

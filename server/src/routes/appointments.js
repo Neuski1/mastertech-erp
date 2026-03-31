@@ -437,19 +437,103 @@ router.post('/bulk-resend', requireRole('admin'), async (req, res) => {
 // DELETE /api/appointments/:id — Soft delete
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const { send_cancellation_email, cancellation_reason } = req.body || {};
+
   try {
-    const { rows } = await pool.query(
-      `UPDATE appointments SET deleted_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL
-       RETURNING id, appointment_type, scheduled_at`,
+    // Fetch full appointment + customer info before deleting
+    const { rows: apptRows } = await pool.query(
+      `SELECT a.*, c.first_name, c.last_name, c.email_primary
+       FROM appointments a
+       LEFT JOIN customers c ON c.id = a.customer_id
+       WHERE a.id = $1 AND a.deleted_at IS NULL`,
       [req.params.id]
     );
 
-    if (rows.length === 0) {
+    if (apptRows.length === 0) {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    res.json({ message: 'Appointment deleted', appointment: rows[0] });
+    const appt = apptRows[0];
+
+    // Soft delete
+    await pool.query(
+      'UPDATE appointments SET deleted_at = NOW() WHERE id = $1',
+      [req.params.id]
+    );
+
+    // Send cancellation email if requested
+    let emailSent = false;
+    let emailError = null;
+
+    if (send_cancellation_email && appt.email_primary) {
+      try {
+        const { sendEmail } = require('../services/email');
+        const scheduledDate = appt.scheduled_at
+          ? new Date(appt.scheduled_at).toLocaleDateString('en-US', { timeZone: 'America/Denver', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+          : '—';
+        const scheduledTime = appt.scheduled_at
+          ? new Date(appt.scheduled_at).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' })
+          : '';
+        const typeLabel = (appt.appointment_type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const firstName = appt.first_name || 'Valued Customer';
+
+        const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:#1e3a5f;padding:20px 24px;border-radius:8px 8px 0 0">
+    <h1 style="color:#fff;margin:0;font-size:18px">Master Tech RV Repair &amp; Storage</h1>
+  </div>
+  <div style="padding:24px;background:#fff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px">
+    <p style="margin:0 0 16px">Hello ${firstName},</p>
+    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:#dc2626">Your appointment has been cancelled.</p>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:16px;margin:0 0 16px">
+      <table style="width:100%;font-size:14px">
+        <tr><td style="padding:4px 0;color:#6b7280;width:80px"><strong>Date:</strong></td><td>${scheduledDate}${scheduledTime ? ' at ' + scheduledTime : ''}</td></tr>
+        <tr><td style="padding:4px 0;color:#6b7280"><strong>Type:</strong></td><td>${typeLabel}</td></tr>
+        <tr><td style="padding:4px 0;color:#6b7280"><strong>Location:</strong></td><td>6590 East 49th Avenue, Commerce City, CO 80022</td></tr>
+      </table>
+    </div>
+    ${cancellation_reason ? `<p style="margin:0 0 16px"><strong>Reason:</strong> ${cancellation_reason}</p>` : ''}
+    <p style="margin:0 0 16px">Please contact us to reschedule at your convenience.</p>
+    <div style="border-top:1px solid #e5e7eb;padding-top:16px;margin-top:16px;font-size:13px;color:#6b7280">
+      <p style="margin:0 0 4px"><strong>Phone:</strong> (303) 557-2214</p>
+      <p style="margin:0 0 4px"><strong>Email:</strong> service@mastertechrvrepair.com</p>
+      <p style="margin:0 0 4px"><strong>Website:</strong> mastertechrvrepair.com</p>
+    </div>
+    <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;text-align:center">Thank you for choosing Master Tech RV Repair &amp; Storage</p>
+  </div>
+</div>`;
+
+        const result = await sendEmail({
+          to: appt.email_primary,
+          cc: 'service@mastertechrvrepair.com',
+          subject: 'Appointment Cancelled — Master Tech RV Repair & Storage',
+          html,
+          text: `Hello ${firstName},\n\nYour appointment has been cancelled.\n\nDate: ${scheduledDate}${scheduledTime ? ' at ' + scheduledTime : ''}\nType: ${typeLabel}\nLocation: 6590 East 49th Avenue, Commerce City, CO 80022\n${cancellation_reason ? 'Reason: ' + cancellation_reason + '\n' : ''}\nPlease contact us to reschedule at your convenience.\n\nPhone: (303) 557-2214\nEmail: service@mastertechrvrepair.com\n\nMaster Tech RV Repair & Storage`,
+        });
+
+        emailSent = result.success;
+        if (!result.success) emailError = result.error;
+
+        // Log communication
+        if (appt.customer_id) {
+          await pool.query(
+            `INSERT INTO communications (customer_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id)
+             VALUES ($1, 'email', 'appointment_cancelled', $2, $3, false, $4)`,
+            [appt.customer_id, `Cancellation email sent to ${appt.email_primary} for appointment on ${scheduledDate}`, result.success ? 'delivered' : 'failed', req.user?.id]
+          );
+        }
+      } catch (e) {
+        emailError = e.message;
+        console.error('Cancellation email error:', e);
+      }
+    }
+
+    res.json({
+      message: 'Appointment deleted',
+      appointment: { id: appt.id, appointment_type: appt.appointment_type, scheduled_at: appt.scheduled_at },
+      emailSent,
+      emailError,
+    });
   } catch (err) {
     console.error('DELETE /api/appointments/:id error:', err);
     res.status(500).json({ error: err.message });
