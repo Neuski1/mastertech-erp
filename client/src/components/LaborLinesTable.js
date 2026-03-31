@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 export default function LaborLinesTable({ recordId, laborLines, isEditable, onUpdate }) {
-  const { canSeeFinancials, isTechnician, user } = useAuth();
+  const { canSeeFinancials, isTechnician } = useAuth();
   const [technicians, setTechnicians] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -209,7 +209,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
                 {(isEditable || isTechnician) && (
                   <td style={tdStyle}>
-                    {(isEditable || (isTechnician && line.technician_id === user?.technician_id)) && (
+                    {(isEditable || isTechnician) && (
                       <>
                         <button onClick={() => handleEdit(line)} style={btnTinyGray} title="Edit labor line">&#9998;</button>
                         <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
@@ -229,17 +229,10 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 <textarea placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} />
               </td>
               <td style={tdStyle}>
-                {isTechnician ? (
-                  <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
-                    <option value="">Select...</option>
-                    {technicians.filter(t => t.name === user?.name).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                ) : (
-                  <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
-                    <option value="">Unassigned</option>
-                    {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                )}
+                <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
+                  <option value="">Unassigned</option>
+                  {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
               </td>
               <td style={tdStyle}>
                 <input type="number" step="0.25" min="0" placeholder="0" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} style={{ ...inlineInput, width: '70px', textAlign: 'right' }} />

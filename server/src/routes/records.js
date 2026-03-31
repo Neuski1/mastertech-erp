@@ -433,8 +433,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
 
     // When transitioning to 'approved': auto-create labor lines from job description
     let laborLinesCreated = 0;
-    if (newStatus === 'approved' && !record.description_lines_imported && record.job_description) {
-      // Check no existing labor lines
+    if (newStatus === 'approved' && record.job_description) {
+      // Only create if no existing labor lines (prevents duplicates)
       const { rows: existingLabor } = await client.query(
         'SELECT COUNT(*) FROM record_labor_lines WHERE record_id = $1 AND deleted_at IS NULL',
         [req.params.id]
@@ -465,7 +465,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
           laborLinesCreated = lines.length;
         }
       }
-      // Mark as imported regardless (prevent re-running)
+      // Mark as imported
       await client.query(
         'UPDATE records SET description_lines_imported = true WHERE id = $1',
         [req.params.id]
