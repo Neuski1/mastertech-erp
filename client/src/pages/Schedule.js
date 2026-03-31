@@ -7,6 +7,7 @@ const APPT_TYPES = [
   { value: 'drop_off', label: 'Drop Off' },
   { value: 'pick_up', label: 'Pick Up' },
   { value: 'rv_repair', label: 'RV Repair' },
+  { value: 'rv_service', label: 'RV Service' },
   { value: 'parts', label: 'Parts' },
   { value: 'storage', label: 'Storage' },
   { value: 'other', label: 'Other' },
@@ -27,6 +28,7 @@ const TYPE_COLORS = {
   pick_up: '#10b981',
   storage: '#f59e0b',
   rv_repair: '#8b5cf6',
+  rv_service: '#ec4899',
   parts: '#06b6d4',
   other: '#6b7280',
 };
