@@ -23,20 +23,6 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
     return res.status(400).json({ error: 'description is required' });
   }
 
-  // Technicians must provide technician_id and can only add for themselves
-  if (req.user.role === 'technician') {
-    if (!technician_id) {
-      return res.status(400).json({ error: 'technician_id is required' });
-    }
-    const { rows: techRows } = await pool.query(
-      'SELECT id FROM technicians WHERE id = $1 AND name = $2 AND is_active = TRUE',
-      [technician_id, req.user.name]
-    );
-    if (techRows.length === 0) {
-      return res.status(403).json({ error: 'Technicians can only add labor lines for themselves' });
-    }
-  }
-
   const parsedHours = parseFloat(hours || 0);
   if (isNaN(parsedHours) || parsedHours < 0) {
     return res.status(400).json({ error: 'hours cannot be negative' });
