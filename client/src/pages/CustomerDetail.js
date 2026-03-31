@@ -19,6 +19,9 @@ export default function CustomerDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [unitFilter, setUnitFilter] = useState(null);
+  const [selectedUnit, setSelectedUnit] = useState(null);
+  const [editingUnit, setEditingUnit] = useState(null);
+  const [unitSaving, setUnitSaving] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
 
   // Marketing note
@@ -65,6 +68,47 @@ export default function CustomerDetail() {
 
   const handleFieldChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleUnitClick = (unit) => {
+    if (selectedUnit?.id === unit.id) {
+      setSelectedUnit(null);
+      setEditingUnit(null);
+    } else {
+      setSelectedUnit(unit);
+      setEditingUnit(null);
+      setUnitFilter(unit);
+    }
+  };
+
+  const startEditUnit = (unit) => {
+    setEditingUnit({ ...unit });
+  };
+
+  const handleSaveUnit = async () => {
+    setUnitSaving(true);
+    try {
+      await api.updateUnit(editingUnit.id, {
+        year: editingUnit.year || null,
+        make: editingUnit.make || null,
+        model: editingUnit.model || null,
+        vin: editingUnit.vin || null,
+        license_plate: editingUnit.license_plate || null,
+        unit_type: editingUnit.unit_type || null,
+        color: editingUnit.color || null,
+        unit_notes: editingUnit.unit_notes || null,
+      });
+      setEditingUnit(null);
+      // Refresh units
+      const unitList = await api.getCustomerUnits(id);
+      setUnits(unitList);
+      const updated = unitList.find(u => u.id === selectedUnit.id);
+      if (updated) setSelectedUnit(updated);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUnitSaving(false);
+    }
   };
 
   const handleDeleteCustomer = async () => {
@@ -342,22 +386,58 @@ export default function CustomerDetail() {
           )}
         </div>
         {units.length > 0 ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <button
-              onClick={() => setUnitFilter(null)}
-              style={{ ...(!unitFilter ? chipActive : chipStyle) }}
-            >All</button>
-            {units.map(u => {
-              const label = [u.year, u.make, u.model].filter(Boolean).join(' ') || 'Unknown Unit';
-              const isActive = unitFilter && unitFilter.year === u.year && unitFilter.make === u.make && unitFilter.model === u.model;
-              return (
-                <button key={u.id} onClick={() => setUnitFilter(isActive ? null : u)} style={isActive ? chipActive : chipStyle}>
-                  {label}
-                  {u.vin && <span style={{ fontSize: '0.7rem', color: '#9ca3af', marginLeft: '4px' }}>VIN: ...{u.vin.slice(-6)}</span>}
-                </button>
-              );
-            })}
-          </div>
+          <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <button onClick={() => { setUnitFilter(null); setSelectedUnit(null); setEditingUnit(null); }} style={{ ...(!unitFilter ? chipActive : chipStyle) }}>All</button>
+              {units.map(u => {
+                const label = [u.year, u.make, u.model].filter(Boolean).join(' ') || 'Unknown Unit';
+                const isSelected = selectedUnit?.id === u.id;
+                return (
+                  <button key={u.id} onClick={() => handleUnitClick(u)} style={isSelected ? chipActive : chipStyle}>
+                    {label}
+                    {u.vin && <span style={{ fontSize: '0.7rem', color: isSelected ? '#93c5fd' : '#9ca3af', marginLeft: '4px' }}>VIN: ...{u.vin.slice(-6)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Unit detail panel */}
+            {selectedUnit && (
+              <div style={{ marginTop: '12px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                {editingUnit ? (
+                  <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                      <div><label style={unitLabelStyle}>Year</label><input type="number" value={editingUnit.year || ''} onChange={(e) => setEditingUnit({ ...editingUnit, year: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>Make</label><input value={editingUnit.make || ''} onChange={(e) => setEditingUnit({ ...editingUnit, make: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>Model</label><input value={editingUnit.model || ''} onChange={(e) => setEditingUnit({ ...editingUnit, model: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>VIN</label><input value={editingUnit.vin || ''} onChange={(e) => setEditingUnit({ ...editingUnit, vin: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>License Plate</label><input value={editingUnit.license_plate || ''} onChange={(e) => setEditingUnit({ ...editingUnit, license_plate: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>Type</label><input value={editingUnit.unit_type || ''} onChange={(e) => setEditingUnit({ ...editingUnit, unit_type: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>Color</label><input value={editingUnit.color || ''} onChange={(e) => setEditingUnit({ ...editingUnit, color: e.target.value })} style={unitInputStyle} /></div>
+                    </div>
+                    <div style={{ marginBottom: '12px' }}><label style={unitLabelStyle}>Notes</label><textarea value={editingUnit.unit_notes || ''} onChange={(e) => setEditingUnit({ ...editingUnit, unit_notes: e.target.value })} style={{ ...unitInputStyle, minHeight: '60px', resize: 'vertical' }} /></div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={handleSaveUnit} disabled={unitSaving} style={btnPrimary}>{unitSaving ? 'Saving...' : 'Save'}</button>
+                      <button onClick={() => setEditingUnit(null)} style={btnSecondary}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <h3 style={{ margin: 0, color: '#1e3a5f', fontSize: '1rem' }}>{[selectedUnit.year, selectedUnit.make, selectedUnit.model].filter(Boolean).join(' ') || 'Unknown Unit'}</h3>
+                      {canEditRecords && <button onClick={() => startEditUnit(selectedUnit)} style={{ padding: '3px 10px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Edit</button>}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px', fontSize: '0.85rem' }}>
+                      <div><span style={unitLabelStyle}>VIN</span><div>{selectedUnit.vin || '—'}</div></div>
+                      <div><span style={unitLabelStyle}>License Plate</span><div>{selectedUnit.license_plate || '—'}</div></div>
+                      <div><span style={unitLabelStyle}>Type</span><div>{selectedUnit.unit_type || '—'}</div></div>
+                      <div><span style={unitLabelStyle}>Color</span><div>{selectedUnit.color || '—'}</div></div>
+                    </div>
+                    {selectedUnit.unit_notes && <div style={{ marginTop: '8px', fontSize: '0.85rem' }}><span style={unitLabelStyle}>Notes</span><div style={{ whiteSpace: 'pre-wrap' }}>{selectedUnit.unit_notes}</div></div>}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>No units on file</p>
         )}
@@ -773,5 +853,7 @@ const btnSecondary = { padding: '8px 16px', backgroundColor: '#f3f4f6', color: '
 const btnLink = { background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.875rem', padding: 0 };
 const chipStyle = { padding: '4px 12px', borderRadius: '9999px', border: '1px solid #d1d5db', backgroundColor: '#fff', cursor: 'pointer', fontSize: '0.8rem', color: '#374151' };
 const chipActive = { padding: '4px 12px', borderRadius: '9999px', border: '1px solid #3b82f6', backgroundColor: '#dbeafe', cursor: 'pointer', fontSize: '0.8rem', color: '#1e40af', fontWeight: 600 };
+const unitLabelStyle = { display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.05em' };
+const unitInputStyle = { padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' };
 const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
 const mergeModalStyle = { backgroundColor: '#fff', borderRadius: '12px', padding: '24px', width: '720px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
