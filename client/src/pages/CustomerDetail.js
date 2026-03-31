@@ -67,6 +67,19 @@ export default function CustomerDetail() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleDeleteCustomer = async () => {
+    const name = `${customer.last_name || ''}${customer.first_name ? ', ' + customer.first_name : ''}`.trim();
+    if (!window.confirm(
+      `Delete ${name}?\n\nThis will also delete all units associated with this customer. Records and invoices will be preserved for accounting purposes.\n\nThis cannot be undone.`
+    )) return;
+    try {
+      await api.deleteCustomer(id);
+      navigate('/customers');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError('');
@@ -210,7 +223,10 @@ export default function CustomerDetail() {
         <button onClick={() => navigate('/customers')} style={btnLink}>&larr; Back to Customers</button>
         <div style={{ display: 'flex', gap: '8px' }}>
           {isAdmin && !editing && (
-            <button onClick={() => { setShowMerge(true); resetMerge(); setMergeSuccess(''); }} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>Merge Duplicate</button>
+            <button onClick={() => handleDeleteCustomer()} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>Delete Customer</button>
+          )}
+          {isAdmin && !editing && (
+            <button onClick={() => { setShowMerge(true); resetMerge(); setMergeSuccess(''); }} style={{ ...btnSecondary, color: '#6b7280', borderColor: '#d1d5db' }}>Merge Duplicate</button>
           )}
           {canEditRecords && !editing && (
             <button onClick={() => setEditing(true)} style={btnSecondary}>Edit</button>

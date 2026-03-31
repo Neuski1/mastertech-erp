@@ -61,6 +61,7 @@ export const api = {
   getCustomer: (id) => request(`/customers/${id}`),
   createCustomer: (data) => request('/customers', { method: 'POST', body: JSON.stringify(data) }),
   updateCustomer: (id, data) => request(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCustomer: (id) => request(`/customers/${id}`, { method: 'DELETE' }),
   getCustomerUnits: (customerId) => request(`/customers/${customerId}/units`),
   mergeCustomers: (masterId, data) => request(`/customers/${masterId}/merge`, { method: 'POST', body: JSON.stringify(data) }),
 

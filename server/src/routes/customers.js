@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const { requireRole } = require('../middleware/auth');
 
 // ---------------------------------------------------------------------------
 // GET /api/customers — CRM list with stats & filters
@@ -387,6 +388,46 @@ router.post('/:id/merge', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/customers/:id — Soft delete customer (admin only)
+// ---------------------------------------------------------------------------
+router.delete('/:id', requireRole('admin'), async (req, res) => {
+  try {
+    // Check for active records
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*) FROM records WHERE customer_id = $1 AND deleted_at IS NULL AND status NOT IN ('void', 'paid')`,
+      [req.params.id]
+    );
+    const activeCount = parseInt(countRows[0].count);
+    if (activeCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete — this customer has ${activeCount} active record${activeCount > 1 ? 's' : ''}. Void or complete all records first.`,
+      });
+    }
+
+    // Soft delete customer
+    const { rows } = await pool.query(
+      `UPDATE customers SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id, first_name, last_name`,
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Soft delete associated units
+    await pool.query(
+      'UPDATE units SET deleted_at = NOW() WHERE customer_id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+
+    res.json({ success: true, customer: rows[0] });
+  } catch (err) {
+    console.error('DELETE /api/customers/:id error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
