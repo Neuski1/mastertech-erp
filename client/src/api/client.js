@@ -155,6 +155,11 @@ export const api = {
   squareTerminalCancel: (checkoutId) => request(`/square/terminal/checkout/${checkoutId}/cancel`, { method: 'POST' }),
   squareTerminalComplete: (data) => request('/square/terminal/complete-payment', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Square POS (Payment Links)
+  squarePosCheckout: (data) => request('/square/pos/checkout', { method: 'POST', body: JSON.stringify(data) }),
+  squarePosStatus: (orderId) => request(`/square/pos/status/${orderId}`),
+  squarePosRecordPayment: (data) => request('/square/pos/record-payment', { method: 'POST', body: JSON.stringify(data) }),
+
   // Square Devices
   getSquareDevices: () => request('/square/devices'),
 

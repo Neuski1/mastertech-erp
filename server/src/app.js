@@ -56,9 +56,10 @@ app.use('/api/inventory-categories', requireAuth, require('./routes/inventoryCat
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/appointments', requireAuth, require('./routes/appointments'));
 app.use('/api/communications', requireAuth, require('./routes/communications'));
-app.use('/api/square', requireAuth, require('./routes/square'));
+app.use('/api/square/pos', require('./routes/square-pos')); // POS checkout — callback is public, other routes use requireRole internally
 app.use('/api/square/terminal', requireAuth, require('./routes/square-terminal'));
 app.use('/api/square/webhook', require('./routes/square-webhook')); // No auth — Square calls directly
+app.use('/api/square', requireAuth, require('./routes/square'));
 app.use('/api/quickbooks', requireAuth, require('./routes/quickbooks'));
 app.use('/api/storage', requireAuth, require('./routes/storage'));
 app.use('/api/estimates', requireAuth, require('./routes/estimates'));

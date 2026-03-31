@@ -7,31 +7,19 @@ const PAYMENT_TYPES = [
   { value: 'partial_payment', label: 'Partial Payment' },
 ];
 
-export default function SquarePayment({ recordId, amountDue, record, onSuccess, onClose }) {
-  const [step, setStep] = useState('confirm'); // confirm | waiting | success | failed | not-configured
+export default function SquarePayment({ recordId, amountDue, onSuccess, onClose }) {
+  const [step, setStep] = useState('confirm'); // confirm | waiting | success | failed
   const [amount, setAmount] = useState(amountDue > 0 ? amountDue.toFixed(2) : '');
   const [paymentType, setPaymentType] = useState('final_payment');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState(null);
-  const [checkoutId, setCheckoutId] = useState(null);
   const [successInfo, setSuccessInfo] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [terminalConfigured, setTerminalConfigured] = useState(null);
   const pollRef = useRef(null);
   const autoCloseRef = useRef(null);
 
   // Manual fallback fields
   const [manualRef, setManualRef] = useState('');
-
-  // Check if Terminal is configured
-  useEffect(() => {
-    api.squareTerminalConfig()
-      .then(cfg => {
-        setTerminalConfigured(cfg.configured);
-        if (!cfg.configured) setStep('not-configured');
-      })
-      .catch(() => setTerminalConfigured(false));
-  }, []);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -41,7 +29,7 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
     };
   }, []);
 
-  const handleSendToTerminal = async () => {
+  const handleCreateCheckout = async () => {
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setError('Please enter a valid amount');
@@ -52,16 +40,22 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
     setError(null);
 
     try {
-      const result = await api.squareTerminalCheckout({
+      const result = await api.squarePosCheckout({
         recordId,
         amount: parsedAmount,
         paymentType,
         notes: notes || null,
       });
 
-      setCheckoutId(result.checkoutId);
       setStep('waiting');
-      startPolling(result.checkoutId);
+
+      // Open checkout page in new tab
+      if (result.checkoutUrl) {
+        window.open(result.checkoutUrl, '_blank');
+      }
+
+      // Start polling for payment completion
+      startPolling(result.orderId);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -69,57 +63,48 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
     }
   };
 
-  const startPolling = (id) => {
+  const startPolling = (oid) => {
     pollRef.current = setInterval(async () => {
       try {
-        const status = await api.squareTerminalStatus(id);
+        const status = await api.squarePosStatus(oid);
 
-        if (status.status === 'COMPLETED') {
+        if (status.isPaid) {
           clearInterval(pollRef.current);
           pollRef.current = null;
 
           // Record the payment in our system
           try {
-            await api.squareTerminalComplete({
-              checkoutId: id,
+            await api.squarePosRecordPayment({
               recordId,
+              orderId: oid,
               paymentType,
             });
           } catch (e) {
-            // Payment may already be recorded by webhook — that's ok
-            console.log('Complete payment note:', e.message);
+            // May already be recorded by callback
+            console.log('Record payment note:', e.message);
           }
 
+          const amountDollars = status.totalMoney
+            ? Number(status.totalMoney.amount) / 100
+            : parseFloat(amount);
+
           setSuccessInfo({
-            amount: Number(status.amountMoney.amount) / 100,
-            paymentId: status.paymentIds?.[0] || id,
+            amount: amountDollars,
+            transactionId: status.transactionId || oid,
           });
           setStep('success');
 
-          // Auto-close after 3 seconds
           autoCloseRef.current = setTimeout(() => {
             if (onSuccess) onSuccess();
           }, 3000);
-        } else if (status.status === 'CANCELED' || status.status === 'CANCEL_REQUESTED') {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-          setStep('failed');
         }
       } catch (err) {
-        // Continue polling on transient errors
         console.error('Poll error:', err.message);
       }
     }, 3000);
   };
 
-  const handleCancel = async () => {
-    if (checkoutId) {
-      try {
-        await api.squareTerminalCancel(checkoutId);
-      } catch (e) {
-        // Ignore cancel errors
-      }
-    }
+  const handleCancel = () => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -127,7 +112,7 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
     setStep('failed');
   };
 
-  // Manual card payment fallback (no Terminal device)
+  // Manual card payment (no Square checkout)
   const handleManualCard = async () => {
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -158,7 +143,7 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
       <div style={modalStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h2 style={{ margin: 0, color: '#1e3a5f' }}>
-            {step === 'waiting' ? 'Waiting for Card...' : step === 'success' ? 'Payment Successful!' : 'Pay by Card'}
+            {step === 'waiting' ? 'Complete Payment on Square' : step === 'success' ? 'Payment Successful!' : 'Pay by Card'}
           </h2>
           {step !== 'waiting' && (
             <button onClick={onClose} style={closeBtn}>&times;</button>
@@ -167,37 +152,8 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
 
         {error && <div style={errorBox}>{error}</div>}
 
-        {/* ── STEP: Not Configured ── */}
-        {step === 'not-configured' && (
-          <div>
-            {/* Manual card payment form */}
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Amount ($)</label>
-                <input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Payment Type</label>
-                <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)} style={inputStyle}>
-                  {PAYMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={labelStyle}>Reference # (optional)</label>
-              <input type="text" value={manualRef} onChange={(e) => setManualRef(e.target.value)} placeholder="Last 4 digits, auth code, etc." style={inputStyle} />
-            </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button onClick={handleManualCard} disabled={processing} style={{ ...btnPrimary, opacity: processing ? 0.6 : 1 }}>
-                {processing ? 'Recording...' : `Record Card Payment $${parseFloat(amount || 0).toFixed(2)}`}
-              </button>
-              <button onClick={onClose} style={btnSecondary}>Cancel</button>
-            </div>
-          </div>
-        )}
-
         {/* ── STEP: Confirm ── */}
-        {step === 'confirm' && terminalConfigured && (
+        {step === 'confirm' && (
           <div>
             <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
               <div style={{ flex: 1 }}>
@@ -215,12 +171,30 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
               <label style={labelStyle}>Notes (optional)</label>
               <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Customer auth code" style={inputStyle} disabled={processing} />
             </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button onClick={handleSendToTerminal} disabled={processing} style={{ ...btnTerminal, opacity: processing ? 0.6 : 1 }}>
-                {processing ? 'Sending...' : 'Send to Square Terminal'}
+
+            {/* Primary: Square Checkout */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+              <button onClick={handleCreateCheckout} disabled={processing} style={{ ...btnTerminal, opacity: processing ? 0.6 : 1 }}>
+                {processing ? 'Creating...' : 'Open Square Checkout'}
               </button>
               <button onClick={onClose} style={btnSecondary} disabled={processing}>Cancel</button>
             </div>
+
+            {/* Divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ flex: 1, borderTop: '1px solid #e5e7eb' }} />
+              <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>OR record manually</span>
+              <div style={{ flex: 1, borderTop: '1px solid #e5e7eb' }} />
+            </div>
+
+            {/* Manual fallback */}
+            <div style={{ marginBottom: '12px' }}>
+              <label style={labelStyle}>Reference # (last 4, auth code, etc.)</label>
+              <input type="text" value={manualRef} onChange={(e) => setManualRef(e.target.value)} style={inputStyle} />
+            </div>
+            <button onClick={handleManualCard} disabled={processing} style={{ ...btnPrimary, opacity: processing ? 0.6 : 1 }}>
+              {processing ? 'Recording...' : `Record Card Payment $${parseFloat(amount || 0).toFixed(2)}`}
+            </button>
           </div>
         )}
 
@@ -229,17 +203,22 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128179;</div>
             <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#1e3a5f', marginBottom: '8px' }}>
-              Waiting for customer to tap card...
+              Complete payment on Square Terminal
             </div>
-            <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '24px' }}>
+            <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '16px' }}>
               ${parseFloat(amount || 0).toFixed(2)}
+            </div>
+            <div style={{ padding: '12px', backgroundColor: '#f0f9ff', borderRadius: '6px', marginBottom: '20px', fontSize: '0.85rem', color: '#1e40af' }}>
+              A Square checkout page has opened in a new tab.<br />
+              Have the customer complete the payment there.<br />
+              This screen will update automatically.
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
               <div style={pulsingDot} />
-              <span style={{ color: '#6b7280', fontSize: '0.85rem' }}>Communicating with Square Terminal...</span>
+              <span style={{ color: '#6b7280', fontSize: '0.85rem' }}>Waiting for payment confirmation...</span>
             </div>
             <button onClick={handleCancel} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>
-              Cancel Payment
+              Cancel
             </button>
           </div>
         )}
@@ -255,7 +234,7 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
               ${successInfo.amount.toFixed(2)}
             </div>
             <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '24px' }}>
-              Confirmation: {successInfo.paymentId}
+              Confirmation: {successInfo.transactionId}
             </div>
             <div style={{ fontSize: '0.85rem', color: '#9ca3af' }}>
               Closing automatically...
@@ -268,10 +247,10 @@ export default function SquarePayment({ recordId, amountDue, record, onSuccess, 
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ fontSize: '48px', marginBottom: '12px' }}>&#10060;</div>
             <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#dc2626', marginBottom: '8px' }}>
-              Payment cancelled — card was not charged
+              Payment cancelled
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px' }}>
-              <button onClick={() => { setStep('confirm'); setError(null); setCheckoutId(null); }} style={btnPrimary}>
+              <button onClick={() => { setStep('confirm'); setError(null); }} style={btnPrimary}>
                 Try Again
               </button>
               <button onClick={onClose} style={btnSecondary}>Close</button>
