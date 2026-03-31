@@ -187,7 +187,7 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
-      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != '' AND c.marketing_opt_out IS NOT TRUE`;
 
     const params = [];
     if (last_visit_months) {
@@ -277,7 +277,7 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
-      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != '' AND c.marketing_opt_out IS NOT TRUE`;
     const params = [];
     if (filter.last_visit_months) {
       params.push(parseInt(filter.last_visit_months));

@@ -243,7 +243,7 @@ router.patch('/:id', async (req, res) => {
   const allowedFields = [
     'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
     'email_primary', 'email_secondary', 'address_street', 'address_city',
-    'address_state', 'address_zip', 'tax_exempt', 'notes',
+    'address_state', 'address_zip', 'tax_exempt', 'notes', 'marketing_opt_out',
   ];
   const updates = [];
   const values = [];

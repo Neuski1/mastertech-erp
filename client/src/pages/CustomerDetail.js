@@ -331,6 +331,24 @@ export default function CustomerDetail() {
             <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>{customer.notes}</p>
           </div>
         )}
+        {/* Marketing opt-out */}
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e5e7eb' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!customer.marketing_opt_out}
+              onChange={async (e) => {
+                try {
+                  await api.updateCustomer(id, { marketing_opt_out: e.target.checked });
+                  setCustomer({ ...customer, marketing_opt_out: e.target.checked });
+                } catch (err) { setError(err.message); }
+              }}
+            />
+            <span style={{ color: customer.marketing_opt_out ? '#dc2626' : '#374151' }}>
+              {customer.marketing_opt_out ? 'Opted out of marketing emails' : 'Exclude from marketing emails'}
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* ─── Storage Section ─── */}
