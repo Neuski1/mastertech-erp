@@ -553,27 +553,32 @@ ${paymentDetailHtml}
     <p>I understand that Master Tech RV Repair &amp; Storage takes reasonable care of all units in our possession; however, we are not responsible for loss or damage to the RV or personal belongings left inside in the event of fire, theft, weather events, or other circumstances beyond our control. We recommend removing valuables prior to drop-off.</p>
     <p>I grant Master Tech RV Repair &amp; Storage permission to operate my RV/unit as needed for testing, inspection, and the safe movement of the vehicle within our facility.</p>
     ` : `
-    <p>I hereby authorize Master Tech RV Repair &amp; Storage to operate and store the above vehicle for the purpose of testing, inspection, repair and delivery, at my own risk. I understand that Master Tech RV Repair and Storage is not responsible for loss or damage equipment or articles left on or in vehicles in case of fire, theft, or any cause beyond their control. I understand that if I wish to retain worn and damaged parts, that request will be made at the time of authorization or repairs.</p>
     <p>I understand that TWO (2) days after notice of completion of services rendered, that an OUTDOOR storage charge of $25 per day will be charged unless otherwise agreed to in writing.</p>
     <p>WARRANTY - 60 days on parts and labor unless otherwise stated from parts manufacturer. If customer provides parts, warranty is only on labor.</p>
     <p>If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
     `}
     ${r.authorization_signature ? `
-      <div style="margin-top:24px">
-        <div style="font-size:12px;font-weight:bold;margin-bottom:4px">Signature:</div>
-        <img src="${r.authorization_signature}" style="height:60px; display:block; margin-bottom:8px" />
-        <div style="font-size:11px;font-weight:bold">${(r.first_name || '') + ' ' + (r.last_name || '')}</div>
-        <div style="margin-top:20px">
+      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <div style="font-size:12px;font-weight:bold;margin-bottom:4px">Signature:</div>
+          <img src="${r.authorization_signature}" style="height:60px; display:block; margin-bottom:4px" />
+          <div style="font-size:11px;font-weight:bold">${(r.first_name || '') + ' ' + (r.last_name || '')}</div>
+        </div>
+        <div>
           <span style="font-size:12px;font-weight:bold">Date:</span>
           <span style="font-size:12px;font-weight:bold;margin-left:8px">${r.authorization_signed_at ? fmtPrintDateShort(r.authorization_signed_at) : '\u2014'}</span>
         </div>
       </div>
     ` : `
-      <div style="margin-top:24px">
-        <div style="margin-bottom:6px"><span style="font-size:12px;font-weight:bold">Signature:</span></div>
-        <div style="border-bottom:2px solid #333;width:320px;margin-bottom:20px"></div>
-        <div style="margin-bottom:6px"><span style="font-size:12px;font-weight:bold">Date:</span></div>
-        <div style="border-bottom:2px solid #333;width:200px;margin-bottom:16px"></div>
+      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <div style="margin-bottom:6px"><span style="font-size:12px;font-weight:bold">Signature:</span></div>
+          <div style="border-bottom:2px solid #333;width:320px"></div>
+        </div>
+        <div>
+          <div style="margin-bottom:6px"><span style="font-size:12px;font-weight:bold">Date:</span></div>
+          <div style="border-bottom:2px solid #333;width:200px"></div>
+        </div>
       </div>
     `}
   </div>
