@@ -79,6 +79,8 @@ export default function RecordDetail() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState(null);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailPersonalMsg, setEmailPersonalMsg] = useState('');
 
   // Section-level inline editing
   const [editingDates, setEditingDates] = useState(false);
@@ -311,14 +313,21 @@ export default function RecordDetail() {
     }
   };
 
-  const handleEmailDocument = async () => {
+  const openEmailDialog = () => {
     const email = record.email_primary;
     if (!email) { alert('No email address on file for this customer.'); return; }
-    if (!window.confirm(`Email this document to ${email}?`)) return;
+    setEmailPersonalMsg('');
+    setShowEmailModal(true);
+  };
+
+  const handleEmailDocument = async () => {
     setEmailing(true);
     setEmailMsg(null);
+    setShowEmailModal(false);
     try {
-      const result = await api.emailDocument(record.id);
+      const result = await api.emailDocument(record.id, {
+        personalMessage: emailPersonalMsg || null,
+      });
       setEmailMsg({ type: 'success', text: `${result.docType} emailed to ${result.sentTo}` });
       setTimeout(() => setEmailMsg(null), 6000);
     } catch (err) {
@@ -663,7 +672,7 @@ ${paymentDetailHtml}
           {!editing && (
             <>
               <button onClick={handlePrint} style={btnPrint}>Print</button>
-              <button onClick={handleEmailDocument} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
+              <button onClick={openEmailDialog} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
                 {emailing ? 'Sending...' : '\u2709 Email'}
               </button>
             </>
@@ -1116,6 +1125,45 @@ ${paymentDetailHtml}
           onClose={() => setManualPayModal(null)}
         />
       )}
+
+      {/* Email Document Modal */}
+      {showEmailModal && (() => {
+        const docType = record.status === 'estimate' ? 'Estimate' : ['complete','payment_pending','partial','paid'].includes(record.status) ? 'Invoice' : 'Work Order';
+        const placeholders = {
+          Estimate: 'e.g. Please review your estimate and let us know if you have any questions before approving.',
+          'Work Order': 'e.g. Here is your current work order summary. Please call if you have any questions.',
+          Invoice: 'e.g. Thank you for your business! Please let us know if you have any questions about your invoice.',
+        };
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <h2 style={{ margin: '0 0 16px', color: '#1e3a5f', fontSize: '1.1rem' }}>Email {docType} to Customer</h2>
+              <div style={{ marginBottom: '16px', fontSize: '0.85rem' }}>
+                <span style={{ color: '#6b7280' }}>Sending to:</span>{' '}
+                <strong>{record.email_primary}</strong>
+              </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Personal message (optional)</label>
+                <textarea
+                  value={emailPersonalMsg}
+                  onChange={(e) => setEmailPersonalMsg(e.target.value)}
+                  placeholder={placeholders[docType] || ''}
+                  rows={3}
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.875rem', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={handleEmailDocument} style={{ padding: '10px 24px', backgroundColor: '#0369a1', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
+                  Send Email
+                </button>
+                <button onClick={() => setShowEmailModal(false)} style={{ padding: '10px 24px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Signature Modal */}
       {showSignModal && (

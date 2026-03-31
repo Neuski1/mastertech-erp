@@ -561,6 +561,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 // POST /api/records/:id/email-document — Email document to customer
 // ---------------------------------------------------------------------------
 router.post('/:id/email-document', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const { personalMessage } = req.body || {};
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
@@ -683,6 +684,10 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         </td>
       </tr>
     </table>
+    ${personalMessage ? `
+    <div style="margin:16px 0;padding:16px;background:#f0f7ff;border-left:4px solid #1a2a4a;border-radius:4px;">
+      <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.6;white-space:pre-wrap;">${personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+    </div>` : ''}
     ${r.insurance_company ? `
     <div style="margin-bottom:12px;padding:8px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;font-size:12px;">
       <strong>Insurance:</strong> ${r.insurance_company}${r.claim_number ? ' &nbsp; <strong>Claim #:</strong> ' + r.claim_number : ''}${r.policy_number ? ' &nbsp; <strong>Policy #:</strong> ' + r.policy_number : ''}
