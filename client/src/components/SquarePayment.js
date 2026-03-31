@@ -46,9 +46,9 @@ export default function SquarePayment({ recordId, amountDue, onSuccess, onClose 
       setStep('waiting-terminal');
       startTerminalPolling(result.checkoutId);
     } catch (err) {
-      // Terminal API not authorized — show message instead of crashing
+      // Show actual Square error for debugging
       setStep('terminal-pending');
-      setError(null);
+      setError(err.message || 'Unknown Square Terminal error');
     } finally {
       setProcessing(false);
     }
@@ -209,7 +209,7 @@ export default function SquarePayment({ recordId, amountDue, onSuccess, onClose 
               <div style={optionNote}>Lower processing rate — card present</div>
               {step === 'terminal-pending' && (
                 <div style={warningBox}>
-                  Terminal API pending Square authorization. Use online entry below or record after collecting payment on the Terminal directly.
+                  Square Terminal error — use online entry or record payment manually below.
                 </div>
               )}
             </div>
