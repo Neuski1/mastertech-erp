@@ -1,0 +1,455 @@
+const express = require('express');
+const router = express.Router();
+const pool = require('../db/pool');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const { sendEmail } = require('../services/email');
+
+const DAILY_LIMIT = 100;
+const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 1000;
+
+// ---------------------------------------------------------------------------
+// Email template builders
+// ---------------------------------------------------------------------------
+function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#1e3a5f;padding:20px 24px;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+    <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
+  </div>
+  <div style="padding:24px 32px;">
+    <p style="font-size:15px;color:#111;">Hello ${firstName || 'Valued Customer'},</p>
+    <div style="font-size:14px;color:#333;line-height:1.7;">${bodyHtml}</div>
+    <div style="margin:24px 0;padding:16px;background:#eff6ff;border-radius:6px;border-left:4px solid #1e3a5f;">
+      <p style="margin:0 0 8px;font-weight:bold;color:#1e3a5f;">Our Services Include:</p>
+      <ul style="margin:0;padding-left:20px;font-size:13px;color:#333;line-height:1.8;">
+        <li>Roof inspections &amp; resealing</li>
+        <li>AC &amp; heating service</li>
+        <li>Plumbing &amp; water system checks</li>
+        <li>Electrical diagnostics</li>
+        <li>Full pre-season inspections</li>
+      </ul>
+    </div>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="mailto:service@mastertechrvrepair.com" style="display:inline-block;padding:14px 28px;background:#1e3a5f;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px;">Schedule Your Service Today</a>
+    </div>
+    <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
+      <p style="margin:2px 0;"><strong>Phone:</strong> (303) 557-2214</p>
+      <p style="margin:2px 0;"><strong>Email:</strong> service@mastertechrvrepair.com</p>
+      <p style="margin:2px 0;"><strong>Address:</strong> 6590 East 49th Avenue, Commerce City, CO 80022</p>
+      <p style="margin:2px 0;"><strong>Web:</strong> mastertechrvrepair.com</p>
+    </div>
+  </div>
+  <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:11px;color:#9ca3af;">
+    <p style="margin:0;">Master Tech RV Repair &amp; Storage</p>
+    <p style="margin:4px 0;"><a href="${unsubscribeUrl}" style="color:#9ca3af;">Unsubscribe</a></p>
+  </div>
+</div></body></html>`;
+}
+
+function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUrl }) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#1e3a5f;padding:20px 24px;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+    <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
+  </div>
+  <div style="padding:24px 32px;">
+    <p style="font-size:15px;color:#111;">Hello ${firstName || 'Valued Customer'},</p>
+    <div style="font-size:14px;color:#333;line-height:1.7;">${bodyHtml}</div>
+    ${unitInfo ? `<p style="font-size:14px;color:#1e3a5f;font-weight:600;">Your ${unitInfo} is due for a checkup.</p>` : ''}
+    <div style="margin:20px 0;padding:16px;background:#fffbeb;border-radius:6px;border-left:4px solid #f59e0b;">
+      <p style="margin:0;font-size:13px;color:#92400e;line-height:1.6;">Annual service helps prevent costly repairs down the road. A quick inspection now can catch small issues before they become big problems.</p>
+    </div>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="mailto:service@mastertechrvrepair.com?subject=Service%20Appointment%20Request" style="display:inline-block;padding:14px 28px;background:#1e3a5f;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px;">Book Your Service Appointment</a>
+    </div>
+    <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
+      <p style="margin:2px 0;"><strong>Phone:</strong> (303) 557-2214</p>
+      <p style="margin:2px 0;"><strong>Email:</strong> service@mastertechrvrepair.com</p>
+      <p style="margin:2px 0;"><strong>Address:</strong> 6590 East 49th Avenue, Commerce City, CO 80022</p>
+      <p style="margin:2px 0;"><strong>Web:</strong> mastertechrvrepair.com</p>
+    </div>
+  </div>
+  <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:11px;color:#9ca3af;">
+    <p style="margin:0;">Master Tech RV Repair &amp; Storage</p>
+    <p style="margin:4px 0;"><a href="${unsubscribeUrl}" style="color:#9ca3af;">Unsubscribe</a></p>
+  </div>
+</div></body></html>`;
+}
+
+function makeUnsubscribeUrl(email) {
+  const token = Buffer.from(email).toString('base64url');
+  const base = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app';
+  return `${base}/api/campaigns/unsubscribe/${token}`;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/campaigns — list all
+// ---------------------------------------------------------------------------
+router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT 100'
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/campaigns — create
+// ---------------------------------------------------------------------------
+router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
+  const { name, template_type, subject, body_html, target_filter } = req.body;
+  if (!name || !template_type || !subject) {
+    return res.status(400).json({ error: 'name, template_type, and subject are required' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO email_campaigns (name, template_type, subject, body_html, target_filter, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [name, template_type, subject, body_html || '', target_filter ? JSON.stringify(target_filter) : null, req.user.id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/campaigns/:id — detail with recipients
+// ---------------------------------------------------------------------------
+router.get('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows: campaign } = await pool.query('SELECT * FROM email_campaigns WHERE id = $1', [req.params.id]);
+    if (campaign.length === 0) return res.status(404).json({ error: 'Campaign not found' });
+
+    const { rows: recipients } = await pool.query(
+      'SELECT * FROM email_campaign_recipients WHERE campaign_id = $1 ORDER BY id',
+      [req.params.id]
+    );
+    res.json({ ...campaign[0], recipients });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/campaigns/:id — update draft
+// ---------------------------------------------------------------------------
+router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+  const { name, subject, body_html, target_filter } = req.body;
+  const updates = []; const values = []; let idx = 1;
+  if (name !== undefined) { updates.push(`name = $${idx++}`); values.push(name); }
+  if (subject !== undefined) { updates.push(`subject = $${idx++}`); values.push(subject); }
+  if (body_html !== undefined) { updates.push(`body_html = $${idx++}`); values.push(body_html); }
+  if (target_filter !== undefined) { updates.push(`target_filter = $${idx++}`); values.push(JSON.stringify(target_filter)); }
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE email_campaigns SET ${updates.join(', ')} WHERE id = $${idx} AND status = 'draft' RETURNING *`,
+      values
+    );
+    if (rows.length === 0) return res.status(400).json({ error: 'Campaign not found or not in draft status' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/campaigns/:id — delete draft
+// ---------------------------------------------------------------------------
+router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "DELETE FROM email_campaigns WHERE id = $1 AND status = 'draft' RETURNING id", [req.params.id]
+    );
+    if (rows.length === 0) return res.status(400).json({ error: 'Can only delete draft campaigns' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/campaigns/audience-count — count matching customers
+// ---------------------------------------------------------------------------
+router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res) => {
+  const { last_visit_months } = req.query;
+  try {
+    let customerQuery = `
+      SELECT c.id, c.first_name, c.last_name, c.email_primary
+      FROM customers c
+      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+
+    const params = [];
+    if (last_visit_months) {
+      params.push(parseInt(last_visit_months));
+      customerQuery += `
+        AND c.id NOT IN (
+          SELECT DISTINCT customer_id FROM records
+          WHERE status = 'paid' AND deleted_at IS NULL
+          AND actual_completion_date > NOW() - INTERVAL '1 month' * $1
+        )`;
+    }
+
+    const { rows: customers } = await pool.query(customerQuery, params);
+    const emails = customers.map(c => c.email_primary.toLowerCase());
+
+    const { rows: unsubs } = await pool.query('SELECT email FROM email_unsubscribes');
+    const unsubEmails = new Set(unsubs.map(u => u.email.toLowerCase()));
+
+    const eligible = customers.filter(c => !unsubEmails.has(c.email_primary.toLowerCase()));
+    const unsubCount = emails.length - eligible.length;
+
+    const { rows: noEmail } = await pool.query(
+      "SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL AND (email_primary IS NULL OR email_primary = '')"
+    );
+
+    const days = Math.ceil(eligible.length / DAILY_LIMIT);
+
+    res.json({
+      totalWithEmail: customers.length,
+      unsubscribed: unsubCount,
+      noEmail: parseInt(noEmail[0].count),
+      eligible: eligible.length,
+      estimatedDays: days,
+      preview: eligible.slice(0, 10).map(c => ({
+        id: c.id, name: `${c.first_name || ''} ${c.last_name || ''}`.trim(), email: c.email_primary,
+      })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/campaigns/:id/preview — send test email to admin
+// ---------------------------------------------------------------------------
+router.post('/:id/preview', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM email_campaigns WHERE id = $1', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Campaign not found' });
+    const campaign = rows[0];
+    const unsubUrl = makeUnsubscribeUrl('test@example.com');
+
+    let html;
+    if (campaign.template_type === 'service_reminder') {
+      html = buildServiceReminderHtml({ bodyHtml: campaign.body_html, firstName: 'Carol', unitInfo: '2020 Airstream Classic', unsubscribeUrl: unsubUrl });
+    } else {
+      html = buildSeasonalHtml({ subject: campaign.subject, bodyHtml: campaign.body_html, firstName: 'Carol', unsubscribeUrl: unsubUrl });
+    }
+
+    const result = await sendEmail({
+      to: 'carol@mastertechrvrepair.com',
+      subject: `[TEST] ${campaign.subject}`,
+      html,
+      text: campaign.body_html.replace(/<[^>]*>/g, ''),
+    });
+
+    res.json({ success: result.success, error: result.error });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/campaigns/:id/send — send campaign to all recipients
+// ---------------------------------------------------------------------------
+router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: campaigns } = await client.query(
+      "SELECT * FROM email_campaigns WHERE id = $1 AND status = 'draft'", [req.params.id]
+    );
+    if (campaigns.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Campaign not found or already sent' });
+    }
+    const campaign = campaigns[0];
+    const filter = campaign.target_filter || {};
+
+    // Build recipient list
+    let customerQuery = `
+      SELECT c.id, c.first_name, c.last_name, c.email_primary
+      FROM customers c
+      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+    const params = [];
+    if (filter.last_visit_months) {
+      params.push(parseInt(filter.last_visit_months));
+      customerQuery += `
+        AND c.id NOT IN (
+          SELECT DISTINCT customer_id FROM records
+          WHERE status = 'paid' AND deleted_at IS NULL
+          AND actual_completion_date > NOW() - INTERVAL '1 month' * $1
+        )`;
+    }
+    const { rows: customers } = await client.query(customerQuery, params);
+
+    // Exclude unsubscribed
+    const { rows: unsubs } = await client.query('SELECT email FROM email_unsubscribes');
+    const unsubEmails = new Set(unsubs.map(u => u.email.toLowerCase()));
+    const eligible = customers.filter(c => !unsubEmails.has(c.email_primary.toLowerCase()));
+
+    if (eligible.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No eligible recipients found' });
+    }
+
+    // Insert recipients
+    for (const c of eligible) {
+      await client.query(
+        `INSERT INTO email_campaign_recipients (campaign_id, customer_id, email, customer_name, status)
+         VALUES ($1, $2, $3, $4, 'queued')`,
+        [req.params.id, c.id, c.email_primary, `${c.first_name || ''} ${c.last_name || ''}`.trim()]
+      );
+    }
+
+    await client.query(
+      `UPDATE email_campaigns SET status = 'sending', recipient_count = $2 WHERE id = $1`,
+      [req.params.id, eligible.length]
+    );
+    await client.query('COMMIT');
+
+    // Send first batch immediately (up to DAILY_LIMIT)
+    const sentToday = await sendBatchForCampaign(req.params.id, DAILY_LIMIT);
+
+    const remaining = eligible.length - sentToday;
+    const daysRemaining = Math.ceil(remaining / DAILY_LIMIT);
+
+    res.json({
+      success: true,
+      recipientCount: eligible.length,
+      sentToday,
+      remaining,
+      estimatedDaysRemaining: daysRemaining,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Campaign send error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Send a batch of queued emails for a campaign
+// ---------------------------------------------------------------------------
+async function sendBatchForCampaign(campaignId, limit) {
+  const { rows: campaigns } = await pool.query('SELECT * FROM email_campaigns WHERE id = $1', [campaignId]);
+  if (campaigns.length === 0) return 0;
+  const campaign = campaigns[0];
+
+  const { rows: queued } = await pool.query(
+    `SELECT * FROM email_campaign_recipients WHERE campaign_id = $1 AND status = 'queued' ORDER BY id LIMIT $2`,
+    [campaignId, limit]
+  );
+  if (queued.length === 0) return 0;
+
+  let sentCount = 0;
+  for (let i = 0; i < queued.length; i += BATCH_SIZE) {
+    const batch = queued.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (recipient) => {
+      try {
+        const firstName = (recipient.customer_name || '').split(' ')[0] || 'Valued Customer';
+        const unsubUrl = makeUnsubscribeUrl(recipient.email);
+
+        // Get unit info for service reminder
+        let unitInfo = null;
+        if (campaign.template_type === 'service_reminder' && recipient.customer_id) {
+          const { rows: units } = await pool.query(
+            'SELECT year, make, model FROM units WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
+            [recipient.customer_id]
+          );
+          if (units.length > 0) unitInfo = [units[0].year, units[0].make, units[0].model].filter(Boolean).join(' ');
+        }
+
+        let html;
+        if (campaign.template_type === 'service_reminder') {
+          html = buildServiceReminderHtml({ bodyHtml: campaign.body_html, firstName, unitInfo, unsubscribeUrl: unsubUrl });
+        } else {
+          html = buildSeasonalHtml({ subject: campaign.subject, bodyHtml: campaign.body_html, firstName, unsubscribeUrl: unsubUrl });
+        }
+
+        const result = await sendEmail({
+          to: recipient.email,
+          subject: campaign.subject,
+          html,
+          text: campaign.body_html.replace(/<[^>]*>/g, ''),
+        });
+
+        if (result.success) {
+          await pool.query(
+            "UPDATE email_campaign_recipients SET status = 'sent', sent_at = NOW() WHERE id = $1",
+            [recipient.id]
+          );
+          sentCount++;
+        } else {
+          await pool.query(
+            "UPDATE email_campaign_recipients SET status = 'failed', error_message = $2 WHERE id = $1",
+            [recipient.id, result.error]
+          );
+        }
+      } catch (err) {
+        await pool.query(
+          "UPDATE email_campaign_recipients SET status = 'failed', error_message = $2 WHERE id = $1",
+          [recipient.id, err.message]
+        );
+      }
+    }));
+    // Delay between batches
+    if (i + BATCH_SIZE < queued.length) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+    }
+  }
+
+  // Update campaign counts
+  const { rows: counts } = await pool.query(
+    `SELECT COUNT(*) FILTER (WHERE status = 'sent') AS sent,
+            COUNT(*) FILTER (WHERE status = 'queued') AS queued
+     FROM email_campaign_recipients WHERE campaign_id = $1`,
+    [campaignId]
+  );
+  const totalSent = parseInt(counts[0].sent);
+  const totalQueued = parseInt(counts[0].queued);
+
+  const newStatus = totalQueued === 0 ? 'sent' : 'sending';
+  await pool.query(
+    `UPDATE email_campaigns SET sent_count = $2, status = $3${newStatus === 'sent' ? ", sent_at = NOW()" : ''} WHERE id = $1`,
+    [campaignId, totalSent, newStatus]
+  );
+
+  return sentCount;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/campaigns/unsubscribe/:token — handle unsubscribe (PUBLIC)
+// ---------------------------------------------------------------------------
+router.get('/unsubscribe/:token', async (req, res) => {
+  try {
+    const email = Buffer.from(req.params.token, 'base64url').toString('utf8');
+    if (!email || !email.includes('@')) return res.status(400).send('Invalid link');
+
+    await pool.query(
+      `INSERT INTO email_unsubscribes (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`,
+      [email.toLowerCase()]
+    );
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:500px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+  <div style="background:#1e3a5f;padding:20px;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">Master Tech RV Repair &amp; Storage</h1>
+  </div>
+  <div style="padding:32px;text-align:center;">
+    <p style="font-size:16px;color:#111;margin:0 0 12px;">You have been unsubscribed.</p>
+    <p style="font-size:14px;color:#6b7280;margin:0;">You will no longer receive marketing emails from Master Tech RV Repair &amp; Storage.</p>
+    <p style="font-size:13px;color:#9ca3af;margin:16px 0 0;">To resubscribe, contact us at<br/><a href="mailto:service@mastertechrvrepair.com" style="color:#3b82f6;">service@mastertechrvrepair.com</a></p>
+  </div>
+</div></body></html>`);
+  } catch (err) {
+    console.error('Unsubscribe error:', err);
+    res.status(500).send('Error processing unsubscribe');
+  }
+});
+
+// Export for use by daily cron job
+router.sendBatchForCampaign = sendBatchForCampaign;
+
+module.exports = router;

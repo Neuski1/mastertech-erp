@@ -67,6 +67,7 @@ app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
 app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
+app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 
 // Test email endpoint — quick debug, no auth required
@@ -153,11 +154,34 @@ const pool = require('./db/pool');
       part_number VARCHAR(100), description TEXT NOT NULL, quantity INTEGER DEFAULT 1,
       unit_price DECIMAL(10,2) DEFAULT 0, line_total DECIMAL(10,2) DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+    // Migration 027: email campaigns
+    await pool.query(`CREATE TABLE IF NOT EXISTS email_campaigns (
+      id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, template_type VARCHAR(50) NOT NULL,
+      subject VARCHAR(255) NOT NULL, body_html TEXT NOT NULL, status VARCHAR(20) DEFAULT 'draft',
+      target_filter JSONB, recipient_count INTEGER DEFAULT 0, sent_count INTEGER DEFAULT 0,
+      scheduled_at TIMESTAMPTZ, sent_at TIMESTAMPTZ, created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS email_campaign_recipients (
+      id SERIAL PRIMARY KEY, campaign_id INTEGER REFERENCES email_campaigns(id) ON DELETE CASCADE,
+      customer_id INTEGER REFERENCES customers(id), email VARCHAR(255) NOT NULL,
+      customer_name VARCHAR(255), status VARCHAR(20) DEFAULT 'pending',
+      sent_at TIMESTAMPTZ, error_message TEXT
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS email_unsubscribes (
+      id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL,
+      customer_id INTEGER REFERENCES customers(id), unsubscribed_at TIMESTAMPTZ DEFAULT NOW(),
+      reason VARCHAR(255)
+    )`);
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
   }
 })();
+
+// Start daily campaign send cron job
+const { startDailyCampaignJob } = require('./jobs/dailyCampaignSend');
+startDailyCampaignJob();
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {

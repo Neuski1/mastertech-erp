@@ -214,6 +214,19 @@ export const api = {
   deletePartsSaleLine: (saleId, lineId) => request(`/parts-sales/${saleId}/lines/${lineId}`, { method: 'DELETE' }),
   recordPartsSalePayment: (saleId, data) => request(`/parts-sales/${saleId}/payment`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // Campaigns
+  getCampaigns: () => request('/campaigns'),
+  getCampaign: (id) => request(`/campaigns/${id}`),
+  createCampaign: (data) => request('/campaigns', { method: 'POST', body: JSON.stringify(data) }),
+  updateCampaign: (id, data) => request(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCampaign: (id) => request(`/campaigns/${id}`, { method: 'DELETE' }),
+  previewCampaign: (id) => request(`/campaigns/${id}/preview`, { method: 'POST' }),
+  sendCampaign: (id) => request(`/campaigns/${id}/send`, { method: 'POST' }),
+  getAudienceCount: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/campaigns/audience/count${qs ? `?${qs}` : ''}`);
+  },
+
   // Vendors
   getVendors: () => request('/vendors'),
   createVendor: (name) => request('/vendors', { method: 'POST', body: JSON.stringify({ name }) }),
