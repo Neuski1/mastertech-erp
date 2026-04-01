@@ -30,18 +30,6 @@ button:hover {
    MOBILE RESPONSIVE — max-width: 768px (iPhone / small screens)
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* Mobile nav toggle button (hidden on desktop) */
-.mobile-nav-toggle {
-  display: none;
-  background: none;
-  border: none;
-  color: #cbd5e1;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 4px 8px;
-  line-height: 1;
-}
-
 /* Mobile floating action button (hidden on desktop) */
 .mobile-fab {
   display: none;
@@ -69,35 +57,7 @@ button:hover {
     display: none !important;
   }
 
-  /* ── Header ── */
-  header {
-    flex-wrap: wrap !important;
-    height: auto !important;
-    min-height: 48px !important;
-    padding: 8px 12px !important;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  /* Show hamburger button */
-  .mobile-nav-toggle {
-    display: block;
-    min-height: 36px;
-  }
-
-  /* Hide desktop nav (now handled via isMobile in JS) */
-  .desktop-nav {
-    display: none !important;
-  }
-
-  /* Hide user info row on mobile, keep logout */
-  .header-user-info .user-label {
-    display: none !important;
-  }
-  .header-user-info .qb-dot {
-    display: none !important;
-  }
+  /* Header and nav are now fully handled via isMobile in App.js */
 
   /* ── Main content ── */
   main {

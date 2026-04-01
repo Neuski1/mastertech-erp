@@ -90,13 +90,30 @@ function AppLayout() {
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
       {/* Header */}
       <header style={{
-        backgroundColor: '#1e3a5f', padding: '0 24px',
-        display: 'flex', alignItems: 'center', height: '56px',
+        backgroundColor: '#1e3a5f',
+        padding: isMobile ? '8px 12px' : '0 24px',
+        display: 'flex', alignItems: isMobile ? 'flex-start' : 'center',
+        flexWrap: 'wrap',
+        minHeight: isMobile ? '48px' : '56px',
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        position: isMobile ? 'sticky' : undefined,
+        top: isMobile ? 0 : undefined,
+        zIndex: isMobile ? 100 : undefined,
       }}>
-        <button className="mobile-nav-toggle" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
-          {mobileNavOpen ? '\u2715' : '\u2630'}
-        </button>
+        {/* Hamburger — mobile only */}
+        {isMobile && (
+          <button
+            onClick={() => setMobileNavOpen(!mobileNavOpen)}
+            style={{
+              background: 'none', border: 'none', color: '#fff',
+              fontSize: '1.5rem', cursor: 'pointer', padding: '4px 8px',
+              lineHeight: 1, minHeight: '36px',
+            }}
+          >
+            {mobileNavOpen ? '\u2715' : '\u2630'}
+          </button>
+        )}
+
         <Link to="/records" style={{ color: '#fff', textDecoration: 'none', fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.025em' }}>
           MASTER TECH ERP
         </Link>
@@ -110,10 +127,22 @@ function AppLayout() {
           </nav>
         )}
 
-        {/* Mobile nav drawer */}
+        <div className="header-user-info" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {!isMobile && <span className="qb-dot"><QBStatusDot /></span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {!isMobile && (
+              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                {user?.name} <span style={{ opacity: 0.7 }}>({roleLabelMap[user?.role] || user?.role})</span>
+              </span>
+            )}
+            <button onClick={logout} style={logoutBtn}>Logout</button>
+          </div>
+        </div>
+
+        {/* Mobile nav drawer — full width below header row */}
         {isMobile && mobileNavOpen && (
           <nav style={{
-            width: '100%', order: 10,
+            width: '100%',
             marginTop: '8px', paddingTop: '8px',
             borderTop: '1px solid rgba(255,255,255,0.15)',
             display: 'flex', flexDirection: 'column',
@@ -125,16 +154,6 @@ function AppLayout() {
             ))}
           </nav>
         )}
-
-        <div className="header-user-info" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span className="qb-dot"><QBStatusDot /></span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="user-label" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              {user?.name} <span style={{ opacity: 0.7 }}>({roleLabelMap[user?.role] || user?.role})</span>
-            </span>
-            <button onClick={logout} style={logoutBtn}>Logout</button>
-          </div>
-        </div>
       </header>
 
       {/* Content */}
