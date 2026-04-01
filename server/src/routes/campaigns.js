@@ -193,6 +193,7 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res) => {
   const { last_visit_months } = req.query;
   try {
+    const months = parseInt(last_visit_months) || 6;
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
@@ -204,18 +205,31 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       customerQuery += ` AND c.marketing_opt_out IS NOT TRUE`;
     } catch { /* column doesn't exist yet — skip filter */ }
 
-    const params = [];
-    if (last_visit_months) {
-      params.push(parseInt(last_visit_months));
-      customerQuery += `
-        AND c.id NOT IN (
-          SELECT DISTINCT customer_id FROM records
-          WHERE status = 'paid' AND deleted_at IS NULL
-          AND actual_completion_date > NOW() - INTERVAL '1 month' * $1
-        )`;
-    }
+    // Exclude customers currently in storage
+    customerQuery += `
+      AND c.id NOT IN (
+        SELECT DISTINCT customer_id FROM storage_billing
+        WHERE billing_end_date IS NULL AND deleted_at IS NULL
+      )`;
 
-    const { rows: customers } = await pool.query(customerQuery, params);
+    // Exclude customers with active/open work orders
+    customerQuery += `
+      AND c.id NOT IN (
+        SELECT DISTINCT customer_id FROM records
+        WHERE deleted_at IS NULL
+        AND status IN ('estimate', 'approved', 'in_progress', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'schedule_customer', 'scheduled')
+      )`;
+
+    // Exclude customers serviced (paid) within the last N months
+    customerQuery += `
+      AND c.id NOT IN (
+        SELECT DISTINCT customer_id FROM records
+        WHERE deleted_at IS NULL
+        AND status IN ('complete', 'payment_pending', 'partial', 'paid')
+        AND COALESCE(actual_completion_date, updated_at) > NOW() - INTERVAL '1 month' * $1
+      )`;
+
+    const { rows: customers } = await pool.query(customerQuery, [months]);
     const emails = customers.map(c => c.email_primary.toLowerCase());
 
     const { rows: unsubs } = await pool.query('SELECT email FROM email_unsubscribes');
@@ -289,6 +303,7 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
     const filter = campaign.target_filter || {};
 
     // Build recipient list
+    const months = parseInt(filter.last_visit_months) || 6;
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
@@ -300,17 +315,31 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
       customerQuery += ` AND c.marketing_opt_out IS NOT TRUE`;
     } catch { /* column doesn't exist yet — skip filter */ }
 
-    const params = [];
-    if (filter.last_visit_months) {
-      params.push(parseInt(filter.last_visit_months));
-      customerQuery += `
-        AND c.id NOT IN (
-          SELECT DISTINCT customer_id FROM records
-          WHERE status = 'paid' AND deleted_at IS NULL
-          AND actual_completion_date > NOW() - INTERVAL '1 month' * $1
-        )`;
-    }
-    const { rows: customers } = await client.query(customerQuery, params);
+    // Exclude customers currently in storage
+    customerQuery += `
+      AND c.id NOT IN (
+        SELECT DISTINCT customer_id FROM storage_billing
+        WHERE billing_end_date IS NULL AND deleted_at IS NULL
+      )`;
+
+    // Exclude customers with active/open work orders
+    customerQuery += `
+      AND c.id NOT IN (
+        SELECT DISTINCT customer_id FROM records
+        WHERE deleted_at IS NULL
+        AND status IN ('estimate', 'approved', 'in_progress', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'schedule_customer', 'scheduled')
+      )`;
+
+    // Exclude customers serviced (paid) within the last N months
+    customerQuery += `
+      AND c.id NOT IN (
+        SELECT DISTINCT customer_id FROM records
+        WHERE deleted_at IS NULL
+        AND status IN ('complete', 'payment_pending', 'partial', 'paid')
+        AND COALESCE(actual_completion_date, updated_at) > NOW() - INTERVAL '1 month' * $1
+      )`;
+
+    const { rows: customers } = await client.query(customerQuery, [months]);
 
     // Exclude unsubscribed
     const { rows: unsubs } = await client.query('SELECT email FROM email_unsubscribes');
@@ -470,6 +499,26 @@ router.post('/:id/retry', requireAuth, requireRole('admin'), async (req, res) =>
     res.json({ success: true, retried: rowCount, sent });
   } catch (err) {
     console.error('Campaign retry error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/campaigns/:id/cancel — Cancel a sending campaign
+// ---------------------------------------------------------------------------
+router.post('/:id/cancel', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      "UPDATE email_campaign_recipients SET status = 'cancelled' WHERE campaign_id = $1 AND status = 'queued'",
+      [req.params.id]
+    );
+    await pool.query(
+      "UPDATE email_campaigns SET status = 'cancelled' WHERE id = $1",
+      [req.params.id]
+    );
+    res.json({ success: true, cancelledCount: rowCount });
+  } catch (err) {
+    console.error('Campaign cancel error:', err);
     res.status(500).json({ error: err.message });
   }
 });

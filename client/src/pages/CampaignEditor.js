@@ -163,7 +163,7 @@ export default function CampaignEditor() {
           <h1 style={{ color: '#1e3a5f' }}>Select Audience</h1>
           <div style={cardStyle}>
             <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Customers with no visit in:</label>
+              <label style={labelStyle}>Customers with no service or storage activity in:</label>
               <select
                 value={form.target_filter?.last_visit_months || 6}
                 onChange={(e) => setForm({ ...form, target_filter: { ...form.target_filter, last_visit_months: parseInt(e.target.value) } })}
@@ -171,6 +171,9 @@ export default function CampaignEditor() {
               >
                 {MONTH_OPTIONS.map(m => <option key={m} value={m}>{m} months</option>)}
               </select>
+              <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '8px 0 0', lineHeight: 1.5 }}>
+                Excludes: customers currently in storage, customers with open work orders, and customers serviced within the selected time period.
+              </p>
             </div>
 
             {audience && (
@@ -232,7 +235,24 @@ export default function CampaignEditor() {
                 <div style={{ height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
                   <div style={{ height: '100%', backgroundColor: '#059669', borderRadius: '4px', width: `${Math.round((campaign.sent_count / campaign.recipient_count) * 100)}%`, transition: 'width 0.3s' }} />
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>{campaign.sent_count} of {campaign.recipient_count} sent</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>{campaign.sent_count} of {campaign.recipient_count} sent</span>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm('Cancel this campaign? Emails already sent cannot be recalled.')) return;
+                      try {
+                        const result = await api.cancelCampaign(campaign.id);
+                        alert(`Campaign cancelled. ${result.cancelledCount} queued emails were stopped.`);
+                        window.location.reload();
+                      } catch (err) {
+                        alert('Cancel failed: ' + err.message);
+                      }
+                    }}
+                    style={{ padding: '4px 12px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                  >
+                    Cancel Campaign
+                  </button>
+                </div>
               </div>
             )}
 
