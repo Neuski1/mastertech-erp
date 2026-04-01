@@ -291,32 +291,20 @@ export default function CampaignEditor() {
               </div>
             )}
 
-            {/* Recipient list */}
-            {campaign?.recipients && campaign.recipients.length > 0 && (
+            {/* Sent recipients */}
+            {campaign?.recipients && campaign.recipients.filter(r => r.status === 'sent').length > 0 && (
               <div>
-                <h3 style={{ fontSize: '0.9rem', color: '#374151', marginBottom: '8px' }}>Recipients</h3>
-                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                <h3 style={{ fontSize: '0.9rem', color: '#065f46', marginBottom: '8px' }}>
+                  Sent ({campaign.recipients.filter(r => r.status === 'sent').length})
+                </h3>
+                <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                      <tr>
-                        <th style={thSmall}>Name</th>
-                        <th style={thSmall}>Email</th>
-                        <th style={thSmall}>Status</th>
-                        <th style={thSmall}>Error</th>
-                      </tr>
-                    </thead>
+                    <thead><tr><th style={thSmall}>Name</th><th style={thSmall}>Email</th></tr></thead>
                     <tbody>
-                      {campaign.recipients.map(r => (
+                      {campaign.recipients.filter(r => r.status === 'sent').map(r => (
                         <tr key={r.id}>
                           <td style={tdSmall}>{r.customer_name}</td>
                           <td style={tdSmall}>{r.email}</td>
-                          <td style={tdSmall}>
-                            <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
-                              backgroundColor: r.status === 'sent' ? '#d1fae5' : r.status === 'failed' ? '#fee2e2' : '#fef3c7',
-                              color: r.status === 'sent' ? '#065f46' : r.status === 'failed' ? '#991b1b' : '#92400e',
-                            }}>{r.status}</span>
-                          </td>
-                          <td style={{ ...tdSmall, color: '#dc2626' }}>{r.error_message || ''}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -324,6 +312,44 @@ export default function CampaignEditor() {
                 </div>
               </div>
             )}
+
+            {/* Undeliverable recipients — collapsible */}
+            {campaign?.recipients && (() => {
+              const failed = campaign.recipients.filter(r => r.status === 'failed');
+              if (failed.length === 0) return null;
+              const formatReason = (msg) => {
+                if (!msg) return 'Unknown error';
+                const m = msg.toLowerCase();
+                if (m.includes('bounce')) return 'Bad email address (bounced)';
+                if (m.includes('invalid_to') || m.includes('invalid email')) return 'Invalid email address format';
+                if (m.includes('not found') || m.includes('does not exist') || m.includes('404')) return 'Email address not found';
+                if (m.includes('spam') || m.includes('complaint')) return 'Marked as spam by recipient';
+                if (m.includes('unsubscrib')) return 'Previously unsubscribed';
+                if (m.includes('rate') || m.includes('too many') || m.includes('429')) return 'Sending rate limit — use Retry';
+                return msg.length > 80 ? msg.slice(0, 80) + '...' : msg;
+              };
+              return (
+                <details style={{ marginTop: '16px' }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', color: '#dc2626', padding: '8px 0' }}>
+                    Undeliverable Recipients ({failed.length})
+                  </summary>
+                  <div style={{ maxHeight: '250px', overflowY: 'auto', marginTop: '8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                      <thead><tr><th style={thSmall}>Name</th><th style={thSmall}>Email</th><th style={thSmall}>Reason</th></tr></thead>
+                      <tbody>
+                        {failed.map(r => (
+                          <tr key={r.id}>
+                            <td style={tdSmall}>{r.customer_name}</td>
+                            <td style={tdSmall}>{r.email}</td>
+                            <td style={{ ...tdSmall, color: '#92400e' }}>{formatReason(r.error_message)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -255,6 +255,7 @@ router.patch('/:id', async (req, res) => {
     'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
     'email_primary', 'email_secondary', 'address_street', 'address_city',
     'address_state', 'address_zip', 'tax_exempt', 'notes', 'marketing_opt_out',
+    'email_invalid',
   ];
   const updates = [];
   const values = [];
@@ -280,7 +281,32 @@ router.patch('/:id', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Customer not found' });
     }
-    res.json(rows[0]);
+
+    const updated = rows[0];
+
+    // If admin re-opts customer into marketing, remove from unsubscribe list
+    if (req.body.marketing_opt_out === false && updated.email_primary) {
+      try {
+        await pool.query('DELETE FROM email_unsubscribes WHERE LOWER(email) = $1', [updated.email_primary.toLowerCase()]);
+        await pool.query('UPDATE customers SET email_opt_out_date = NULL WHERE id = $1', [req.params.id]);
+      } catch { /* table may not exist */ }
+    }
+    // If admin sets opt-out, record the date
+    if (req.body.marketing_opt_out === true) {
+      try {
+        await pool.query('UPDATE customers SET email_opt_out_date = NOW() WHERE id = $1', [req.params.id]);
+      } catch { /* column may not exist */ }
+    }
+    // If admin clears email_invalid, clear the date too
+    if (req.body.email_invalid === false) {
+      try {
+        await pool.query('UPDATE customers SET email_invalid_date = NULL WHERE id = $1', [req.params.id]);
+      } catch { /* column may not exist */ }
+    }
+
+    // Re-fetch to get updated dates
+    const { rows: fresh } = await pool.query('SELECT * FROM customers WHERE id = $1', [req.params.id]);
+    res.json(fresh[0] || updated);
   } catch (err) {
     console.error('PATCH /api/customers/:id error:', err);
     res.status(500).json({ error: err.message });

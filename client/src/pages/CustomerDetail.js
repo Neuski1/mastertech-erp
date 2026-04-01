@@ -313,7 +313,19 @@ export default function CustomerDetail() {
           <EditableField label="Company" field="company_name" value={formData.company_name || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="Phone 1" field="phone_primary" value={formData.phone_primary || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="Phone 2" field="phone_secondary" value={formData.phone_secondary || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="Email" field="email_primary" value={formData.email_primary || ''} editing={editing} onChange={handleFieldChange} />
+          <div>
+            <EditableField label="Email" field="email_primary" value={formData.email_primary || ''} editing={editing} onChange={handleFieldChange} />
+            {!editing && customer.email_invalid && (
+              <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fef3c7', color: '#92400e' }}>
+                Email bounced {customer.email_invalid_date ? new Date(customer.email_invalid_date).toLocaleDateString() : ''} — please verify
+              </span>
+            )}
+            {!editing && customer.marketing_opt_out && (
+              <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fee2e2', color: '#dc2626' }}>
+                Unsubscribed {customer.email_opt_out_date ? new Date(customer.email_opt_out_date).toLocaleDateString() : ''}
+              </span>
+            )}
+          </div>
           <EditableField label="Street" field="address_street" value={formData.address_street || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="City" field="address_city" value={formData.address_city || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="State" field="address_state" value={formData.address_state || ''} editing={editing} onChange={handleFieldChange} />
@@ -331,23 +343,43 @@ export default function CustomerDetail() {
             <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.875rem' }}>{customer.notes}</p>
           </div>
         )}
-        {/* Marketing opt-out */}
-        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e5e7eb' }}>
+        {/* Email flags */}
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={!!customer.marketing_opt_out}
               onChange={async (e) => {
                 try {
-                  await api.updateCustomer(id, { marketing_opt_out: e.target.checked });
-                  setCustomer({ ...customer, marketing_opt_out: e.target.checked });
+                  const updated = await api.updateCustomer(id, { marketing_opt_out: e.target.checked });
+                  setCustomer(updated);
                 } catch (err) { setError(err.message); }
               }}
             />
             <span style={{ color: customer.marketing_opt_out ? '#dc2626' : '#374151' }}>
               {customer.marketing_opt_out ? 'Opted out of marketing emails' : 'Exclude from marketing emails'}
             </span>
+            {customer.marketing_opt_out && (
+              <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Customer must re-opt-in to receive campaigns</span>
+            )}
           </label>
+          {customer.email_invalid && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!customer.email_invalid}
+                onChange={async (e) => {
+                  try {
+                    const updated = await api.updateCustomer(id, { email_invalid: e.target.checked });
+                    setCustomer(updated);
+                  } catch (err) { setError(err.message); }
+                }}
+              />
+              <span style={{ color: '#92400e' }}>
+                Email bounced — mark as verified/corrected to clear
+              </span>
+            </label>
+          )}
         </div>
       </div>
 

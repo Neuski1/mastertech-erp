@@ -202,7 +202,7 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
     // Exclude customers who opted out (column may not exist on older schemas)
     try {
       await pool.query('SELECT marketing_opt_out FROM customers LIMIT 1');
-      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE`;
+      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
     } catch { /* column doesn't exist yet — skip filter */ }
 
     // Exclude customers currently in storage
@@ -330,7 +330,7 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
     // Exclude customers who opted out (column may not exist on older schemas)
     try {
       await client.query('SELECT marketing_opt_out FROM customers LIMIT 1');
-      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE`;
+      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
     } catch { /* column doesn't exist yet — skip filter */ }
 
     // Exclude customers currently in storage
@@ -463,6 +463,17 @@ async function sendBatchForCampaign(campaignId, limit) {
             "UPDATE email_campaign_recipients SET status = 'failed', error_message = $2 WHERE id = $1",
             [recipient.id, result.error]
           );
+          // Flag bounced/invalid emails on customer record
+          const errLower = (result.error || '').toLowerCase();
+          if (errLower.includes('bounce') || errLower.includes('invalid') || errLower.includes('not found') || errLower.includes('does not exist')) {
+            try {
+              await pool.query(
+                `UPDATE customers SET email_invalid = TRUE, email_invalid_date = NOW()
+                 WHERE LOWER(email_primary) = $1 AND deleted_at IS NULL`,
+                [recipient.email.toLowerCase()]
+              );
+            } catch { /* column may not exist yet */ }
+          }
         }
       } catch (err) {
         await pool.query(
@@ -553,6 +564,15 @@ router.get('/unsubscribe/:token', async (req, res) => {
       `INSERT INTO email_unsubscribes (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`,
       [email.toLowerCase()]
     );
+
+    // Also flag the customer record as opted out
+    try {
+      await pool.query(
+        `UPDATE customers SET marketing_opt_out = TRUE, email_opt_out_date = NOW()
+         WHERE LOWER(email_primary) = $1 AND deleted_at IS NULL`,
+        [email.toLowerCase()]
+      );
+    } catch { /* column may not exist yet */ }
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
