@@ -5,8 +5,8 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 
 const DAILY_LIMIT = 100;
-const BATCH_SIZE = 10;
-const BATCH_DELAY_MS = 1000;
+const BATCH_SIZE = 2;          // Send 2 at a time (well under Resend's 5/sec limit)
+const BATCH_DELAY_MS = 1000;   // 1 second between batches → ~2 emails/sec
 
 // ---------------------------------------------------------------------------
 // Email template builders
@@ -448,6 +448,31 @@ async function sendBatchForCampaign(campaignId, limit) {
 
   return sentCount;
 }
+
+// ---------------------------------------------------------------------------
+// POST /api/campaigns/:id/retry — Retry all failed recipients
+// ---------------------------------------------------------------------------
+router.post('/:id/retry', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    // Reset failed recipients back to queued
+    const { rowCount } = await pool.query(
+      "UPDATE email_campaign_recipients SET status = 'queued', error_message = NULL WHERE campaign_id = $1 AND status = 'failed'",
+      [req.params.id]
+    );
+    if (rowCount === 0) return res.json({ success: true, retried: 0, message: 'No failed recipients to retry' });
+
+    // Set campaign back to sending
+    await pool.query("UPDATE email_campaigns SET status = 'sending' WHERE id = $1", [req.params.id]);
+
+    // Send the retried batch
+    const sent = await sendBatchForCampaign(req.params.id, DAILY_LIMIT);
+
+    res.json({ success: true, retried: rowCount, sent });
+  } catch (err) {
+    console.error('Campaign retry error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/campaigns/unsubscribe/:token — handle unsubscribe (PUBLIC)

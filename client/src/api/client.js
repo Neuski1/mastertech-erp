@@ -223,6 +223,7 @@ export const api = {
   deleteCampaign: (id) => request(`/campaigns/${id}`, { method: 'DELETE' }),
   previewCampaign: (id) => request(`/campaigns/${id}/preview`, { method: 'POST' }),
   sendCampaign: (id) => request(`/campaigns/${id}/send`, { method: 'POST' }),
+  retryCampaign: (id) => request(`/campaigns/${id}/retry`, { method: 'POST' }),
   getAudienceCount: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/campaigns/audience/count${qs ? `?${qs}` : ''}`);

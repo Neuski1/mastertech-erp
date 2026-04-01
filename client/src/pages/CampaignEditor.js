@@ -236,6 +236,34 @@ export default function CampaignEditor() {
               </div>
             )}
 
+            {/* Retry failed button */}
+            {campaign?.recipients && campaign.recipients.filter(r => r.status === 'failed').length > 0 && (
+              <div style={{ marginBottom: '16px', padding: '12px 16px', backgroundColor: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontWeight: 600, color: '#dc2626' }}>
+                    {campaign.recipients.filter(r => r.status === 'failed').length} failed
+                  </span>
+                  <span style={{ color: '#6b7280', fontSize: '0.85rem', marginLeft: '8px' }}>
+                    (rate limit or delivery error)
+                  </span>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      const result = await api.retryCampaign(campaign.id);
+                      alert(`Retrying ${result.retried} failed recipients. ${result.sent} sent so far.`);
+                      window.location.reload();
+                    } catch (err) {
+                      alert('Retry failed: ' + err.message);
+                    }
+                  }}
+                  style={{ padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
+                >
+                  Retry Failed
+                </button>
+              </div>
+            )}
+
             {/* Recipient list */}
             {campaign?.recipients && campaign.recipients.length > 0 && (
               <div>
