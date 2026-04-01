@@ -34,6 +34,7 @@ export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   getMe: () => request('/auth/me'),
+  refreshToken: () => request('/auth/refresh', { method: 'POST' }),
 
   // User management (admin only)
   getUsers: () => request('/auth/users'),

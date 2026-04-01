@@ -59,6 +59,20 @@ router.post('/logout', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/auth/refresh — Issue a fresh token if current one is still valid
+// ---------------------------------------------------------------------------
+router.post('/refresh', requireAuth, (req, res) => {
+  const payload = {
+    id: req.user.id,
+    email: req.user.email,
+    name: req.user.name,
+    role: req.user.role,
+  };
+  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+  res.json({ token });
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/auth/me — Return current user info from JWT
 // ---------------------------------------------------------------------------
 router.get('/me', requireAuth, async (req, res) => {

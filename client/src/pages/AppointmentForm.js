@@ -247,7 +247,7 @@ export default function AppointmentForm() {
       });
       // Link appointment to the new record and set arrived status
       await api.updateAppointment(id, { record_id: rec.id, status: 'arrived' });
-      alert(`Record #${rec.record_number} created from this appointment.`);
+      alert(`Record #${rec.record_number} created from this appointment`);
       navigate(`/records/${rec.id}`);
     } catch (err) {
       setError(err.message);
@@ -494,9 +494,9 @@ export default function AppointmentForm() {
                 {resending ? 'Sending...' : '\u2709 Resend Confirmation'}
               </button>
             )}
-            {isEdit && form.appointment_type === 'drop_off' && !form.record_id && (
+            {isEdit && form.appointment_type !== 'pick_up' && !form.record_id && (
               <button type="button" onClick={handleCreateRecord} disabled={creatingRecord} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
-                {creatingRecord ? 'Creating...' : 'Create Record'}
+                {creatingRecord ? 'Creating...' : 'Create Record from Appointment'}
               </button>
             )}
 

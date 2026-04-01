@@ -43,6 +43,24 @@ export function AuthProvider({ children }) {
     sessionStorage.removeItem('erp_token');
   }, []);
 
+  // Auto-refresh token to keep session alive during active work days.
+  // Refreshes every 9 hours (before the 10h server-side expiry).
+  useEffect(() => {
+    if (!token) return;
+    const REFRESH_INTERVAL = 9 * 60 * 60 * 1000; // 9 hours in ms
+    const interval = setInterval(async () => {
+      try {
+        const data = await api.refreshToken();
+        setToken(data.token);
+        api.setToken(data.token);
+        sessionStorage.setItem('erp_token', data.token);
+      } catch {
+        // Token expired or invalid — will be caught by 401 handler
+      }
+    }, REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [token]);
+
   // Role check helpers
   const hasRole = useCallback((...roles) => {
     return user && roles.includes(user.role);

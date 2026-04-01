@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'mastertech-erp-secret-change-me';
-const JWT_EXPIRY = '8h';
+const JWT_EXPIRY = '10h';
 
 // ---------------------------------------------------------------------------
 // requireAuth — Verify JWT and attach req.user
