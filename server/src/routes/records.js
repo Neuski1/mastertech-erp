@@ -660,7 +660,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         <h2 style="color:#ffffff;margin:0;font-size:20px;">${docType}</h2>
         <p style="color:#93c5fd;margin:2px 0;font-size:13px;">#${r.record_number}</p>
         ${r.intake_date || r.created_at ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Date: ${fmtDate(r.intake_date || r.created_at)}</p>` : ''}
-        ${r.expected_completion_date ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
+        ${r.expected_completion_date && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
+        ${r.actual_completion_date ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Completed: ${fmtDate(r.actual_completion_date)}</p>` : ''}
       </td>
     </tr></table>
   </div>
@@ -693,7 +694,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <strong>Insurance:</strong> ${r.insurance_company}${r.claim_number ? ' &nbsp; <strong>Claim #:</strong> ' + r.claim_number : ''}${r.policy_number ? ' &nbsp; <strong>Policy #:</strong> ' + r.policy_number : ''}
     </div>` : ''}
 
-    ${r.job_description ? `
+    ${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `
     <div style="margin:0 0 16px;padding:12px 16px;background:#f8f9fa;border-left:4px solid #1e3a5f;border-radius:0 4px 4px 0;">
       <div style="font-size:10px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Job Description</div>
       <div style="font-size:13px;color:#1e3a5f;white-space:pre-wrap;">${r.job_description}</div>

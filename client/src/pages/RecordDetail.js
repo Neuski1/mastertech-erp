@@ -487,11 +487,8 @@ export default function RecordDetail() {
     <h2>${docTitle} #${r.record_number}</h2>
     <p>Original Date: ${intakeDate}</p>
     ${r.start_date ? `<p>Start Date: ${fmtPrintDateShort(r.start_date.includes('T') ? r.start_date : r.start_date + 'T12:00:00')}</p>` : ''}
-    ${r.status === 'paid'
-      ? (r.actual_completion_date ? `<p>Completed Date: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : '')
-      : (r.expected_completion_date ? `<p>Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : '')
-    }
-    ${r.status !== 'estimate' && r.status !== 'paid' && r.actual_completion_date ? `<p>Completed Date: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : ''}
+    ${!['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && r.expected_completion_date ? `<p>Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
+    ${r.actual_completion_date ? `<p>Completed: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : ''}
     <p>Time: ${timePrinted}</p>
   </div>
 </div>
@@ -515,7 +512,7 @@ export default function RecordDetail() {
 </div>
 ${r.insurance_company ? `<div class="info-block"><div><label>Insurance</label><span>${r.insurance_company}</span>${r.claim_number ? ' &nbsp; <label style="display:inline">Claim #</label> <span>' + r.claim_number + '</span>' : ''}</div></div>` : ''}
 
-${r.job_description ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:6px 0 0;padding-left:20px;font-size:13px;line-height:1.6">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:3px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
+${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:6px 0 0;padding-left:20px;font-size:13px;line-height:1.6">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:3px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
 ${r.customer_notes ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Customer Notes:</strong><p style="margin:4px 0 0;font-size:11px;white-space:pre-wrap">${r.customer_notes}</p></div>` : ''}
 
 ${(r.labor_lines || []).length > 0 ? `
