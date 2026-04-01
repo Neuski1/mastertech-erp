@@ -16,6 +16,20 @@ function getLogoUrl() {
   return `${frontend}/master-rvtech-logo-dark.jpg`;
 }
 
+function getHeroImageUrl() {
+  const frontend = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+  return `${frontend}/images/rv-mountains.jpg`;
+}
+
+// Hero image block used in marketing templates
+function heroBlock() {
+  return `
+  <div style="width:100%;max-width:600px;overflow:hidden;margin:0 auto;">
+    <img src="${getHeroImageUrl()}" alt="RV travel trailer heading into the mountains" style="width:100%;height:240px;object-fit:cover;object-position:center;display:block;" />
+    <p style="text-align:center;font-size:13px;color:#6b7280;font-style:italic;margin:8px 0 0;padding:0 24px;">Adventure is calling &mdash; is your RV ready? &#x1F3D4;&#xFE0F;</p>
+  </div>`;
+}
+
 // Shared CTA block used in all marketing templates
 const ctaBlock = `
     <div style="text-align:center;margin:32px 0;padding:24px;background:#f8f9fa;border-radius:8px;">
@@ -35,6 +49,7 @@ function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
     <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
   </div>
+  ${heroBlock()}
   <div style="padding:24px 32px;">
     <p style="font-size:15px;color:#111;">Hello ${firstName || 'Valued Customer'},</p>
     <div style="font-size:14px;color:#333;line-height:1.7;">${bodyHtml}</div>
@@ -67,6 +82,7 @@ function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUr
     <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
   </div>
+  ${heroBlock()}
   <div style="padding:24px 32px;">
     <p style="font-size:15px;color:#111;">Hello ${firstName || 'Valued Customer'},</p>
     <div style="font-size:14px;color:#333;line-height:1.7;">${bodyHtml}</div>
