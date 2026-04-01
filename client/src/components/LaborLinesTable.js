@@ -68,11 +68,14 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
       if (field === 'description') data.description = value;
       if (field === 'hours') data.hours = parseFloat(value || 0);
       if (field === 'no_charge') data.no_charge = value;
-      await api.updateLabor(recordId, lineId, data);
+      console.log(`Saving ${field}:`, value, 'for labor line:', lineId);
+      const result = await api.updateLabor(recordId, lineId, data);
+      console.log('Save result:', result);
       setSavedLineId(lineId);
       setTimeout(() => setSavedLineId(null), 1500);
       onUpdate();
     } catch (err) {
+      console.error(`Error saving ${field} for labor line ${lineId}:`, err);
       setError(err.message);
     }
   };
@@ -119,6 +122,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
               <td style={tdStyle}>
                 {canEdit ? (
                   <textarea
+                    key={`desc-${line.id}-${line.updated_at || line.id}`}
                     defaultValue={line.description}
                     ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
                     onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
@@ -141,6 +145,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 {canEdit ? (
                   <div style={{ position: 'relative', display: 'inline-block' }}>
                     <select
+                      key={`tech-${line.id}-${line.technician_id || 'none'}`}
                       defaultValue={line.technician_id || ''}
                       onChange={(e) => handleInlineSave(line.id, 'technician_id', e.target.value)}
                       style={inlineSelect}
@@ -159,6 +164,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
               <td style={{ ...tdStyle, textAlign: 'right' }}>
                 {canEdit ? (
                   <input
+                    key={`hours-${line.id}-${line.hours}`}
                     type="number"
                     step="0.25"
                     min="0"

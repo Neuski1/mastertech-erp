@@ -156,6 +156,7 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       return res.status(400).json({ error: 'No valid fields to update' });
     }
 
+    updates.push(`updated_at = NOW()`);
     values.push(lineId);
     await client.query(
       `UPDATE record_labor_lines SET ${updates.join(', ')} WHERE id = $${idx}`,
