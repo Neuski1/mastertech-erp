@@ -191,19 +191,17 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 // GET /api/campaigns/audience-count — count matching customers
 // ---------------------------------------------------------------------------
 router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res) => {
-  const { last_visit_months } = req.query;
   try {
-    const months = parseInt(last_visit_months) || 6;
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
       WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
 
-    // Exclude customers who opted out (column may not exist on older schemas)
+    // Exclude opted-out and invalid emails
     try {
       await pool.query('SELECT marketing_opt_out FROM customers LIMIT 1');
       customerQuery += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
-    } catch { /* column doesn't exist yet — skip filter */ }
+    } catch { /* columns don't exist yet */ }
 
     // Exclude customers currently in storage
     customerQuery += `
@@ -212,24 +210,17 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
         WHERE billing_end_date IS NULL AND deleted_at IS NULL
       )`;
 
-    // Exclude customers with active/open work orders
+    // Exclude customers with any open/active work order
     customerQuery += `
       AND c.id NOT IN (
         SELECT DISTINCT customer_id FROM records
         WHERE deleted_at IS NULL
-        AND status IN ('estimate', 'approved', 'in_progress', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'schedule_customer', 'scheduled')
+        AND status NOT IN ('paid', 'void')
       )`;
 
-    // Exclude customers serviced (paid) within the last N months
-    customerQuery += `
-      AND c.id NOT IN (
-        SELECT DISTINCT customer_id FROM records
-        WHERE deleted_at IS NULL
-        AND status IN ('complete', 'payment_pending', 'partial', 'paid')
-        AND COALESCE(actual_completion_date, updated_at) > NOW() - INTERVAL '1 month' * $1
-      )`;
+    customerQuery += ` ORDER BY c.last_name, c.first_name`;
 
-    const { rows: customers } = await pool.query(customerQuery, [months]);
+    const { rows: customers } = await pool.query(customerQuery);
     const emails = customers.map(c => c.email_primary.toLowerCase());
 
     const { rows: unsubs } = await pool.query('SELECT email FROM email_unsubscribes');
@@ -242,20 +233,21 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       "SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL AND (email_primary IS NULL OR email_primary = '')"
     );
 
-    // Get excluded counts for the breakdown
+    // Excluded counts for the breakdown
     const { rows: storageCount } = await pool.query(
       `SELECT COUNT(DISTINCT customer_id) AS cnt FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL`
     );
     const { rows: openOrderCount } = await pool.query(
-      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL
-       AND status IN ('estimate', 'approved', 'in_progress', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'schedule_customer', 'scheduled')`
+      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void')`
     );
-    const { rows: recentServiceCount } = await pool.query(
-      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL
-       AND status IN ('complete', 'payment_pending', 'partial', 'paid')
-       AND COALESCE(actual_completion_date, updated_at) > NOW() - INTERVAL '1 month' * $1`,
-      [months]
-    );
+
+    let excludedOptOut = 0, excludedInvalid = 0;
+    try {
+      const { rows: optOutCount } = await pool.query(`SELECT COUNT(*) AS cnt FROM customers WHERE deleted_at IS NULL AND marketing_opt_out = TRUE AND email_primary IS NOT NULL`);
+      excludedOptOut = parseInt(optOutCount[0].cnt);
+      const { rows: invalidCount } = await pool.query(`SELECT COUNT(*) AS cnt FROM customers WHERE deleted_at IS NULL AND email_invalid = TRUE AND email_primary IS NOT NULL`);
+      excludedInvalid = parseInt(invalidCount[0].cnt);
+    } catch { /* columns don't exist */ }
 
     const days = Math.ceil(eligible.length / DAILY_LIMIT);
 
@@ -265,12 +257,10 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       noEmail: parseInt(noEmail[0].count),
       excludedStorage: parseInt(storageCount[0].cnt),
       excludedOpenOrders: parseInt(openOrderCount[0].cnt),
-      excludedRecentService: parseInt(recentServiceCount[0].cnt),
+      excludedOptOut,
+      excludedInvalid,
       eligible: eligible.length,
       estimatedDays: days,
-      preview: eligible.slice(0, 10).map(c => ({
-        id: c.id, name: `${c.first_name || ''} ${c.last_name || ''}`.trim(), email: c.email_primary,
-      })),
       allRecipients: eligible.map(c => ({
         id: c.id, name: `${c.first_name || ''} ${c.last_name || ''}`.trim(), email: c.email_primary,
       })),
@@ -323,18 +313,16 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
     const campaign = campaigns[0];
     const filter = campaign.target_filter || {};
 
-    // Build recipient list
-    const months = parseInt(filter.last_visit_months) || 6;
+    // Build recipient list — same logic as audience/count
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
       WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
 
-    // Exclude customers who opted out (column may not exist on older schemas)
     try {
       await client.query('SELECT marketing_opt_out FROM customers LIMIT 1');
       customerQuery += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
-    } catch { /* column doesn't exist yet — skip filter */ }
+    } catch { /* columns don't exist yet */ }
 
     // Exclude customers currently in storage
     customerQuery += `
@@ -343,24 +331,15 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
         WHERE billing_end_date IS NULL AND deleted_at IS NULL
       )`;
 
-    // Exclude customers with active/open work orders
+    // Exclude customers with any open/active work order
     customerQuery += `
       AND c.id NOT IN (
         SELECT DISTINCT customer_id FROM records
         WHERE deleted_at IS NULL
-        AND status IN ('estimate', 'approved', 'in_progress', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'schedule_customer', 'scheduled')
+        AND status NOT IN ('paid', 'void')
       )`;
 
-    // Exclude customers serviced (paid) within the last N months
-    customerQuery += `
-      AND c.id NOT IN (
-        SELECT DISTINCT customer_id FROM records
-        WHERE deleted_at IS NULL
-        AND status IN ('complete', 'payment_pending', 'partial', 'paid')
-        AND COALESCE(actual_completion_date, updated_at) > NOW() - INTERVAL '1 month' * $1
-      )`;
-
-    const { rows: customers } = await client.query(customerQuery, [months]);
+    const { rows: customers } = await client.query(customerQuery);
 
     // Exclude unsubscribed
     const { rows: unsubs } = await client.query('SELECT email FROM email_unsubscribes');

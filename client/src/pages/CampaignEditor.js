@@ -7,7 +7,7 @@ const TEMPLATES = [
   { value: 'service_reminder', label: 'Service Reminder', icon: '\uD83D\uDD27', defaultSubject: 'Time for Your Annual RV Checkup \u2014 Master Tech RV Repair & Storage', defaultBody: '<p>It\'s been a while since we\'ve seen your RV, and we want to make sure it\'s in top shape for your next adventure!</p>' },
 ];
 
-const MONTH_OPTIONS = [3, 6, 9, 12, 18, 24];
+// MONTH_OPTIONS removed — filter no longer uses time-based exclusion
 
 export default function CampaignEditor() {
   const { id } = useParams();
@@ -46,13 +46,12 @@ export default function CampaignEditor() {
     }
   }, [id, isNew]);
 
-  // Fetch audience count when filter changes
+  // Fetch audience count when entering step 3
   useEffect(() => {
-    if (step >= 3 && form.target_filter?.last_visit_months) {
-      api.getAudienceCount({ last_visit_months: form.target_filter.last_visit_months })
-        .then(setAudience).catch(() => {});
+    if (step >= 3) {
+      api.getAudienceCount({}).then(setAudience).catch(() => {});
     }
-  }, [step, form.target_filter?.last_visit_months]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectTemplate = (tmpl) => {
     setForm({ ...form, template_type: tmpl.value, subject: tmpl.defaultSubject, body_html: tmpl.defaultBody, name: form.name || tmpl.label });
@@ -166,19 +165,9 @@ export default function CampaignEditor() {
         <div>
           <h1 style={{ color: '#1e3a5f' }}>Select Audience</h1>
           <div style={cardStyle}>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={labelStyle}>Customers with no service or storage activity in:</label>
-              <select
-                value={form.target_filter?.last_visit_months || 6}
-                onChange={(e) => setForm({ ...form, target_filter: { ...form.target_filter, last_visit_months: parseInt(e.target.value) } })}
-                style={{ ...inputStyle, width: '200px' }}
-              >
-                {MONTH_OPTIONS.map(m => <option key={m} value={m}>{m} months</option>)}
-              </select>
-              <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '8px 0 0', lineHeight: 1.5 }}>
-                Excludes: customers currently in storage, customers with open work orders, and customers serviced within the selected time period.
-              </p>
-            </div>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 16px', lineHeight: 1.5 }}>
+              All customers with an email on file, excluding: currently in storage, open work orders, opted out, bad email, and unsubscribed.
+            </p>
 
             {audience && (
               <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', marginBottom: '20px' }}>
@@ -190,10 +179,11 @@ export default function CampaignEditor() {
                   <div style={{ color: '#6b7280', fontSize: '0.8rem', borderTop: '1px solid #e5e7eb', paddingTop: '8px', marginTop: '4px' }}>Excluded:</div>
                   <div style={{ color: '#9ca3af', fontSize: '0.8rem', paddingLeft: '12px' }}>
                     {audience.noEmail > 0 && <div>{audience.noEmail} — no email on file</div>}
-                    {audience.unsubscribed > 0 && <div>{audience.unsubscribed} — unsubscribed</div>}
                     {audience.excludedStorage > 0 && <div>{audience.excludedStorage} — currently in storage</div>}
-                    {audience.excludedOpenOrders > 0 && <div>{audience.excludedOpenOrders} — have open work orders</div>}
-                    {audience.excludedRecentService > 0 && <div>{audience.excludedRecentService} — serviced in last {form.target_filter?.last_visit_months || 6} months</div>}
+                    {audience.excludedOpenOrders > 0 && <div>{audience.excludedOpenOrders} — open work order</div>}
+                    {(audience.excludedOptOut || 0) > 0 && <div>{audience.excludedOptOut} — opted out of marketing</div>}
+                    {(audience.excludedInvalid || 0) > 0 && <div>{audience.excludedInvalid} — bad email on file</div>}
+                    {audience.unsubscribed > 0 && <div>{audience.unsubscribed} — unsubscribed</div>}
                   </div>
                   <div style={{ color: '#6b7280', marginTop: '8px' }}>Estimated send time: {audience.estimatedDays} day{audience.estimatedDays > 1 ? 's' : ''} at 100/day</div>
                 </div>
