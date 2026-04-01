@@ -178,12 +178,19 @@ export default function CampaignEditor() {
 
             {audience && (
               <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', marginBottom: '20px' }}>
-                <div style={{ fontSize: '0.85rem', lineHeight: '2' }}>
-                  <div><strong>{audience.totalWithEmail}</strong> customers match this filter</div>
-                  <div style={{ color: '#9ca3af' }}>{audience.noEmail} customers have no email (excluded)</div>
-                  <div style={{ color: '#9ca3af' }}>{audience.unsubscribed} customers have unsubscribed (excluded)</div>
-                  <div style={{ fontWeight: 600, color: '#065f46', fontSize: '1rem' }}>{audience.eligible} emails will be sent</div>
-                  <div style={{ color: '#6b7280' }}>Estimated send time: {audience.estimatedDays} day{audience.estimatedDays > 1 ? 's' : ''} at 100/day</div>
+                <div style={{ fontSize: '0.85rem', lineHeight: '2.2' }}>
+                  <div style={{ fontWeight: 600, color: '#065f46', fontSize: '1.1rem', marginBottom: '4px' }}>
+                    {audience.eligible} emails will be sent
+                  </div>
+                  <div style={{ color: '#6b7280', fontSize: '0.8rem', borderTop: '1px solid #e5e7eb', paddingTop: '8px', marginTop: '4px' }}>Excluded:</div>
+                  <div style={{ color: '#9ca3af', fontSize: '0.8rem', paddingLeft: '12px' }}>
+                    {audience.noEmail > 0 && <div>{audience.noEmail} — no email on file</div>}
+                    {audience.unsubscribed > 0 && <div>{audience.unsubscribed} — unsubscribed</div>}
+                    {audience.excludedStorage > 0 && <div>{audience.excludedStorage} — currently in storage</div>}
+                    {audience.excludedOpenOrders > 0 && <div>{audience.excludedOpenOrders} — have open work orders</div>}
+                    {audience.excludedRecentService > 0 && <div>{audience.excludedRecentService} — serviced in last {form.target_filter?.last_visit_months || 6} months</div>}
+                  </div>
+                  <div style={{ color: '#6b7280', marginTop: '8px' }}>Estimated send time: {audience.estimatedDays} day{audience.estimatedDays > 1 ? 's' : ''} at 100/day</div>
                 </div>
 
                 {audience.preview && audience.preview.length > 0 && (

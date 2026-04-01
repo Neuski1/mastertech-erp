@@ -242,12 +242,30 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       "SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL AND (email_primary IS NULL OR email_primary = '')"
     );
 
+    // Get excluded counts for the breakdown
+    const { rows: storageCount } = await pool.query(
+      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL`
+    );
+    const { rows: openOrderCount } = await pool.query(
+      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL
+       AND status IN ('estimate', 'approved', 'in_progress', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'schedule_customer', 'scheduled')`
+    );
+    const { rows: recentServiceCount } = await pool.query(
+      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL
+       AND status IN ('complete', 'payment_pending', 'partial', 'paid')
+       AND COALESCE(actual_completion_date, updated_at) > NOW() - INTERVAL '1 month' * $1`,
+      [months]
+    );
+
     const days = Math.ceil(eligible.length / DAILY_LIMIT);
 
     res.json({
       totalWithEmail: customers.length,
       unsubscribed: unsubCount,
       noEmail: parseInt(noEmail[0].count),
+      excludedStorage: parseInt(storageCount[0].cnt),
+      excludedOpenOrders: parseInt(openOrderCount[0].cnt),
+      excludedRecentService: parseInt(recentServiceCount[0].cnt),
       eligible: eligible.length,
       estimatedDays: days,
       preview: eligible.slice(0, 10).map(c => ({
