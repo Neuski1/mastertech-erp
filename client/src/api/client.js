@@ -21,6 +21,10 @@ async function request(path, options = {}) {
     throw new Error('Session expired');
   }
 
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(`Server error (${res.status}) — please try again in a moment`);
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
