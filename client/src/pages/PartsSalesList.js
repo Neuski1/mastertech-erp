@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import useIsMobile from '../utils/useIsMobile';
 
 export default function PartsSalesList() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -65,12 +67,12 @@ export default function PartsSalesList() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0, color: '#1e3a5f' }}>Parts Sales</h1>
-        <button onClick={handleNew} style={btnPrimary}>+ New Parts Sale</button>
+        {!isMobile && <button onClick={handleNew} style={btnPrimary}>+ New Parts Sale</button>}
       </div>
 
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '8px' : '12px', marginBottom: '16px' }}>
         <input
           type="text"
           placeholder="Search by sale # or customer..."
@@ -79,44 +81,68 @@ export default function PartsSalesList() {
           onKeyDown={handleSearch}
           style={{ ...inputStyle, flex: 1 }}
         />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: '140px' }}>
-          <option value="">All Status</option>
-          <option value="open">Open</option>
-          <option value="paid">Paid</option>
-          <option value="void">Void</option>
-        </select>
-        <button onClick={fetchSales} style={btnSecondary}>Search</button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, flex: isMobile ? 1 : undefined, width: isMobile ? undefined : '140px' }}>
+            <option value="">All Status</option>
+            <option value="open">Open</option>
+            <option value="paid">Paid</option>
+            <option value="void">Void</option>
+          </select>
+          <button onClick={fetchSales} style={btnSecondary}>Search</button>
+        </div>
       </div>
 
-      <div style={cardStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Sale #</th>
-              <th style={thStyle}>Date</th>
-              <th style={thStyle}>Customer</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
-              <th style={{ ...thStyle, textAlign: 'right' }}>Due</th>
-              <th style={thStyle}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sales.length === 0 && (
-              <tr><td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No parts sales found</td></tr>
-            )}
-            {sales.map(sale => (
-              <tr key={sale.id} onClick={() => navigate(`/parts-sales/${sale.id}`)} style={{ cursor: 'pointer', borderBottom: '1px solid #f3f4f6' }}>
-                <td style={tdStyle}><span style={{ fontWeight: 600, color: '#1e3a5f' }}>{sale.sale_number}</span></td>
-                <td style={tdStyle}>{formatDate(sale.sale_date)}</td>
-                <td style={tdStyle}>{getCustomerName(sale)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(sale.total_amount)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right', color: parseFloat(sale.amount_due) > 0 ? '#dc2626' : '#065f46' }}>{formatCurrency(sale.amount_due)}</td>
-                <td style={tdStyle}>{statusBadge(sale.status)}</td>
+      {isMobile ? (
+        <div>
+          {sales.length === 0 && <div style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No parts sales found</div>}
+          {sales.map(sale => (
+            <div key={sale.id} className="mobile-record-card" onClick={() => navigate(`/parts-sales/${sale.id}`)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 600, color: '#1e3a5f' }}>#{sale.sale_number}</span>
+                {statusBadge(sale.status)}
+              </div>
+              <div style={{ fontWeight: 500, marginBottom: '4px' }}>{getCustomerName(sale)}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280' }}>
+                <span>{formatDate(sale.sale_date)}</span>
+                <span style={{ fontWeight: 600, color: parseFloat(sale.amount_due) > 0 ? '#dc2626' : '#065f46' }}>{formatCurrency(sale.amount_due)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={cardStyle}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Sale #</th>
+                <th style={thStyle}>Date</th>
+                <th style={thStyle}>Customer</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Due</th>
+                <th style={thStyle}>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sales.length === 0 && (
+                <tr><td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No parts sales found</td></tr>
+              )}
+              {sales.map(sale => (
+                <tr key={sale.id} onClick={() => navigate(`/parts-sales/${sale.id}`)} style={{ cursor: 'pointer', borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={tdStyle}><span style={{ fontWeight: 600, color: '#1e3a5f' }}>{sale.sale_number}</span></td>
+                  <td style={tdStyle}>{formatDate(sale.sale_date)}</td>
+                  <td style={tdStyle}>{getCustomerName(sale)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(sale.total_amount)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', color: parseFloat(sale.amount_due) > 0 ? '#dc2626' : '#065f46' }}>{formatCurrency(sale.amount_due)}</td>
+                  <td style={tdStyle}>{statusBadge(sale.status)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Mobile FAB */}
+      {isMobile && <button className="mobile-fab" onClick={handleNew}>+</button>}
     </div>
   );
 }

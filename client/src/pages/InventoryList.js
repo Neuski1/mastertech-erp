@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import useIsMobile from '../utils/useIsMobile';
 
 const FALLBACK_VENDORS = [
   'Amazon', 'NTP', 'Torklift', 'Interstate', 'Lippert', 'Renogy',
@@ -39,6 +40,7 @@ export default function InventoryList() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   // Close reports dropdown on outside click
   useEffect(() => {
@@ -506,7 +508,7 @@ export default function InventoryList() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h1 style={{ margin: 0 }}>Inventory</h1>
           {reorderCount > 0 && (
@@ -522,7 +524,7 @@ export default function InventoryList() {
             </button>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div ref={reportsRef} style={{ position: 'relative' }}>
             <button
               onClick={() => setReportsOpen(!reportsOpen)}
@@ -550,52 +552,56 @@ export default function InventoryList() {
               </div>
             )}
           </div>
-          <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>
-          {isAdmin && <button onClick={() => setShowVendorPanel(!showVendorPanel)} style={btnSecondary}>Manage Vendors</button>}
-          {isAdmin && <button onClick={() => setShowCategoryPanel(!showCategoryPanel)} style={btnSecondary}>Manage Categories</button>}
-          <button onClick={() => navigate('/inventory/new')} style={btnPrimary}>+ New Part</button>
+          {!isMobile && <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>}
+          {isAdmin && !isMobile && <button onClick={() => setShowVendorPanel(!showVendorPanel)} style={btnSecondary}>Manage Vendors</button>}
+          {isAdmin && !isMobile && <button onClick={() => setShowCategoryPanel(!showCategoryPanel)} style={btnSecondary}>Manage Categories</button>}
+          {!isMobile && <button onClick={() => navigate('/inventory/new')} style={btnPrimary}>+ New Part</button>}
         </div>
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '8px' : '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="Search by description, part #, vendor part #, vendor..."
+          placeholder="Search by description, part #, vendor..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           style={{ ...inputStyle, flex: 1, minWidth: '200px' }}
         />
-        <select
-          value={vendor}
-          onChange={(e) => { setVendor(e.target.value); setPage(1); }}
-          style={inputStyle}
-        >
-          <option value="">All Vendors</option>
-          {vendorNames.map((v) => (
-            <option key={v} value={v}>{v}</option>
-          ))}
-        </select>
-        <select
-          value={category}
-          onChange={(e) => { setCategory(e.target.value); setPage(1); }}
-          style={inputStyle}
-        >
-          <option value="">All Categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.name.toUpperCase()}>{c.name}</option>
-          ))}
-        </select>
-        <select
-          value={location}
-          onChange={(e) => { setLocation(e.target.value); setPage(1); }}
-          style={inputStyle}
-        >
-          <option value="">All Locations</option>
-          {LOCATIONS.map((l) => (
-            <option key={l} value={l}>{l}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <select
+            value={vendor}
+            onChange={(e) => { setVendor(e.target.value); setPage(1); }}
+            style={{ ...inputStyle, flex: isMobile ? 1 : undefined }}
+          >
+            <option value="">All Vendors</option>
+            {vendorNames.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+          <select
+            value={category}
+            onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+            style={{ ...inputStyle, flex: isMobile ? 1 : undefined }}
+          >
+            <option value="">All Categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.name.toUpperCase()}>{c.name}</option>
+            ))}
+          </select>
+          {!isMobile && (
+            <select
+              value={location}
+              onChange={(e) => { setLocation(e.target.value); setPage(1); }}
+              style={inputStyle}
+            >
+              <option value="">All Locations</option>
+              {LOCATIONS.map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* Vendor Management Panel */}
@@ -741,67 +747,93 @@ export default function InventoryList() {
         </div>
       )}
 
-      <div style={{ overflowX: 'auto' }}>
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thSortable} onClick={() => handleSort('part_number')}>Part #{sortArrow('part_number')}</th>
-              <th style={thSortable} onClick={() => handleSort('description')}>Description{sortArrow('description')}</th>
-              <th style={thSortable} onClick={() => handleSort('vendor_part_number')}>Vendor Part #{sortArrow('vendor_part_number')}</th>
-              <th style={thSortable} onClick={() => handleSort('vendor')}>Vendor{sortArrow('vendor')}</th>
-              <th style={thSortable} onClick={() => handleSort('category')}>Category{sortArrow('category')}</th>
-              <th style={thSortable} onClick={() => handleSort('location')}>Location{sortArrow('location')}</th>
-              <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('qty_on_hand')}>Qty{sortArrow('qty_on_hand')}</th>
-              <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('cost_each')}>Cost{sortArrow('cost_each')}</th>
-              <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('sale_price_each')}>Sale Price{sortArrow('sale_price_each')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px' }}>Loading...</td></tr>
-            ) : items.length === 0 ? (
-              <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>No inventory items found</td></tr>
-            ) : items.map((item) => (
-              <tr
-                key={item.id}
-                onClick={() => navigate(`/inventory/${item.id}`)}
-                style={{ cursor: 'pointer' }}
-              >
-                <td style={tdStyle}>
-                  <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                    {item.part_number || '—'}
-                  </span>
-                </td>
-                <td style={tdStyle}>
-                  <strong>{item.description}</strong>
-                </td>
-                <td style={tdStyle}><span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{item.vendor_part_number || '—'}</span></td>
-                <td style={tdStyle}>{item.vendor || '—'}</td>
-                <td style={tdStyle}>{categoryLabels[item.category] || item.category || '—'}</td>
-                <td style={tdStyle}>{item.location || '—'}</td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>
-                  <span style={{
-                    fontWeight: 600,
-                    color: item.low_stock ? '#dc2626' : '#111827',
-                    backgroundColor: item.low_stock ? '#fef2f2' : 'transparent',
-                    padding: item.low_stock ? '2px 8px' : '0',
-                    borderRadius: '4px',
-                  }}>
-                    {parseFloat(item.qty_on_hand)}
-                  </span>
-                  {item.reorder_level !== null && (
-                    <span style={{ color: '#9ca3af', fontSize: '0.75rem', marginLeft: '4px' }}>
-                      / {parseFloat(item.reorder_level)}
-                    </span>
-                  )}
-                </td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(item.cost_each)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.sale_price_each)}</td>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+      ) : items.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>No inventory items found</div>
+      ) : isMobile ? (
+        <div>
+          {items.map((item) => (
+            <div key={item.id} className="mobile-inventory-card" onClick={() => navigate(`/inventory/${item.id}`)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#6b7280' }}>{item.part_number || '—'}</span>
+                <span style={{
+                  fontWeight: 600,
+                  color: item.low_stock ? '#dc2626' : '#111827',
+                  backgroundColor: item.low_stock ? '#fef2f2' : '#f3f4f6',
+                  padding: '2px 8px', borderRadius: '4px', fontSize: '0.85rem',
+                }}>
+                  Qty: {parseFloat(item.qty_on_hand)}
+                  {item.reorder_level !== null && <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}> / {parseFloat(item.reorder_level)}</span>}
+                </span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '4px' }}>{item.description}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280' }}>
+                <span>{item.vendor || 'No vendor'}</span>
+                <span style={{ fontWeight: 600, color: '#374151' }}>{formatCurrency(item.sale_price_each)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thSortable} onClick={() => handleSort('part_number')}>Part #{sortArrow('part_number')}</th>
+                <th style={thSortable} onClick={() => handleSort('description')}>Description{sortArrow('description')}</th>
+                <th style={thSortable} onClick={() => handleSort('vendor_part_number')}>Vendor Part #{sortArrow('vendor_part_number')}</th>
+                <th style={thSortable} onClick={() => handleSort('vendor')}>Vendor{sortArrow('vendor')}</th>
+                <th style={thSortable} onClick={() => handleSort('category')}>Category{sortArrow('category')}</th>
+                <th style={thSortable} onClick={() => handleSort('location')}>Location{sortArrow('location')}</th>
+                <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('qty_on_hand')}>Qty{sortArrow('qty_on_hand')}</th>
+                <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('cost_each')}>Cost{sortArrow('cost_each')}</th>
+                <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('sale_price_each')}>Sale Price{sortArrow('sale_price_each')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr
+                  key={item.id}
+                  onClick={() => navigate(`/inventory/${item.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td style={tdStyle}>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      {item.part_number || '—'}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>
+                    <strong>{item.description}</strong>
+                  </td>
+                  <td style={tdStyle}><span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{item.vendor_part_number || '—'}</span></td>
+                  <td style={tdStyle}>{item.vendor || '—'}</td>
+                  <td style={tdStyle}>{categoryLabels[item.category] || item.category || '—'}</td>
+                  <td style={tdStyle}>{item.location || '—'}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <span style={{
+                      fontWeight: 600,
+                      color: item.low_stock ? '#dc2626' : '#111827',
+                      backgroundColor: item.low_stock ? '#fef2f2' : 'transparent',
+                      padding: item.low_stock ? '2px 8px' : '0',
+                      borderRadius: '4px',
+                    }}>
+                      {parseFloat(item.qty_on_hand)}
+                    </span>
+                    {item.reorder_level !== null && (
+                      <span style={{ color: '#9ca3af', fontSize: '0.75rem', marginLeft: '4px' }}>
+                        / {parseFloat(item.reorder_level)}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(item.cost_each)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.sale_price_each)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Bottom Pagination */}
       {total > 50 && (
@@ -815,6 +847,11 @@ export default function InventoryList() {
         <div style={{ marginTop: '12px', textAlign: 'center', color: '#9ca3af', fontSize: '0.8rem' }}>
           {total} item{total !== 1 ? 's' : ''} total
         </div>
+      )}
+
+      {/* Mobile FAB */}
+      {isMobile && (
+        <button className="mobile-fab" onClick={() => navigate('/inventory/new')}>+</button>
       )}
     </div>
   );

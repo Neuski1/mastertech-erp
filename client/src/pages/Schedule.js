@@ -275,18 +275,20 @@ export default function Schedule() {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0 }}>Schedule</h1>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {isAdmin && (
-            <button onClick={handleBulkResend} disabled={bulkSending} style={btnNav}>
-              {bulkSending ? 'Sending...' : '\u2709 Resend All Upcoming'}
+        {!isMobile && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {isAdmin && (
+              <button onClick={handleBulkResend} disabled={bulkSending} style={btnNav}>
+                {bulkSending ? 'Sending...' : '\u2709 Resend All Upcoming'}
+              </button>
+            )}
+            <button onClick={() => navigate('/schedule/new')} style={btnPrimary}>
+              + New Appointment
             </button>
-          )}
-          <button onClick={() => navigate('/schedule/new')} style={btnPrimary}>
-            + New Appointment
-          </button>
-        </div>
+          </div>
+        )}
       </div>
       {bulkResult && (
         <div style={{
@@ -301,19 +303,26 @@ export default function Schedule() {
       )}
 
       {/* Controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {view === 'week' && (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {view === 'week' && !isMobile && (
             <>
               <button onClick={prevWeek} style={btnNav}>&larr;</button>
               <button onClick={goTodayWeek} style={btnNav}>Today</button>
               <button onClick={nextWeek} style={btnNav}>&rarr;</button>
-              <span style={{ fontWeight: 600, marginLeft: '8px' }}>
+              <span style={{ fontWeight: 600, marginLeft: '8px', fontSize: isMobile ? '0.85rem' : undefined }}>
                 {weekStart.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
                 {' \u2013 '}
                 {weekEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
               </span>
             </>
+          )}
+          {view === 'week' && isMobile && (
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <button onClick={prevWeek} style={btnNav}>&larr;</button>
+              <button onClick={goTodayWeek} style={btnNav}>Today</button>
+              <button onClick={nextWeek} style={btnNav}>&rarr;</button>
+            </div>
           )}
           {view === 'month' && (
             <>
@@ -324,8 +333,8 @@ export default function Schedule() {
             </>
           )}
           {view === 'list' && (
-            <span style={{ fontWeight: 600, color: '#374151' }}>
-              Upcoming Appointments (next 6 months): {filteredListAppts.length}
+            <span style={{ fontWeight: 600, color: '#374151', fontSize: isMobile ? '0.85rem' : undefined }}>
+              Upcoming: {filteredListAppts.length}
             </span>
           )}
         </div>

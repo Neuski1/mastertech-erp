@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone } from '../utils/formatPhone';
+import useIsMobile from '../utils/useIsMobile';
 
 export default function CustomerList() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [allCustomers, setAllCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -113,18 +115,18 @@ export default function CustomerList() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0 }}>Customers</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>
             {searchTerm ? `${filteredCustomers.length} of ${allCustomers.length}` : `${allCustomers.length} total`}
           </span>
-          <button onClick={() => setShowNewCustomer(true)} style={btnPrimary}>+ New Customer</button>
+          {!isMobile && <button onClick={() => setShowNewCustomer(true)} style={btnPrimary}>+ New Customer</button>}
         </div>
       </div>
 
       {/* Search */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '8px' : '12px', marginBottom: '12px' }}>
         <div style={{ position: 'relative', flex: 1 }}>
           <input
             type="text"
@@ -143,14 +145,16 @@ export default function CustomerList() {
             </button>
           )}
         </div>
-        <select value={isStorage} onChange={(e) => setIsStorage(e.target.value)} style={{ ...inputStyle, width: 'auto', minWidth: '160px' }}>
-          <option value="">All Customers</option>
-          <option value="true">Storage Customers</option>
-          <option value="false">Non-Storage</option>
-        </select>
-        <button onClick={() => setShowMarketing(!showMarketing)} style={{ ...btnSecondary, fontSize: '0.8rem' }}>
-          {showMarketing ? 'Hide Filters' : 'Marketing Filters'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <select value={isStorage} onChange={(e) => setIsStorage(e.target.value)} style={{ ...inputStyle, width: 'auto', minWidth: isMobile ? 'auto' : '160px', flex: isMobile ? 1 : undefined }}>
+            <option value="">All Customers</option>
+            <option value="true">Storage Customers</option>
+            <option value="false">Non-Storage</option>
+          </select>
+          <button onClick={() => setShowMarketing(!showMarketing)} style={{ ...btnSecondary, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+            {showMarketing ? 'Hide Filters' : 'Marketing Filters'}
+          </button>
+        </div>
       </div>
 
       {/* Marketing Filter Panel */}
@@ -203,49 +207,78 @@ export default function CustomerList() {
         </div>
       )}
 
-      {/* Table */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Account #</th>
-              <th style={thStyle}>Name</th>
-              <th style={thStyle}>Phone 1</th>
-              <th style={thStyle}>Phone 2</th>
-              <th style={thStyle}>Email</th>
-              <th style={{ ...thStyle, textAlign: 'center' }}>Units</th>
-              <th style={{ ...thStyle, textAlign: 'center' }}>Records</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={99} style={{ textAlign: 'center', padding: '40px' }}>Loading...</td></tr>
-            ) : customers.length === 0 ? (
-              <tr><td colSpan={99} style={{ textAlign: 'center', padding: '40px', color: '#999' }}>No customers found</td></tr>
-            ) : customers.map(c => (
-              <tr key={c.id} onClick={() => navigate(`/customers/${c.id}`)} style={{ cursor: 'pointer' }}>
-                <td style={tdStyle}>{c.account_number || '—'}</td>
-                <td style={tdStyle}>
-                  <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
-                  {c.company_name && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.company_name}</div>}
-                </td>
-                <td style={tdStyle}>{formatPhone(c.phone_primary) || '—'}</td>
-                <td style={tdStyle}>{formatPhone(c.phone_secondary) || '—'}</td>
-                <td style={{ ...tdStyle, fontSize: '0.8rem' }}>{c.email_primary || '—'}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>{c.unit_count || 0}</td>
-                <td style={{ ...tdStyle, textAlign: 'center' }}>
-                  {c.record_count || 0}
-                  {parseInt(c.open_record_count) > 0 && (
-                    <span style={{ marginLeft: '4px', color: '#dc2626', fontSize: '0.7rem', fontWeight: 600 }}>
-                      ({c.open_record_count} open)
-                    </span>
-                  )}
-                </td>
+      {/* Table / Cards */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>
+      ) : customers.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>No customers found</div>
+      ) : isMobile ? (
+        <div>
+          {customers.map(c => (
+            <div key={c.id} className="mobile-customer-card" onClick={() => navigate(`/customers/${c.id}`)}>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>
+                {c.last_name}{c.first_name ? `, ${c.first_name}` : ''}
+              </div>
+              {c.company_name && <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>{c.company_name}</div>}
+              <div style={{ fontSize: '0.85rem', color: '#374151', marginBottom: '2px' }}>
+                {formatPhone(c.phone_primary) || 'No phone'}
+              </div>
+              {c.email_primary && <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>{c.email_primary}</div>}
+              <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: '#9ca3af' }}>
+                <span>{c.unit_count || 0} units</span>
+                <span>{c.record_count || 0} records</span>
+                {parseInt(c.open_record_count) > 0 && (
+                  <span style={{ color: '#dc2626', fontWeight: 600 }}>{c.open_record_count} open</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Account #</th>
+                <th style={thStyle}>Name</th>
+                <th style={thStyle}>Phone 1</th>
+                <th style={thStyle}>Phone 2</th>
+                <th style={thStyle}>Email</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>Units</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>Records</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {customers.map(c => (
+                <tr key={c.id} onClick={() => navigate(`/customers/${c.id}`)} style={{ cursor: 'pointer' }}>
+                  <td style={tdStyle}>{c.account_number || '—'}</td>
+                  <td style={tdStyle}>
+                    <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
+                    {c.company_name && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{c.company_name}</div>}
+                  </td>
+                  <td style={tdStyle}>{formatPhone(c.phone_primary) || '—'}</td>
+                  <td style={tdStyle}>{formatPhone(c.phone_secondary) || '—'}</td>
+                  <td style={{ ...tdStyle, fontSize: '0.8rem' }}>{c.email_primary || '—'}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>{c.unit_count || 0}</td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    {c.record_count || 0}
+                    {parseInt(c.open_record_count) > 0 && (
+                      <span style={{ marginLeft: '4px', color: '#dc2626', fontSize: '0.7rem', fontWeight: 600 }}>
+                        ({c.open_record_count} open)
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Mobile FAB */}
+      {isMobile && (
+        <button className="mobile-fab" onClick={() => setShowNewCustomer(true)}>+</button>
+      )}
 
       {/* Search result count */}
       {searchTerm && (

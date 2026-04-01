@@ -13,6 +13,7 @@ import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
 import { BulletDisplay } from '../components/BulletTextarea';
+import useIsMobile from '../utils/useIsMobile';
 
 const NEXT_STATUS = {
   estimate: 'approved',
@@ -90,6 +91,7 @@ export default function RecordDetail() {
 
   // Collapsible sections
   const [expandedSections, setExpandedSections] = useState({});
+  const isMobile = useIsMobile();
 
   const startSectionEdit = (section) => {
     setSectionForm({ ...record });
@@ -656,11 +658,11 @@ ${paymentDetailHtml}
   return (
     <div style={{ maxWidth: '960px', margin: '0 auto' }}>
       {/* Top nav */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <button onClick={() => navigate(fromCustomer ? `/customers/${fromCustomerId}` : '/records')} style={btnLink}>
+      <div style={{ marginBottom: '16px' }}>
+        <button onClick={() => navigate(fromCustomer ? `/customers/${fromCustomerId}` : '/records')} style={{ ...btnLink, marginBottom: '8px' }}>
           &larr; {fromCustomer ? 'Back to Customer' : 'Back to Records'}
         </button>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className={isMobile ? 'detail-actions' : ''} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {isEditable && !editing && (
             <button onClick={() => setEditing(true)} style={btnEditYellow}>Edit</button>
           )}
@@ -982,7 +984,7 @@ ${paymentDetailHtml}
       {canSeeFinancials && (
         <div style={{ ...sectionStyle, backgroundColor: '#f9fafb' }}>
           <h2 style={sectionTitle}>Invoice Totals</h2>
-          <div style={{ maxWidth: '440px', marginLeft: 'auto' }}>
+          <div className="totals-section" style={{ maxWidth: '440px', marginLeft: 'auto' }}>
             <TotalRow label="Subtotal — Labor" value={formatCurrency(record.labor_subtotal)} />
             <TotalRow label="Subtotal — Parts" value={formatCurrency(record.parts_subtotal)} />
             {parseFloat(record.freight_subtotal) > 0 && (
@@ -1057,7 +1059,7 @@ ${paymentDetailHtml}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Payment Ledger</h2>
             {canPostPayments && statusEditable && (
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <div className={isMobile ? 'payment-buttons' : ''} style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 <button onClick={() => setShowPayModal(true)} style={btnSquare}>Pay by Card</button>
                 <button onClick={() => setManualPayModal('check')} style={btnPayMethod}>Pay by Check</button>
                 <button onClick={() => setManualPayModal('cash')} style={btnPayMethod}>Pay by Cash</button>

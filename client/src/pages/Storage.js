@@ -97,9 +97,9 @@ export default function Storage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '8px' }}>
         <h1 style={{ margin: 0 }}>Storage</h1>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {canSeeFinancials && (
             <button onClick={() => { setShowReport(!showReport); if (!showReport) fetchReport(); }} style={btnSecondary}>
               {showReport ? 'Hide Report' : 'Billing Report'}
@@ -121,7 +121,7 @@ export default function Storage() {
 
       {/* Summary Bar */}
       {summary && (
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
           <SummaryCard label="Outdoor" occupied={summary.outdoor.occupied} total={summary.outdoor.total} color="#f59e0b" />
           <SummaryCard label="Indoor" occupied={summary.indoor.occupied} total={summary.indoor.total} color="#3b82f6" />
           <SummaryCard label="Total" occupied={summary.outdoor.occupied + summary.indoor.occupied} total={summary.total} color="#1e3a5f" />

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
+import useIsMobile from '../utils/useIsMobile';
 
 const STATUS_GROUPS = [
   {
@@ -65,6 +66,7 @@ export default function RecordList() {
   const [collapsed, setCollapsed] = useState({ closed: true });
   const [groupSort, setGroupSort] = useState({}); // { groupKey: { field, dir } }
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -173,6 +175,26 @@ export default function RecordList() {
     return sort.dir === 'asc' ? ' \u25B2' : ' \u25BC';
   };
 
+  const renderMobileCard = (r) => (
+    <div key={r.id} className="mobile-record-card" onClick={() => navigate(`/records/${r.id}`)}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <strong style={{ fontSize: '0.9rem', color: '#1e3a5f' }}>WO #{r.record_number}</strong>
+        <StatusBadge status={r.status} />
+      </div>
+      <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>
+        {r.last_name}{r.first_name ? `, ${r.first_name}` : ''}
+        {r.company_name ? <span style={{ color: '#666', fontWeight: 400, marginLeft: '6px' }}>({r.company_name})</span> : ''}
+      </div>
+      <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>
+        {[r.year, r.make, r.model].filter(Boolean).join(' ') || 'No unit'}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: '#9ca3af' }}>
+        <span>{formatDate(r.intake_date || r.created_at)}</span>
+        {canSeeFinancials && <span style={{ fontWeight: 600, color: '#374151' }}>{formatCurrency(r.amount_due)}</span>}
+      </div>
+    </div>
+  );
+
   const renderTableHead = (showDueDate = false, groupKey = null) => {
     const sortable = groupKey ? { cursor: 'pointer', userSelect: 'none' } : {};
     const onClick = (field) => groupKey ? () => handleGroupSort(groupKey, field) : undefined;
@@ -192,9 +214,9 @@ export default function RecordList() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0 }}>Records</h1>
-        {canEditRecords && (
+        {canEditRecords && !isMobile && (
           <button onClick={() => navigate('/records/new')} style={btnPrimary}>
             + New Record
           </button>
@@ -202,23 +224,37 @@ export default function RecordList() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+      <div style={{ marginBottom: '20px' }}>
         <input
           type="text"
           placeholder="Search by WO#, customer, description..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          style={{ ...inputStyle, flex: 1 }}
+          style={{ ...inputStyle, width: '100%', marginBottom: isMobile ? '8px' : '0' }}
         />
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          style={inputStyle}
-        >
-          {Object.entries(STATUS_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
-          ))}
-        </select>
+        {isMobile ? (
+          <div className="mobile-status-pills" style={{ marginTop: '8px' }}>
+            {Object.entries(STATUS_LABELS).map(([val, label]) => (
+              <button
+                key={val}
+                className={`mobile-status-pill${statusFilter === val ? ' active' : ''}`}
+                onClick={() => { setStatusFilter(val); setPage(1); }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            style={{ ...inputStyle, marginLeft: '12px' }}
+          >
+            {Object.entries(STATUS_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {loading ? (
@@ -256,13 +292,17 @@ export default function RecordList() {
                   </span>
                 </button>
                 {!isCollapsed && (
-                  <div style={{ backgroundColor: group.bg }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      {renderTableHead(group.key !== 'closed', group.key)}
-                      <tbody>
-                        {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, group.key !== 'closed'))}
-                      </tbody>
-                    </table>
+                  <div style={{ backgroundColor: group.bg, padding: isMobile ? '8px' : 0 }}>
+                    {isMobile ? (
+                      sortGroupRecords(groupRecords, group.key).map(r => renderMobileCard(r))
+                    ) : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        {renderTableHead(group.key !== 'closed', group.key)}
+                        <tbody>
+                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, group.key !== 'closed'))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 )}
               </div>
@@ -271,14 +311,18 @@ export default function RecordList() {
         </div>
       ) : (
         /* ─── Flat View (filtered/searched) ─── */
-        <div style={{ overflowX: 'auto' }}>
-          <table style={tableStyle}>
-            {renderTableHead(false)}
-            <tbody>
-              {records.map(r => renderRow(r, false))}
-            </tbody>
-          </table>
-        </div>
+        isMobile ? (
+          <div>{records.map(r => renderMobileCard(r))}</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tableStyle}>
+              {renderTableHead(false)}
+              <tbody>
+                {records.map(r => renderRow(r, false))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
 
       {/* Pagination — only for flat view */}

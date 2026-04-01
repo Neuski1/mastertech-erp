@@ -263,9 +263,9 @@ export default function CustomerDetail() {
   return (
     <div style={{ maxWidth: '960px', margin: '0 auto' }}>
       {/* Nav */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <button onClick={() => navigate('/customers')} style={btnLink}>&larr; Back to Customers</button>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ marginBottom: '16px' }}>
+        <button onClick={() => navigate('/customers')} style={{ ...btnLink, marginBottom: '8px' }}>&larr; Back to Customers</button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {isAdmin && !editing && (
             <button onClick={() => handleDeleteCustomer()} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>Delete Customer</button>
           )}

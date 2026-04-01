@@ -484,7 +484,7 @@ export default function AppointmentForm() {
           </div>
 
           {/* Actions */}
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="submit" disabled={saving || !form.customer_id} style={btnPrimary}>
               {saving ? 'Saving...' : isEdit ? 'Update Appointment' : 'Create Appointment'}
             </button>
