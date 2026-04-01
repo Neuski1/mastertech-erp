@@ -24,14 +24,15 @@ const STATUS_COLORS = {
 };
 
 const TYPE_COLORS = {
-  drop_off: '#3b82f6',
-  pick_up: '#10b981',
-  storage: '#f59e0b',
-  rv_repair: '#8b5cf6',
-  rv_service: '#ec4899',
-  parts: '#06b6d4',
-  other: '#6b7280',
+  drop_off:   { bg: '#2563eb', dark: '#1d4ed8' },
+  rv_repair:  { bg: '#16a34a', dark: '#15803d' },
+  rv_service: { bg: '#16a34a', dark: '#15803d' },
+  storage:    { bg: '#7c3aed', dark: '#6d28d9' },
+  pick_up:    { bg: '#ea580c', dark: '#c2410c' },
+  parts:      { bg: '#0891b2', dark: '#0e7490' },
+  other:      { bg: '#6b7280', dark: '#4b5563' },
 };
+const getTypeColor = (type) => TYPE_COLORS[type] || TYPE_COLORS.other;
 
 const TYPE_LABELS = {};
 APPT_TYPES.forEach(t => { TYPE_LABELS[t.value] = t.label; });
@@ -376,6 +377,16 @@ export default function Schedule() {
         </div>
       )}
 
+      {/* Color legend — all views */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        {APPT_TYPES.map(t => (
+          <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: '#374151' }}>
+            <div style={{ width: '10px', height: '10px', borderRadius: '3px', backgroundColor: getTypeColor(t.value).bg }} />
+            {t.label}
+          </div>
+        ))}
+      </div>
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>Loading...</div>
       ) : view === 'week' ? (
@@ -413,29 +424,33 @@ export default function Schedule() {
                 </div>
                 {mobileAppts.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>No appointments</div>
-                ) : mobileAppts.map(appt => (
+                ) : mobileAppts.map(appt => {
+                  const tc = getTypeColor(appt.appointment_type);
+                  return (
                   <div key={appt.id} onClick={() => navigate(`/schedule/${appt.id}`)} style={{
                     padding: '14px', marginBottom: '8px', borderRadius: '8px', cursor: 'pointer',
-                    backgroundColor: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).bg,
-                    borderLeft: `4px solid ${(STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text}`,
+                    backgroundColor: tc.bg,
+                    borderLeft: `4px solid ${tc.dark}`,
+                    color: '#fff',
                   }}>
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#1e3a5f' }}>{formatTime(appt.scheduled_at)}</div>
+                    <div style={{ fontWeight: 700, fontSize: '1rem' }}>{formatTime(appt.scheduled_at)}</div>
                     <div style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '4px' }}>
                       {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#fff', backgroundColor: TYPE_COLORS[appt.appointment_type] || '#6b7280' }}>
+                      <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: 'rgba(255,255,255,0.25)' }}>
                         {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                       </span>
-                      {appt.technician_name && <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{appt.technician_name}</span>}
+                      {appt.technician_name && <span style={{ fontSize: '0.8rem', opacity: 0.85 }}>{appt.technician_name}</span>}
                     </div>
                     {(appt.unit_year || appt.unit_make || appt.unit_model) && (
-                      <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px' }}>
+                      <div style={{ fontSize: '0.8rem', opacity: 0.85, marginTop: '4px' }}>
                         {[appt.unit_year, appt.unit_make, appt.unit_model].filter(Boolean).join(' ')}
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })()
@@ -463,28 +478,31 @@ export default function Schedule() {
                   <div style={{ padding: '4px', minHeight: '120px' }}>
                     {dayAppts.length === 0 ? (
                       <div style={{ color: '#d1d5db', fontSize: '0.75rem', textAlign: 'center', padding: '16px 0' }}>—</div>
-                    ) : dayAppts.map(appt => (
+                    ) : dayAppts.map(appt => {
+                      const tc = getTypeColor(appt.appointment_type);
+                      return (
                       <div
                         key={appt.id}
                         onClick={() => navigate(`/schedule/${appt.id}`)}
                         style={{
                           ...apptCard,
-                          backgroundColor: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).bg,
-                          color: (STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text,
-                          borderLeft: `3px solid ${(STATUS_COLORS[appt.status] || STATUS_COLORS.scheduled).text}`,
+                          backgroundColor: tc.bg,
+                          color: '#fff',
+                          borderLeft: `3px solid ${tc.dark}`,
                         }}
                       >
                         <div style={{ fontWeight: 600, fontSize: '0.7rem' }}>
                           {formatTime(appt.scheduled_at)}
                         </div>
-                        <div style={{ fontSize: '0.7rem', marginTop: '2px' }}>
+                        <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.85 }}>
                           {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                         </div>
-                        <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.8 }}>
+                        <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.85 }}>
                           {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -539,7 +557,7 @@ export default function Schedule() {
                       onClick={(e) => { e.stopPropagation(); navigate(`/schedule/${appt.id}`); }}
                       style={{
                         ...monthPill,
-                        backgroundColor: TYPE_COLORS[appt.appointment_type] || '#6b7280',
+                        backgroundColor: getTypeColor(appt.appointment_type).bg,
                       }}
                       title={`${formatTime(appt.scheduled_at)} - ${TYPE_LABELS[appt.appointment_type] || appt.appointment_type} - ${appt.last_name || ''}`}
                     >
@@ -556,15 +574,6 @@ export default function Schedule() {
                 </div>
               );
             })}
-          </div>
-          {/* Type legend */}
-          <div style={{ display: 'flex', gap: '16px', marginTop: '12px', flexWrap: 'wrap' }}>
-            {APPT_TYPES.map(t => (
-              <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#374151' }}>
-                <div style={{ width: '12px', height: '12px', borderRadius: '3px', backgroundColor: TYPE_COLORS[t.value] }} />
-                {t.label}
-              </div>
-            ))}
           </div>
         </div>
       ) : (
@@ -586,7 +595,7 @@ export default function Schedule() {
                   <div
                     key={appt.id}
                     onClick={() => navigate(`/schedule/${appt.id}`)}
-                    style={listRow}
+                    style={{ ...listRow, borderLeft: `4px solid ${getTypeColor(appt.appointment_type).bg}` }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, fontSize: '0.875rem', minWidth: '80px' }}>
@@ -598,7 +607,7 @@ export default function Schedule() {
                         fontSize: '0.75rem',
                         fontWeight: 600,
                         color: '#fff',
-                        backgroundColor: TYPE_COLORS[appt.appointment_type] || '#6b7280',
+                        backgroundColor: getTypeColor(appt.appointment_type).bg,
                       }}>
                         {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                       </span>
