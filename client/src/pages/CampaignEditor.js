@@ -27,7 +27,7 @@ export default function CampaignEditor() {
   const [removedIds, setRemovedIds] = useState(new Set());
   const [undoRecipient, setUndoRecipient] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [showFullList, setShowFullList] = useState(false);
+  const [showFullList, setShowFullList] = useState(true);
 
   // Load existing campaign
   useEffect(() => {
