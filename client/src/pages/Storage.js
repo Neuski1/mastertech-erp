@@ -480,10 +480,18 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
                 <option value="">No unit selected</option>
                 {units.map(u => (
                   <option key={u.id} value={u.id}>
-                    {[u.year, u.make, u.model].filter(Boolean).join(' ')} {u.license_plate ? `— ${u.license_plate}` : ''}
+                    {[u.year, u.make, u.model].filter(Boolean).join(' ')} {u.license_plate ? `— ${u.license_plate}` : ''} {u.linear_feet ? `(${parseFloat(u.linear_feet)} ft)` : ''}
                   </option>
                 ))}
               </select>
+              {form.unit_id && (() => {
+                const sel = units.find(u => String(u.id) === form.unit_id);
+                return sel?.linear_feet ? (
+                  <div style={{ marginTop: '6px', fontSize: '0.8rem', color: '#1e3a5f', fontWeight: 600 }}>
+                    Linear Feet: {parseFloat(sel.linear_feet)} ft
+                  </div>
+                ) : null;
+              })()}
             </div>
           )}
 

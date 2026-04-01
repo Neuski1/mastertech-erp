@@ -96,6 +96,7 @@ export default function CustomerDetail() {
         license_plate: editingUnit.license_plate || null,
         unit_type: editingUnit.unit_type || null,
         color: editingUnit.color || null,
+        linear_feet: editingUnit.linear_feet ? parseFloat(editingUnit.linear_feet) : null,
         unit_notes: editingUnit.unit_notes || null,
       });
       setEditingUnit(null);
@@ -463,6 +464,7 @@ export default function CustomerDetail() {
                       <div><label style={unitLabelStyle}>License Plate</label><input value={editingUnit.license_plate || ''} onChange={(e) => setEditingUnit({ ...editingUnit, license_plate: e.target.value })} style={unitInputStyle} /></div>
                       <div><label style={unitLabelStyle}>Type</label><input value={editingUnit.unit_type || ''} onChange={(e) => setEditingUnit({ ...editingUnit, unit_type: e.target.value })} style={unitInputStyle} /></div>
                       <div><label style={unitLabelStyle}>Color</label><input value={editingUnit.color || ''} onChange={(e) => setEditingUnit({ ...editingUnit, color: e.target.value })} style={unitInputStyle} /></div>
+                      <div><label style={unitLabelStyle}>Linear Feet</label><input type="number" step="0.1" min="0" value={editingUnit.linear_feet || ''} onChange={(e) => setEditingUnit({ ...editingUnit, linear_feet: e.target.value })} placeholder="0" style={unitInputStyle} /></div>
                     </div>
                     <div style={{ marginBottom: '12px' }}><label style={unitLabelStyle}>Notes</label><textarea value={editingUnit.unit_notes || ''} onChange={(e) => setEditingUnit({ ...editingUnit, unit_notes: e.target.value })} style={{ ...unitInputStyle, minHeight: '60px', resize: 'vertical' }} /></div>
                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -481,6 +483,7 @@ export default function CustomerDetail() {
                       <div><span style={unitLabelStyle}>License Plate</span><div>{selectedUnit.license_plate || '—'}</div></div>
                       <div><span style={unitLabelStyle}>Type</span><div>{selectedUnit.unit_type || '—'}</div></div>
                       <div><span style={unitLabelStyle}>Color</span><div>{selectedUnit.color || '—'}</div></div>
+                      <div><span style={unitLabelStyle}>Linear Feet</span><div>{selectedUnit.linear_feet ? `${parseFloat(selectedUnit.linear_feet)} ft` : '—'}</div></div>
                     </div>
                     {selectedUnit.unit_notes && <div style={{ marginTop: '8px', fontSize: '0.85rem' }}><span style={unitLabelStyle}>Notes</span><div style={{ whiteSpace: 'pre-wrap' }}>{selectedUnit.unit_notes}</div></div>}
                   </div>
@@ -787,6 +790,7 @@ function AddUnitModal({ customerId, onClose, onCreated }) {
         vin: form.vin || null,
         license_plate: form.license_plate || null,
         color: form.color || null,
+        linear_feet: form.linear_feet ? parseFloat(form.linear_feet) : null,
         unit_type: form.unit_type || null,
         unit_notes: form.unit_notes || null,
       });
@@ -837,6 +841,10 @@ function AddUnitModal({ customerId, onClose, onCreated }) {
             <div>
               <label style={labelStyle}>Color</label>
               <input value={form.color} onChange={(e) => set('color', e.target.value)} placeholder="Optional" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Linear Feet</label>
+              <input type="number" step="0.1" min="0" value={form.linear_feet || ''} onChange={(e) => set('linear_feet', e.target.value)} placeholder="0" style={inputStyle} />
             </div>
           </div>
 
