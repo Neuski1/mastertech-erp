@@ -226,7 +226,7 @@ export const api = {
   updateCampaign: (id, data) => request(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteCampaign: (id) => request(`/campaigns/${id}`, { method: 'DELETE' }),
   previewCampaign: (id) => request(`/campaigns/${id}/preview`, { method: 'POST' }),
-  sendCampaign: (id) => request(`/campaigns/${id}/send`, { method: 'POST' }),
+  sendCampaign: (id, data = {}) => request(`/campaigns/${id}/send`, { method: 'POST', body: JSON.stringify(data) }),
   retryCampaign: (id) => request(`/campaigns/${id}/retry`, { method: 'POST' }),
   cancelCampaign: (id) => request(`/campaigns/${id}/cancel`, { method: 'POST' }),
   getAudienceCount: (params = {}) => {

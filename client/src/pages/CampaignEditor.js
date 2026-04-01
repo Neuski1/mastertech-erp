@@ -24,6 +24,10 @@ export default function CampaignEditor() {
   const [previewResult, setPreviewResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(!isNew);
+  const [removedIds, setRemovedIds] = useState(new Set());
+  const [undoRecipient, setUndoRecipient] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showFullList, setShowFullList] = useState(false);
 
   // Load existing campaign
   useEffect(() => {
@@ -84,15 +88,15 @@ export default function CampaignEditor() {
   const handleSend = async () => {
     const cid = campaign?.id;
     if (!cid) return;
-    if (!audience || audience.eligible === 0) { setError('No eligible recipients'); return; }
-    if (!window.confirm(`Send "${form.name}" to ${audience.eligible} customers?\n\nEmails will be sent at 100/day.\nEstimated completion: ${audience.estimatedDays} day${audience.estimatedDays > 1 ? 's' : ''}.\n\nThis cannot be undone.`)) return;
+    const sendCount = (audience?.eligible || 0) - removedIds.size;
+    if (!audience || sendCount === 0) { setError('No eligible recipients'); return; }
+    if (!window.confirm(`Send "${form.name}" to ${sendCount} customers?${removedIds.size > 0 ? `\n(${removedIds.size} manually excluded)` : ''}\n\nEmails will be sent at 100/day.\n\nThis cannot be undone.`)) return;
 
     setSending(true); setError('');
     try {
       await handleSave();
-      // Update filter before sending
       await api.updateCampaign(cid, { target_filter: form.target_filter });
-      const result = await api.sendCampaign(cid);
+      const result = await api.sendCampaign(cid, { excluded_ids: [...removedIds] });
       setSendResult(result);
       setStep(4);
     } catch (err) { setError(err.message); }
@@ -180,7 +184,8 @@ export default function CampaignEditor() {
               <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', marginBottom: '20px' }}>
                 <div style={{ fontSize: '0.85rem', lineHeight: '2.2' }}>
                   <div style={{ fontWeight: 600, color: '#065f46', fontSize: '1.1rem', marginBottom: '4px' }}>
-                    {audience.eligible} emails will be sent
+                    {audience.eligible - removedIds.size} emails will be sent
+                    {removedIds.size > 0 && <span style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 400, marginLeft: '8px' }}>({removedIds.size} manually removed)</span>}
                   </div>
                   <div style={{ color: '#6b7280', fontSize: '0.8rem', borderTop: '1px solid #e5e7eb', paddingTop: '8px', marginTop: '4px' }}>Excluded:</div>
                   <div style={{ color: '#9ca3af', fontSize: '0.8rem', paddingLeft: '12px' }}>
@@ -193,21 +198,111 @@ export default function CampaignEditor() {
                   <div style={{ color: '#6b7280', marginTop: '8px' }}>Estimated send time: {audience.estimatedDays} day{audience.estimatedDays > 1 ? 's' : ''} at 100/day</div>
                 </div>
 
-                {audience.preview && audience.preview.length > 0 && (
+                {/* Full recipient list with remove/select */}
+                {audience.allRecipients && audience.allRecipients.length > 0 && (() => {
+                  const active = audience.allRecipients.filter(c => !removedIds.has(c.id));
+                  const removed = audience.allRecipients.filter(c => removedIds.has(c.id));
+                  const allSelected = active.length > 0 && active.every(c => selectedIds.has(c.id));
+                  const removeRecipient = (c) => {
+                    setRemovedIds(prev => new Set([...prev, c.id]));
+                    setSelectedIds(prev => { const s = new Set(prev); s.delete(c.id); return s; });
+                    setUndoRecipient(c);
+                    setTimeout(() => setUndoRecipient(u => u?.id === c.id ? null : u), 5000);
+                  };
+                  const addBack = (c) => {
+                    setRemovedIds(prev => { const s = new Set(prev); s.delete(c.id); return s; });
+                    setUndoRecipient(u => u?.id === c.id ? null : u);
+                  };
+                  return (
                   <div style={{ marginTop: '12px', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280', marginBottom: '6px' }}>Preview (first 10):</div>
-                    {audience.preview.map(c => (
-                      <div key={c.id} style={{ fontSize: '0.8rem', color: '#374151', padding: '2px 0' }}>{c.name} — {c.email}</div>
-                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <button onClick={() => setShowFullList(!showFullList)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: '#1e3a5f', padding: 0 }}>
+                        {showFullList ? 'Hide' : 'Show'} full recipient list ({active.length})
+                      </button>
+                    </div>
+
+                    {undoRecipient && (
+                      <div style={{ padding: '8px 12px', backgroundColor: '#fef3c7', borderRadius: '6px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                        <span>Removed {undoRecipient.name}</span>
+                        <button onClick={() => addBack(undoRecipient)} style={{ background: 'none', border: 'none', color: '#1e40af', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>Undo</button>
+                      </div>
+                    )}
+
+                    {showFullList && (
+                      <>
+                        {/* Bulk action bar */}
+                        {selectedIds.size > 0 && (
+                          <div style={{ padding: '8px 12px', backgroundColor: '#eff6ff', borderRadius: '6px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.8rem' }}>
+                            <strong>{selectedIds.size} selected</strong>
+                            <button onClick={() => { selectedIds.forEach(id => setRemovedIds(prev => new Set([...prev, id]))); setSelectedIds(new Set()); }} style={{ padding: '4px 10px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Remove Selected</button>
+                            <button onClick={() => setSelectedIds(new Set())} style={{ padding: '4px 10px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Clear</button>
+                          </div>
+                        )}
+                        <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...thSmall, width: '30px' }}>
+                                  <input type="checkbox" checked={allSelected} onChange={(e) => {
+                                    if (e.target.checked) setSelectedIds(new Set(active.map(c => c.id)));
+                                    else setSelectedIds(new Set());
+                                  }} />
+                                </th>
+                                <th style={thSmall}>Name</th>
+                                <th style={thSmall}>Email</th>
+                                <th style={{ ...thSmall, width: '60px' }}></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {active.map(c => (
+                                <tr key={c.id}>
+                                  <td style={tdSmall}><input type="checkbox" checked={selectedIds.has(c.id)} onChange={(e) => {
+                                    const s = new Set(selectedIds);
+                                    e.target.checked ? s.add(c.id) : s.delete(c.id);
+                                    setSelectedIds(s);
+                                  }} /></td>
+                                  <td style={tdSmall}>{c.name}</td>
+                                  <td style={tdSmall}>{c.email}</td>
+                                  <td style={tdSmall}><button onClick={() => removeRecipient(c)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Remove</button></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Removed recipients */}
+                        {removed.length > 0 && (
+                          <details style={{ marginTop: '12px' }}>
+                            <summary style={{ cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', padding: '4px 0' }}>
+                              Removed Recipients ({removed.length})
+                            </summary>
+                            <div style={{ maxHeight: '200px', overflowY: 'auto', marginTop: '4px' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                <tbody>
+                                  {removed.map(c => (
+                                    <tr key={c.id} style={{ backgroundColor: '#fef2f2' }}>
+                                      <td style={tdSmall}>{c.name}</td>
+                                      <td style={tdSmall}>{c.email}</td>
+                                      <td style={tdSmall}><button onClick={() => addBack(c)} style={{ background: 'none', border: 'none', color: '#059669', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Add Back</button></td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </details>
+                        )}
+                      </>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <button onClick={() => setStep(2)} style={btnSecondary}>Back</button>
-              <button onClick={handleSend} disabled={sending || !audience || audience.eligible === 0} style={{ ...btnSend, opacity: sending || !audience || audience.eligible === 0 ? 0.5 : 1 }}>
-                {sending ? 'Sending...' : `Send Campaign (${audience?.eligible || 0} emails)`}
+              <button onClick={handleSend} disabled={sending || !audience || (audience.eligible - removedIds.size) <= 0} style={{ ...btnSend, opacity: sending || !audience || (audience.eligible - removedIds.size) <= 0 ? 0.5 : 1 }}>
+                {sending ? 'Sending...' : `Send Campaign (${(audience?.eligible || 0) - removedIds.size} emails)`}
               </button>
               <button onClick={handlePreview} style={btnSecondary}>Send Test Email</button>
             </div>
@@ -312,6 +407,32 @@ export default function CampaignEditor() {
                 </div>
               </div>
             )}
+
+            {/* Manually excluded — collapsible */}
+            {campaign?.recipients && (() => {
+              const excluded = campaign.recipients.filter(r => r.status === 'manually_excluded');
+              if (excluded.length === 0) return null;
+              return (
+                <details style={{ marginTop: '16px' }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem', color: '#6b7280', padding: '8px 0' }}>
+                    Manually Excluded ({excluded.length})
+                  </summary>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', marginTop: '8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                      <thead><tr><th style={thSmall}>Name</th><th style={thSmall}>Email</th></tr></thead>
+                      <tbody>
+                        {excluded.map(r => (
+                          <tr key={r.id} style={{ backgroundColor: '#f9fafb' }}>
+                            <td style={tdSmall}>{r.customer_name}</td>
+                            <td style={tdSmall}>{r.email}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              );
+            })()}
 
             {/* Undeliverable recipients — collapsible */}
             {campaign?.recipients && (() => {

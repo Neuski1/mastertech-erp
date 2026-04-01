@@ -271,6 +271,9 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       preview: eligible.slice(0, 10).map(c => ({
         id: c.id, name: `${c.first_name || ''} ${c.last_name || ''}`.trim(), email: c.email_primary,
       })),
+      allRecipients: eligible.map(c => ({
+        id: c.id, name: `${c.first_name || ''} ${c.last_name || ''}`.trim(), email: c.email_primary,
+      })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -369,8 +372,13 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
       return res.status(400).json({ error: 'No eligible recipients found' });
     }
 
-    // Insert recipients
-    for (const c of eligible) {
+    // Apply manual exclusions from the frontend
+    const excludedIds = new Set((req.body.excluded_ids || []).map(id => parseInt(id)));
+    const toSend = eligible.filter(c => !excludedIds.has(c.id));
+    const manuallyExcluded = eligible.filter(c => excludedIds.has(c.id));
+
+    // Insert recipients to send
+    for (const c of toSend) {
       await client.query(
         `INSERT INTO email_campaign_recipients (campaign_id, customer_id, email, customer_name, status)
          VALUES ($1, $2, $3, $4, 'queued')`,
@@ -378,21 +386,31 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
       );
     }
 
+    // Record manually excluded recipients for audit trail
+    for (const c of manuallyExcluded) {
+      await client.query(
+        `INSERT INTO email_campaign_recipients (campaign_id, customer_id, email, customer_name, status)
+         VALUES ($1, $2, $3, $4, 'manually_excluded')`,
+        [req.params.id, c.id, c.email_primary, `${c.first_name || ''} ${c.last_name || ''}`.trim()]
+      );
+    }
+
     await client.query(
       `UPDATE email_campaigns SET status = 'sending', recipient_count = $2 WHERE id = $1`,
-      [req.params.id, eligible.length]
+      [req.params.id, toSend.length]
     );
     await client.query('COMMIT');
 
     // Send first batch immediately (up to DAILY_LIMIT)
     const sentToday = await sendBatchForCampaign(req.params.id, DAILY_LIMIT);
 
-    const remaining = eligible.length - sentToday;
+    const remaining = toSend.length - sentToday;
     const daysRemaining = Math.ceil(remaining / DAILY_LIMIT);
 
     res.json({
       success: true,
-      recipientCount: eligible.length,
+      recipientCount: toSend.length,
+      manuallyExcluded: manuallyExcluded.length,
       sentToday,
       remaining,
       estimatedDaysRemaining: daysRemaining,
