@@ -12,6 +12,22 @@ async function getLaborRate() {
   return rows[0] ? parseFloat(rows[0].setting_value) : 198.00;
 }
 
+// Check if no_charge column exists (cached after first check)
+let _hasNoChargeCol = null;
+async function hasNoChargeColumn() {
+  if (_hasNoChargeCol !== null) return _hasNoChargeCol;
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'record_labor_lines' AND column_name = 'no_charge'`
+    );
+    _hasNoChargeCol = rows.length > 0;
+  } catch {
+    _hasNoChargeCol = false;
+  }
+  return _hasNoChargeCol;
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/labor/:recordId — Add labor line
 // ---------------------------------------------------------------------------
@@ -28,7 +44,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
     return res.status(400).json({ error: 'hours cannot be negative' });
   }
 
-  const isNoCharge = !!no_charge;
+  const hasNcCol = await hasNoChargeColumn();
+  const isNoCharge = hasNcCol && !!no_charge;
 
   const client = await pool.connect();
   try {
@@ -58,13 +75,24 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       [recordId]
     );
 
-    const { rows } = await client.query(
-      `INSERT INTO record_labor_lines
-         (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, no_charge)
-       VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, isNoCharge]
-    );
+    let rows;
+    if (hasNcCol) {
+      ({ rows } = await client.query(
+        `INSERT INTO record_labor_lines
+           (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, no_charge)
+         VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, isNoCharge]
+      ));
+    } else {
+      ({ rows } = await client.query(
+        `INSERT INTO record_labor_lines
+           (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order)
+         VALUES ($1, $2, 'L', $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort]
+      ));
+    }
 
     // Recalculate record totals
     await recalculateTotals(recordId, client);
@@ -97,6 +125,7 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
   const { recordId, lineId } = req.params;
   const { technician_id, description, hours, no_charge } = req.body;
 
+  const hasNcCol = await hasNoChargeColumn();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -122,13 +151,15 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       updates.push(`description = $${idx++}`);
       values.push(description);
     }
-    if (no_charge !== undefined) {
+    if (no_charge !== undefined && hasNcCol) {
       updates.push(`no_charge = $${idx++}`);
       values.push(!!no_charge);
     }
 
     // Determine effective no_charge state for line_total calculation
-    const effectiveNoCharge = no_charge !== undefined ? !!no_charge : !!lineRows[0].no_charge;
+    const effectiveNoCharge = hasNcCol
+      ? (no_charge !== undefined ? !!no_charge : !!lineRows[0].no_charge)
+      : false;
 
     if (hours !== undefined) {
       const parsedHours = parseFloat(hours);
@@ -142,7 +173,7 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       values.push(parsedHours);
       updates.push(`line_total = $${idx++}`);
       values.push(lineTotal);
-    } else if (no_charge !== undefined) {
+    } else if (no_charge !== undefined && hasNcCol) {
       // no_charge toggled but hours not sent — recalculate line_total from existing hours
       const currentHours = parseFloat(lineRows[0].hours);
       const rate = parseFloat(lineRows[0].rate);
