@@ -122,6 +122,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
   const { recordId, lineId } = req.params;
   const { technician_id, description, hours, no_charge } = req.body;
 
+  console.log(`PATCH labor/${recordId}/${lineId} body:`, JSON.stringify(req.body));
+
   const hasNcCol = await hasNoChargeColumn();
   const client = await pool.connect();
   try {

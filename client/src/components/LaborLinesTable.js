@@ -2,6 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
+// Standalone fetch that runs to completion even if the component unmounts.
+// This prevents lost saves when the user navigates away right after changing a field.
+async function sendLaborUpdate(recordId, lineId, data) {
+  const token = sessionStorage.getItem('erp_token');
+  const res = await fetch(`${API_BASE}/labor/${recordId}/${lineId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+    keepalive: true, // ensures fetch completes even during page navigation
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Save failed' }));
+    throw new Error(err.error || 'Save failed');
+  }
+  return res.json();
+}
+
 export default function LaborLinesTable({ recordId, laborLines, isEditable, onUpdate }) {
   const { canSeeFinancials, isTechnician } = useAuth();
   const [technicians, setTechnicians] = useState([]);
@@ -60,24 +82,28 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     }
   };
 
-  // Inline save for any field
-  const handleInlineSave = async (lineId, field, value) => {
-    try {
-      const data = {};
-      if (field === 'technician_id') data.technician_id = value ? parseInt(value) : null;
-      if (field === 'description') data.description = value;
-      if (field === 'hours') data.hours = parseFloat(value || 0);
-      if (field === 'no_charge') data.no_charge = value;
-      console.log(`Saving ${field}:`, value, 'for labor line:', lineId);
-      const result = await api.updateLabor(recordId, lineId, data);
-      console.log('Save result:', result);
-      setSavedLineId(lineId);
-      setTimeout(() => setSavedLineId(null), 1500);
-      onUpdate();
-    } catch (err) {
-      console.error(`Error saving ${field} for labor line ${lineId}:`, err);
-      setError(err.message);
-    }
+  // Inline save for any field.
+  // Uses a fire-and-forget fetch via sendLaborUpdate so the save completes
+  // even if the user navigates away before the response arrives.
+  const handleInlineSave = (lineId, field, value) => {
+    const data = {};
+    if (field === 'technician_id') data.technician_id = value ? parseInt(value) : null;
+    if (field === 'description') data.description = value;
+    if (field === 'hours') data.hours = parseFloat(value || 0);
+    if (field === 'no_charge') data.no_charge = value;
+
+    // Fire the save — this fetch runs to completion regardless of component unmount
+    sendLaborUpdate(recordId, lineId, data)
+      .then((result) => {
+        console.log(`Saved ${field} for labor line ${lineId}:`, result?.technician_id);
+        setSavedLineId(lineId);
+        setTimeout(() => setSavedLineId(null), 1500);
+        onUpdate();
+      })
+      .catch((err) => {
+        console.error(`Error saving ${field} for labor line ${lineId}:`, err);
+        setError(err.message);
+      });
   };
 
   const canEdit = isEditable || isTechnician;
