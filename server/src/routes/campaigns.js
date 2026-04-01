@@ -196,7 +196,13 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
-      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != '' AND c.marketing_opt_out IS NOT TRUE`;
+      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+
+    // Exclude customers who opted out (column may not exist on older schemas)
+    try {
+      await pool.query('SELECT marketing_opt_out FROM customers LIMIT 1');
+      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE`;
+    } catch { /* column doesn't exist yet — skip filter */ }
 
     const params = [];
     if (last_visit_months) {
@@ -286,7 +292,14 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
       FROM customers c
-      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != '' AND c.marketing_opt_out IS NOT TRUE`;
+      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+
+    // Exclude customers who opted out (column may not exist on older schemas)
+    try {
+      await client.query('SELECT marketing_opt_out FROM customers LIMIT 1');
+      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE`;
+    } catch { /* column doesn't exist yet — skip filter */ }
+
     const params = [];
     if (filter.last_visit_months) {
       params.push(parseInt(filter.last_visit_months));

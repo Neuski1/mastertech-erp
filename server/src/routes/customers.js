@@ -3,6 +3,16 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
 
+// Auto-create marketing_opt_out column if missing (runs once on first request)
+let _colChecked = false;
+async function ensureMarketingOptOutColumn() {
+  if (_colChecked) return;
+  try {
+    await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS marketing_opt_out BOOLEAN NOT NULL DEFAULT false');
+  } catch { /* column likely already exists or permissions issue */ }
+  _colChecked = true;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/customers — CRM list with stats & filters
 // ---------------------------------------------------------------------------
@@ -240,6 +250,7 @@ router.get('/:id/storage', async (req, res) => {
 // PATCH /api/customers/:id — Update customer fields
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
+  await ensureMarketingOptOutColumn();
   const allowedFields = [
     'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
     'email_primary', 'email_secondary', 'address_street', 'address_city',
