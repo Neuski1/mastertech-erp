@@ -88,7 +88,7 @@ function AppLayout() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
-      {/* Header */}
+      {/* Header — fixed to top on all screen sizes */}
       <header style={{
         backgroundColor: '#1e3a5f',
         padding: isMobile ? '8px 12px' : '0 24px',
@@ -96,9 +96,11 @@ function AppLayout() {
         flexWrap: 'wrap',
         minHeight: isMobile ? '48px' : '56px',
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-        position: isMobile ? 'sticky' : undefined,
-        top: isMobile ? 0 : undefined,
-        zIndex: isMobile ? 100 : undefined,
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
       }}>
         {/* Hamburger — mobile only */}
         {isMobile && (
@@ -156,8 +158,8 @@ function AppLayout() {
         )}
       </header>
 
-      {/* Content */}
-      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
+      {/* Content — padded below fixed header */}
+      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px', paddingTop: isMobile ? '60px' : '80px' }}>
         <Routes>
           <Route path="/" element={<Navigate to="/records" />} />
           <Route path="/customers" element={<CustomerList />} />

@@ -657,8 +657,21 @@ ${paymentDetailHtml}
 
   return (
     <div style={{ maxWidth: '960px', margin: '0 auto' }}>
-      {/* Top nav */}
-      <div style={{ marginBottom: '16px' }}>
+      {/* Top nav — sticky below fixed header */}
+      <div style={{
+        position: 'sticky',
+        top: isMobile ? '48px' : '56px',
+        zIndex: 999,
+        backgroundColor: '#fff',
+        borderBottom: '1px solid #e5e7eb',
+        padding: '8px 0',
+        marginBottom: '16px',
+        marginLeft: '-24px',
+        marginRight: '-24px',
+        paddingLeft: isMobile ? '12px' : '24px',
+        paddingRight: isMobile ? '12px' : '24px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+      }}>
         <button onClick={() => navigate(fromCustomer ? `/customers/${fromCustomerId}` : '/records')} style={{ ...btnLink, marginBottom: '8px' }}>
           &larr; {fromCustomer ? 'Back to Customer' : 'Back to Records'}
         </button>
