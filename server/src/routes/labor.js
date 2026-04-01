@@ -17,11 +17,8 @@ let _hasNoChargeCol = null;
 async function hasNoChargeColumn() {
   if (_hasNoChargeCol !== null) return _hasNoChargeCol;
   try {
-    const { rows } = await pool.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_name = 'record_labor_lines' AND column_name = 'no_charge'`
-    );
-    _hasNoChargeCol = rows.length > 0;
+    await pool.query('SELECT no_charge FROM record_labor_lines LIMIT 1');
+    _hasNoChargeCol = true;
   } catch {
     _hasNoChargeCol = false;
   }

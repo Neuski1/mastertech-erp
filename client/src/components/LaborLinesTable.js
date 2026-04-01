@@ -145,13 +145,12 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 {canEdit ? (
                   <div style={{ position: 'relative', display: 'inline-block' }}>
                     <select
-                      key={`tech-${line.id}-${line.technician_id || 'none'}`}
-                      defaultValue={line.technician_id || ''}
+                      value={line.technician_id != null ? String(line.technician_id) : ''}
                       onChange={(e) => handleInlineSave(line.id, 'technician_id', e.target.value)}
                       style={inlineSelect}
                     >
                       <option value="">Unassigned</option>
-                      {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      {technicians.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
                     </select>
                     {savedLineId === line.id && <span style={savedBadge}>Saved</span>}
                   </div>
@@ -232,7 +231,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
               <td style={tdStyle}>
                 <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
                   <option value="">Unassigned</option>
-                  {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {technicians.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
                 </select>
               </td>
               <td style={tdStyle}>
