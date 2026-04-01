@@ -373,7 +373,7 @@ export default function RecordDetail() {
     const laborLines = r.labor_lines || [];
     const totalHours = laborLines.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0);
     const laborRows = laborLines.map((l, i) =>
-      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
+      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${l.no_charge ? '<span style="color:#9ca3af">'+fmtCur(l.rate)+'</span>' : fmtCur(l.rate)}</td><td style="text-align:right">${l.no_charge ? '$0.00' : fmtCur(l.line_total)}</td></tr>`
     ).join('');
     const laborTotalRow = laborLines.length > 0 ? `
       <tr style="background:#f3f4f6"><td colspan="3" style="text-align:right;font-weight:bold;padding:6px 8px;border-top:2px solid #d1d5db">TOTAL HOURS:</td><td style="text-align:right;font-weight:bold;padding:6px 8px;border-top:2px solid #d1d5db">${totalHours.toFixed(2)} hrs</td><td></td><td></td></tr>

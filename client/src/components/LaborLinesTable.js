@@ -6,7 +6,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   const { canSeeFinancials, isTechnician } = useAuth();
   const [technicians, setTechnicians] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [form, setForm] = useState({ technician_id: '', description: '', hours: '' });
+  const [form, setForm] = useState({ technician_id: '', description: '', hours: '', no_charge: false });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedLineId, setSavedLineId] = useState(null);
@@ -19,10 +19,10 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     parseFloat(val || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
   const totalHours = (laborLines || []).reduce((sum, l) => sum + parseFloat(l.hours || 0), 0);
-  const laborSubtotal = (laborLines || []).reduce((sum, l) => sum + parseFloat(l.line_total || 0), 0);
+  const laborSubtotal = (laborLines || []).reduce((sum, l) => sum + (l.no_charge ? 0 : parseFloat(l.line_total || 0)), 0);
 
   const resetForm = () => {
-    setForm({ technician_id: '', description: '', hours: '' });
+    setForm({ technician_id: '', description: '', hours: '', no_charge: false });
     setError('');
   };
 
@@ -38,6 +38,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
         technician_id: form.technician_id ? parseInt(form.technician_id) : undefined,
         description: form.description,
         hours: form.hours ? parseFloat(form.hours) : 0,
+        no_charge: form.no_charge,
       });
       setShowAddForm(false);
       resetForm();
@@ -66,6 +67,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
       if (field === 'technician_id') data.technician_id = value ? parseInt(value) : null;
       if (field === 'description') data.description = value;
       if (field === 'hours') data.hours = parseFloat(value || 0);
+      if (field === 'no_charge') data.no_charge = value;
       await api.updateLabor(recordId, lineId, data);
       setSavedLineId(lineId);
       setTimeout(() => setSavedLineId(null), 1500);
@@ -100,12 +102,17 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <th style={{ ...thStyle, textAlign: 'right' }}>Hours</th>
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
+            {canEdit && <th style={{ ...thStyle, textAlign: 'center', width: '40px' }}>N/C</th>}
             {canEdit && <th style={{ ...thStyle, width: '50px' }}></th>}
           </tr>
         </thead>
         <tbody>
           {(laborLines || []).map((line) => (
-            <tr key={line.id} style={hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined}>
+            <tr key={line.id} style={
+              line.no_charge
+                ? { backgroundColor: '#f0f9ff' }
+                : hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined
+            }>
               <td style={tdStyle}>L</td>
 
               {/* Description — always editable, auto-expands */}
@@ -122,7 +129,10 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                     style={{ ...inlineEditable, minHeight: '36px', resize: 'none', whiteSpace: 'pre-wrap', overflow: 'hidden' }}
                   />
                 ) : (
-                  <span style={{ whiteSpace: 'pre-wrap' }}>{line.description}</span>
+                  <span style={{ whiteSpace: 'pre-wrap' }}>
+                    {line.description}
+                    {line.no_charge && <span style={ncBadge}>N/C</span>}
+                  </span>
                 )}
               </td>
 
@@ -170,8 +180,34 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 )}
               </td>
 
-              {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.rate)}</td>}
-              {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
+              {canSeeFinancials && (
+                <td style={{ ...tdStyle, textAlign: 'right', color: line.no_charge ? '#9ca3af' : undefined }}>
+                  {formatCurrency(line.rate)}
+                </td>
+              )}
+              {canSeeFinancials && (
+                <td style={{ ...tdStyle, textAlign: 'right' }}>
+                  {line.no_charge ? (
+                    <span style={{ color: '#9ca3af' }}>$0.00 <span style={ncBadge}>N/C</span></span>
+                  ) : (
+                    formatCurrency(line.line_total)
+                  )}
+                </td>
+              )}
+
+              {/* No Charge toggle */}
+              {canEdit && (
+                <td style={{ ...tdStyle, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!line.no_charge}
+                    onChange={(e) => handleInlineSave(line.id, 'no_charge', e.target.checked)}
+                    title="No Charge"
+                    style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                  />
+                </td>
+              )}
+
               {canEdit && (
                 <td style={tdStyle}>
                   <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
@@ -199,9 +235,15 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
               {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>$198.00</td>}
               {canSeeFinancials && (
                 <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>
-                  {form.hours ? formatCurrency(parseFloat(form.hours) * 198) : '$0.00'}
+                  {form.no_charge ? '$0.00' : (form.hours ? formatCurrency(parseFloat(form.hours) * 198) : '$0.00')}
                 </td>
               )}
+              <td style={{ ...tdStyle, textAlign: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#6b7280', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={form.no_charge} onChange={(e) => setForm({ ...form, no_charge: e.target.checked })} style={{ cursor: 'pointer' }} />
+                  N/C
+                </label>
+              </td>
               <td style={tdStyle}>
                 <button onClick={handleAdd} disabled={saving} style={btnTiny}>{saving ? '...' : 'Add'}</button>
                 <button onClick={() => setShowAddForm(false)} style={btnTinyGray}>Cancel</button>
@@ -221,6 +263,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}></td>}
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{formatCurrency(laborSubtotal)}</td>}
             {canEdit && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
+            {canEdit && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
           </tr>
         </tfoot>
       </table>
@@ -236,6 +279,7 @@ const inlineInput = { padding: '4px 8px', border: '1px solid #d1d5db', borderRad
 const inlineEditable = { padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box', backgroundColor: '#fefce8' };
 const inlineSelect = { padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '0.8rem', backgroundColor: '#fefce8', cursor: 'pointer' };
 const savedBadge = { position: 'absolute', top: '-6px', right: '-8px', fontSize: '0.6rem', color: '#059669', fontWeight: 700, backgroundColor: '#d1fae5', padding: '1px 4px', borderRadius: '3px' };
+const ncBadge = { display: 'inline-block', marginLeft: '6px', padding: '1px 6px', borderRadius: '3px', fontSize: '0.65rem', fontWeight: 700, backgroundColor: '#dbeafe', color: '#1e40af' };
 const errorStyle = { color: 'red', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#fee2e2', borderRadius: '4px', fontSize: '0.8rem' };
 const btnSmallPrimary = { padding: '6px 14px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };
 const btnTiny = { padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };

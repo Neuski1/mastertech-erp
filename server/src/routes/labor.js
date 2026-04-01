@@ -17,7 +17,7 @@ async function getLaborRate() {
 // ---------------------------------------------------------------------------
 router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId } = req.params;
-  const { technician_id, description, hours } = req.body;
+  const { technician_id, description, hours, no_charge } = req.body;
 
   if (!description) {
     return res.status(400).json({ error: 'description is required' });
@@ -27,6 +27,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
   if (isNaN(parsedHours) || parsedHours < 0) {
     return res.status(400).json({ error: 'hours cannot be negative' });
   }
+
+  const isNoCharge = !!no_charge;
 
   const client = await pool.connect();
   try {
@@ -48,7 +50,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     // Get rate from system settings — NOT editable per line
     const rate = await getLaborRate();
-    const lineTotal = parseFloat((parsedHours * rate).toFixed(2));
+    const lineTotal = isNoCharge ? 0 : parseFloat((parsedHours * rate).toFixed(2));
 
     // Get next sort_order
     const sortRes = await client.query(
@@ -58,10 +60,10 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     const { rows } = await client.query(
       `INSERT INTO record_labor_lines
-         (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order)
-       VALUES ($1, $2, 'L', $3, $4, $5, $6, $7)
+         (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, no_charge)
+       VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort]
+      [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, isNoCharge]
     );
 
     // Recalculate record totals
@@ -93,7 +95,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { technician_id, description, hours } = req.body;
+  const { technician_id, description, hours, no_charge } = req.body;
 
   const client = await pool.connect();
   try {
@@ -120,6 +122,14 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       updates.push(`description = $${idx++}`);
       values.push(description);
     }
+    if (no_charge !== undefined) {
+      updates.push(`no_charge = $${idx++}`);
+      values.push(!!no_charge);
+    }
+
+    // Determine effective no_charge state for line_total calculation
+    const effectiveNoCharge = no_charge !== undefined ? !!no_charge : !!lineRows[0].no_charge;
+
     if (hours !== undefined) {
       const parsedHours = parseFloat(hours);
       if (isNaN(parsedHours) || parsedHours < 0) {
@@ -127,9 +137,16 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
         return res.status(400).json({ error: 'hours cannot be negative' });
       }
       const rate = parseFloat(lineRows[0].rate);
-      const lineTotal = parseFloat((parsedHours * rate).toFixed(2));
+      const lineTotal = effectiveNoCharge ? 0 : parseFloat((parsedHours * rate).toFixed(2));
       updates.push(`hours = $${idx++}`);
       values.push(parsedHours);
+      updates.push(`line_total = $${idx++}`);
+      values.push(lineTotal);
+    } else if (no_charge !== undefined) {
+      // no_charge toggled but hours not sent — recalculate line_total from existing hours
+      const currentHours = parseFloat(lineRows[0].hours);
+      const rate = parseFloat(lineRows[0].rate);
+      const lineTotal = effectiveNoCharge ? 0 : parseFloat((currentHours * rate).toFixed(2));
       updates.push(`line_total = $${idx++}`);
       values.push(lineTotal);
     }

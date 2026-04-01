@@ -12,7 +12,7 @@ async function recalculateTotals(recordId, client) {
   const db = client || pool;
 
   const laborRes = await db.query(
-    `SELECT COALESCE(SUM(line_total), 0) AS labor_subtotal,
+    `SELECT COALESCE(SUM(CASE WHEN no_charge = true THEN 0 ELSE line_total END), 0) AS labor_subtotal,
             COALESCE(SUM(hours), 0) AS total_hours
      FROM record_labor_lines
      WHERE record_id = $1 AND deleted_at IS NULL`,
