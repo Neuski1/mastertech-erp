@@ -64,7 +64,7 @@ export default function CampaignEditor() {
       if (isNew && !campaign) {
         const created = await api.createCampaign(form);
         setCampaign(created);
-        navigate(`/marketing/${created.id}`, { replace: true });
+        window.history.replaceState(null, '', `/marketing/${created.id}`);
       } else {
         await api.updateCampaign(campaign.id, form);
       }
@@ -152,7 +152,7 @@ export default function CampaignEditor() {
               <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '4px 0 0' }}>Use &lt;p&gt; tags for paragraphs. Customer name auto-inserted.</p>
             </div>
             <div style={{ display: 'flex', gap: '12px' }}>
-              {isDraft && <button onClick={() => { handleSave(); setStep(3); }} disabled={saving || !form.name || !form.subject} style={btnPrimary}>{saving ? 'Saving...' : 'Next: Select Audience'}</button>}
+              {isDraft && <button onClick={async () => { await handleSave(); setStep(3); }} disabled={saving || !form.name || !form.subject} style={btnPrimary}>{saving ? 'Saving...' : 'Next: Select Audience'}</button>}
               {isDraft && <button onClick={handlePreview} style={btnSecondary}>Send Test Email</button>}
               {!isDraft && <button onClick={() => setStep(4)} style={btnPrimary}>View Report</button>}
             </div>
