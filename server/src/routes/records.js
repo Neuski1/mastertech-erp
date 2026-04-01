@@ -623,6 +623,17 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     const unit = [r.unit_year, r.unit_make, r.unit_model].filter(Boolean).join(' ') || 'N/A';
     const address = [r.address_street, r.address_city, r.address_state, r.address_zip].filter(Boolean).join(', ');
 
+    // Collect distinct technician names for "Serviced By"
+    const techNamesRes = await pool.query(
+      `SELECT DISTINCT t.name FROM record_labor_lines rll
+       LEFT JOIN technicians t ON rll.technician_id = t.id
+       WHERE rll.record_id = $1 AND rll.deleted_at IS NULL AND t.name IS NOT NULL
+       ORDER BY t.name ASC`,
+      [r.id]
+    );
+    const techNames = techNamesRes.rows.map(row => row.name);
+    const isEstimate = r.status === 'estimate';
+
     // Build labor table rows
     const laborRows = laborRes.rows.map(l =>
       `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${l.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(l.hours||0).toFixed(2)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.rate)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.line_total)}</td></tr>`
@@ -682,6 +693,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
           ${r.vin ? `<div style="color:#374151;font-size:12px;">VIN: ${r.vin}</div>` : ''}
           ${r.license_plate ? `<div style="color:#374151;font-size:12px;">Plate: ${r.license_plate}</div>` : ''}
           ${r.key_number ? `<div style="color:#374151;font-size:12px;">Key #: ${r.key_number}</div>` : ''}
+          ${!isEstimate && techNames.length > 0 ? `<div style="margin-top:6px;"><span style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#6b7280;">Serviced By:</span> <span style="font-size:13px;color:#1e3a5f;font-weight:600;">${techNames.join(', ')}</span></div>` : ''}
         </td>
       </tr>
     </table>

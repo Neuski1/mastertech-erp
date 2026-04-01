@@ -369,8 +369,12 @@ export default function RecordDetail() {
       return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
     };
 
-    // Build labor rows
+    // Collect distinct technician names for "Serviced By"
     const laborLines = r.labor_lines || [];
+    const techNames = [...new Set(laborLines.map(l => l.technician_name).filter(Boolean))].sort();
+    const isEstimate = r.status === 'estimate';
+
+    // Build labor rows
     const totalHours = laborLines.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0);
     const laborRows = laborLines.map((l, i) =>
       `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${l.no_charge ? '<span style="color:#9ca3af">'+fmtCur(l.rate)+'</span>' : fmtCur(l.rate)}</td><td style="text-align:right">${l.no_charge ? '$0.00' : fmtCur(l.line_total)}</td></tr>`
@@ -508,6 +512,7 @@ export default function RecordDetail() {
     <label>License Plate</label><span>${r.license_plate || '—'}</span><br/>
     <label>VIN</label><span>${r.vin || '—'}</span><br/>
     <label>Key #</label><span>${r.key_number || '—'}</span>
+    ${!isEstimate && techNames.length > 0 ? `<br/><label>Serviced By</label><span>${techNames.join(', ')}</span>` : ''}
   </div>
 </div>
 ${r.insurance_company ? `<div class="info-block"><div><label>Insurance</label><span>${r.insurance_company}</span>${r.claim_number ? ' &nbsp; <label style="display:inline">Claim #</label> <span>' + r.claim_number + '</span>' : ''}</div></div>` : ''}
