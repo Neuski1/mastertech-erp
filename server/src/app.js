@@ -133,7 +133,9 @@ app.get('/api/test-email', async (req, res) => {
 // Serve React frontend in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../../client/build')));
-  app.get('{*path}', (req, res) => {
+  app.get('{*path}', (req, res, next) => {
+    // Don't serve index.html for API routes — let them 404 naturally
+    if (req.path.startsWith('/api/')) return next();
     res.sendFile(path.join(__dirname, '../../client/build/index.html'));
   });
 }
