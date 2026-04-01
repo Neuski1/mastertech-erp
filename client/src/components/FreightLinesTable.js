@@ -7,6 +7,43 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
   const [form, setForm] = useState({ description: '', amount: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showStorageCalc, setShowStorageCalc] = useState(false);
+  const [calcDays, setCalcDays] = useState('');
+  const [calcRate, setCalcRate] = useState('25.00');
+  const [calcDesc, setCalcDesc] = useState('Outdoor storage');
+  const [calcSaving, setCalcSaving] = useState(false);
+
+  const calcTotal = (parseFloat(calcDays) || 0) * (parseFloat(calcRate) || 0);
+  const calcDescAuto = `Outdoor storage — ${calcDays || 0} days @ $${parseFloat(calcRate || 0).toFixed(2)}/day`;
+
+  const openStorageCalc = () => {
+    setCalcDays('');
+    setCalcRate('25.00');
+    setCalcDesc('');
+    setShowStorageCalc(true);
+    setError('');
+  };
+
+  const handleAddStorageFee = async () => {
+    const days = parseFloat(calcDays);
+    const rate = parseFloat(calcRate);
+    if (!days || days <= 0) { setError('Enter number of days'); return; }
+    if (!rate || rate <= 0) { setError('Enter rate per day'); return; }
+    const total = parseFloat((days * rate).toFixed(2));
+    const desc = calcDesc || calcDescAuto;
+    setCalcSaving(true);
+    setError('');
+    try {
+      await api.addFreightLine(recordId, { description: desc, amount: total });
+      setShowStorageCalc(false);
+      onUpdate();
+      alert(`Storage fee of $${total.toFixed(2)} added to record`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCalcSaving(false);
+    }
+  };
 
   const handleAdd = async () => {
     if (!form.description.trim()) { setError('Description required'); return; }
@@ -74,9 +111,14 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={sectionTitle}>Freight / Misc. Charges</h2>
         {isEditable && !adding && !editingId && (
-          <button onClick={() => { setAdding(true); setForm({ description: '', amount: '' }); }} style={btnAdd}>
-            + Add Charge
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => { setAdding(true); setForm({ description: '', amount: '' }); }} style={btnAdd}>
+              + Add Charge
+            </button>
+            <button onClick={openStorageCalc} style={{ ...btnAdd, backgroundColor: '#7c3aed' }}>
+              Storage Fee Calculator
+            </button>
+          </div>
         )}
       </div>
 
@@ -154,6 +196,62 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
           <button onClick={() => { setAdding(false); setError(''); }} style={btnCancel}>Cancel</button>
         </div>
       )}
+
+      {/* Storage Fee Calculator Modal */}
+      {showStorageCalc && (
+        <div style={overlayStyle}>
+          <div style={modalStyle}>
+            <h3 style={{ margin: '0 0 16px', color: '#1e3a5f' }}>Calculate Storage Fee</h3>
+            {error && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '8px' }}>{error}</div>}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Days Stored</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={calcDays}
+                  onChange={(e) => { setCalcDays(e.target.value); setCalcDesc(`Outdoor storage — ${e.target.value || 0} days @ $${parseFloat(calcRate || 0).toFixed(2)}/day`); }}
+                  placeholder="Enter days"
+                  style={inputStyle}
+                  autoFocus
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Rate Per Day ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={calcRate}
+                  onChange={(e) => { setCalcRate(e.target.value); setCalcDesc(`Outdoor storage — ${calcDays || 0} days @ $${parseFloat(e.target.value || 0).toFixed(2)}/day`); }}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+            <div style={{ padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '6px', marginBottom: '16px', textAlign: 'center' }}>
+              <div style={{ fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase', fontWeight: 600 }}>Total Fee</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#065f46' }}>${calcTotal.toFixed(2)}</div>
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Description</label>
+              <input
+                value={calcDesc}
+                onChange={(e) => setCalcDesc(e.target.value)}
+                style={inputStyle}
+              />
+            </div>
+            <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0 0 16px', fontStyle: 'italic' }}>
+              Storage fees are not subject to sales tax
+            </p>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowStorageCalc(false); setError(''); }} style={btnCancel}>Cancel</button>
+              <button onClick={handleAddStorageFee} disabled={calcSaving} style={btnSave}>
+                {calcSaving ? 'Adding...' : 'Add to Record'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -180,3 +278,5 @@ const btnSave = { padding: '6px 12px', backgroundColor: '#059669', color: '#fff'
 const btnCancel = { padding: '6px 12px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap' };
 const btnEdit = { padding: '2px 8px', backgroundColor: 'transparent', color: '#3b82f6', border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 };
 const btnDel = { padding: '2px 8px', backgroundColor: 'transparent', color: '#dc2626', border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 };
+const overlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
+const modalStyle = { backgroundColor: '#fff', borderRadius: '12px', padding: '24px', width: '420px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
