@@ -86,31 +86,9 @@ button:hover {
     min-height: 36px;
   }
 
-  /* Hide desktop nav, show when toggled */
+  /* Hide desktop nav (now handled via isMobile in JS) */
   .desktop-nav {
     display: none !important;
-    width: 100%;
-    order: 10;
-  }
-  .desktop-nav.mobile-open {
-    display: flex !important;
-    flex-direction: column;
-    gap: 0 !important;
-    margin-left: 0 !important;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(255,255,255,0.15);
-  }
-  .desktop-nav.mobile-open a {
-    padding: 12px 0 !important;
-    font-size: 1rem !important;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    color: #fff !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
   }
 
   /* Hide user info row on mobile, keep logout */

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
@@ -38,6 +38,7 @@ function RequireAuth({ children }) {
 function AppLayout() {
   const { user, logout, canManageUsers, canManageSettings } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const location = useLocation();
 
   const roleLabelMap = {
@@ -48,9 +49,42 @@ function AppLayout() {
   };
 
   // Close mobile nav on route change
-  React.useEffect(() => {
+  useEffect(() => {
     setMobileNavOpen(false);
   }, [location.pathname]);
+
+  // Track mobile breakpoint
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  const closeMobileNav = () => setMobileNavOpen(false);
+
+  // Nav links: all pages, always active and clickable
+  const allNavLinks = [
+    { to: '/customers', label: 'Customers' },
+    { to: '/records', label: 'Records' },
+    { to: '/inventory', label: 'Inventory' },
+    { to: '/schedule', label: 'Schedule' },
+    { to: '/parts-sales', label: 'Parts Sale' },
+    { to: '/storage', label: 'Storage' },
+    ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
+    ...(canManageSettings ? [{ to: '/settings', label: 'Settings' }] : []),
+    ...(canManageUsers ? [{ to: '/users', label: 'Users' }] : []),
+  ];
+
+  const mobileNavLinkStyle = {
+    color: '#ffffff',
+    textDecoration: 'none',
+    fontSize: '1rem',
+    fontWeight: 600,
+    padding: '14px 0',
+    display: 'block',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    opacity: 1,
+  };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
@@ -66,17 +100,32 @@ function AppLayout() {
         <Link to="/records" style={{ color: '#fff', textDecoration: 'none', fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.025em' }}>
           MASTER TECH ERP
         </Link>
-        <nav className={`desktop-nav${mobileNavOpen ? ' mobile-open' : ''}`} style={{ marginLeft: '32px', display: 'flex', gap: '20px' }}>
-          <Link to="/customers" style={navLink}>Customers</Link>
-          <Link to="/records" style={navLink}>Records</Link>
-          <Link to="/inventory" style={navLink}>Inventory</Link>
-          <Link to="/schedule" style={navLink}>Schedule</Link>
-          <Link to="/parts-sales" style={navLink}>Parts Sale</Link>
-          <Link to="/storage" style={navLink}>Storage</Link>
-          {canManageSettings && <Link to="/marketing" style={navLink}>Marketing</Link>}
-          {canManageSettings && <Link to="/settings" style={navLink}>Settings</Link>}
-          {canManageUsers && <Link to="/users" style={navLink}>Users</Link>}
-        </nav>
+
+        {/* Desktop nav */}
+        {!isMobile && (
+          <nav style={{ marginLeft: '32px', display: 'flex', gap: '20px' }}>
+            {allNavLinks.map(link => (
+              <Link key={link.to} to={link.to} style={navLink}>{link.label}</Link>
+            ))}
+          </nav>
+        )}
+
+        {/* Mobile nav drawer */}
+        {isMobile && mobileNavOpen && (
+          <nav style={{
+            width: '100%', order: 10,
+            marginTop: '8px', paddingTop: '8px',
+            borderTop: '1px solid rgba(255,255,255,0.15)',
+            display: 'flex', flexDirection: 'column',
+          }}>
+            {allNavLinks.map(link => (
+              <Link key={link.to} to={link.to} style={mobileNavLinkStyle} onClick={closeMobileNav}>
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        )}
+
         <div className="header-user-info" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span className="qb-dot"><QBStatusDot /></span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

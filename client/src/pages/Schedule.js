@@ -275,7 +275,7 @@ export default function Schedule() {
   return (
     <div>
       {/* Header */}
-      <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '12px' : '20px', flexWrap: 'wrap', gap: '8px' }}>
         <h1 style={{ margin: 0 }}>Schedule</h1>
         {!isMobile && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -290,6 +290,11 @@ export default function Schedule() {
           </div>
         )}
       </div>
+      {isMobile && (
+        <button onClick={() => navigate('/schedule/new')} style={{ ...btnPrimary, width: '100%', marginBottom: '12px', padding: '14px 20px', fontSize: '1rem' }}>
+          + New Appointment
+        </button>
+      )}
       {bulkResult && (
         <div style={{
           padding: '12px', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem',
