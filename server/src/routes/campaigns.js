@@ -221,13 +221,16 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
     customerQuery += ` ORDER BY c.last_name, c.first_name`;
 
     const { rows: customers } = await pool.query(customerQuery);
-    const emails = customers.map(c => c.email_primary.toLowerCase());
 
-    const { rows: unsubs } = await pool.query('SELECT email FROM email_unsubscribes');
-    const unsubEmails = new Set(unsubs.map(u => u.email.toLowerCase()));
+    // Exclude unsubscribed (table may not exist yet)
+    let unsubEmails = new Set();
+    try {
+      const { rows: unsubs } = await pool.query('SELECT email FROM email_unsubscribes');
+      unsubEmails = new Set(unsubs.map(u => u.email.toLowerCase()));
+    } catch { /* table doesn't exist yet */ }
 
     const eligible = customers.filter(c => !unsubEmails.has(c.email_primary.toLowerCase()));
-    const unsubCount = emails.length - eligible.length;
+    const unsubCount = customers.length - eligible.length;
 
     const { rows: noEmail } = await pool.query(
       "SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL AND (email_primary IS NULL OR email_primary = '')"
@@ -341,9 +344,12 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
 
     const { rows: customers } = await client.query(customerQuery);
 
-    // Exclude unsubscribed
-    const { rows: unsubs } = await client.query('SELECT email FROM email_unsubscribes');
-    const unsubEmails = new Set(unsubs.map(u => u.email.toLowerCase()));
+    // Exclude unsubscribed (table may not exist yet)
+    let unsubEmails = new Set();
+    try {
+      const { rows: unsubs } = await client.query('SELECT email FROM email_unsubscribes');
+      unsubEmails = new Set(unsubs.map(u => u.email.toLowerCase()));
+    } catch { /* table doesn't exist yet */ }
     const eligible = customers.filter(c => !unsubEmails.has(c.email_primary.toLowerCase()));
 
     if (eligible.length === 0) {
@@ -557,6 +563,11 @@ router.get('/unsubscribe/:token', async (req, res) => {
     const email = Buffer.from(req.params.token, 'base64url').toString('utf8');
     if (!email || !email.includes('@')) return res.status(400).send('Invalid link');
 
+    // Ensure table exists then insert
+    await pool.query(`CREATE TABLE IF NOT EXISTS email_unsubscribes (
+      id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL,
+      customer_id INTEGER, unsubscribed_at TIMESTAMPTZ DEFAULT NOW(), reason VARCHAR(255)
+    )`);
     await pool.query(
       `INSERT INTO email_unsubscribes (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`,
       [email.toLowerCase()]
