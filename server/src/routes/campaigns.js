@@ -191,6 +191,7 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 // GET /api/campaigns/audience-count — count matching customers
 // ---------------------------------------------------------------------------
 router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res) => {
+  const { template_type } = req.query;
   try {
     let customerQuery = `
       SELECT c.id, c.first_name, c.last_name, c.email_primary
@@ -218,9 +219,21 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
         AND status NOT IN ('paid', 'void')
       )`;
 
+    // Exclude anyone already sent this template type
+    const params = [];
+    if (template_type) {
+      params.push(template_type);
+      customerQuery += `
+        AND LOWER(c.email_primary) NOT IN (
+          SELECT LOWER(ecr.email) FROM email_campaign_recipients ecr
+          JOIN email_campaigns ec ON ecr.campaign_id = ec.id
+          WHERE ecr.status = 'sent' AND ec.template_type = $1
+        )`;
+    }
+
     customerQuery += ` ORDER BY c.last_name, c.first_name`;
 
-    const { rows: customers } = await pool.query(customerQuery);
+    const { rows: customers } = await pool.query(customerQuery, params);
 
     // Exclude unsubscribed (table may not exist yet)
     let unsubEmails = new Set();
@@ -244,13 +257,23 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void')`
     );
 
-    let excludedOptOut = 0, excludedInvalid = 0;
+    let excludedOptOut = 0, excludedInvalid = 0, excludedAlreadySent = 0;
     try {
       const { rows: optOutCount } = await pool.query(`SELECT COUNT(*) AS cnt FROM customers WHERE deleted_at IS NULL AND marketing_opt_out = TRUE AND email_primary IS NOT NULL`);
       excludedOptOut = parseInt(optOutCount[0].cnt);
       const { rows: invalidCount } = await pool.query(`SELECT COUNT(*) AS cnt FROM customers WHERE deleted_at IS NULL AND email_invalid = TRUE AND email_primary IS NOT NULL`);
       excludedInvalid = parseInt(invalidCount[0].cnt);
     } catch { /* columns don't exist */ }
+    if (template_type) {
+      try {
+        const { rows: sentCount } = await pool.query(
+          `SELECT COUNT(DISTINCT LOWER(ecr.email)) AS cnt FROM email_campaign_recipients ecr
+           JOIN email_campaigns ec ON ecr.campaign_id = ec.id
+           WHERE ecr.status = 'sent' AND ec.template_type = $1`, [template_type]
+        );
+        excludedAlreadySent = parseInt(sentCount[0].cnt);
+      } catch { /* tables don't exist */ }
+    }
 
     const days = Math.ceil(eligible.length / DAILY_LIMIT);
 
@@ -262,6 +285,7 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       excludedOpenOrders: parseInt(openOrderCount[0].cnt),
       excludedOptOut,
       excludedInvalid,
+      excludedAlreadySent,
       eligible: eligible.length,
       estimatedDays: days,
       allRecipients: eligible.map(c => ({
@@ -342,7 +366,17 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
         AND status NOT IN ('paid', 'void')
       )`;
 
-    const { rows: customers } = await client.query(customerQuery);
+    // Exclude anyone already sent this template type
+    if (campaign.template_type) {
+      customerQuery += `
+        AND LOWER(c.email_primary) NOT IN (
+          SELECT LOWER(ecr.email) FROM email_campaign_recipients ecr
+          JOIN email_campaigns ec ON ecr.campaign_id = ec.id
+          WHERE ecr.status = 'sent' AND ec.template_type = $1
+        )`;
+    }
+
+    const { rows: customers } = await client.query(customerQuery, campaign.template_type ? [campaign.template_type] : []);
 
     // Exclude unsubscribed (table may not exist yet)
     let unsubEmails = new Set();

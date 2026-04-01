@@ -48,10 +48,10 @@ export default function CampaignEditor() {
 
   // Fetch audience count when entering step 3
   useEffect(() => {
-    if (step >= 3) {
-      api.getAudienceCount({}).then(setAudience).catch(() => {});
+    if (step >= 3 && form.template_type) {
+      api.getAudienceCount({ template_type: form.template_type }).then(setAudience).catch(() => {});
     }
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, form.template_type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectTemplate = (tmpl) => {
     setForm({ ...form, template_type: tmpl.value, subject: tmpl.defaultSubject, body_html: tmpl.defaultBody, name: form.name || tmpl.label });
@@ -184,6 +184,7 @@ export default function CampaignEditor() {
                     {(audience.excludedOptOut || 0) > 0 && <div>{audience.excludedOptOut} — opted out of marketing</div>}
                     {(audience.excludedInvalid || 0) > 0 && <div>{audience.excludedInvalid} — bad email on file</div>}
                     {audience.unsubscribed > 0 && <div>{audience.unsubscribed} — unsubscribed</div>}
+                    {(audience.excludedAlreadySent || 0) > 0 && <div>{audience.excludedAlreadySent} — already received this campaign</div>}
                   </div>
                   <div style={{ color: '#6b7280', marginTop: '8px' }}>Estimated send time: {audience.estimatedDays} day{audience.estimatedDays > 1 ? 's' : ''} at 100/day</div>
                 </div>
