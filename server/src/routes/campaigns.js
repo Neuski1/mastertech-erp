@@ -34,9 +34,9 @@ function heroBlock() {
 const ctaBlock = `
     <div style="text-align:center;margin:32px 0;padding:24px;background:#f8f9fa;border-radius:8px;">
       <p style="font-size:14px;color:#444;margin-bottom:20px;font-weight:bold;">Ready to get started? Contact us today!</p>
-      <a href="tel:+13035572214" style="display:inline-block;background:#1a2a4a;color:white;padding:14px 28px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;margin:8px 12px;">&#x1F4DE; Call Us to Schedule</a>
-      <a href="mailto:service@mastertechrvrepair.com?subject=Service%20Appointment%20Request" style="display:inline-block;background:#ffffff;color:#1a2a4a;padding:14px 28px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;margin:8px 12px;border:2px solid #1a2a4a;">&#x2709; Send Us an Email</a>
-      <p style="font-size:12px;color:#888;margin-top:16px;">(303) 557-2214 &nbsp;|&nbsp; service@mastertechrvrepair.com &nbsp;|&nbsp; 6590 East 49th Avenue, Commerce City, CO 80022</p>
+      <a href="tel:+13035572214" style="display:inline-block;background:#1a2a4a;color:white;padding:14px 28px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;margin:8px 12px;">&#x1F4DE; Call (303) 557-2214</a>
+      <a href="mailto:service@mastertechrvrepair.com?subject=Service%20Appointment%20Request" style="display:inline-block;background:#ffffff;color:#1a2a4a;padding:14px 28px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;margin:8px 12px;border:2px solid #1a2a4a;">&#x2709; Email Us to Schedule</a>
+      <p style="font-size:12px;color:#888;margin-top:16px;">service@mastertechrvrepair.com &nbsp;|&nbsp; 6590 East 49th Avenue, Commerce City, CO 80022</p>
     </div>`;
 
 function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
