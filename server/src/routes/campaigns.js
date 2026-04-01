@@ -16,6 +16,15 @@ function getLogoUrl() {
   return `${frontend}/master-rvtech-logo-dark.jpg`;
 }
 
+// Shared CTA block used in all marketing templates
+const ctaBlock = `
+    <div style="text-align:center;margin:32px 0;padding:24px;background:#f8f9fa;border-radius:8px;">
+      <p style="font-size:14px;color:#444;margin-bottom:20px;font-weight:bold;">Ready to get started? Contact us today!</p>
+      <a href="tel:+13035572214" style="display:inline-block;background:#1a2a4a;color:white;padding:14px 28px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;margin:8px 12px;">&#x1F4DE; Call Us to Schedule</a>
+      <a href="mailto:service@mastertechrvrepair.com?subject=Service%20Appointment%20Request" style="display:inline-block;background:#ffffff;color:#1a2a4a;padding:14px 28px;border-radius:6px;text-decoration:none;font-size:16px;font-weight:bold;margin:8px 12px;border:2px solid #1a2a4a;">&#x2709; Send Us an Email</a>
+      <p style="font-size:12px;color:#888;margin-top:16px;">(303) 557-2214 &nbsp;|&nbsp; service@mastertechrvrepair.com &nbsp;|&nbsp; 6590 East 49th Avenue, Commerce City, CO 80022</p>
+    </div>`;
+
 function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
   const logoUrl = getLogoUrl();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
@@ -39,15 +48,7 @@ function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
         <li>Full pre-season inspections</li>
       </ul>
     </div>
-    <div style="text-align:center;margin:24px 0;">
-      <a href="mailto:service@mastertechrvrepair.com" style="display:inline-block;padding:14px 28px;background:#1e3a5f;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px;">Schedule Your Service Today</a>
-    </div>
-    <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
-      <p style="margin:2px 0;"><strong>Phone:</strong> (303) 557-2214</p>
-      <p style="margin:2px 0;"><strong>Email:</strong> service@mastertechrvrepair.com</p>
-      <p style="margin:2px 0;"><strong>Address:</strong> 6590 East 49th Avenue, Commerce City, CO 80022</p>
-      <p style="margin:2px 0;"><strong>Web:</strong> mastertechrvrepair.com</p>
-    </div>
+    ${ctaBlock}
   </div>
   <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:11px;color:#9ca3af;">
     <p style="margin:0;">Master Tech RV Repair &amp; Storage</p>
@@ -73,15 +74,7 @@ function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUr
     <div style="margin:20px 0;padding:16px;background:#fffbeb;border-radius:6px;border-left:4px solid #f59e0b;">
       <p style="margin:0;font-size:13px;color:#92400e;line-height:1.6;">Annual service helps prevent costly repairs down the road. A quick inspection now can catch small issues before they become big problems.</p>
     </div>
-    <div style="text-align:center;margin:24px 0;">
-      <a href="mailto:service@mastertechrvrepair.com?subject=Service%20Appointment%20Request" style="display:inline-block;padding:14px 28px;background:#1e3a5f;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px;">Book Your Service Appointment</a>
-    </div>
-    <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
-      <p style="margin:2px 0;"><strong>Phone:</strong> (303) 557-2214</p>
-      <p style="margin:2px 0;"><strong>Email:</strong> service@mastertechrvrepair.com</p>
-      <p style="margin:2px 0;"><strong>Address:</strong> 6590 East 49th Avenue, Commerce City, CO 80022</p>
-      <p style="margin:2px 0;"><strong>Web:</strong> mastertechrvrepair.com</p>
-    </div>
+    ${ctaBlock}
   </div>
   <div style="padding:16px 32px;background:#f9fafb;text-align:center;font-size:11px;color:#9ca3af;">
     <p style="margin:0;">Master Tech RV Repair &amp; Storage</p>
