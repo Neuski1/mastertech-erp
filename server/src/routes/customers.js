@@ -373,42 +373,68 @@ router.post('/:id/merge', async (req, res) => {
       }
     }
 
-    // Step 2: Reassign all related records
+    // Step 2: Reassign all related records using SAVEPOINTs
+    // (PostgreSQL aborts the whole transaction on any error,
+    //  so we use savepoints to isolate optional table updates)
     const reassignTables = [
-      'units',
-      'records',
-      'appointments',
-      'storage_billing',
-      'communication_log',
-      'marketing_contacts',
-      'leads',
-      'email_campaign_recipients',
-      'email_unsubscribes',
-      'payments',
+      'units', 'records', 'appointments', 'storage_billing',
+      'communication_log', 'marketing_contacts', 'leads',
+      'email_campaign_recipients', 'email_unsubscribes',
+      'payments', 'storage_charges',
     ];
 
     const counts = {};
     for (const table of reassignTables) {
       try {
+        await client.query(`SAVEPOINT sp_${table}`);
         const result = await client.query(
           `UPDATE ${table} SET customer_id = $1 WHERE customer_id = $2`,
           [masterId, duplicateId]
         );
         counts[table] = result.rowCount;
+        await client.query(`RELEASE SAVEPOINT sp_${table}`);
       } catch (e) {
-        // Table might not exist or lack customer_id column — skip
+        await client.query(`ROLLBACK TO SAVEPOINT sp_${table}`);
         counts[table] = 0;
+        console.log(`Merge: ${table} skipped (${e.message})`);
       }
     }
 
     // Deduplicate campaign recipients (keep earliest per campaign+email)
     try {
+      await client.query('SAVEPOINT sp_dedup');
       await client.query(
         `DELETE FROM email_campaign_recipients WHERE id NOT IN (
           SELECT MIN(id) FROM email_campaign_recipients GROUP BY campaign_id, email
         )`
       );
-    } catch { /* table may not exist */ }
+      await client.query('RELEASE SAVEPOINT sp_dedup');
+    } catch {
+      await client.query('ROLLBACK TO SAVEPOINT sp_dedup');
+    }
+
+    // Step 2b: Catch any remaining FK references dynamically
+    const { rows: fkRefs } = await client.query(`
+      SELECT tc.table_name, kcu.column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+      JOIN information_schema.referential_constraints rc ON tc.constraint_name = rc.constraint_name
+      JOIN information_schema.table_constraints tc2 ON rc.unique_constraint_name = tc2.constraint_name
+      WHERE tc.constraint_type = 'FOREIGN KEY' AND tc2.table_name = 'customers' AND tc.table_schema = 'public'
+    `);
+    for (const ref of fkRefs) {
+      try {
+        await client.query(`SAVEPOINT sp_fk_${ref.table_name}`);
+        await client.query(
+          `UPDATE ${ref.table_name} SET ${ref.column_name} = $1 WHERE ${ref.column_name} = $2`,
+          [masterId, duplicateId]
+        );
+        await client.query(`RELEASE SAVEPOINT sp_fk_${ref.table_name}`);
+      } catch (e) {
+        await client.query(`ROLLBACK TO SAVEPOINT sp_fk_${ref.table_name}`);
+        console.log(`Merge FK: ${ref.table_name}.${ref.column_name} skipped (${e.message})`);
+      }
+    }
 
     // Step 3: Hard delete the duplicate
     await client.query('DELETE FROM customers WHERE id = $1', [duplicateId]);
