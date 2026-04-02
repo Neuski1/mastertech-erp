@@ -113,6 +113,31 @@ app.get('/debug/remove-recipients', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// One-time: backfill communication_log for already-sent campaign emails
+app.get('/debug/backfill-campaign-logs', async (req, res) => {
+  const pool = require('./db/pool');
+  try {
+    const { rowCount } = await pool.query(`
+      INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_at)
+      SELECT ecr.customer_id, 'email', 'marketing_campaign',
+             'Campaign: ' || ec.name || E'\nSubject: ' || ec.subject,
+             'sent', false, ecr.sent_at
+      FROM email_campaign_recipients ecr
+      JOIN email_campaigns ec ON ecr.campaign_id = ec.id
+      WHERE ecr.status = 'sent'
+        AND ecr.customer_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM communication_log cl
+          WHERE cl.customer_id = ecr.customer_id
+          AND cl.trigger_event = 'marketing_campaign'
+          AND cl.message_content LIKE '%' || ec.name || '%'
+        )
+    `);
+    const { rows } = await pool.query("SELECT COUNT(*) AS cnt FROM communication_log WHERE trigger_event = 'marketing_campaign'");
+    res.json({ backfilled: rowCount, total_campaign_logs: rows[0].cnt });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // One-time: auto-exclude 42 from campaign 10
 app.get('/debug/exclude-42-from-10', async (req, res) => {
   const pool = require('./db/pool');
