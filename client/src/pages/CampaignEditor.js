@@ -89,7 +89,7 @@ export default function CampaignEditor() {
     if (!cid) return;
     const sendCount = (audience?.eligible || 0) - removedIds.size;
     if (!audience || sendCount === 0) { setError('No eligible recipients'); return; }
-    if (!window.confirm(`Send "${form.name}" to ${sendCount} customers?${removedIds.size > 0 ? `\n(${removedIds.size} manually excluded)` : ''}\n\nEmails will be sent at 100/day.\n\nThis cannot be undone.`)) return;
+    if (!window.confirm(`Send "${form.name}" to ${sendCount} customers?${removedIds.size > 0 ? `\n(${removedIds.size} manually excluded)` : ''}\n\nAll emails will be sent immediately.\n\nThis cannot be undone.`)) return;
 
     setSending(true); setError('');
     try {
@@ -186,7 +186,7 @@ export default function CampaignEditor() {
                     {audience.unsubscribed > 0 && <div>{audience.unsubscribed} — unsubscribed</div>}
                     {(audience.excludedAlreadySent || 0) > 0 && <div>{audience.excludedAlreadySent} — already received this campaign</div>}
                   </div>
-                  <div style={{ color: '#6b7280', marginTop: '8px' }}>Estimated send time: {audience.estimatedDays} day{audience.estimatedDays > 1 ? 's' : ''} at 100/day</div>
+                  <div style={{ color: '#6b7280', marginTop: '8px' }}>All emails will be sent immediately</div>
                 </div>
 
                 {/* Full recipient list with remove/select */}
@@ -310,7 +310,7 @@ export default function CampaignEditor() {
             <div style={{ padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px', marginBottom: '16px', border: '1px solid #bbf7d0' }}>
               <div style={{ fontWeight: 600, color: '#065f46', marginBottom: '4px' }}>Campaign started!</div>
               <div style={{ fontSize: '0.85rem', color: '#065f46' }}>
-                Sent {sendResult.sentToday} emails today. {sendResult.remaining > 0 ? `Remaining ${sendResult.remaining} will send over the next ${sendResult.estimatedDaysRemaining} day(s) at 100/day.` : 'All emails sent.'}
+                Sent {sendResult.sentToday} emails. {sendResult.remaining > 0 ? `${sendResult.remaining} remaining — sending now.` : 'All emails sent.'}
               </div>
             </div>
           )}

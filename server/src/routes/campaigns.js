@@ -4,9 +4,9 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 
-const DAILY_LIMIT = 100;
-const BATCH_SIZE = 2;          // Send 2 at a time (well under Resend's 5/sec limit)
-const BATCH_DELAY_MS = 1000;   // 1 second between batches → ~2 emails/sec
+const DAILY_LIMIT = 10000;     // Paid plan — no daily cap
+const BATCH_SIZE = 8;          // Send 8 at a time (under Resend's 10/sec paid limit)
+const BATCH_DELAY_MS = 1200;   // 1.2 seconds between batches → ~6-7 emails/sec
 
 // ---------------------------------------------------------------------------
 // Email template builders

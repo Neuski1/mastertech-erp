@@ -61,9 +61,6 @@ export default function CampaignList() {
         </div>
       </div>
 
-      <div style={{ padding: '10px 16px', backgroundColor: '#eff6ff', borderRadius: '6px', marginBottom: '16px', fontSize: '0.8rem', color: '#1e40af' }}>
-        Resend free plan: 100 emails/day. Large campaigns send automatically at 100/day until complete.
-      </div>
 
       {/* Audience Audit Panel */}
       {showAudit && audit && (
