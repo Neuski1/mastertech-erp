@@ -47,7 +47,9 @@ export default function Reports() {
   };
 
   const r = report?.revenue;
-  const subtotal = r ? r.labor + r.parts + r.misc + r.shopSupplies : 0;
+  // grossRevenue = total_sales which already includes labor+parts+misc+supplies+tax+cc
+  // Subtotal = grossRevenue minus tax and cc fees
+  const subtotal = r ? r.grossRevenue - r.tax - r.ccFees : 0;
 
   return (
     <div style={{ maxWidth: '800px' }}>
@@ -92,11 +94,12 @@ export default function Reports() {
                 <Row label="Parts" value={fmtCur(r.parts)} />
                 <Row label="Miscellaneous / Freight" value={fmtCur(r.misc)} />
                 <Row label="Shop Supplies" value={fmtCur(r.shopSupplies)} />
-                <Row label="Storage" value={fmtCur(report.storage.total)} />
-                <Row label="SUBTOTAL" value={fmtCur(subtotal + report.storage.total)} bold border />
+                <Row label="SUBTOTAL (before tax/fees)" value={fmtCur(subtotal)} bold border />
                 <Row label="Sales Tax" value={fmtCur(r.tax)} indent />
                 <Row label="Credit Card Fees (3%)" value={fmtCur(r.ccFees)} indent />
-                <Row label="GROSS REVENUE" value={fmtCur(r.grossRevenue + report.storage.total)} bold border color="#065f46" />
+                <Row label="TOTAL SERVICE REVENUE" value={fmtCur(r.grossRevenue)} bold border />
+                <Row label="Storage Revenue" value={fmtCur(report.storage.total)} />
+                <Row label="GRAND TOTAL" value={fmtCur(r.grossRevenue + report.storage.total)} bold border color="#065f46" />
               </tbody>
             </table>
           </div>
