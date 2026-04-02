@@ -297,6 +297,7 @@ export default function Storage() {
 function SpaceCard({ space, onClick, canSeeFinancials }) {
   const occupied = !!space.billing_id;
   const label = space.label.replace(/^(Outdoor|Indoor)\s*/, '');
+  const linearFt = space.space_linear_feet || space.unit_linear_feet;
 
   return (
     <div onClick={onClick} style={{
@@ -308,6 +309,9 @@ function SpaceCard({ space, onClick, canSeeFinancials }) {
       <div style={{ fontWeight: 700, fontSize: '0.9rem', color: occupied ? '#991b1b' : '#065f46', marginBottom: '4px' }}>
         {label}
       </div>
+      {linearFt && (
+        <div style={{ fontSize: '0.65rem', color: '#6b7280', marginBottom: '2px' }}>{parseFloat(linearFt)} ft</div>
+      )}
       {occupied ? (
         <div style={{ fontSize: '0.7rem', color: '#6b7280', lineHeight: 1.4 }}>
           <div style={{ fontWeight: 600, color: '#374151' }}>
@@ -631,6 +635,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
           <InfoField label="Phone" value={formatPhone(space.phone_primary) || '—'} />
           <InfoField label="Unit" value={unitInfo} />
           {space.license_plate && <InfoField label="License Plate" value={space.license_plate} />}
+          {(space.unit_linear_feet || space.space_linear_feet) && <InfoField label="Linear Feet" value={`${parseFloat(space.unit_linear_feet || space.space_linear_feet)} ft`} />}
         </div>
 
         {/* Editable fields */}
@@ -786,6 +791,7 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
 function AddSpaceModal({ onClose, onCreated }) {
   const [spaceNumber, setSpaceNumber] = useState('');
   const [spaceType, setSpaceType] = useState('outdoor');
+  const [linearFeet, setLinearFeet] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -796,7 +802,7 @@ function AddSpaceModal({ onClose, onCreated }) {
     setSaving(true);
     setError('');
     try {
-      await api.createStorageSpace({ space_number: spaceNumber.trim(), space_type: spaceType, notes: notes || null });
+      await api.createStorageSpace({ space_number: spaceNumber.trim(), space_type: spaceType, notes: notes || null, linear_feet: linearFeet ? parseFloat(linearFeet) : null });
       onCreated();
     } catch (err) {
       setError(err.message);
@@ -824,6 +830,10 @@ function AddSpaceModal({ onClose, onCreated }) {
               <option value="outdoor">Outdoor</option>
               <option value="indoor">Indoor</option>
             </select>
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Linear Feet (optional)</label>
+            <input type="number" step="0.1" min="0" value={linearFeet} onChange={(e) => setLinearFeet(e.target.value)} placeholder="e.g. 45.0" style={inputStyleFull} />
           </div>
           <div style={{ marginBottom: '20px' }}>
             <label style={labelStyle}>Notes (optional)</label>

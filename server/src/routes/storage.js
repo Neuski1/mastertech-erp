@@ -12,6 +12,7 @@ router.get('/', async (req, res) => {
   try {
     const { rows: spaces } = await pool.query(
       `SELECT s.id, s.space_type, s.label, s.is_active, s.notes AS space_notes,
+              s.linear_feet AS space_linear_feet,
               sb.id AS billing_id, sb.customer_id, sb.unit_id,
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
               sb.due_day, sb.square_customer_id, sb.square_sub_id,
@@ -19,7 +20,7 @@ router.get('/', async (req, res) => {
               c.last_name, c.first_name, c.company_name, c.account_number,
               c.phone_primary,
               u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
-              u.license_plate
+              u.license_plate, u.linear_feet AS unit_linear_feet
        FROM storage_spaces s
        LEFT JOIN storage_billing sb ON sb.space_id = s.id
          AND sb.billing_end_date IS NULL
@@ -124,7 +125,7 @@ router.get('/customer/:customerId', async (req, res) => {
 // POST /api/storage/spaces — Add a new storage space (admin only)
 // ---------------------------------------------------------------------------
 router.post('/spaces', requireRole('admin'), async (req, res) => {
-  const { space_number, space_type, notes } = req.body;
+  const { space_number, space_type, notes, linear_feet } = req.body;
 
   if (!space_number || !space_type) {
     return res.status(400).json({ error: 'space_number and space_type are required' });
@@ -139,9 +140,9 @@ router.post('/spaces', requireRole('admin'), async (req, res) => {
     const label = `${space_type.charAt(0).toUpperCase() + space_type.slice(1)} ${space_number}`;
 
     const { rows } = await pool.query(
-      `INSERT INTO storage_spaces (space_type, label, notes, is_active)
-       VALUES ($1, $2, $3, TRUE) RETURNING *`,
-      [space_type, label, notes || null]
+      `INSERT INTO storage_spaces (space_type, label, notes, is_active, linear_feet)
+       VALUES ($1, $2, $3, TRUE, $4) RETURNING *`,
+      [space_type, label, notes || null, linear_feet || null]
     );
 
     res.status(201).json(rows[0]);
@@ -335,12 +336,20 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
       billing = rows[0];
     }
 
-    // Update space_type on the storage_spaces table if provided
+    // Update storage_spaces fields if provided
     if (space_type && ['indoor', 'outdoor'].includes(space_type)) {
       await pool.query(
         'UPDATE storage_spaces SET space_type = $1 WHERE id = $2',
         [space_type, billing.space_id]
       );
+    }
+    if (req.body.space_linear_feet !== undefined && billing.space_id) {
+      try {
+        await pool.query(
+          'UPDATE storage_spaces SET linear_feet = $1 WHERE id = $2',
+          [req.body.space_linear_feet || null, billing.space_id]
+        );
+      } catch { /* column may not exist */ }
     }
 
     res.json(billing);
