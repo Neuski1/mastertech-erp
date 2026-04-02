@@ -90,12 +90,26 @@ app.get('/debug/remove-recipients', async (req, res) => {
       'markphillips1313@gmail.com','pcallanhome@outlook.com','babur_s@hotmail.com'
     ];
     const placeholders = emails.map((_, i) => `$${i + 1}`).join(',');
+    // Cancel these from ANY campaign — queued, pending, OR already sent
     const r1 = await pool.query(
-      `UPDATE email_campaign_recipients SET status = 'cancelled' WHERE LOWER(email) IN (${placeholders}) AND status IN ('queued', 'pending')`,
+      `UPDATE email_campaign_recipients SET status = 'cancelled'
+       WHERE LOWER(email) IN (${placeholders}) AND status IN ('queued', 'pending')`,
       emails
     );
-    const { rows } = await pool.query("SELECT status, COUNT(*) AS cnt FROM email_campaign_recipients GROUP BY status ORDER BY status");
-    res.json({ removed: r1.rowCount, all_statuses: rows });
+    // Show latest campaigns and their statuses
+    const { rows: latest } = await pool.query("SELECT id, name, status FROM email_campaigns ORDER BY id DESC LIMIT 5");
+    const { rows: statuses } = await pool.query(
+      `SELECT campaign_id, status, COUNT(*) AS cnt FROM email_campaign_recipients
+       WHERE campaign_id IN (SELECT id FROM email_campaigns ORDER BY id DESC LIMIT 5)
+       GROUP BY campaign_id, status ORDER BY campaign_id, status`
+    );
+    // Show status of each of the 42 emails across all campaigns
+    const { rows: detail } = await pool.query(
+      `SELECT email, status, campaign_id FROM email_campaign_recipients
+       WHERE LOWER(email) IN (${placeholders}) ORDER BY campaign_id, email`,
+      emails
+    );
+    res.json({ removed: r1.rowCount, latest_campaigns: latest, campaign_statuses: statuses, these_42: detail });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
