@@ -178,6 +178,11 @@ export const api = {
   qbDisconnect: () => request('/quickbooks/disconnect'),
   qbSyncRecord: (recordId) => request(`/quickbooks/sync/${recordId}`, { method: 'POST' }),
 
+  // Google Calendar
+  calGetStatus: () => request('/calendar/status'),
+  calGetAuthUrl: () => request('/calendar/auth'),
+  calDisconnect: () => request('/calendar/disconnect', { method: 'DELETE' }),
+
   // Storage
   getStorageSpaces: () => request('/storage'),
   createStorageSpace: (data) => request('/storage/spaces', { method: 'POST', body: JSON.stringify(data) }),

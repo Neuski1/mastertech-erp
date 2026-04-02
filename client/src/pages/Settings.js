@@ -7,6 +7,8 @@ export default function Settings() {
   const [qbStatus, setQbStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState(null);
+  const [calStatus, setCalStatus] = useState(null);
+  const [calLoading, setCalLoading] = useState(true);
 
   // Technician management state
   const [technicians, setTechnicians] = useState([]);
@@ -22,6 +24,12 @@ export default function Settings() {
     } else if (qb === 'error') {
       setActionMsg({ type: 'error', text: `QuickBooks connection failed: ${searchParams.get('message') || 'Unknown error'}` });
     }
+    const cal = searchParams.get('calendar');
+    if (cal === 'connected') {
+      setActionMsg({ type: 'success', text: 'Google Calendar connected successfully!' });
+    } else if (cal === 'error') {
+      setActionMsg({ type: 'error', text: `Google Calendar connection failed: ${searchParams.get('message') || 'Unknown error'}` });
+    }
   }, [searchParams]);
 
   const fetchStatus = useCallback(async () => {
@@ -36,7 +44,19 @@ export default function Settings() {
     }
   }, []);
 
-  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+  const fetchCalStatus = useCallback(async () => {
+    setCalLoading(true);
+    try {
+      const status = await api.calGetStatus();
+      setCalStatus(status);
+    } catch {
+      setCalStatus({ connected: false });
+    } finally {
+      setCalLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchStatus(); fetchCalStatus(); }, [fetchStatus, fetchCalStatus]);
 
   const handleConnect = async () => {
     try {
@@ -169,6 +189,47 @@ export default function Settings() {
             <button onClick={handleConnect} style={btnQB}>
               Connect to QuickBooks
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Google Calendar Integration */}
+      <div style={sectionStyle}>
+        <h2 style={sectionTitle}>Google Calendar</h2>
+
+        {calLoading ? (
+          <div style={{ color: '#9ca3af', padding: '20px' }}>Checking connection...</div>
+        ) : calStatus?.connected ? (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <span style={connectedBadge}>Connected</span>
+              <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>
+                Calendar: {calStatus.calendarName || calStatus.calendarId || 'Primary'}
+              </span>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 16px' }}>
+              New appointments will automatically sync to Google Calendar.
+            </p>
+            <button onClick={async () => {
+              if (!window.confirm('Disconnect Google Calendar? Existing synced events will remain.')) return;
+              try {
+                await api.calDisconnect();
+                setCalStatus({ connected: false });
+                setActionMsg({ type: 'success', text: 'Google Calendar disconnected' });
+              } catch (err) { setActionMsg({ type: 'error', text: err.message }); }
+            }} style={btnDanger}>Disconnect</button>
+          </div>
+        ) : (
+          <div>
+            <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 16px' }}>
+              Connect Google Calendar to automatically sync appointments.
+            </p>
+            <button onClick={async () => {
+              try {
+                const { url } = await api.calGetAuthUrl();
+                window.location.href = url;
+              } catch (err) { setActionMsg({ type: 'error', text: err.message }); }
+            }} style={btnPrimary}>Connect Google Calendar</button>
           </div>
         )}
       </div>
@@ -370,6 +431,14 @@ const disconnectedBadge = {
 const btnQB = {
   padding: '10px 20px', backgroundColor: '#2ca01c', color: '#fff',
   border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
+};
+const btnPrimary = {
+  padding: '10px 20px', backgroundColor: '#1e3a5f', color: '#fff',
+  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
+};
+const btnDanger = {
+  padding: '8px 16px', backgroundColor: '#fee2e2', color: '#dc2626',
+  border: '1px solid #fca5a5', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
 };
 const btnDangerOutline = {
   padding: '8px 16px', backgroundColor: '#fff', color: '#dc2626',

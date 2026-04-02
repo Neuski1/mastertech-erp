@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
 const { sendAppointmentConfirmation } = require('../services/email');
 const { sendAppointmentSMS } = require('../services/sms');
+const { syncAppointmentToCalendar } = require('../utils/googleCalendar');
 
 // Build a timestamp string with Mountain Time offset for a given date+time
 function toMountainTimestamp(date, time) {
@@ -250,6 +251,15 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
       }
     }
 
+    // Sync to Google Calendar (fire and forget)
+    syncAppointmentToCalendar(full[0], 'create')
+      .then(async (eventId) => {
+        if (eventId) {
+          await pool.query('UPDATE appointments SET google_event_id = $1 WHERE id = $2', [eventId, full[0].id]);
+        }
+      })
+      .catch(err => console.error('Google Calendar sync error:', err.message));
+
     const response = { ...full[0] };
     if (emailWarning) response.emailWarning = emailWarning;
     res.status(201).json(response);
@@ -314,7 +324,13 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    res.json(rows[0]);
+    // Sync update to Google Calendar (fire and forget)
+    const appt = rows[0];
+    if (appt.google_event_id) {
+      syncAppointmentToCalendar(appt, 'update').catch(err => console.error('Google Calendar update error:', err.message));
+    }
+
+    res.json(appt);
   } catch (err) {
     console.error('PATCH /api/appointments/:id error:', err);
     res.status(500).json({ error: err.message });
@@ -526,6 +542,11 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
         emailError = e.message;
         console.error('Cancellation email error:', e);
       }
+    }
+
+    // Delete from Google Calendar (fire and forget)
+    if (appt.google_event_id) {
+      syncAppointmentToCalendar(appt, 'delete').catch(err => console.error('Google Calendar delete error:', err.message));
     }
 
     res.json({
