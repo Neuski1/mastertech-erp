@@ -36,6 +36,17 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
+// One-time: cancel campaign 9
+app.get('/debug/cancel-campaign-9', async (req, res) => {
+  const pool = require('./db/pool');
+  try {
+    const r1 = await pool.query("UPDATE email_campaign_recipients SET status = 'cancelled' WHERE campaign_id = 9 AND status IN ('queued', 'pending')");
+    const r2 = await pool.query("UPDATE email_campaigns SET status = 'cancelled' WHERE id = 9");
+    const { rows } = await pool.query("SELECT status, COUNT(*) AS cnt FROM email_campaign_recipients WHERE campaign_id = 9 GROUP BY status ORDER BY status");
+    res.json({ queued_cancelled: r1.rowCount, campaign_updated: r2.rowCount, final_status: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Campaign debug — right after health check, before any other routes
 app.get('/debug/campaigns', async (req, res) => {
   const pool = require('./db/pool');
