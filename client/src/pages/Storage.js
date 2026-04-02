@@ -568,14 +568,24 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
     square_sub_id: space.square_sub_id || '',
     square_customer_id: space.square_customer_id || '',
     due_day: space.due_day || 1,
+    unit_id: space.unit_id ? String(space.unit_id) : '',
     end_date: '',
   });
+  const [customerUnits, setCustomerUnits] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Load customer's units for the dropdown
+  useEffect(() => {
+    if (space.customer_id) {
+      api.getCustomerUnits(space.customer_id).then(setCustomerUnits).catch(() => {});
+    }
+  }, [space.customer_id]);
+
   const customerName = `${space.last_name || ''}${space.first_name ? `, ${space.first_name}` : ''}` +
     (space.company_name ? ` (${space.company_name})` : '');
-  const unitInfo = [space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ') || '—';
+
+  const selectedUnit = customerUnits.find(u => String(u.id) === form.unit_id);
 
   const handleSave = async () => {
     setSaving(true);
@@ -589,6 +599,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
         square_sub_id: form.square_sub_id || null,
         square_customer_id: form.square_customer_id || null,
         due_day: parseInt(form.due_day),
+        unit_id: form.unit_id ? parseInt(form.unit_id) : null,
       });
       onUpdated();
     } catch (err) {
@@ -633,9 +644,28 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
           </div>
           <InfoField label="Account #" value={space.account_number || '—'} />
           <InfoField label="Phone" value={formatPhone(space.phone_primary) || '—'} />
-          <InfoField label="Unit" value={unitInfo} />
+          {canEdit ? (
+            <div>
+              <div style={labelStyle}>Unit</div>
+              <select value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })} style={inputStyleFull}>
+                <option value="">— No unit selected —</option>
+                {customerUnits.map(u => (
+                  <option key={u.id} value={String(u.id)}>
+                    {[u.year, u.make, u.model].filter(Boolean).join(' ') || `Unit #${u.id}`}
+                    {u.license_plate ? ` — ${u.license_plate}` : ''}
+                    {u.linear_feet ? ` (${parseFloat(u.linear_feet)} ft)` : ''}
+                  </option>
+                ))}
+              </select>
+              {customerUnits.length === 0 && <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>No units on file for this customer</div>}
+            </div>
+          ) : (
+            <InfoField label="Unit" value={[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ') || '—'} />
+          )}
           {space.license_plate && <InfoField label="License Plate" value={space.license_plate} />}
-          {(space.unit_linear_feet || space.space_linear_feet) && <InfoField label="Linear Feet" value={`${parseFloat(space.unit_linear_feet || space.space_linear_feet)} ft`} />}
+          {(selectedUnit?.linear_feet || space.unit_linear_feet || space.space_linear_feet) && (
+            <InfoField label="Linear Feet" value={`${parseFloat(selectedUnit?.linear_feet || space.unit_linear_feet || space.space_linear_feet)} ft`} />
+          )}
         </div>
 
         {/* Editable fields */}
