@@ -137,6 +137,66 @@ router.get('/debug-counts', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/campaigns/audit — audience audit data
+// ---------------------------------------------------------------------------
+router.get('/audit', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    // Customers with no email
+    const { rows: noEmail } = await pool.query(
+      `SELECT id, first_name, last_name, phone_primary
+       FROM customers WHERE deleted_at IS NULL AND (email_primary IS NULL OR email_primary = '')
+       ORDER BY last_name, first_name LIMIT 500`
+    );
+
+    // Customers with bad email
+    let badEmail = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, first_name, last_name, email_primary, phone_primary, email_invalid_date
+         FROM customers WHERE deleted_at IS NULL AND email_invalid = TRUE
+         ORDER BY email_invalid_date DESC LIMIT 500`
+      );
+      badEmail = rows;
+    } catch { /* column may not exist */ }
+
+    // Customers who opted out
+    let optedOut = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, first_name, last_name, email_primary, email_opt_out_date
+         FROM customers WHERE deleted_at IS NULL AND marketing_opt_out = TRUE
+         ORDER BY email_opt_out_date DESC NULLS LAST LIMIT 500`
+      );
+      optedOut = rows;
+    } catch { /* column may not exist */ }
+
+    // Already sent campaign emails
+    let sentHistory = [];
+    try {
+      const { rows } = await pool.query(
+        `SELECT ecr.customer_id, ecr.email, ecr.customer_name, ecr.sent_at, ec.name AS campaign_name, ec.template_type
+         FROM email_campaign_recipients ecr
+         JOIN email_campaigns ec ON ecr.campaign_id = ec.id
+         WHERE ecr.status = 'sent'
+         ORDER BY ecr.sent_at DESC LIMIT 500`
+      );
+      sentHistory = rows;
+    } catch { /* tables may not exist */ }
+
+    res.json({
+      noEmail: noEmail.map(c => ({ id: c.id, name: `${c.last_name || ''}${c.first_name ? ', ' + c.first_name : ''}`, phone: c.phone_primary })),
+      noEmailCount: noEmail.length,
+      badEmail: badEmail.map(c => ({ id: c.id, name: `${c.last_name || ''}${c.first_name ? ', ' + c.first_name : ''}`, email: c.email_primary, phone: c.phone_primary, date: c.email_invalid_date })),
+      badEmailCount: badEmail.length,
+      optedOut: optedOut.map(c => ({ id: c.id, name: `${c.last_name || ''}${c.first_name ? ', ' + c.first_name : ''}`, email: c.email_primary, date: c.email_opt_out_date })),
+      optedOutCount: optedOut.length,
+      sentHistory,
+      sentCount: sentHistory.length,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/campaigns — list all
 // ---------------------------------------------------------------------------
 router.get('/', requireAuth, requireRole('admin'), async (req, res) => {

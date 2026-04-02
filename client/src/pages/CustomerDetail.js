@@ -298,12 +298,18 @@ export default function CustomerDetail() {
       <div style={{ ...sectionStyle, ...(editing ? { borderColor: '#93c5fd', backgroundColor: '#fafbff' } : {}) }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={sectionTitle}>Customer Information</h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {customer.is_storage_customer && (
               <span style={{ padding: '3px 10px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#dbeafe', color: '#1e40af' }}>Storage Customer</span>
             )}
             {customer.lead_source && (
               <span style={{ padding: '3px 10px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#f0fdf4', color: '#065f46' }}>Lead: {customer.lead_source}</span>
+            )}
+            {!customer.email_primary && (
+              <span style={{ padding: '3px 10px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fef3c7', color: '#92400e' }}>No Email</span>
+            )}
+            {customer.marketing_opt_out && (
+              <span style={{ padding: '3px 10px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fee2e2', color: '#dc2626' }}>Opted Out</span>
             )}
           </div>
         </div>

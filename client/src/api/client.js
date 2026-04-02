@@ -221,6 +221,7 @@ export const api = {
 
   // Campaigns
   getCampaigns: () => request('/campaigns'),
+  getCampaignAudit: () => request('/campaigns/audit'),
   getCampaign: (id) => request(`/campaigns/${id}`),
   createCampaign: (data) => request('/campaigns', { method: 'POST', body: JSON.stringify(data) }),
   updateCampaign: (id, data) => request(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
