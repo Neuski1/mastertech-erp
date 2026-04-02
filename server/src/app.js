@@ -113,6 +113,50 @@ app.get('/debug/remove-recipients', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// One-time: auto-exclude 42 from campaign 10
+app.get('/debug/exclude-42-from-10', async (req, res) => {
+  const pool = require('./db/pool');
+  try {
+    const emails = [
+      'jeffscottherman@icloud.com','chuck.gunning@gmail.com','john.e.bobzien@gmail.com',
+      'd.schlotzhauer@comcast.net','rapiland@comcast.net','sthompson@shocooil.com',
+      'kellycshelton@comcast.net','claudiamy12@gmail.com','penlynwilson@gmail.com',
+      'anne.schmuck@web.de','lindaschofieldmph@gmail.com','jacob.miller@indiecampers.com',
+      'rolls3126@comcast.net','jdbobble60@gmail.com','glj@med.unc.edu',
+      'davidatchleylamb@gmail.com','bidogrooter01@gmail.com','tomohalloran303@gmail.com',
+      'kratish4@gmail.com','olivia.pinon@gmail.com','nginerd2000@yahoo.com',
+      'bson702@gmail.com','permits@plumbersv.com','linda.shisler@gmail.com',
+      'dapuryear23@gmail.com','ktroxler@aspire-tours.com','busav8r@gmail.com',
+      'tgray@aol.com','dj.barajas@southwire.com','davepenajr@outlook.com',
+      'service@mastertechrvrepair.com','brecklodging@gmail.com','samuel.rotbart@gmail.com',
+      'info@creeksideequestrianco.com','terri.brindley@me.com','alisonroman74@gmail.com',
+      'pjdunsuw@gmail.com','ccconcrete84@gmail.com','meleanie@msn.com',
+      'markphillips1313@gmail.com','pcallanhome@outlook.com','babur_s@hotmail.com'
+    ];
+    // Find customer IDs for these emails
+    const placeholders = emails.map((_, i) => `$${i + 1}`).join(',');
+    const { rows: customers } = await pool.query(
+      `SELECT id, email_primary FROM customers WHERE LOWER(email_primary) IN (${placeholders})`,
+      emails.map(e => e.toLowerCase())
+    );
+    // Pre-insert as manually_excluded into campaign 10
+    let inserted = 0;
+    for (const c of customers) {
+      try {
+        await pool.query(
+          `INSERT INTO email_campaign_recipients (campaign_id, customer_id, email, customer_name, status)
+           SELECT 10, $1, $2, COALESCE(last_name,'') || COALESCE(', ' || first_name, ''), 'manually_excluded'
+           FROM customers WHERE id = $1
+           ON CONFLICT DO NOTHING`,
+          [c.id, c.email_primary]
+        );
+        inserted++;
+      } catch { /* duplicate or constraint */ }
+    }
+    res.json({ success: true, matched_customers: customers.length, inserted_exclusions: inserted });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // One-time: cancel campaign 9
 app.get('/debug/cancel-campaign-9', async (req, res) => {
   const pool = require('./db/pool');

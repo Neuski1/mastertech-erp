@@ -481,10 +481,29 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
       return res.status(400).json({ error: 'No eligible recipients found' });
     }
 
+    // Server-side exclusion list (one-time, for campaign 10)
+    const SERVER_EXCLUDED_EMAILS = new Set([
+      'jeffscottherman@icloud.com','chuck.gunning@gmail.com','john.e.bobzien@gmail.com',
+      'd.schlotzhauer@comcast.net','rapiland@comcast.net','sthompson@shocooil.com',
+      'kellycshelton@comcast.net','claudiamy12@gmail.com','penlynwilson@gmail.com',
+      'anne.schmuck@web.de','lindaschofieldmph@gmail.com','jacob.miller@indiecampers.com',
+      'rolls3126@comcast.net','jdbobble60@gmail.com','glj@med.unc.edu',
+      'davidatchleylamb@gmail.com','bidogrooter01@gmail.com','tomohalloran303@gmail.com',
+      'kratish4@gmail.com','olivia.pinon@gmail.com','nginerd2000@yahoo.com',
+      'bson702@gmail.com','permits@plumbersv.com','linda.shisler@gmail.com',
+      'dapuryear23@gmail.com','ktroxler@aspire-tours.com','busav8r@gmail.com',
+      'tgray@aol.com','dj.barajas@southwire.com','davepenajr@outlook.com',
+      'service@mastertechrvrepair.com','brecklodging@gmail.com','samuel.rotbart@gmail.com',
+      'info@creeksideequestrianco.com','terri.brindley@me.com','alisonroman74@gmail.com',
+      'pjdunsuw@gmail.com','ccconcrete84@gmail.com','meleanie@msn.com',
+      'markphillips1313@gmail.com','pcallanhome@outlook.com','babur_s@hotmail.com',
+    ].map(e => e.toLowerCase()));
+
     // Apply manual exclusions from the frontend
     const excludedIds = new Set((req.body.excluded_ids || []).map(id => parseInt(id)));
-    const toSend = eligible.filter(c => !excludedIds.has(c.id));
-    const manuallyExcluded = eligible.filter(c => excludedIds.has(c.id));
+    const isExcluded = (c) => excludedIds.has(c.id) || SERVER_EXCLUDED_EMAILS.has(c.email_primary.toLowerCase());
+    const toSend = eligible.filter(c => !isExcluded(c));
+    const manuallyExcluded = eligible.filter(c => isExcluded(c));
 
     // Insert recipients to send
     for (const c of toSend) {
