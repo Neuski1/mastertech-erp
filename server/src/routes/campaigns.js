@@ -525,11 +525,31 @@ async function sendBatchForCampaign(campaignId, limit) {
             [recipient.id]
           );
           sentCount++;
+          // Log to communication_log
+          if (recipient.customer_id) {
+            try {
+              await pool.query(
+                `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, delivery_status, is_manual)
+                 VALUES ($1, 'email', 'marketing_campaign', $2, 'sent', false)`,
+                [recipient.customer_id, `Campaign: ${campaign.name}\nSubject: ${campaign.subject}`]
+              );
+            } catch { /* log table may not exist */ }
+          }
         } else {
           await pool.query(
             "UPDATE email_campaign_recipients SET status = 'failed', error_message = $2 WHERE id = $1",
             [recipient.id, result.error]
           );
+          // Log failure to communication_log
+          if (recipient.customer_id) {
+            try {
+              await pool.query(
+                `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, delivery_status, is_manual)
+                 VALUES ($1, 'email', 'marketing_campaign', $2, 'failed', false)`,
+                [recipient.customer_id, `Failed campaign: ${campaign.name}\nReason: ${result.error}`]
+              );
+            } catch { /* log table may not exist */ }
+          }
           // Flag bounced/invalid emails on customer record
           const errLower = (result.error || '').toLowerCase();
           if (errLower.includes('bounce') || errLower.includes('invalid') || errLower.includes('not found') || errLower.includes('does not exist')) {
@@ -637,14 +657,21 @@ router.get('/unsubscribe/:token', async (req, res) => {
       [email.toLowerCase()]
     );
 
-    // Also flag the customer record as opted out
+    // Also flag the customer record as opted out and log it
     try {
-      await pool.query(
+      const { rows: custRows } = await pool.query(
         `UPDATE customers SET marketing_opt_out = TRUE, email_opt_out_date = NOW()
-         WHERE LOWER(email_primary) = $1 AND deleted_at IS NULL`,
+         WHERE LOWER(email_primary) = $1 AND deleted_at IS NULL RETURNING id`,
         [email.toLowerCase()]
       );
-    } catch { /* column may not exist yet */ }
+      if (custRows.length > 0) {
+        await pool.query(
+          `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, delivery_status, is_manual)
+           VALUES ($1, 'email', 'marketing_unsubscribe', 'Customer unsubscribed from marketing emails', 'delivered', false)`,
+          [custRows[0].id]
+        );
+      }
+    } catch { /* column or table may not exist yet */ }
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">

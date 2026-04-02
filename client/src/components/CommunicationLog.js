@@ -150,11 +150,13 @@ export default function CommunicationLog({ customerId, recordId }) {
         <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>No communication history</p>
       ) : (
         <div>
-          {entries.map(entry => (
-            <div key={entry.id} style={entryStyle}>
+          {entries.map(entry => {
+            const isMarketing = entry.trigger_event === 'marketing_campaign' || entry.trigger_event === 'marketing_unsubscribe';
+            return (
+            <div key={entry.id} style={{ ...entryStyle, ...(isMarketing ? { backgroundColor: '#eff6ff', borderLeft: '3px solid #3b82f6' } : {}) }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '1rem' }}>{CHANNEL_ICONS[entry.channel] || '\u2709'}</span>
+                  <span style={{ fontSize: '1rem' }}>{isMarketing ? '\uD83D\uDCE7' : (CHANNEL_ICONS[entry.channel] || '\u2709')}</span>
                   <span style={{ fontWeight: 600, fontSize: '0.85rem', textTransform: 'capitalize' }}>
                     {entry.channel.replace(/_/g, ' ')}
                   </span>
@@ -187,7 +189,8 @@ export default function CommunicationLog({ customerId, recordId }) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
