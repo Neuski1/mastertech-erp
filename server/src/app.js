@@ -263,6 +263,7 @@ app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
 app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
+app.use('/api/reports', requireAuth, require('./routes/reports'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook

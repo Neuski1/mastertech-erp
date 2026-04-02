@@ -18,6 +18,7 @@ import PartsSalesList from './pages/PartsSalesList';
 import PartsSaleDetail from './pages/PartsSaleDetail';
 import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
+import Reports from './pages/Reports';
 import QBStatusDot from './components/QBStatusDot';
 
 function RequireAuth({ children }) {
@@ -71,6 +72,7 @@ function AppLayout() {
     { to: '/parts-sales', label: 'Parts Sale' },
     { to: '/storage', label: 'Storage' },
     ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
+    ...(canManageSettings ? [{ to: '/reports', label: 'Reports' }] : []),
     ...(canManageSettings ? [{ to: '/settings', label: 'Settings' }] : []),
     ...(canManageUsers ? [{ to: '/users', label: 'Users' }] : []),
   ];
@@ -179,6 +181,7 @@ function AppLayout() {
           <Route path="/marketing" element={canManageSettings ? <CampaignList /> : <Navigate to="/records" />} />
           <Route path="/marketing/new" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
+          <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>

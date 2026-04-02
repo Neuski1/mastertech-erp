@@ -178,6 +178,12 @@ export const api = {
   qbDisconnect: () => request('/quickbooks/disconnect'),
   qbSyncRecord: (recordId) => request(`/quickbooks/sync/${recordId}`, { method: 'POST' }),
 
+  // Reports
+  getFinancialReport: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/reports/financial${qs ? `?${qs}` : ''}`);
+  },
+
   // Google Calendar
   calGetStatus: () => request('/calendar/status'),
   calGetAuthUrl: () => request('/calendar/auth'),
