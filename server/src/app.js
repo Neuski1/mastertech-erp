@@ -193,6 +193,16 @@ app.get('/debug/cancel-campaign-9', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Calendar status — public, right after health check
+app.get('/api/calendar/status', async (req, res) => {
+  const pool = require('./db/pool');
+  try {
+    const { rows } = await pool.query("SELECT setting_value FROM system_settings WHERE setting_key = 'google_calendar_tokens'");
+    const connected = rows.length > 0 && !!rows[0].setting_value;
+    res.json({ connected });
+  } catch { res.json({ connected: false }); }
+});
+
 // Campaign debug — right after health check, before any other routes
 app.get('/debug/campaigns', async (req, res) => {
   const pool = require('./db/pool');
