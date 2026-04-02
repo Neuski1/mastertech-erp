@@ -36,7 +36,40 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
-// One-time: remove specific recipients from active campaign
+// One-time: check status of specific recipients
+app.get('/debug/check-recipients', async (req, res) => {
+  const pool = require('./db/pool');
+  try {
+    const emails = [
+      'jeffscottherman@icloud.com','chuck.gunning@gmail.com','john.e.bobzien@gmail.com',
+      'd.schlotzhauer@comcast.net','rapiland@comcast.net','sthompson@shocooil.com',
+      'kellycshelton@comcast.net','claudiamy12@gmail.com','penlynwilson@gmail.com',
+      'anne.schmuck@web.de','lindaschofieldmph@gmail.com','jacob.miller@indiecampers.com',
+      'rolls3126@comcast.net','jdbobble60@gmail.com','glj@med.unc.edu',
+      'davidatchleylamb@gmail.com','bidogrooter01@gmail.com','tomohalloran303@gmail.com',
+      'kratish4@gmail.com','olivia.pinon@gmail.com','nginerd2000@yahoo.com',
+      'bson702@gmail.com','permits@plumbersv.com','linda.shisler@gmail.com',
+      'dapuryear23@gmail.com','ktroxler@aspire-tours.com','busav8r@gmail.com',
+      'tgray@aol.com','dj.barajas@southwire.com','davepenajr@outlook.com',
+      'service@mastertechrvrepair.com','brecklodging@gmail.com','samuel.rotbart@gmail.com',
+      'info@creeksideequestrianco.com','terri.brindley@me.com','alisonroman74@gmail.com',
+      'pjdunsuw@gmail.com','ccconcrete84@gmail.com','meleanie@msn.com',
+      'markphillips1313@gmail.com','pcallanhome@outlook.com','babur_s@hotmail.com'
+    ];
+    const placeholders = emails.map((_, i) => `$${i + 1}`).join(',');
+    const { rows } = await pool.query(
+      `SELECT ecr.email, ecr.status, ecr.campaign_id, ec.name AS campaign_name
+       FROM email_campaign_recipients ecr
+       JOIN email_campaigns ec ON ecr.campaign_id = ec.id
+       WHERE LOWER(ecr.email) IN (${placeholders})
+       ORDER BY ecr.email, ecr.campaign_id`,
+      emails
+    );
+    const sent = rows.filter(r => r.status === 'sent');
+    res.json({ total_matches: rows.length, already_sent: sent.length, sent_list: sent.map(r => r.email), all: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/debug/remove-recipients', async (req, res) => {
   const pool = require('./db/pool');
   try {
