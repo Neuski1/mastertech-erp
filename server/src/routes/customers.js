@@ -382,6 +382,9 @@ router.post('/:id/merge', async (req, res) => {
       'communication_log',
       'marketing_contacts',
       'leads',
+      'email_campaign_recipients',
+      'email_unsubscribes',
+      'payments',
     ];
 
     const counts = {};
@@ -397,6 +400,15 @@ router.post('/:id/merge', async (req, res) => {
         counts[table] = 0;
       }
     }
+
+    // Deduplicate campaign recipients (keep earliest per campaign+email)
+    try {
+      await client.query(
+        `DELETE FROM email_campaign_recipients WHERE id NOT IN (
+          SELECT MIN(id) FROM email_campaign_recipients GROUP BY campaign_id, email
+        )`
+      );
+    } catch { /* table may not exist */ }
 
     // Step 3: Hard delete the duplicate
     await client.query('DELETE FROM customers WHERE id = $1', [duplicateId]);
