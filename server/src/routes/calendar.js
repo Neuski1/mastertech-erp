@@ -10,7 +10,7 @@ const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 // ---------------------------------------------------------------------------
 // GET /api/calendar/status — Check connection status
 // ---------------------------------------------------------------------------
-router.get('/status', requireAuth, async (req, res) => {
+router.get('/status', async (req, res) => {
   const tokens = await getStoredTokens();
   if (!tokens) return res.json({ connected: false });
 
@@ -29,7 +29,7 @@ router.get('/status', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/calendar/auth — Start OAuth flow
 // ---------------------------------------------------------------------------
-router.get('/auth', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/auth', (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.status(400).json({ error: 'Google Calendar credentials not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI in Railway environment variables.' });
   }
