@@ -395,7 +395,10 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
     if (newStatus === 'complete') {
       const { rows: zeroHoursLines } = await client.query(
         `SELECT id, description FROM record_labor_lines
-         WHERE record_id = $1 AND deleted_at IS NULL AND (hours IS NULL OR hours = 0)`,
+         WHERE record_id = $1 AND deleted_at IS NULL
+         AND (hours IS NULL OR hours = 0)
+         AND (no_charge IS NOT TRUE)
+         AND (line_total IS NULL OR line_total > 0 OR rate > 0)`,
         [req.params.id]
       );
       if (zeroHoursLines.length > 0) {

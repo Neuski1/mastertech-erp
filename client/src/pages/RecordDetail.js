@@ -218,7 +218,7 @@ export default function RecordDetail() {
 
     // Pre-check: block completion if labor lines have missing hours
     if (next === 'complete' && record.labor_lines && record.labor_lines.length > 0) {
-      const missing = record.labor_lines.filter(l => !l.hours || parseFloat(l.hours) === 0);
+      const missing = record.labor_lines.filter(l => (!l.hours || parseFloat(l.hours) === 0) && !l.no_charge && parseFloat(l.line_total || 0) > 0);
       if (missing.length > 0) {
         setError(`Cannot mark complete \u2014 the following labor lines are missing hours:\n${missing.map(l => '\u2022 ' + l.description).join('\n')}\nPlease enter hours for all labor lines before marking complete.`);
         return;
@@ -293,7 +293,7 @@ export default function RecordDetail() {
 
     // Pre-check: block completion if labor lines have missing hours
     if (newStatus === 'complete' && record.labor_lines && record.labor_lines.length > 0) {
-      const missing = record.labor_lines.filter(l => !l.hours || parseFloat(l.hours) === 0);
+      const missing = record.labor_lines.filter(l => (!l.hours || parseFloat(l.hours) === 0) && !l.no_charge && parseFloat(l.line_total || 0) > 0);
       if (missing.length > 0) {
         setError(`Cannot mark complete \u2014 the following labor lines are missing hours:\n${missing.map(l => '\u2022 ' + l.description).join('\n')}\nPlease enter hours for all labor lines before marking complete.`);
         return;
