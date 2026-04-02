@@ -106,4 +106,69 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
   }
 });
 
+// GET /api/reports/technician-profitability — Technician profitability report
+router.get('/technician-profitability', requireRole('admin'), async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
+
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        t.id AS technician_id,
+        t.name AS technician_name,
+        COALESCE(t.hourly_wage, 0) AS hourly_wage,
+        COUNT(DISTINCT ll.record_id) AS job_count,
+        COALESCE(SUM(ll.hours), 0) AS billed_hours,
+        COALESCE(SUM(ll.line_total), 0) AS labor_revenue
+      FROM technicians t
+      LEFT JOIN record_labor_lines ll ON ll.technician_id = t.id
+        AND ll.deleted_at IS NULL
+        AND ll.record_id IN (
+          SELECT id FROM records
+          WHERE deleted_at IS NULL AND status NOT IN ('void')
+          AND COALESCE(actual_completion_date, created_at::date) BETWEEN $1 AND $2
+        )
+      WHERE t.deleted_at IS NULL AND t.is_active = TRUE
+      GROUP BY t.id, t.name, t.hourly_wage
+      ORDER BY COALESCE(SUM(ll.line_total), 0) DESC
+    `, [from, to]);
+
+    const laborRate = 198; // system rate
+    const techs = rows.map(r => {
+      const hours = parseFloat(r.billed_hours);
+      const revenue = parseFloat(r.labor_revenue);
+      const wage = parseFloat(r.hourly_wage);
+      const wageCost = hours * wage;
+      const profit = revenue - wageCost;
+      const margin = revenue > 0 ? Math.round((profit / revenue) * 1000) / 10 : 0;
+      return {
+        id: r.technician_id,
+        name: r.technician_name,
+        hourlyWage: wage,
+        jobs: parseInt(r.job_count),
+        hours,
+        revenue,
+        wageCost: Math.round(wageCost * 100) / 100,
+        profit: Math.round(profit * 100) / 100,
+        margin,
+      };
+    });
+
+    const totals = {
+      jobs: techs.reduce((s, t) => s + t.jobs, 0),
+      hours: techs.reduce((s, t) => s + t.hours, 0),
+      revenue: techs.reduce((s, t) => s + t.revenue, 0),
+      wageCost: techs.reduce((s, t) => s + t.wageCost, 0),
+    };
+    totals.profit = Math.round((totals.revenue - totals.wageCost) * 100) / 100;
+    totals.margin = totals.revenue > 0 ? Math.round((totals.profit / totals.revenue) * 1000) / 10 : 0;
+    totals.avgRate = totals.hours > 0 ? Math.round((totals.revenue / totals.hours) * 100) / 100 : 0;
+
+    res.json({ technicians: techs, totals, laborRate });
+  } catch (err) {
+    console.error('GET /api/reports/technician-profitability error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

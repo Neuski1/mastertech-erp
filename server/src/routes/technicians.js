@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 router.get('/all', requireRole('admin'), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, is_active, created_at FROM technicians WHERE deleted_at IS NULL ORDER BY is_active DESC, name'
+      'SELECT id, name, is_active, hourly_wage, created_at FROM technicians WHERE deleted_at IS NULL ORDER BY is_active DESC, name'
     );
     res.json(rows);
   } catch (err) {
@@ -54,17 +54,31 @@ router.post('/', requireRole('admin'), async (req, res) => {
   }
 });
 
-// PATCH /api/technicians/:id — Toggle active status (admin only)
+// PATCH /api/technicians/:id — Update technician (admin only)
 router.patch('/:id', requireRole('admin'), async (req, res) => {
-  const { is_active } = req.body;
-  if (typeof is_active !== 'boolean') {
-    return res.status(400).json({ error: 'is_active (boolean) is required' });
+  const { is_active, hourly_wage } = req.body;
+  const updates = [];
+  const values = [];
+  let idx = 1;
+
+  if (typeof is_active === 'boolean') {
+    updates.push(`is_active = $${idx++}`);
+    values.push(is_active);
+  }
+  if (hourly_wage !== undefined) {
+    updates.push(`hourly_wage = $${idx++}`);
+    values.push(parseFloat(hourly_wage));
   }
 
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  values.push(req.params.id);
   try {
     const { rows } = await pool.query(
-      'UPDATE technicians SET is_active = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING id, name, is_active, created_at',
-      [is_active, req.params.id]
+      `UPDATE technicians SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx} AND deleted_at IS NULL RETURNING *`,
+      values
     );
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Technician not found' });

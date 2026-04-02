@@ -303,6 +303,38 @@ export default function Settings() {
           </>
         )}
       </div>
+      {/* Technician Wages — Admin Only */}
+      <div style={sectionStyle}>
+        <h2 style={sectionTitle}>Technician Wages</h2>
+        <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0 0 12px', fontStyle: 'italic' }}>Admin only — not visible to technicians. Used for profitability reports.</p>
+        {technicians.filter(t => t.is_active).map(tech => (
+          <div key={tech.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 500 }}>{tech.name}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={tech.hourly_wage || ''}
+                placeholder="0.00"
+                onBlur={async (e) => {
+                  const val = parseFloat(e.target.value);
+                  if (isNaN(val)) return;
+                  try {
+                    await api.updateTechnician(tech.id, { hourly_wage: val });
+                    setActionMsg({ type: 'success', text: `${tech.name} wage updated to $${val.toFixed(2)}/hr` });
+                    setTimeout(() => setActionMsg(null), 3000);
+                  } catch (err) { setActionMsg({ type: 'error', text: err.message }); }
+                }}
+                style={{ width: '80px', padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem', textAlign: 'right' }}
+              />
+              <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>/hr</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Square Terminal Setup */}
       <SquareDevicesSection onMessage={setActionMsg} />
     </div>

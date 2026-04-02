@@ -179,6 +179,10 @@ export const api = {
   qbSyncRecord: (recordId) => request(`/quickbooks/sync/${recordId}`, { method: 'POST' }),
 
   // Reports
+  getTechProfitability: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/reports/technician-profitability${qs ? `?${qs}` : ''}`);
+  },
   getFinancialReport: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/reports/financial${qs ? `?${qs}` : ''}`);

@@ -21,6 +21,7 @@ export default function Reports() {
   const [from, setFrom] = useState(thisMonth.from);
   const [to, setTo] = useState(thisMonth.to);
   const [report, setReport] = useState(null);
+  const [techReport, setTechReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -30,8 +31,12 @@ export default function Reports() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getFinancialReport({ from, to });
+      const [data, techData] = await Promise.all([
+        api.getFinancialReport({ from, to }),
+        api.getTechProfitability({ from, to }).catch(() => null),
+      ]);
       setReport(data);
+      setTechReport(techData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -169,6 +174,54 @@ export default function Reports() {
               </tbody>
             </table>
           </div>
+
+          {/* Technician Profitability */}
+          {techReport && techReport.technicians && (
+            <div style={sectionStyle}>
+              <h2 style={sectionTitle}>Technician Profitability</h2>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Technician</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Jobs</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Hours</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Revenue</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Wage Cost</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Profit</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {techReport.technicians.map(t => (
+                    <tr key={t.id}>
+                      <td style={tdStyle}><strong>{t.name}</strong></td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{t.jobs}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{t.hours.toFixed(1)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtCur(t.revenue)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{t.hourlyWage > 0 ? fmtCur(t.wageCost) : '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{t.hourlyWage > 0 ? fmtCur(t.profit) : '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: t.hourlyWage === 0 ? '#9ca3af' : t.margin >= 70 ? '#065f46' : t.margin >= 50 ? '#92400e' : '#dc2626' }}>
+                        {t.hourlyWage > 0 ? `${t.margin}%` : 'Set wage'}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr style={{ backgroundColor: '#f9fafb', fontWeight: 700 }}>
+                    <td style={{ ...tdStyle, borderTop: '2px solid #1e3a5f' }}>TOTAL</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{techReport.totals.jobs}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{techReport.totals.hours.toFixed(1)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{fmtCur(techReport.totals.revenue)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{fmtCur(techReport.totals.wageCost)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{fmtCur(techReport.totals.profit)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f', color: techReport.totals.margin >= 70 ? '#065f46' : techReport.totals.margin >= 50 ? '#92400e' : '#dc2626' }}>{techReport.totals.margin}%</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ marginTop: '12px', fontSize: '0.8rem', color: '#6b7280' }}>
+                <div>Labor Rate: ${techReport.laborRate}/hr | Average Effective Rate: {fmtCur(techReport.totals.avgRate)}/hr</div>
+                <div style={{ marginTop: '4px', fontStyle: 'italic' }}>Wage cost uses current hourly rates from Settings. Set wages there first for accurate margins.</div>
+              </div>
+            </div>
+          )}
 
           {/* Print button */}
           <div style={{ textAlign: 'center', marginBottom: '24px' }}>
