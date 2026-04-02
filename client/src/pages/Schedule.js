@@ -423,7 +423,10 @@ export default function Schedule() {
                   ))}
                 </div>
                 {mobileAppts.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>No appointments</div>
+                  <div onClick={() => navigate('/schedule/new', { state: { date: mobileKey } })} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', cursor: 'pointer' }}>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>+</div>
+                    Tap to add appointment
+                  </div>
                 ) : mobileAppts.map(appt => {
                   const tc = getTypeColor(appt.appointment_type);
                   return (
@@ -475,15 +478,19 @@ export default function Schedule() {
                   }}>
                     {formatShortDate(day)}
                   </div>
-                  <div style={{ padding: '4px', minHeight: '120px' }}>
+                  <div
+                    onClick={() => navigate('/schedule/new', { state: { date: key } })}
+                    style={{ padding: '4px', minHeight: '120px', cursor: 'pointer' }}
+                    title="Click to add appointment"
+                  >
                     {dayAppts.length === 0 ? (
-                      <div style={{ color: '#d1d5db', fontSize: '0.75rem', textAlign: 'center', padding: '16px 0' }}>—</div>
+                      <div style={{ color: '#d1d5db', fontSize: '1.2rem', textAlign: 'center', padding: '16px 0' }}>+</div>
                     ) : dayAppts.map(appt => {
                       const tc = getTypeColor(appt.appointment_type);
                       return (
                       <div
                         key={appt.id}
-                        onClick={() => navigate(`/schedule/${appt.id}`)}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/schedule/${appt.id}`); }}
                         style={{
                           ...apptCard,
                           backgroundColor: tc.bg,
@@ -531,15 +538,13 @@ export default function Schedule() {
                 <div
                   key={idx}
                   onClick={() => {
-                    if (cellAppts.length === 0) {
-                      navigate('/schedule/new', { state: { date: cellKey } });
-                    }
+                    navigate('/schedule/new', { state: { date: cellKey } });
                   }}
                   className="month-grid-cell"
                   style={{
                     ...monthCell,
                     backgroundColor: isToday ? '#eff6ff' : '#fff',
-                    cursor: cellAppts.length === 0 ? 'pointer' : 'default',
+                    cursor: 'pointer',
                   }}
                 >
                   <div style={{
