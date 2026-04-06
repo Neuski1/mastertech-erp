@@ -78,6 +78,7 @@ export default function RecordDetail() {
   const [showSignModal, setShowSignModal] = useState(false);
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -241,6 +242,21 @@ export default function RecordDetail() {
         setError(err.message);
       }
     }
+  };
+
+  const handleSendReminder = async () => {
+    if (!window.confirm('Send a payment reminder to this customer via email and/or text?')) return;
+    setSendingReminder(true);
+    try {
+      const result = await api.sendReminder(id);
+      const channels = [];
+      if (result.emailSent) channels.push('email');
+      if (result.smsSent) channels.push('text');
+      setSuccessMsg('Payment reminder #' + result.reminderCount + ' sent via ' + (channels.join(' & ') || 'no channels available'));
+      setTimeout(() => setSuccessMsg(''), 5000);
+      await fetchRecord();
+    } catch (err) { setError(err.message); }
+    finally { setSendingReminder(false); }
   };
 
   const handleVoid = async () => {
@@ -407,15 +423,6 @@ export default function RecordDetail() {
       let payRows = '';
       let totalCollectedInTable = 0;
 
-      // Deposit row first if applicable
-      if (deposit > 0) {
-        const depositDate = r.intake_date
-          ? fmtPrintDateShort(r.intake_date.includes('T') ? r.intake_date : r.intake_date + 'T12:00:00')
-          : (r.created_at ? fmtPrintDateShort(r.created_at) : '\u2014');
-        payRows += `<tr><td style="padding:4px 8px;border-bottom:1px solid #ddd;font-size:11px">${depositDate}</td><td style="padding:4px 8px;border-bottom:1px solid #ddd;font-size:11px">Deposit</td><td style="padding:4px 8px;border-bottom:1px solid #ddd;font-size:11px">\u2014</td><td style="padding:4px 8px;border-bottom:1px solid #ddd;font-size:11px;text-align:right">${fmtCur(deposit)}</td></tr>`;
-        totalCollectedInTable += deposit;
-      }
-
       // Payment rows
       payments.forEach(p => {
         const pDate = p.payment_date ? fmtPrintDateShort(p.payment_date.includes('T') ? p.payment_date : p.payment_date + 'T12:00:00') : '\u2014';
@@ -546,11 +553,12 @@ ${(r.freight_lines || []).length > 0 ? `
     <div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Shop Supplies</span><span>${r.shop_supplies_exempt ? 'WAIVED' : fmtCur(r.shop_supplies_amount)}</span></div>
     <div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; CC Fee (3%)</span><span>${r.cc_fee_applied ? fmtCur(r.cc_fee_amount) : 'N/A'}</span></div>
     <div class="row"><span>TOTAL TAX (Parts + Supplies)</span><span>${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</span></div>
+    ${deposit > 0 ? `<div class="row"><span>DEPOSIT RECEIVED</span><span>${fmtCur(deposit)}</span></div>` : ''}
     <div class="row bold divider"><span>TOTAL SALES</span><span>${fmtCur(r.total_sales)}</span></div>
     ${underWarranty > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Under Warranty</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
     ${noCharge > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Not Covered</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
     ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Discount${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
-    <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur((parseFloat(r.total_collected) || 0) + deposit)}</span></div>
+    <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur(r.total_collected)}</span></div>
     <div class="row bold divider" style="color:${(parseFloat(r.amount_due) || 0) > 0 ? '#dc2626' : '#111'}"><span>AMOUNT DUE</span><span>${fmtCur(r.amount_due)}</span></div>
   </div>
 </div>
@@ -763,8 +771,18 @@ ${paymentDetailHtml}
               {NEXT_LABEL[record.status] || 'Advance Status'}
             </button>
           )}
+          {(isAdmin || canEditRecords) && ['payment_pending', 'partial'].includes(record.status) && parseFloat(record.amount_due) > 0 && !editing && (
+            <button onClick={handleSendReminder} disabled={sendingReminder} style={{ padding: '8px 16px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+              {sendingReminder ? 'Sending...' : 'Send Reminder'}
+            </button>
+          )}
         </div>
       </div>
+      {record.last_reminder_sent_at && (
+        <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px' }}>
+          Last reminder: {new Date(record.last_reminder_sent_at).toLocaleString()} ({record.reminder_count} sent)
+        </div>
+      )}
 
       {/* Customer Estimate Sign-Off — only visible for estimates */}
       {record.status === 'estimate' && canEditRecords && !editing && (
@@ -1055,6 +1073,8 @@ ${paymentDetailHtml}
             {(isEditable || parseFloat(record.discount_amount) > 0) && (
               <DiscountRow record={record} isEditable={isEditable} formatCurrency={formatCurrency} onSaved={fetchRecord} />
             )}
+
+            <DepositField value={record.deposit_amount} editable={isEditable} onSave={async (val) => { try { await api.updateRecord(id, { deposit_amount: val }); await fetchRecord(); } catch (err) { setError(err.message); } }} />
 
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
               <TotalRow label="Total Sales" value={formatCurrency(record.total_sales)} bold />
@@ -1616,6 +1636,29 @@ function EditableField({ label, field, value, editing, onChange, type = 'text' }
         />
       ) : (
         <div style={{ fontSize: '0.875rem' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
+      )}
+    </div>
+  );
+}
+
+function DepositField({ value, editable, onSave }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState('');
+  const amount = parseFloat(value) || 0;
+  const startEdit = () => { setDraft(amount > 0 ? amount.toFixed(2) : ''); setEditing(true); };
+  const save = async () => { const val = parseFloat(draft) || 0; setEditing(false); if (val !== amount) await onSave(val); };
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.875rem' }}>
+      <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        Deposit
+        <span style={{ fontSize: '0.7rem', fontStyle: 'italic', color: '#9ca3af' }}>(not a payment — informational only)</span>
+      </span>
+      {editing ? (
+        <input type="number" min="0" step="0.01" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} onKeyDown={(e) => e.key === 'Enter' && save()} autoFocus style={{ width: '100px', padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.875rem', textAlign: 'right' }} />
+      ) : (
+        <span onClick={editable ? startEdit : undefined} style={{ cursor: editable ? 'pointer' : 'default', color: amount > 0 ? '#111827' : '#d1d5db' }} title={editable ? 'Click to edit' : undefined}>
+          {amount > 0 ? '$' + amount.toFixed(2) : '$0.00'}
+        </span>
       )}
     </div>
   );

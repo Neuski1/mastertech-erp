@@ -25,7 +25,7 @@ async function autoTransitionStatus(recordId, client) {
   if (amountDue <= 0 && totalCollected > 0) {
     // Paid in full → move to 'paid' (closed)
     await client.query(
-      "UPDATE records SET status = 'paid' WHERE id = $1",
+      "UPDATE records SET status = 'paid', payment_pending_since = NULL, reminder_count = 0, last_reminder_sent_at = NULL WHERE id = $1",
       [recordId]
     );
   } else if (totalCollected > 0 && amountDue > 0 && !['partial', 'in_progress'].includes(rec.status)) {

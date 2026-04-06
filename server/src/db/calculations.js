@@ -8,6 +8,14 @@ async function getSetting(key) {
   return rows[0] ? parseFloat(rows[0].setting_value) : null;
 }
 
+async function getSettingString(key) {
+  const { rows } = await pool.query(
+    'SELECT setting_value FROM system_settings WHERE setting_key = $1',
+    [key]
+  );
+  return rows[0] ? rows[0].setting_value : null;
+}
+
 async function recalculateTotals(recordId, client) {
   const db = client || pool;
 
@@ -110,4 +118,4 @@ async function recalculateTotals(recordId, client) {
            totalCollected, amountDue };
 }
 
-module.exports = { getSetting, recalculateTotals };
+module.exports = { getSetting, getSettingString, recalculateTotals };

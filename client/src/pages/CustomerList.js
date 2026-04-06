@@ -1,15 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
 
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
 export default function CustomerList() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [allCustomers, setAllCustomers] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showMarketing, setShowMarketing] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
@@ -32,10 +43,27 @@ export default function CustomerList() {
   const [campaignNotes, setCampaignNotes] = useState('');
   const [campaignSaving, setCampaignSaving] = useState(false);
 
+  const debouncedSetSearch = useMemo(() => debounce((val) => {
+    setSearchTerm(val);
+    setPage(1);
+  }, 300), []);
+
+  const handleSearchChange = (e) => {
+    setSearchInput(e.target.value);
+    debouncedSetSearch(e.target.value);
+  };
+
+  const clearSearch = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setPage(1);
+  };
+
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page: 1, limit: 10000 };
+      const params = { page, limit: 50 };
+      if (searchTerm) params.search = searchTerm;
       if (isStorage) params.is_storage = isStorage;
       if (hasOpenRecords) params.has_open_records = 'true';
       if (hasOpenEstimate) params.has_open_estimate = 'true';
@@ -46,53 +74,63 @@ export default function CustomerList() {
       if (city) params.city = city;
       if (zip) params.zip = zip;
       const data = await api.getCustomers(params);
-      setAllCustomers(data.customers);
+      setCustomers(data.customers);
+      setTotal(data.total || data.customers.length);
     } catch (err) {
       console.error('Failed to load customers:', err);
     } finally {
       setLoading(false);
     }
-  }, [isStorage, hasOpenRecords, hasOpenEstimate, lastServiceFrom, lastServiceTo, unitMake, unitModel, city, zip]);
+  }, [page, searchTerm, isStorage, hasOpenRecords, hasOpenEstimate, lastServiceFrom, lastServiceTo, unitMake, unitModel, city, zip]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
-  // Client-side search filtering
-  const filteredCustomers = allCustomers.filter(c => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    const fullName = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();
-    const reverseName = `${c.last_name || ''} ${c.first_name || ''}`.toLowerCase();
-    return (
-      fullName.includes(term) ||
-      reverseName.includes(term) ||
-      (c.first_name || '').toLowerCase().includes(term) ||
-      (c.last_name || '').toLowerCase().includes(term) ||
-      (c.phone_primary || '').includes(term) ||
-      (c.phone_secondary || '').includes(term) ||
-      (c.email_primary || '').toLowerCase().includes(term)
-    );
-  });
-
-  const handleExportCSV = () => {
-    const rows = customers.filter(c => c.email_primary);
-    if (rows.length === 0) { alert('No customers with email in current filter'); return; }
-    const csv = 'Name,Email\n' + rows.map(c =>
-      `"${(c.last_name || '') + (c.first_name ? ', ' + c.first_name : '')}","${c.email_primary}"`
-    ).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `customer_emails_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportCSV = async () => {
+    try {
+      const params = { page: 1, limit: 10000 };
+      if (searchTerm) params.search = searchTerm;
+      if (isStorage) params.is_storage = isStorage;
+      if (hasOpenRecords) params.has_open_records = 'true';
+      if (hasOpenEstimate) params.has_open_estimate = 'true';
+      if (lastServiceFrom) params.last_service_from = lastServiceFrom;
+      if (lastServiceTo) params.last_service_to = lastServiceTo;
+      if (unitMake) params.unit_make = unitMake;
+      if (unitModel) params.unit_model = unitModel;
+      if (city) params.city = city;
+      if (zip) params.zip = zip;
+      const data = await api.getCustomers(params);
+      const rows = (data.customers || []).filter(c => c.email_primary);
+      if (rows.length === 0) { alert('No customers with email in current filter'); return; }
+      const csv = 'Name,Email\n' + rows.map(c =>
+        `"${(c.last_name || '') + (c.first_name ? ', ' + c.first_name : '')}","${c.email_primary}"`
+      ).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `customer_emails_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert(err.message); }
   };
 
   const handleLogCampaign = async () => {
     if (!campaignName.trim()) return;
     setCampaignSaving(true);
     try {
-      const ids = customers.map(c => c.id);
+      const params = { page: 1, limit: 10000 };
+      if (searchTerm) params.search = searchTerm;
+      if (isStorage) params.is_storage = isStorage;
+      if (hasOpenRecords) params.has_open_records = 'true';
+      if (hasOpenEstimate) params.has_open_estimate = 'true';
+      if (lastServiceFrom) params.last_service_from = lastServiceFrom;
+      if (lastServiceTo) params.last_service_to = lastServiceTo;
+      if (unitMake) params.unit_make = unitMake;
+      if (unitModel) params.unit_model = unitModel;
+      if (city) params.city = city;
+      if (zip) params.zip = zip;
+      const data = await api.getCustomers(params);
+      const ids = (data.customers || []).map(c => c.id);
       await api.logCampaign({
         customer_ids: ids,
         campaign_name: campaignName,
@@ -110,7 +148,7 @@ export default function CustomerList() {
     }
   };
 
-  const customers = filteredCustomers;
+  const totalPages = Math.ceil(total / 50);
   const hasAnyFilter = isStorage || hasOpenRecords || hasOpenEstimate || lastServiceFrom || lastServiceTo || unitMake || unitModel || city || zip;
 
   return (
@@ -119,7 +157,7 @@ export default function CustomerList() {
         <h1 style={{ margin: 0 }}>Customers</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>
-            {searchTerm ? `${filteredCustomers.length} of ${allCustomers.length}` : `${allCustomers.length} total`}
+            {searchTerm ? `${customers.length} of ${total}` : `${total} total`}
           </span>
           {!isMobile && <button onClick={() => setShowNewCustomer(true)} style={btnPrimary}>+ New Customer</button>}
         </div>
@@ -131,13 +169,13 @@ export default function CustomerList() {
           <input
             type="text"
             placeholder="Search by name, phone, or email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ ...inputStyle, paddingRight: searchTerm ? '32px' : '10px' }}
+            value={searchInput}
+            onChange={handleSearchChange}
+            style={{ ...inputStyle, paddingRight: searchInput ? '32px' : '10px' }}
           />
-          {searchTerm && (
+          {searchInput && (
             <button
-              onClick={() => setSearchTerm('')}
+              onClick={clearSearch}
               style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#9ca3af', padding: '2px 6px', lineHeight: 1 }}
               title="Clear search"
             >
@@ -199,7 +237,7 @@ export default function CustomerList() {
           </div>
           {hasAnyFilter && (
             <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '0.85rem', color: '#0369a1', fontWeight: 600 }}>{filteredCustomers.length} matches</span>
+              <span style={{ fontSize: '0.85rem', color: '#0369a1', fontWeight: 600 }}>{total} matches</span>
               <button onClick={handleExportCSV} style={{ ...btnPrimary, fontSize: '0.8rem', padding: '6px 12px' }}>Export Email List</button>
               <button onClick={() => setShowCampaignModal(true)} style={{ ...btnSecondary, fontSize: '0.8rem', padding: '6px 12px' }}>Log Campaign</button>
             </div>
@@ -280,10 +318,12 @@ export default function CustomerList() {
         <button className="mobile-fab" onClick={() => setShowNewCustomer(true)}>+</button>
       )}
 
-      {/* Search result count */}
-      {searchTerm && (
-        <div style={{ textAlign: 'center', padding: '8px', color: '#6b7280', fontSize: '0.85rem' }}>
-          Showing {filteredCustomers.length} of {allCustomers.length} customers
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', padding: '16px 0' }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={{ ...btnSecondary, fontSize: '0.8rem', padding: '6px 12px' }}>Prev</button>
+          <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>Page {page} of {totalPages} ({total} total)</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={{ ...btnSecondary, fontSize: '0.8rem', padding: '6px 12px' }}>Next</button>
         </div>
       )}
 
@@ -304,7 +344,7 @@ export default function CustomerList() {
           <div style={modalStyle}>
             <h3 style={{ margin: '0 0 16px', color: '#1e3a5f' }}>Log Campaign</h3>
             <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 12px' }}>
-              This will log a campaign entry for <strong>{filteredCustomers.length}</strong> filtered customers.
+              This will log a campaign entry for <strong>{total}</strong> filtered customers.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>

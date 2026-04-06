@@ -24,7 +24,7 @@ async function autoTransitionStatus(recordId, dbClient) {
   if (['estimate', 'approved', 'void'].includes(rec.status)) return;
 
   if (amountDue <= 0 && totalCollected > 0) {
-    await dbClient.query("UPDATE records SET status = 'paid' WHERE id = $1", [recordId]);
+    await dbClient.query("UPDATE records SET status = 'paid', payment_pending_since = NULL, reminder_count = 0, last_reminder_sent_at = NULL WHERE id = $1", [recordId]);
   } else if (totalCollected > 0 && amountDue > 0 && !['partial', 'in_progress'].includes(rec.status)) {
     await dbClient.query("UPDATE records SET status = 'partial' WHERE id = $1", [recordId]);
   }

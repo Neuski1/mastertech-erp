@@ -420,6 +420,18 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraValues.push(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }));
     }
 
+    // When status → payment_pending: stamp payment_pending_since if not already set
+    if (newStatus === 'payment_pending' && !record.payment_pending_since) {
+      extraUpdates.push(`payment_pending_since = NOW()`);
+    }
+
+    // When status → paid or void: clear reminder tracking fields
+    if (newStatus === 'paid' || newStatus === 'void') {
+      extraUpdates.push(`payment_pending_since = NULL`);
+      extraUpdates.push(`reminder_count = 0`);
+      extraUpdates.push(`last_reminder_sent_at = NULL`);
+    }
+
     // When status → complete: auto-stamp actual_completion_date, recalculate shop supplies
     if (newStatus === 'complete') {
       if (!record.actual_completion_date) {
@@ -511,6 +523,21 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/records/:id/send-reminder — Send payment reminder
+// ---------------------------------------------------------------------------
+router.post('/:id/send-reminder', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { sendPaymentReminder } = require('../services/paymentReminders');
+    const result = await sendPaymentReminder(req.params.id, { isManual: true, sentByUserId: req.user.id });
+    if (!result.success) return res.status(400).json({ error: result.reason });
+    res.json(result);
+  } catch (err) {
+    console.error('POST send-reminder error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

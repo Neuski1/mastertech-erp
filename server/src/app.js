@@ -264,6 +264,7 @@ app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
 app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
 app.use('/api/reports', requireAuth, require('./routes/reports'));
+app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
@@ -418,6 +419,16 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE storage_spaces ADD COLUMN IF NOT EXISTS linear_feet DECIMAL(6,1)');
     await pool.query('ALTER TABLE system_settings ALTER COLUMN setting_value TYPE TEXT');
     await pool.query('ALTER TABLE technicians ADD COLUMN IF NOT EXISTS hourly_wage DECIMAL(8,2) DEFAULT 0');
+    // Migration 036: payment reminders
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS payment_pending_since TIMESTAMPTZ');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS last_reminder_sent_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS reminder_count INTEGER NOT NULL DEFAULT 0');
+    await pool.query(`INSERT INTO system_settings (setting_key, setting_value, description) VALUES
+      ('payment_reminders_enabled', 'true', 'Enable automatic payment reminder emails and texts'),
+      ('payment_reminders_last_run', '', 'Timestamp of last payment reminder cron run'),
+      ('payment_reminders_last_run_count', '0', 'Number of reminders sent in last cron run')
+      ON CONFLICT (setting_key) DO NOTHING`);
+    await pool.query("UPDATE records SET payment_pending_since = updated_at WHERE status = 'payment_pending' AND payment_pending_since IS NULL");
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
@@ -427,6 +438,9 @@ const pool = require('./db/pool');
 // Start daily campaign send cron job
 const { startDailyCampaignJob } = require('./jobs/dailyCampaignSend');
 startDailyCampaignJob();
+
+const { startReminderCron } = require('./jobs/reminderCron');
+startReminderCron();
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {

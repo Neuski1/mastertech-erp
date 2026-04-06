@@ -335,8 +335,100 @@ export default function Settings() {
         ))}
       </div>
 
+      {/* Payment Reminders */}
+      <PaymentRemindersSection onMessage={setActionMsg} />
+
       {/* Square Terminal Setup */}
       <SquareDevicesSection onMessage={setActionMsg} />
+    </div>
+  );
+}
+
+function PaymentRemindersSection({ onMessage }) {
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [toggling, setToggling] = useState(false);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.getReminderSettings();
+      setSettings(data);
+    } catch (err) {
+      console.error('Failed to load reminder settings:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+  const handleToggle = async () => {
+    if (!settings) return;
+    setToggling(true);
+    try {
+      const newEnabled = settings.payment_reminders_enabled !== 'true';
+      await api.updateReminderSettings({ enabled: newEnabled });
+      onMessage({ type: 'success', text: `Payment reminders ${newEnabled ? 'enabled' : 'disabled'}` });
+      setTimeout(() => onMessage(null), 3000);
+      await fetchSettings();
+    } catch (err) {
+      onMessage({ type: 'error', text: err.message });
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const isEnabled = settings && settings.payment_reminders_enabled === 'true';
+
+  return (
+    <div style={sectionStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h2 style={{ ...sectionTitle, marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>Payment Reminders</h2>
+        {settings && (
+          <span style={isEnabled ? connectedBadge : disconnectedBadge}>
+            {isEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        )}
+      </div>
+      {loading ? (
+        <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>Loading...</div>
+      ) : settings ? (
+        <>
+          <button onClick={handleToggle} disabled={toggling} style={{ ...btnPrimary, marginBottom: '16px', backgroundColor: isEnabled ? '#dc2626' : '#059669' }}>
+            {toggling ? 'Updating...' : (isEnabled ? 'Disable Reminders' : 'Enable Reminders')}
+          </button>
+          <div style={infoGrid}>
+            <div>
+              <span style={labelStyle}>Schedule</span>
+              <div style={{ fontSize: '0.875rem' }}>Daily at 9:00 AM Mountain</div>
+            </div>
+            <div>
+              <span style={labelStyle}>Interval</span>
+              <div style={{ fontSize: '0.875rem' }}>Every 3 days per record</div>
+            </div>
+            <div>
+              <span style={labelStyle}>Last Run</span>
+              <div style={{ fontSize: '0.875rem' }}>
+                {settings.payment_reminders_last_run
+                  ? new Date(settings.payment_reminders_last_run).toLocaleString()
+                  : 'Never'}
+              </div>
+            </div>
+            <div>
+              <span style={labelStyle}>Sent Last Run</span>
+              <div style={{ fontSize: '0.875rem' }}>{settings.payment_reminders_last_run_count || '0'} reminders</div>
+            </div>
+            <div>
+              <span style={labelStyle}>Pending Records</span>
+              <div style={{ fontSize: '0.875rem' }}>{settings.pending_records || 0} records with balance due</div>
+            </div>
+          </div>
+          <p style={{ fontSize: '0.8rem', color: '#9ca3af', fontStyle: 'italic', marginTop: '12px', marginBottom: 0 }}>
+            Automatic reminders are sent to customers with outstanding balances based on their communication preference (email, text, or both). Manual reminders can also be sent from individual record pages.
+          </p>
+        </>
+      ) : null}
     </div>
   );
 }

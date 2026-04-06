@@ -494,7 +494,7 @@ export default function AppointmentForm() {
                 {resending ? 'Sending...' : '\u2709 Resend Confirmation'}
               </button>
             )}
-            {isEdit && form.appointment_type !== 'pick_up' && !form.record_id && (
+            {isEdit && !form.record_id && (
               <button type="button" onClick={handleCreateRecord} disabled={creatingRecord} style={{ ...btnPrimary, backgroundColor: '#059669' }}>
                 {creatingRecord ? 'Creating...' : 'Create Record from Appointment'}
               </button>
