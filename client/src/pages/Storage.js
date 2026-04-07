@@ -569,8 +569,10 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
     square_customer_id: space.square_customer_id || '',
     due_day: space.due_day || 1,
     unit_id: space.unit_id ? String(space.unit_id) : '',
+    linear_feet: space.unit_linear_feet ? String(parseFloat(space.unit_linear_feet)) : '',
     end_date: '',
   });
+  const [initialLinearFeet] = useState(space.unit_linear_feet ? String(parseFloat(space.unit_linear_feet)) : '');
   const [customerUnits, setCustomerUnits] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -591,16 +593,28 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
     setSaving(true);
     setError('');
     try {
-      await api.updateStorage(space.billing_id, {
-        space_type: form.space_type,
-        monthly_rate: parseFloat(form.monthly_rate),
-        billing_start_date: form.billing_start_date || undefined,
-        notes: form.notes,
-        square_sub_id: form.square_sub_id || null,
-        square_customer_id: form.square_customer_id || null,
-        due_day: parseInt(form.due_day),
-        unit_id: form.unit_id ? parseInt(form.unit_id) : null,
-      });
+      const promises = [
+        api.updateStorage(space.billing_id, {
+          space_type: form.space_type,
+          monthly_rate: parseFloat(form.monthly_rate),
+          billing_start_date: form.billing_start_date || undefined,
+          notes: form.notes,
+          square_sub_id: form.square_sub_id || null,
+          square_customer_id: form.square_customer_id || null,
+          due_day: parseInt(form.due_day),
+          unit_id: form.unit_id ? parseInt(form.unit_id) : null,
+        }),
+      ];
+
+      // If linear feet changed and a unit is selected, update the unit record
+      const unitId = form.unit_id ? parseInt(form.unit_id) : null;
+      if (unitId && form.linear_feet !== initialLinearFeet) {
+        promises.push(
+          api.updateUnit(unitId, { linear_feet: form.linear_feet ? parseFloat(form.linear_feet) : null })
+        );
+      }
+
+      await Promise.all(promises);
       onUpdated();
     } catch (err) {
       setError(err.message);
@@ -647,7 +661,11 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
           {canEdit ? (
             <div>
               <div style={labelStyle}>Unit</div>
-              <select value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })} style={inputStyleFull}>
+              <select value={form.unit_id} onChange={(e) => {
+                const newUnitId = e.target.value;
+                const unit = customerUnits.find(u => String(u.id) === newUnitId);
+                setForm({ ...form, unit_id: newUnitId, linear_feet: unit?.linear_feet ? String(parseFloat(unit.linear_feet)) : '' });
+              }} style={inputStyleFull}>
                 <option value="">— No unit selected —</option>
                 {customerUnits.map(u => (
                   <option key={u.id} value={String(u.id)}>
@@ -663,9 +681,14 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
             <InfoField label="Unit" value={[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ') || '—'} />
           )}
           {space.license_plate && <InfoField label="License Plate" value={space.license_plate} />}
-          {(selectedUnit?.linear_feet || space.unit_linear_feet || space.space_linear_feet) && (
-            <InfoField label="Linear Feet" value={`${parseFloat(selectedUnit?.linear_feet || space.unit_linear_feet || space.space_linear_feet)} ft`} />
-          )}
+          {canEdit ? (
+            <div>
+              <label style={labelStyle}>Linear Feet</label>
+              <input type="number" step="0.5" min="0" value={form.linear_feet} onChange={(e) => setForm({ ...form, linear_feet: e.target.value })} placeholder="e.g. 22.5" style={inputStyleFull} />
+            </div>
+          ) : (selectedUnit?.linear_feet || space.unit_linear_feet) ? (
+            <InfoField label="Linear Feet" value={`${parseFloat(selectedUnit?.linear_feet || space.unit_linear_feet)} ft`} />
+          ) : null}
         </div>
 
         {/* Editable fields */}

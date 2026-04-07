@@ -40,7 +40,7 @@ function sortRecords(records) {
 
 function getWorkLines(desc) {
   if (!desc) return [];
-  return desc.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3);
+  return desc.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 5);
 }
 
 export default function ActiveWorkOrdersReport() {
@@ -147,12 +147,27 @@ function Section({ title, count, color, records }) {
         </span>
         <span style={{ ...pillStyle, backgroundColor: color }}>{count}</span>
       </div>
-      <table style={tableStyle}>
+      <table style={{ ...tableStyle, tableLayout: 'fixed' }}>
+        <colgroup>
+          <col style={{ width: '60px' }} />
+          <col style={{ width: '150px' }} />
+          <col style={{ width: '155px' }} />
+          <col style={{ width: '110px' }} />
+          <col style={{ width: '80px' }} />
+          <col style={{ minWidth: '240px' }} />
+          <col style={{ width: '75px' }} />
+          <col style={{ width: '36px' }} />
+        </colgroup>
         <thead>
           <tr>
-            {['WO #', 'Customer', 'Unit', 'Status', 'Due Date', 'Work Description', 'Amt Due', '\u2713'].map(h => (
-              <th key={h} style={{ ...thStyle, textAlign: h === 'Amt Due' ? 'right' : h === '\u2713' || h === 'WO #' ? 'center' : 'left' }}>{h}</th>
-            ))}
+            <th style={{ ...thStyle, textAlign: 'center' }}>WO #</th>
+            <th style={thStyle}>Customer</th>
+            <th style={thStyle}>Unit</th>
+            <th style={thStyle}>Status</th>
+            <th style={thStyle}>Due Date</th>
+            <th style={thStyle}>Work Description</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Amt Due</th>
+            <th style={{ ...thStyle, textAlign: 'center' }}>{'\u2713'}</th>
           </tr>
         </thead>
         <tbody>
@@ -182,11 +197,11 @@ function Section({ title, count, color, records }) {
                 <td style={tdStyle}>
                   <span style={{ ...statusPillStyle, backgroundColor: s.bg, color: s.color }}>{s.label}</span>
                 </td>
-                <td style={{ ...tdStyle, color: pastDue ? '#dc2626' : '#374151', fontWeight: pastDue ? 700 : 400 }}>
+                <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: pastDue ? '#dc2626' : '#374151', fontWeight: pastDue ? 700 : 400 }}>
                   {fmtDate(r.expected_completion_date)}
                   {pastDue && ' \u26A0'}
                 </td>
-                <td style={{ ...tdStyle, maxWidth: '220px' }}>
+                <td style={tdStyle}>
                   {lines.length > 0 ? lines.map((l, j) => (
                     <div key={j} style={{ fontSize: '11px', color: '#374151', lineHeight: 1.4 }}>
                       {l.replace(/^[\u2022\-\*]\s*/, '\u2022 ')}
