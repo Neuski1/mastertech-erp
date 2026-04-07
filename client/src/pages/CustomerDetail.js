@@ -23,6 +23,7 @@ export default function CustomerDetail() {
   const [editingUnit, setEditingUnit] = useState(null);
   const [unitSaving, setUnitSaving] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
+  const [storageCharges, setStorageCharges] = useState([]);
 
   // Marketing note
   const [noteChannel, setNoteChannel] = useState('Note');
@@ -59,6 +60,10 @@ export default function CustomerDetail() {
       setRecords(recList);
       setStorage(storList);
       setMarketingLog(mktList);
+      // Fetch storage billing history
+      api.getStorageCharges({ customer_id: id }).then(data => {
+        setStorageCharges(Array.isArray(data) ? data : data.charges || []);
+      }).catch(() => {});
     } catch (err) {
       setError(err.message);
     }
@@ -515,6 +520,33 @@ export default function CustomerDetail() {
           <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: 0 }}>No units on file</p>
         )}
       </div>
+
+      {/* ─── Storage Billing History ─── */}
+      {storageCharges.length > 0 && (
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Storage Billing History ({storageCharges.length})</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Date</th>
+                <th style={thStyle}>Space</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+                <th style={thStyle}>Month</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...storageCharges].sort((a, b) => new Date(b.charge_date) - new Date(a.charge_date)).map(c => (
+                <tr key={c.id}>
+                  <td style={tdStyle}>{new Date(c.charge_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                  <td style={tdStyle}>{c.space_label || '\u2014'}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(c.amount).toFixed(2)}</td>
+                  <td style={tdStyle}>{c.charge_month ? new Date(c.charge_month + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '\u2014'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ─── Records History ─── */}
       <div style={sectionStyle}>
