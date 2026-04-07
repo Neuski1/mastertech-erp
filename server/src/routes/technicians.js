@@ -7,7 +7,7 @@ const { requireRole } = require('../middleware/auth');
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name FROM technicians WHERE is_active = TRUE AND deleted_at IS NULL ORDER BY name'
+      'SELECT id, name, is_contractor FROM technicians WHERE is_active = TRUE AND deleted_at IS NULL ORDER BY name'
     );
     res.json(rows);
   } catch (err) {
@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 router.get('/all', requireRole('admin'), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, is_active, hourly_wage, created_at FROM technicians WHERE deleted_at IS NULL ORDER BY is_active DESC, name'
+      'SELECT id, name, is_active, is_contractor, hourly_wage, created_at FROM technicians WHERE deleted_at IS NULL ORDER BY is_active DESC, name'
     );
     res.json(rows);
   } catch (err) {

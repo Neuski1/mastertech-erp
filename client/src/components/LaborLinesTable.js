@@ -91,6 +91,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     if (field === 'description') data.description = value;
     if (field === 'hours') data.hours = parseFloat(value || 0);
     if (field === 'no_charge') data.no_charge = value;
+    if (field === 'contractor_cost') data.contractor_cost = value;
 
     // Fire the save — this fetch runs to completion regardless of component unmount
     sendLaborUpdate(recordId, lineId, data)
@@ -131,6 +132,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <th style={{ ...thStyle, textAlign: 'right' }}>Hours</th>
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
+            {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Cost</th>}
             {canEdit && <th style={{ ...thStyle, textAlign: 'center', width: '40px' }}>N/C</th>}
             {canEdit && <th style={{ ...thStyle, width: '50px' }}></th>}
           </tr>
@@ -226,6 +228,31 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 </td>
               )}
 
+              {/* Contractor Cost — editable inline */}
+              {canSeeFinancials && (
+                <td style={{ ...tdStyle, textAlign: 'right' }}>
+                  {canEdit ? (
+                    <input
+                      key={`cost-${line.id}-${line.contractor_cost}`}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      defaultValue={line.contractor_cost != null ? parseFloat(line.contractor_cost).toFixed(2) : ''}
+                      placeholder="—"
+                      onBlur={(e) => {
+                        const newVal = e.target.value !== '' ? parseFloat(e.target.value) : null;
+                        const oldVal = line.contractor_cost != null ? parseFloat(line.contractor_cost) : null;
+                        if (newVal !== oldVal) handleInlineSave(line.id, 'contractor_cost', e.target.value || null);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                      style={{ ...inlineEditable, width: '80px', textAlign: 'right' }}
+                    />
+                  ) : (
+                    line.contractor_cost != null ? formatCurrency(line.contractor_cost) : <span style={{ color: '#d1d5db' }}>—</span>
+                  )}
+                </td>
+              )}
+
               {/* No Charge toggle */}
               {canEdit && (
                 <td style={{ ...tdStyle, textAlign: 'center' }}>
@@ -269,6 +296,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                   {form.no_charge ? '$0.00' : (form.hours ? formatCurrency(parseFloat(form.hours) * 198) : '$0.00')}
                 </td>
               )}
+              {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af' }}>—</td>}
               <td style={{ ...tdStyle, textAlign: 'center' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#6b7280', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   <input type="checkbox" checked={form.no_charge} onChange={(e) => setForm({ ...form, no_charge: e.target.checked })} style={{ cursor: 'pointer' }} />
@@ -293,6 +321,11 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{totalHours.toFixed(2)}</td>
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}></td>}
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{formatCurrency(laborSubtotal)}</td>}
+            {canSeeFinancials && (
+              <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>
+                {formatCurrency((laborLines || []).reduce((s, l) => s + (parseFloat(l.contractor_cost) || 0), 0) || 0)}
+              </td>
+            )}
             {canEdit && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
             {canEdit && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
           </tr>
