@@ -793,7 +793,7 @@ function AddUnitModal({ customerId, onClose, onCreated }) {
 
   const UNIT_TYPES = [
     'Travel Trailer', '5th Wheel', 'Motorhome Class A', 'Motorhome Class B',
-    'Motorhome Class C', 'Toy Hauler', 'Truck Camper', 'Other',
+    'Motorhome Class C', 'Toy Hauler', 'Truck Camper', 'Van', 'Other',
   ];
 
   const handleSubmit = async (e) => {
