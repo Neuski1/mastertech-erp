@@ -52,9 +52,9 @@ export default function Reports() {
   };
 
   const r = report?.revenue;
-  // grossRevenue = total_sales which already includes labor+parts+misc+supplies+tax+cc
-  // Subtotal = grossRevenue minus tax and cc fees
-  const subtotal = r ? r.grossRevenue - r.tax - r.ccFees : 0;
+  // Subtotal = sum of line items (labor + parts + freight + shop supplies)
+  // Not derived from grossRevenue which may differ for Summit-imported records
+  const subtotal = r ? r.labor + r.parts + r.misc + r.shopSupplies : 0;
 
   return (
     <div style={{ maxWidth: '800px' }}>
