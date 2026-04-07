@@ -59,4 +59,32 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   }
 });
 
+// DELETE /api/units/:id — Soft delete a unit
+router.delete('/:id', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    // Check if unit is assigned to an active storage space
+    const { rows: activeStorage } = await pool.query(
+      'SELECT id FROM storage_billing WHERE unit_id = $1 AND billing_end_date IS NULL AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (activeStorage.length > 0) {
+      return res.status(409).json({
+        error: 'This unit is assigned to an active storage space and cannot be deleted.'
+      });
+    }
+
+    const { rows } = await pool.query(
+      'UPDATE units SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id',
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+    res.json({ message: 'Unit deleted', id: rows[0].id });
+  } catch (err) {
+    console.error('DELETE /api/units/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

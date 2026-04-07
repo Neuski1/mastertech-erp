@@ -74,6 +74,7 @@ export const api = {
   // Units
   createUnit: (data) => request('/units', { method: 'POST', body: JSON.stringify(data) }),
   updateUnit: (id, data) => request(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteUnit: (id) => request(`/units/${id}`, { method: 'DELETE' }),
 
   // Payments
   addPayment: (recordId, data) => request(`/payments/${recordId}`, { method: 'POST', body: JSON.stringify(data) }),

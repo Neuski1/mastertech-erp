@@ -473,9 +473,23 @@ export default function CustomerDetail() {
                       <div><label style={unitLabelStyle}>Linear Feet</label><input type="number" step="0.1" min="0" value={editingUnit.linear_feet || ''} onChange={(e) => setEditingUnit({ ...editingUnit, linear_feet: e.target.value })} placeholder="0" style={unitInputStyle} /></div>
                     </div>
                     <div style={{ marginBottom: '12px' }}><label style={unitLabelStyle}>Notes</label><textarea value={editingUnit.unit_notes || ''} onChange={(e) => setEditingUnit({ ...editingUnit, unit_notes: e.target.value })} style={{ ...unitInputStyle, minHeight: '60px', resize: 'vertical' }} /></div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={handleSaveUnit} disabled={unitSaving} style={btnPrimary}>{unitSaving ? 'Saving...' : 'Save'}</button>
-                      <button onClick={() => setEditingUnit(null)} style={btnSecondary}>Cancel</button>
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between' }}>
+                      <button onClick={async () => {
+                        if (!window.confirm('Are you sure you want to delete this unit? This cannot be undone.')) return;
+                        try {
+                          await api.deleteUnit(editingUnit.id);
+                          setEditingUnit(null);
+                          const unitList = await api.getCustomerUnits(id);
+                          setUnits(unitList);
+                          setSelectedUnit(unitList[0] || null);
+                        } catch (err) {
+                          setError(err.message);
+                        }
+                      }} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>Delete Unit</button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={handleSaveUnit} disabled={unitSaving} style={btnPrimary}>{unitSaving ? 'Saving...' : 'Save'}</button>
+                        <button onClick={() => setEditingUnit(null)} style={btnSecondary}>Cancel</button>
+                      </div>
                     </div>
                   </div>
                 ) : (
