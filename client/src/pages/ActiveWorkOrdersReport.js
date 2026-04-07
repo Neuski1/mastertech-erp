@@ -48,6 +48,15 @@ export default function ActiveWorkOrdersReport() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Hide the main nav while this report is mounted
+    const nav = document.querySelector('nav') || document.querySelector('header');
+    if (nav) nav.style.display = 'none';
+    return () => {
+      if (nav) nav.style.display = '';
+    };
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
         const data = await api.getRecords({ page: 1, limit: 500 });
@@ -128,7 +137,7 @@ export default function ActiveWorkOrdersReport() {
       {/* Print styles */}
       <style>{`
         @media print {
-          .no-print { display: none !important; }
+          .no-print, nav, header { display: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
           tr { page-break-inside: avoid; }
           body { margin: 0; padding: 0; }
