@@ -216,11 +216,18 @@ export default function RecordList() {
     <div>
       <div className={isMobile ? 'page-header' : ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ margin: 0 }}>Records</h1>
-        {canEditRecords && !isMobile && (
-          <button onClick={() => navigate('/records/new')} style={btnPrimary}>
-            + New Record
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {!isMobile && (
+            <button onClick={() => navigate('/reports/active-workorders')} style={{ padding: '8px 16px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
+              Print Work Orders
+            </button>
+          )}
+          {canEditRecords && !isMobile && (
+            <button onClick={() => navigate('/records/new')} style={btnPrimary}>
+              + New Record
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}

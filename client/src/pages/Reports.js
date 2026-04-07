@@ -58,7 +58,12 @@ export default function Reports() {
 
   return (
     <div style={{ maxWidth: '800px' }}>
-      <h1 style={{ marginTop: 0, marginBottom: '24px', color: '#1e3a5f' }}>Financial Reports</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <h1 style={{ margin: 0, color: '#1e3a5f' }}>Financial Reports</h1>
+        <a href="/reports/active-workorders" style={{ padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '0.85rem' }}>
+          Active Work Orders
+        </a>
+      </div>
 
       {/* Date range selector */}
       <div style={cardStyle}>

@@ -19,6 +19,7 @@ import PartsSaleDetail from './pages/PartsSaleDetail';
 import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
 import Reports from './pages/Reports';
+import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
 import QBStatusDot from './components/QBStatusDot';
 
 function RequireAuth({ children }) {
@@ -182,6 +183,7 @@ function AppLayout() {
           <Route path="/marketing/new" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />
+          <Route path="/reports/active-workorders" element={<ActiveWorkOrdersReport />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>
