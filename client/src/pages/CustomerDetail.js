@@ -537,7 +537,7 @@ export default function CustomerDetail() {
             <tbody>
               {[...storageCharges].sort((a, b) => new Date(b.charge_date) - new Date(a.charge_date)).map(c => (
                 <tr key={c.id}>
-                  <td style={tdStyle}>{new Date(c.charge_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                  <td style={tdStyle}>{new Date(c.charge_date.substring(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                   <td style={tdStyle}>{c.space_label || '\u2014'}</td>
                   <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(c.amount).toFixed(2)}</td>
                   <td style={tdStyle}>{c.charge_month ? new Date(c.charge_month + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '\u2014'}</td>
