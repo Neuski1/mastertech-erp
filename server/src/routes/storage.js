@@ -510,7 +510,7 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
 // GET /api/storage/charges — List charge history by month
 // ---------------------------------------------------------------------------
 router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
-  const { month } = req.query;
+  const { month, customer_id } = req.query;
   const conditions = [];
   const params = [];
   let idx = 1;
@@ -518,6 +518,11 @@ router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper', 'tec
   if (month) {
     conditions.push(`sc.charge_month = $${idx++}`);
     params.push(month);
+  }
+
+  if (customer_id) {
+    conditions.push(`sc.customer_id = $${idx++}`);
+    params.push(parseInt(customer_id));
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
