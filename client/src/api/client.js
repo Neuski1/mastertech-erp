@@ -214,6 +214,7 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/storage/charges${qs ? `?${qs}` : ''}`);
   },
+  createStorageCharge: (data) => request('/storage/charges', { method: 'POST', body: JSON.stringify(data) }),
   deleteStorageCharge: (id) => request(`/storage/charges/${id}`, { method: 'DELETE' }),
   updateStorageCharge: (id, data) => request(`/storage/charges/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getStorageBillingReport: (params = {}) => {

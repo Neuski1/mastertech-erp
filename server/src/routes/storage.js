@@ -507,6 +507,39 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// POST /api/storage/charges — Manually add a storage charge
+// ---------------------------------------------------------------------------
+router.post('/charges', requireRole('admin'), async (req, res) => {
+  const { customer_id, space_id, amount, charge_month, charge_date, notes } = req.body;
+
+  if (!customer_id || !amount || !charge_month) {
+    return res.status(400).json({ error: 'customer_id, amount, and charge_month are required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, charge_date, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        null,
+        parseInt(customer_id),
+        space_id ? parseInt(space_id) : null,
+        parseFloat(amount),
+        charge_month,
+        charge_date || charge_month + '-01',
+        notes || null,
+        req.user?.id || null,
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/storage/charges error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/storage/charges — List charge history by month
 // ---------------------------------------------------------------------------
 router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {

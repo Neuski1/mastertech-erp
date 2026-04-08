@@ -522,10 +522,12 @@ export default function CustomerDetail() {
       </div>
 
       {/* ─── Storage Billing History ─── */}
-      {storageCharges.length > 0 && (
+      {(storageCharges.length > 0 || isAdmin) && (
         <StorageBillingHistory
           charges={storageCharges}
           isAdmin={isAdmin}
+          customer={customer}
+          customerId={id}
           onUpdate={async () => {
             const data = await api.getStorageCharges({ customer_id: id });
             setStorageCharges(Array.isArray(data) ? data : data.charges || []);
@@ -912,13 +914,20 @@ function AddUnitModal({ customerId, onClose, onCreated }) {
 }
 
 // Sub-components
-function StorageBillingHistory({ charges, isAdmin, onUpdate }) {
+function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdate }) {
   const [editingId, setEditingId] = React.useState(null);
   const [editForm, setEditForm] = React.useState({});
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [addForm, setAddForm] = React.useState({ charge_month: '', charge_date: '', amount: '', space: '', notes: '' });
+  const [addSaving, setAddSaving] = React.useState(false);
 
   const sorted = [...charges].sort((a, b) => new Date(b.charge_date) - new Date(a.charge_date));
+
+  const customerName = customer
+    ? `${customer.last_name || ''}${customer.first_name ? ', ' + customer.first_name : ''}`
+    : '';
 
   const startEdit = (c) => {
     setEditingId(c.id);
@@ -958,61 +967,139 @@ function StorageBillingHistory({ charges, isAdmin, onUpdate }) {
     }
   };
 
+  const handleAdd = async () => {
+    if (!addForm.charge_month || !addForm.amount) { setError('Month and amount are required'); return; }
+    setAddSaving(true);
+    setError('');
+    try {
+      await api.createStorageCharge({
+        customer_id: parseInt(customerId),
+        amount: parseFloat(addForm.amount),
+        charge_month: addForm.charge_month,
+        charge_date: addForm.charge_date || addForm.charge_month + '-01',
+        notes: addForm.notes || null,
+      });
+      setShowAdd(false);
+      setAddForm({ charge_month: '', charge_date: '', amount: '', space: '', notes: '' });
+      onUpdate();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
+  const handleAddSpaceChange = (space) => {
+    const notes = space && customerName ? `Storage: ${space} \u2014 ${customerName}` : '';
+    setAddForm(f => ({ ...f, space, notes }));
+  };
+
   const fmtDate = (d) => new Date(d.substring(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const fmtMonth = (m) => m ? new Date(m + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '\u2014';
 
+  const smallInput = { padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' };
+
   return (
     <div style={sectionStyle}>
-      <h2 style={sectionTitle}>Storage Billing History ({charges.length})</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
+        <h2 style={{ ...sectionTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
+          Storage Billing History ({charges.length})
+        </h2>
+        {isAdmin && !showAdd && (
+          <button onClick={() => { setShowAdd(true); setError(''); }} style={{ padding: '4px 12px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>
+            + Add Charge
+          </button>
+        )}
+      </div>
       {error && <div style={{ padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', marginBottom: '12px', fontSize: '0.8rem' }}>{error}</div>}
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={thStyle}>Date</th>
-            <th style={thStyle}>Space</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
-            <th style={thStyle}>Month</th>
-            {isAdmin && <th style={{ ...thStyle, width: '70px' }}>Actions</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(c => editingId === c.id ? (
-            <tr key={c.id} style={{ backgroundColor: '#fefce8' }}>
-              <td style={tdStyle}>
-                <input type="date" value={editForm.charge_date} onChange={(e) => setEditForm({ ...editForm, charge_date: e.target.value })}
-                  style={{ padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
-              </td>
-              <td style={tdStyle}>{c.space_label || '\u2014'}</td>
-              <td style={{ ...tdStyle, textAlign: 'right' }}>
-                <input type="number" step="0.01" min="0" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
-                  style={{ padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '90px', textAlign: 'right' }} />
-              </td>
-              <td style={tdStyle}>{fmtMonth(c.charge_month)}</td>
-              <td style={tdStyle}>
-                <button onClick={handleSave} disabled={saving} style={{ padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.7rem', marginRight: '4px' }}>
-                  {saving ? '...' : 'Save'}
-                </button>
-                <button onClick={() => setEditingId(null)} style={{ padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.7rem' }}>
-                  Cancel
-                </button>
-              </td>
+
+      {/* Add charge form */}
+      {showAdd && (
+        <div style={{ padding: '12px', backgroundColor: '#f0fdf4', border: '1px solid #86efac', borderRadius: '6px', marginBottom: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>Month *</label>
+              <input type="month" value={addForm.charge_month} onChange={(e) => setAddForm({ ...addForm, charge_month: e.target.value })} style={{ ...smallInput, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>Date</label>
+              <input type="date" value={addForm.charge_date} onChange={(e) => setAddForm({ ...addForm, charge_date: e.target.value })} style={{ ...smallInput, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>Amount *</label>
+              <input type="number" step="0.01" min="0" placeholder="0.00" value={addForm.amount} onChange={(e) => setAddForm({ ...addForm, amount: e.target.value })} style={{ ...smallInput, width: '100%' }} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px', marginBottom: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>Space</label>
+              <input type="text" placeholder="e.g. Outdoor 16" value={addForm.space} onChange={(e) => handleAddSpaceChange(e.target.value)} style={{ ...smallInput, width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>Notes</label>
+              <input type="text" value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} style={{ ...smallInput, width: '100%' }} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={handleAdd} disabled={addSaving} style={{ padding: '4px 12px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>
+              {addSaving ? 'Adding...' : 'Add Charge'}
+            </button>
+            <button onClick={() => { setShowAdd(false); setError(''); }} style={{ padding: '4px 12px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {charges.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Date</th>
+              <th style={thStyle}>Space</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+              <th style={thStyle}>Month</th>
+              {isAdmin && <th style={{ ...thStyle, width: '70px' }}>Actions</th>}
             </tr>
-          ) : (
-            <tr key={c.id}>
-              <td style={tdStyle}>{fmtDate(c.charge_date)}</td>
-              <td style={tdStyle}>{c.space_label || '\u2014'}</td>
-              <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(c.amount).toFixed(2)}</td>
-              <td style={tdStyle}>{fmtMonth(c.charge_month)}</td>
-              {isAdmin && (
+          </thead>
+          <tbody>
+            {sorted.map(c => editingId === c.id ? (
+              <tr key={c.id} style={{ backgroundColor: '#fefce8' }}>
                 <td style={tdStyle}>
-                  <button onClick={() => startEdit(c)} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#6b7280', padding: '2px 4px' }}>&#9998;</button>
-                  <button onClick={() => handleDelete(c)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#dc2626', padding: '2px 4px' }}>&#128465;</button>
+                  <input type="date" value={editForm.charge_date} onChange={(e) => setEditForm({ ...editForm, charge_date: e.target.value })} style={smallInput} />
                 </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <td style={tdStyle}>{c.space_label || '\u2014'}</td>
+                <td style={{ ...tdStyle, textAlign: 'right' }}>
+                  <input type="number" step="0.01" min="0" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                    style={{ ...smallInput, width: '90px', textAlign: 'right' }} />
+                </td>
+                <td style={tdStyle}>{fmtMonth(c.charge_month)}</td>
+                <td style={tdStyle}>
+                  <button onClick={handleSave} disabled={saving} style={{ padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.7rem', marginRight: '4px' }}>
+                    {saving ? '...' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditingId(null)} style={{ padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.7rem' }}>
+                    Cancel
+                  </button>
+                </td>
+              </tr>
+            ) : (
+              <tr key={c.id}>
+                <td style={tdStyle}>{fmtDate(c.charge_date)}</td>
+                <td style={tdStyle}>{c.space_label || '\u2014'}</td>
+                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(c.amount).toFixed(2)}</td>
+                <td style={tdStyle}>{fmtMonth(c.charge_month)}</td>
+                {isAdmin && (
+                  <td style={tdStyle}>
+                    <button onClick={() => startEdit(c)} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#6b7280', padding: '2px 4px' }}>&#9998;</button>
+                    <button onClick={() => handleDelete(c)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#dc2626', padding: '2px 4px' }}>&#128465;</button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
