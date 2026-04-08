@@ -298,7 +298,14 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <div>
                 <label style={labelStyle}>Sale Price Each</label>
                 <input type="number" step="0.01" value={form.sale_price_each} onChange={(e) => setForm({ ...form, sale_price_each: e.target.value })} style={inlineInput} />
-                <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Override inventory price if needed</div>
+                {form.cost_each && parseFloat(form.cost_each) > 0 && (
+                  <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
+                    Cost: {formatCurrency(form.cost_each)} | Markup: {((parseFloat(form.sale_price_each || 0) - parseFloat(form.cost_each)) / parseFloat(form.cost_each) * 100).toFixed(1)}%
+                  </div>
+                )}
+                {(!form.cost_each || parseFloat(form.cost_each) <= 0) && (
+                  <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Override inventory price if needed</div>
+                )}
               </div>
               <div>
                 <label style={labelStyle}>Line Total</label>
@@ -471,6 +478,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Price</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>}
+            {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Cost</th>}
+            {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Markup</th>}
             {isEditable && <th style={{ ...thStyle, width: '120px' }}></th>}
           </tr>
         </thead>
@@ -495,6 +504,14 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>
                   {form.quantity && form.sale_price_each ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each)) : '—'}
+                </td>
+                <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af', fontSize: '0.8rem' }}>
+                  {line.cost_each ? formatCurrency(line.cost_each) : '—'}
+                </td>
+                <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af', fontSize: '0.8rem' }}>
+                  {line.cost_each && parseFloat(line.cost_each) > 0 && form.sale_price_each
+                    ? ((parseFloat(form.sale_price_each) - parseFloat(line.cost_each)) / parseFloat(line.cost_each) * 100).toFixed(1) + '%'
+                    : '—'}
                 </td>
                 <td style={tdStyle}>
                   <button onClick={handleSaveEdit} disabled={saving} style={btnTiny}>Save</button>
@@ -545,6 +562,24 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   </td>
                 )}
                 {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
+                {canSeeFinancials && (
+                  <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af', fontSize: '0.8rem' }}>
+                    {line.cost_each && parseFloat(line.cost_each) > 0 ? formatCurrency(line.cost_each) : '—'}
+                  </td>
+                )}
+                {canSeeFinancials && (
+                  <td style={{ ...tdStyle, textAlign: 'right', fontSize: '0.8rem', fontWeight: 600, color: (() => {
+                    const cost = parseFloat(line.cost_each);
+                    const sale = parseFloat(line.sale_price_each);
+                    if (!cost || cost <= 0) return '#9ca3af';
+                    const pct = ((sale - cost) / cost) * 100;
+                    return pct >= 40 ? '#065f46' : pct >= 20 ? '#92400e' : '#dc2626';
+                  })() }}>
+                    {line.cost_each && parseFloat(line.cost_each) > 0
+                      ? (((parseFloat(line.sale_price_each) - parseFloat(line.cost_each)) / parseFloat(line.cost_each)) * 100).toFixed(1) + '%'
+                      : '—'}
+                  </td>
+                )}
                 {isEditable && (
                   <td style={tdStyle}>
                     <button onClick={() => handleEdit(line)} style={btnTinyGray}>Edit</button>
@@ -567,6 +602,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
               <td colSpan={5} style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>SUBTOTAL — PARTS</td>
               <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{formatCurrency(partsSubtotal)}</td>
+              <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>
+              <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>
               {isEditable && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
             </tr>
           </tfoot>
