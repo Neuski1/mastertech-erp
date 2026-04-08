@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../api/client';
 
-export default function FreightLinesTable({ recordId, freightLines = [], isEditable, onUpdate }) {
+export default function FreightLinesTable({ recordId, freightLines = [], isEditable, recordStatus, onUpdate }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ description: '', amount: '' });
@@ -47,13 +47,12 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
 
   const handleAdd = async () => {
     if (!form.description.trim()) { setError('Description required'); return; }
-    if (!form.amount || parseFloat(form.amount) <= 0) { setError('Amount required'); return; }
     setSaving(true);
     setError('');
     try {
       await api.addFreightLine(recordId, {
         description: form.description,
-        amount: parseFloat(form.amount),
+        amount: form.amount ? parseFloat(form.amount) : 0,
       });
       setForm({ description: '', amount: '' });
       setAdding(false);
@@ -105,6 +104,9 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
   };
 
   const subtotal = freightLines.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
+  const invoiceStatuses = ['complete', 'payment_pending', 'partial', 'paid'];
+  const hasTbdLines = freightLines.some(l => !l.amount || parseFloat(l.amount) <= 0);
+  const showTbdWarning = invoiceStatuses.includes(recordStatus) && hasTbdLines;
 
   return (
     <div style={sectionStyle}>
@@ -123,6 +125,12 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
       </div>
 
       {error && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '8px' }}>{error}</div>}
+
+      {showTbdWarning && (
+        <div style={{ padding: '8px 12px', backgroundColor: '#fef3c7', color: '#92400e', borderRadius: '6px', marginBottom: '8px', fontSize: '0.85rem', border: '1px solid #fde68a' }}>
+          &#9888; One or more freight lines have no amount entered. Please add a price or delete the line.
+        </div>
+      )}
 
       {freightLines.length > 0 && (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
@@ -153,7 +161,9 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
               ) : (
                 <tr key={line.id}>
                   <td style={tdStyle}>{line.description}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.amount)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', color: (!line.amount || parseFloat(line.amount) <= 0) ? '#f59e0b' : undefined, fontStyle: (!line.amount || parseFloat(line.amount) <= 0) ? 'italic' : undefined }}>
+                    {(!line.amount || parseFloat(line.amount) <= 0) ? 'TBD' : formatCurrency(line.amount)}
+                  </td>
                   {isEditable && (
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: '4px' }}>
@@ -190,7 +200,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
           </div>
           <div style={{ flex: '0 0 120px' }}>
             <label style={labelStyle}>Amount ($)</label>
-            <input type="number" step="0.01" min="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0.00" style={inputStyle} />
+            <input type="number" step="0.01" min="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="TBD" style={inputStyle} />
           </div>
           <button onClick={handleAdd} disabled={saving} style={btnSave}>{saving ? '...' : 'Add'}</button>
           <button onClick={() => { setAdding(false); setError(''); }} style={btnCancel}>Cancel</button>

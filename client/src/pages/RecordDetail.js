@@ -998,7 +998,7 @@ ${paymentDetailHtml}
         const hasFreight = (record.freight_lines || []).length > 0;
         const freightExpanded = expandedSections.freight !== undefined ? expandedSections.freight : hasFreight;
         if (freightExpanded) {
-          return <FreightLinesTable recordId={record.id} freightLines={record.freight_lines} isEditable={isEditable} onUpdate={fetchRecord} />;
+          return <FreightLinesTable recordId={record.id} freightLines={record.freight_lines} isEditable={isEditable} recordStatus={record.status} onUpdate={fetchRecord} />;
         }
         return (
           <div style={editSectionStyle}>

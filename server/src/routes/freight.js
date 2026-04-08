@@ -22,15 +22,16 @@ router.get('/:id/freight', async (req, res) => {
 // POST /api/records/:id/freight — Add a freight line
 router.post('/:id/freight', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { description, amount } = req.body;
-  if (!description || amount === undefined) {
-    return res.status(400).json({ error: 'description and amount are required' });
+  if (!description) {
+    return res.status(400).json({ error: 'description is required' });
   }
 
   try {
+    const parsedAmount = amount !== undefined && amount !== null && amount !== '' ? parseFloat(amount) : 0;
     const { rows } = await pool.query(
       `INSERT INTO record_freight_lines (record_id, description, amount)
        VALUES ($1, $2, $3) RETURNING *`,
-      [req.params.id, description, parseFloat(amount)]
+      [req.params.id, description, parsedAmount]
     );
 
     await recalculateTotals(req.params.id);
