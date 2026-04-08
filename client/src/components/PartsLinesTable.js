@@ -205,6 +205,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       const data = {};
       if (field === 'quantity') data.quantity = numVal;
       if (field === 'sale_price_each') data.sale_price_each = numVal;
+      if (field === 'cost_each') data.cost_each = numVal;
       await api.updatePart(recordId, lineId, data);
       onUpdate();
     } catch (err) {
@@ -563,8 +564,25 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 )}
                 {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
                 {canSeeFinancials && (
-                  <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af', fontSize: '0.8rem' }}>
-                    {line.cost_each && parseFloat(line.cost_each) > 0 ? formatCurrency(line.cost_each) : '—'}
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {isEditable ? (
+                      <input
+                        type="number" step="0.01" min="0"
+                        defaultValue={line.cost_each && parseFloat(line.cost_each) > 0 ? parseFloat(line.cost_each).toFixed(2) : ''}
+                        placeholder="—"
+                        onBlur={(e) => {
+                          const v = e.target.value !== '' ? parseFloat(e.target.value) : 0;
+                          const old = parseFloat(line.cost_each) || 0;
+                          if (v !== old) handleInlineSave(line.id, 'cost_each', e.target.value || '0');
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                        style={inlineEditableStyle}
+                      />
+                    ) : (
+                      <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>
+                        {line.cost_each && parseFloat(line.cost_each) > 0 ? formatCurrency(line.cost_each) : '—'}
+                      </span>
+                    )}
                   </td>
                 )}
                 {canSeeFinancials && (

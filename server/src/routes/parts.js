@@ -278,8 +278,17 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       values.push(description);
     }
     if (cost_each !== undefined) {
+      const parsedCost = cost_each !== null && cost_each !== '' ? parseFloat(cost_each) : null;
       updates.push(`cost_each = $${idx++}`);
-      values.push(parseFloat(cost_each));
+      values.push(parsedCost);
+
+      // Also update inventory cost so it stays current
+      if (existing.inventory_id && parsedCost !== null) {
+        await client.query(
+          'UPDATE inventory SET cost_each = $1 WHERE id = $2',
+          [parsedCost, existing.inventory_id]
+        );
+      }
     }
     if (quantity !== undefined) {
       newQty = parseFloat(quantity);
