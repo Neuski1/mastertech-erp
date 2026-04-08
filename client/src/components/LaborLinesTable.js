@@ -132,7 +132,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <th style={{ ...thStyle, textAlign: 'right' }}>Hours</th>
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Subtotal</th>}
-            {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Cost</th>}
+            {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Contractor Cost</th>}
             {canEdit && <th style={{ ...thStyle, textAlign: 'center', width: '40px' }}>N/C</th>}
             {canEdit && <th style={{ ...thStyle, width: '50px' }}></th>}
           </tr>
@@ -238,17 +238,17 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                       step="0.01"
                       min="0"
                       defaultValue={line.contractor_cost != null ? parseFloat(line.contractor_cost).toFixed(2) : ''}
-                      placeholder="—"
+                      placeholder="0.00"
                       onBlur={(e) => {
                         const newVal = e.target.value !== '' ? parseFloat(e.target.value) : null;
                         const oldVal = line.contractor_cost != null ? parseFloat(line.contractor_cost) : null;
                         if (newVal !== oldVal) handleInlineSave(line.id, 'contractor_cost', e.target.value || null);
                       }}
                       onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                      style={{ ...inlineEditable, width: '80px', textAlign: 'right' }}
+                      style={{ ...inlineEditable, width: '85px', textAlign: 'right' }}
                     />
                   ) : (
-                    line.contractor_cost != null ? formatCurrency(line.contractor_cost) : <span style={{ color: '#d1d5db' }}>—</span>
+                    line.contractor_cost != null ? formatCurrency(line.contractor_cost) : <span style={{ color: '#d1d5db' }}>$0.00</span>
                   )}
                 </td>
               )}
