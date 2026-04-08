@@ -22,6 +22,7 @@ export default function Reports() {
   const [to, setTo] = useState(thisMonth.to);
   const [report, setReport] = useState(null);
   const [techReport, setTechReport] = useState(null);
+  const [contractorReport, setContractorReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,12 +32,14 @@ export default function Reports() {
     setLoading(true);
     setError('');
     try {
-      const [data, techData] = await Promise.all([
+      const [data, techData, contractorData] = await Promise.all([
         api.getFinancialReport({ from, to }),
         api.getTechProfitability({ from, to }).catch(() => null),
+        api.getContractorProfitability({ from, to }).catch(() => null),
       ]);
       setReport(data);
       setTechReport(techData);
+      setContractorReport(contractorData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -224,6 +227,55 @@ export default function Reports() {
               <div style={{ marginTop: '12px', fontSize: '0.8rem', color: '#6b7280' }}>
                 <div>Labor Rate: ${techReport.laborRate}/hr | Average Effective Rate: {fmtCur(techReport.totals.avgRate)}/hr</div>
                 <div style={{ marginTop: '4px', fontStyle: 'italic' }}>Wage cost uses current hourly rates from Settings. Set wages there first for accurate margins.</div>
+              </div>
+            </div>
+          )}
+
+          {/* Contractor Profitability */}
+          {contractorReport && contractorReport.contractors && (
+            <div style={sectionStyle}>
+              <h2 style={sectionTitle}>Contractor Profitability</h2>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Contractor</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Jobs</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Hours</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Revenue Billed</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Contractor Cost</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Profit</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contractorReport.contractors.map(c => (
+                    <tr key={c.id}>
+                      <td style={tdStyle}><strong>{c.name}</strong></td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{c.jobs}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{c.hours.toFixed(1)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtCur(c.revenue)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{c.cost > 0 ? fmtCur(c.cost) : '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{c.cost > 0 ? fmtCur(c.profit) : '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: c.cost === 0 ? '#9ca3af' : c.margin >= 70 ? '#065f46' : c.margin >= 50 ? '#92400e' : '#dc2626' }}>
+                        {c.cost > 0 ? `${c.margin}%` : 'No cost entered'}
+                      </td>
+                    </tr>
+                  ))}
+                  {contractorReport.contractors.length > 0 && (
+                    <tr style={{ backgroundColor: '#f9fafb', fontWeight: 700 }}>
+                      <td style={{ ...tdStyle, borderTop: '2px solid #1e3a5f' }}>TOTAL</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{contractorReport.totals.jobs}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{contractorReport.totals.hours.toFixed(1)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{fmtCur(contractorReport.totals.revenue)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{fmtCur(contractorReport.totals.cost)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f' }}>{fmtCur(contractorReport.totals.profit)}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #1e3a5f', color: contractorReport.totals.margin >= 70 ? '#065f46' : contractorReport.totals.margin >= 50 ? '#92400e' : '#dc2626' }}>{contractorReport.totals.margin}%</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div style={{ marginTop: '12px', fontSize: '0.8rem', color: '#6b7280', fontStyle: 'italic' }}>
+                Based on contractor cost entered per labor line. Only lines with cost entered are included.
               </div>
             </div>
           )}

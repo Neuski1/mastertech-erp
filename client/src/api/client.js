@@ -188,6 +188,10 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/reports/technician-profitability${qs ? `?${qs}` : ''}`);
   },
+  getContractorProfitability: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/reports/contractor-profitability${qs ? `?${qs}` : ''}`);
+  },
   getFinancialReport: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/reports/financial${qs ? `?${qs}` : ''}`);

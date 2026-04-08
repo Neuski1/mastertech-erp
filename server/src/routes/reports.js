@@ -128,7 +128,7 @@ router.get('/technician-profitability', requireRole('admin'), async (req, res) =
           WHERE deleted_at IS NULL AND status NOT IN ('void')
           AND COALESCE(actual_completion_date, created_at::date) BETWEEN $1 AND $2
         )
-      WHERE t.deleted_at IS NULL AND t.is_active = TRUE
+      WHERE t.deleted_at IS NULL AND t.is_active = TRUE AND t.is_contractor = FALSE
       GROUP BY t.id, t.name, t.hourly_wage
       ORDER BY COALESCE(SUM(ll.line_total), 0) DESC
     `, [from, to]);
@@ -167,6 +167,68 @@ router.get('/technician-profitability', requireRole('admin'), async (req, res) =
     res.json({ technicians: techs, totals, laborRate });
   } catch (err) {
     console.error('GET /api/reports/technician-profitability error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/reports/contractor-profitability — Contractor profitability report
+router.get('/contractor-profitability', requireRole('admin'), async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
+
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        t.id AS technician_id,
+        t.name AS contractor_name,
+        COUNT(DISTINCT ll.record_id) AS job_count,
+        COALESCE(SUM(ll.hours), 0) AS billed_hours,
+        COALESCE(SUM(ll.line_total), 0) AS revenue_billed,
+        COALESCE(SUM(ll.contractor_cost), 0) AS total_cost
+      FROM technicians t
+      LEFT JOIN record_labor_lines ll ON ll.technician_id = t.id
+        AND ll.deleted_at IS NULL
+        AND ll.contractor_cost IS NOT NULL
+        AND ll.contractor_cost > 0
+        AND ll.record_id IN (
+          SELECT id FROM records
+          WHERE deleted_at IS NULL AND status NOT IN ('void')
+          AND COALESCE(actual_completion_date, created_at::date) BETWEEN $1 AND $2
+        )
+      WHERE t.deleted_at IS NULL AND t.is_active = TRUE AND t.is_contractor = TRUE
+      GROUP BY t.id, t.name
+      ORDER BY COALESCE(SUM(ll.line_total), 0) DESC
+    `, [from, to]);
+
+    const contractors = rows.map(r => {
+      const revenue = parseFloat(r.revenue_billed);
+      const cost = parseFloat(r.total_cost);
+      const profit = revenue - cost;
+      const margin = revenue > 0 ? Math.round((profit / revenue) * 1000) / 10 : 0;
+      return {
+        id: r.technician_id,
+        name: r.contractor_name,
+        jobs: parseInt(r.job_count),
+        hours: parseFloat(r.billed_hours),
+        revenue,
+        cost: Math.round(cost * 100) / 100,
+        profit: Math.round(profit * 100) / 100,
+        margin,
+      };
+    });
+
+    const totals = {
+      jobs: contractors.reduce((s, c) => s + c.jobs, 0),
+      hours: contractors.reduce((s, c) => s + c.hours, 0),
+      revenue: contractors.reduce((s, c) => s + c.revenue, 0),
+      cost: contractors.reduce((s, c) => s + c.cost, 0),
+    };
+    totals.profit = Math.round((totals.revenue - totals.cost) * 100) / 100;
+    totals.margin = totals.revenue > 0 ? Math.round((totals.profit / totals.revenue) * 1000) / 10 : 0;
+
+    res.json({ contractors, totals });
+  } catch (err) {
+    console.error('GET /api/reports/contractor-profitability error:', err);
     res.status(500).json({ error: err.message });
   }
 });
