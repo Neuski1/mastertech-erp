@@ -565,7 +565,7 @@ router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper', 'tec
       `SELECT sc.*, s.label AS space_label, s.space_type,
               c.last_name, c.first_name, c.company_name
        FROM storage_charges sc
-       JOIN storage_spaces s ON s.id = sc.space_id
+       LEFT JOIN storage_spaces s ON s.id = sc.space_id
        JOIN customers c ON c.id = sc.customer_id
        ${where}
        ORDER BY sc.charge_month DESC, s.label`,

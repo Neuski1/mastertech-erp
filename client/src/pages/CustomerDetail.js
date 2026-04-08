@@ -949,7 +949,7 @@ function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdat
         notes: editForm.notes,
       });
       setEditingId(null);
-      onUpdate();
+      await onUpdate();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -961,7 +961,7 @@ function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdat
     if (!window.confirm('Delete this charge? This cannot be undone.')) return;
     try {
       await api.deleteStorageCharge(c.id);
-      onUpdate();
+      await onUpdate();
     } catch (err) {
       setError(err.message);
     }
@@ -972,8 +972,15 @@ function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdat
     setAddSaving(true);
     setError('');
     try {
+      // Look up space_id from existing charges if space label matches
+      let spaceId = null;
+      if (addForm.space) {
+        const match = charges.find(c => c.space_label && c.space_label.toLowerCase() === addForm.space.toLowerCase());
+        if (match) spaceId = match.space_id;
+      }
       await api.createStorageCharge({
         customer_id: parseInt(customerId),
+        space_id: spaceId,
         amount: parseFloat(addForm.amount),
         charge_month: addForm.charge_month,
         charge_date: addForm.charge_date || addForm.charge_month + '-01',
@@ -981,7 +988,7 @@ function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdat
       });
       setShowAdd(false);
       setAddForm({ charge_month: '', charge_date: '', amount: '', space: '', notes: '' });
-      onUpdate();
+      await onUpdate();
     } catch (err) {
       setError(err.message);
     } finally {
