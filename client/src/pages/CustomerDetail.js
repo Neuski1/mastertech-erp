@@ -523,29 +523,14 @@ export default function CustomerDetail() {
 
       {/* ─── Storage Billing History ─── */}
       {storageCharges.length > 0 && (
-        <div style={sectionStyle}>
-          <h2 style={sectionTitle}>Storage Billing History ({storageCharges.length})</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Date</th>
-                <th style={thStyle}>Space</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
-                <th style={thStyle}>Month</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...storageCharges].sort((a, b) => new Date(b.charge_date) - new Date(a.charge_date)).map(c => (
-                <tr key={c.id}>
-                  <td style={tdStyle}>{new Date(c.charge_date.substring(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                  <td style={tdStyle}>{c.space_label || '\u2014'}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(c.amount).toFixed(2)}</td>
-                  <td style={tdStyle}>{c.charge_month ? new Date(c.charge_month + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '\u2014'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <StorageBillingHistory
+          charges={storageCharges}
+          isAdmin={isAdmin}
+          onUpdate={async () => {
+            const data = await api.getStorageCharges({ customer_id: id });
+            setStorageCharges(Array.isArray(data) ? data : data.charges || []);
+          }}
+        />
       )}
 
       {/* ─── Records History ─── */}
@@ -927,6 +912,111 @@ function AddUnitModal({ customerId, onClose, onCreated }) {
 }
 
 // Sub-components
+function StorageBillingHistory({ charges, isAdmin, onUpdate }) {
+  const [editingId, setEditingId] = React.useState(null);
+  const [editForm, setEditForm] = React.useState({});
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  const sorted = [...charges].sort((a, b) => new Date(b.charge_date) - new Date(a.charge_date));
+
+  const startEdit = (c) => {
+    setEditingId(c.id);
+    setEditForm({
+      amount: parseFloat(c.amount).toFixed(2),
+      charge_date: c.charge_date.substring(0, 10),
+      notes: c.notes || '',
+    });
+    setError('');
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await api.updateStorageCharge(editingId, {
+        amount: parseFloat(editForm.amount),
+        charge_date: editForm.charge_date,
+        notes: editForm.notes,
+      });
+      setEditingId(null);
+      onUpdate();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (c) => {
+    if (!window.confirm('Delete this charge? This cannot be undone.')) return;
+    try {
+      await api.deleteStorageCharge(c.id);
+      onUpdate();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const fmtDate = (d) => new Date(d.substring(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const fmtMonth = (m) => m ? new Date(m + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '\u2014';
+
+  return (
+    <div style={sectionStyle}>
+      <h2 style={sectionTitle}>Storage Billing History ({charges.length})</h2>
+      {error && <div style={{ padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', marginBottom: '12px', fontSize: '0.8rem' }}>{error}</div>}
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={thStyle}>Date</th>
+            <th style={thStyle}>Space</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+            <th style={thStyle}>Month</th>
+            {isAdmin && <th style={{ ...thStyle, width: '70px' }}>Actions</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(c => editingId === c.id ? (
+            <tr key={c.id} style={{ backgroundColor: '#fefce8' }}>
+              <td style={tdStyle}>
+                <input type="date" value={editForm.charge_date} onChange={(e) => setEditForm({ ...editForm, charge_date: e.target.value })}
+                  style={{ padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
+              </td>
+              <td style={tdStyle}>{c.space_label || '\u2014'}</td>
+              <td style={{ ...tdStyle, textAlign: 'right' }}>
+                <input type="number" step="0.01" min="0" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                  style={{ padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '90px', textAlign: 'right' }} />
+              </td>
+              <td style={tdStyle}>{fmtMonth(c.charge_month)}</td>
+              <td style={tdStyle}>
+                <button onClick={handleSave} disabled={saving} style={{ padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.7rem', marginRight: '4px' }}>
+                  {saving ? '...' : 'Save'}
+                </button>
+                <button onClick={() => setEditingId(null)} style={{ padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.7rem' }}>
+                  Cancel
+                </button>
+              </td>
+            </tr>
+          ) : (
+            <tr key={c.id}>
+              <td style={tdStyle}>{fmtDate(c.charge_date)}</td>
+              <td style={tdStyle}>{c.space_label || '\u2014'}</td>
+              <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(c.amount).toFixed(2)}</td>
+              <td style={tdStyle}>{fmtMonth(c.charge_month)}</td>
+              {isAdmin && (
+                <td style={tdStyle}>
+                  <button onClick={() => startEdit(c)} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#6b7280', padding: '2px 4px' }}>&#9998;</button>
+                  <button onClick={() => handleDelete(c)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#dc2626', padding: '2px 4px' }}>&#128465;</button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Field({ label, value }) {
   return (
     <div>

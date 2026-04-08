@@ -546,4 +546,56 @@ router.get('/charges', requireRole('admin', 'service_writer', 'bookkeeper', 'tec
   }
 });
 
+// ---------------------------------------------------------------------------
+// DELETE /api/storage/charges/:id — Delete a storage charge
+// ---------------------------------------------------------------------------
+router.delete('/charges/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'DELETE FROM storage_charges WHERE id = $1 RETURNING id',
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Charge not found' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/storage/charges/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/storage/charges/:id — Edit a storage charge
+// ---------------------------------------------------------------------------
+router.patch('/charges/:id', requireRole('admin'), async (req, res) => {
+  const { amount, charge_date, notes } = req.body;
+  const updates = [];
+  const values = [];
+  let idx = 1;
+
+  if (amount !== undefined) { updates.push(`amount = $${idx++}`); values.push(parseFloat(amount)); }
+  if (charge_date !== undefined) { updates.push(`charge_date = $${idx++}`); values.push(charge_date); }
+  if (notes !== undefined) { updates.push(`notes = $${idx++}`); values.push(notes); }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No fields to update' });
+  }
+
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE storage_charges SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Charge not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PATCH /api/storage/charges/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
