@@ -5,6 +5,13 @@ import VendorSelect from '../components/VendorSelect';
 
 const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
+const CATEGORY_NORMALIZE = {
+  'AIRSTREAM': 'AS', 'AWNING': 'AWN', 'BATTERY': 'BAT',
+  'DOORS/WINDOWS': 'DOOR', 'ELECTRICAL': 'ELEC', 'HARDWARE': 'HDWR',
+  'MISC/SHOP SUPPLIES': 'MISC', 'PLUMBING': 'PLMB', 'ROOFING': 'ROOF',
+  'SOLAR': 'SOLR', 'SUSPENSION': 'SUSP', 'TOWING/CHASSIS': 'TOW',
+};
+
 
 const emptyForm = {
   part_number: '',
@@ -46,7 +53,7 @@ export default function InventoryForm() {
           description: item.description || '',
           vendor: item.vendor || '',
           vendor_part_number: item.vendor_part_number || '',
-          category: item.category || '',
+          category: CATEGORY_NORMALIZE[item.category] || item.category || '',
           location: item.location || 'unassigned',
           qty_on_hand: item.qty_on_hand != null ? String(item.qty_on_hand) : '0',
           reorder_level: item.reorder_level != null ? String(item.reorder_level) : '',
