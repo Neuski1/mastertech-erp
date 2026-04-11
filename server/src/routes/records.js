@@ -160,10 +160,26 @@ router.post('/:id/copy', requireRole('admin', 'service_writer'), async (req, res
         [parts_line_ids, req.params.id]
       );
       for (const pl of partsLines) {
+        let costEach = pl.cost_each;
+        let salePriceEach = pl.sale_price_each;
+
+        // Refresh prices from current inventory for inventory parts
+        if (pl.is_inventory_part && pl.inventory_id) {
+          const { rows: invRows } = await client.query(
+            'SELECT cost_each, sale_price_each FROM inventory WHERE id = $1 AND deleted_at IS NULL',
+            [pl.inventory_id]
+          );
+          if (invRows.length > 0) {
+            costEach = invRows[0].cost_each ?? pl.cost_each;
+            salePriceEach = invRows[0].sale_price_each ?? pl.sale_price_each;
+          }
+        }
+
+        const lineTotal = parseFloat((parseFloat(pl.quantity) * parseFloat(salePriceEach)).toFixed(2));
         await client.query(
           `INSERT INTO record_parts_lines (record_id, inventory_id, is_inventory_part, part_number, description, quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.description, pl.quantity, pl.cost_each, pl.sale_price_each, pl.line_total, pl.taxable, pl.sort_order, pl.vendor]
+          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.description, pl.quantity, costEach, salePriceEach, lineTotal, pl.taxable, pl.sort_order, pl.vendor]
         );
       }
     }
