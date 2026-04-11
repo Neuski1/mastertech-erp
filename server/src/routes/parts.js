@@ -125,11 +125,13 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
         ? parseFloat(sale_price_each)
         : parseFloat(inv.sale_price_each);
 
-      // Decrement inventory
-      await client.query(
-        'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
-        [parsedQty, inv.id]
-      );
+      // Decrement inventory only for non-estimate records
+      if (recRows[0].status !== 'estimate') {
+        await client.query(
+          'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
+          [parsedQty, inv.id]
+        );
+      }
     }
 
     const lineTotal = parseFloat((parsedQty * finalSalePrice).toFixed(2));
@@ -256,6 +258,10 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
   try {
     await client.query('BEGIN');
 
+    // Get record status for inventory logic
+    const { rows: recStatusRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
+    const recordStatus = recStatusRows[0]?.status;
+
     const { rows: lineRows } = await client.query(
       'SELECT * FROM record_parts_lines WHERE id = $1 AND record_id = $2 AND deleted_at IS NULL',
       [lineId, recordId]
@@ -299,8 +305,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       updates.push(`quantity = $${idx++}`);
       values.push(newQty);
 
-      // Adjust inventory if inventory part
-      if (existing.is_inventory_part && existing.inventory_id) {
+      // Adjust inventory if inventory part (skip for estimates)
+      if (existing.is_inventory_part && existing.inventory_id && recordStatus !== 'estimate') {
         const qtyDiff = newQty - parseFloat(existing.quantity);
         if (qtyDiff !== 0) {
           await client.query(
@@ -375,8 +381,9 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
 
     const line = lineRows[0];
 
-    // Restore inventory if it was an inventory part
-    if (line.is_inventory_part && line.inventory_id) {
+    // Restore inventory if it was an inventory part (skip for estimates — nothing was deducted)
+    const { rows: delRecRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
+    if (line.is_inventory_part && line.inventory_id && delRecRows[0]?.status !== 'estimate') {
       await client.query(
         'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
         [parseFloat(line.quantity), line.inventory_id]

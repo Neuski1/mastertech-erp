@@ -536,6 +536,36 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
+    // When estimate → non-estimate: deduct inventory for all inventory parts
+    if (record.status === 'estimate' && newStatus !== 'estimate') {
+      const { rows: invParts } = await client.query(
+        `SELECT inventory_id, quantity FROM record_parts_lines
+         WHERE record_id = $1 AND deleted_at IS NULL AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
+        [req.params.id]
+      );
+      for (const p of invParts) {
+        await client.query(
+          'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
+          [parseFloat(p.quantity), p.inventory_id]
+        );
+      }
+    }
+
+    // When non-estimate → estimate (revert) or → void: restore inventory for all inventory parts
+    if ((record.status !== 'estimate' && newStatus === 'estimate') || (record.status !== 'void' && newStatus === 'void')) {
+      const { rows: invParts } = await client.query(
+        `SELECT inventory_id, quantity FROM record_parts_lines
+         WHERE record_id = $1 AND deleted_at IS NULL AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
+        [req.params.id]
+      );
+      for (const p of invParts) {
+        await client.query(
+          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
+          [parseFloat(p.quantity), p.inventory_id]
+        );
+      }
+    }
+
     // When status → complete: auto-stamp actual_completion_date, recalculate shop supplies
     if (newStatus === 'complete') {
       if (!record.actual_completion_date) {
