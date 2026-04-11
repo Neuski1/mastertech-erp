@@ -93,6 +93,110 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/records/:id/copy — Copy selected lines to a new record
+// ---------------------------------------------------------------------------
+router.post('/:id/copy', requireRole('admin', 'service_writer'), async (req, res) => {
+  const { customer_id, unit_id, labor_line_ids = [], parts_line_ids = [], freight_line_ids = [] } = req.body;
+
+  if (!customer_id || !unit_id) {
+    return res.status(400).json({ error: 'customer_id and unit_id are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Fetch source record
+    const { rows: srcRows } = await client.query(
+      'SELECT * FROM records WHERE id = $1 AND deleted_at IS NULL', [req.params.id]
+    );
+    if (srcRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Source record not found' });
+    }
+    const src = srcRows[0];
+
+    // Generate next record_number
+    const numRes = await client.query('SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records');
+    const recordNumber = numRes.rows[0].next_num;
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+
+    // Create new record
+    const { rows: newRows } = await client.query(
+      `INSERT INTO records (
+         record_number, customer_id, unit_id, status, key_number,
+         job_description, is_insurance_job,
+         internal_notes, customer_notes,
+         tax_rate, shop_supplies_exempt, cc_fee_applied, intake_date
+       ) VALUES ($1,$2,$3,'estimate',$4,$5,false,$6,$7,$8,$9,true,$10)
+       RETURNING *`,
+      [recordNumber, customer_id, unit_id,
+       src.key_number || null, src.job_description || null,
+       src.internal_notes || null, src.customer_notes || null,
+       src.tax_rate, src.shop_supplies_exempt, today]
+    );
+    const newId = newRows[0].id;
+
+    // Copy selected labor lines
+    if (labor_line_ids.length > 0) {
+      const { rows: laborLines } = await client.query(
+        `SELECT * FROM record_labor_lines WHERE id = ANY($1) AND record_id = $2 AND deleted_at IS NULL`,
+        [labor_line_ids, req.params.id]
+      );
+      for (const ll of laborLines) {
+        await client.query(
+          `INSERT INTO record_labor_lines (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, no_charge)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [newId, ll.technician_id, ll.line_type, ll.description, ll.hours, ll.rate, ll.line_total, ll.sort_order, ll.no_charge || false]
+        );
+      }
+    }
+
+    // Copy selected parts lines
+    if (parts_line_ids.length > 0) {
+      const { rows: partsLines } = await client.query(
+        `SELECT * FROM record_parts_lines WHERE id = ANY($1) AND record_id = $2 AND deleted_at IS NULL`,
+        [parts_line_ids, req.params.id]
+      );
+      for (const pl of partsLines) {
+        await client.query(
+          `INSERT INTO record_parts_lines (record_id, inventory_id, is_inventory_part, part_number, description, quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.description, pl.quantity, pl.cost_each, pl.sale_price_each, pl.line_total, pl.taxable, pl.sort_order, pl.vendor]
+        );
+      }
+    }
+
+    // Copy selected freight lines
+    if (freight_line_ids.length > 0) {
+      const { rows: freightLines } = await client.query(
+        `SELECT * FROM record_freight_lines WHERE id = ANY($1) AND record_id = $2 AND deleted_at IS NULL`,
+        [freight_line_ids, req.params.id]
+      );
+      for (const fl of freightLines) {
+        await client.query(
+          `INSERT INTO record_freight_lines (record_id, description, amount) VALUES ($1, $2, $3)`,
+          [newId, fl.description, fl.amount]
+        );
+      }
+    }
+
+    // Recalculate totals on the new record
+    await recalculateTotals(newId, client);
+    await client.query('COMMIT');
+
+    res.status(201).json({ success: true, new_record_id: newId, record_number: recordNumber });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/records/:id/copy error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/records — List records with filters
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {

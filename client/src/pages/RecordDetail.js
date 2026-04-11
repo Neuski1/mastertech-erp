@@ -78,6 +78,7 @@ export default function RecordDetail() {
   const [showSignModal, setShowSignModal] = useState(false);
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showCopyModal, setShowCopyModal] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState(null);
@@ -708,6 +709,9 @@ ${paymentDetailHtml}
           {canEditRecords && !editing && record.status !== 'void' && (
             <button onClick={() => setShowScheduleModal(true)} style={btnSchedule}>Add to Schedule</button>
           )}
+          {canEditRecords && !editing && (
+            <button onClick={() => setShowCopyModal(true)} style={btnSecondary}>Copy to WO</button>
+          )}
           {isEditable && !editing && record.status !== 'void' && (
             <button onClick={handleVoid} style={btnDanger}>Void</button>
           )}
@@ -1223,6 +1227,15 @@ ${paymentDetailHtml}
         />
       )}
 
+      {/* Copy to WO Modal */}
+      {showCopyModal && (
+        <CopyToWOModal
+          record={record}
+          onClose={() => setShowCopyModal(false)}
+          onSuccess={(newId) => { setShowCopyModal(false); navigate(`/records/${newId}`); }}
+        />
+      )}
+
       {/* QuickBooks Sync */}
       {canSeeFinancials && record.status === 'paid' && (
         <div style={{ ...sectionStyle, backgroundColor: record.quickbooks_synced_at ? '#f0fdf4' : '#fffbeb' }}>
@@ -1286,6 +1299,204 @@ ${paymentDetailHtml}
 
 // ─── Manual Payment Modal (Check / Cash / Zelle) ────────────────────────────
 // ─── Schedule Modal ─────────────────────────────────────────────────────────
+function CopyToWOModal({ record, onClose, onSuccess }) {
+  const [customerSearch, setCSearch] = React.useState('');
+  const [customerResults, setCResults] = React.useState([]);
+  const [selectedCustomer, setSelCustomer] = React.useState(null);
+  const [units, setUnits] = React.useState([]);
+  const [unitId, setUnitId] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  const laborLines = (record.labor_lines || []).filter(l => !l.deleted_at);
+  const partsLines = (record.parts_lines || []).filter(l => !l.deleted_at);
+  const freightLines = (record.freight_lines || []).filter(l => !l.deleted_at);
+
+  const [selLabor, setSelLabor] = React.useState(laborLines.map(l => l.id));
+  const [selParts, setSelParts] = React.useState(partsLines.map(l => l.id));
+  const [selFreight, setSelFreight] = React.useState(freightLines.map(l => l.id));
+
+  React.useEffect(() => {
+    if (customerSearch.length < 2) { setCResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.getCustomers({ search: customerSearch, limit: 10 });
+        setCResults(r.customers || []);
+      } catch (e) { /* ignore */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [customerSearch]);
+
+  const pickCustomer = async (c) => {
+    setSelCustomer(c);
+    setCSearch('');
+    setCResults([]);
+    try {
+      const u = await api.getCustomerUnits(c.id);
+      setUnits(u);
+      if (u.length === 1) setUnitId(String(u[0].id));
+    } catch (e) { /* ignore */ }
+  };
+
+  const toggleAll = (list, setter, ids) => {
+    setter(list.length === ids.length ? [] : ids.map(l => l.id));
+  };
+  const toggleOne = (id, sel, setter) => {
+    setter(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
+  };
+
+  const handleCopy = async () => {
+    if (!selectedCustomer || !unitId) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await api.copyRecord(record.id, {
+        customer_id: selectedCustomer.id,
+        unit_id: parseInt(unitId),
+        labor_line_ids: selLabor,
+        parts_line_ids: selParts,
+        freight_line_ids: selFreight,
+      });
+      onSuccess(res.new_record_id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const truncate = (s, n) => s && s.length > n ? s.substring(0, n) + '...' : s || '';
+  const fmtCur = (v) => '$' + parseFloat(v || 0).toFixed(2);
+  const totalSel = selLabor.length + selParts.length + selFreight.length;
+  const ckStyle = { cursor: 'pointer', width: '15px', height: '15px', marginRight: '6px' };
+  const lineStyle = { display: 'flex', alignItems: 'center', padding: '4px 0', fontSize: '0.8rem', borderBottom: '1px solid #f3f4f6' };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, width: '600px', maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0, color: '#1e3a5f' }}>Copy WO #{record.record_number} to New Record</h3>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', color: '#6b7280' }}>X</button>
+        </div>
+
+        {error && <div style={{ padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', marginBottom: '12px', fontSize: '0.85rem' }}>{error}</div>}
+
+        {/* Customer search */}
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Copy to Customer *</label>
+          {selectedCustomer ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ padding: '6px 12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '0.85rem' }}>
+                <strong>{selectedCustomer.last_name}{selectedCustomer.first_name ? ', ' + selectedCustomer.first_name : ''}</strong>
+                {selectedCustomer.company_name ? ` (${selectedCustomer.company_name})` : ''}
+              </span>
+              <button onClick={() => { setSelCustomer(null); setUnits([]); setUnitId(''); }} style={{ padding: '3px 8px', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Change</button>
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <input value={customerSearch} onChange={(e) => setCSearch(e.target.value)} placeholder="Search customer..." style={inputStyle} autoFocus />
+              {customerResults.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '0 0 6px 6px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                  {customerResults.map(c => (
+                    <div key={c.id} onClick={() => pickCustomer(c)} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f3f4f6' }}>
+                      <strong>{c.last_name}{c.first_name ? ', ' + c.first_name : ''}</strong>
+                      {c.company_name ? ` (${c.company_name})` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Unit dropdown */}
+        {selectedCustomer && (
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Unit *</label>
+            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} style={inputStyle}>
+              <option value="">— Select Unit —</option>
+              {units.map(u => (
+                <option key={u.id} value={String(u.id)}>
+                  {[u.year, u.make, u.model].filter(Boolean).join(' ') || `Unit #${u.id}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Labor lines */}
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <label style={{ ...labelStyle, marginBottom: 0 }}>Labor Lines ({selLabor.length}/{laborLines.length})</label>
+            {laborLines.length > 0 && <button onClick={() => toggleAll(selLabor, setSelLabor, laborLines)} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.75rem' }}>{selLabor.length === laborLines.length ? 'Deselect All' : 'Select All'}</button>}
+          </div>
+          {laborLines.length === 0 ? <div style={{ fontSize: '0.8rem', color: '#9ca3af', fontStyle: 'italic' }}>No labor lines on this work order</div> :
+            laborLines.map(l => (
+              <div key={l.id} style={lineStyle}>
+                <input type="checkbox" checked={selLabor.includes(l.id)} onChange={() => toggleOne(l.id, selLabor, setSelLabor)} style={ckStyle} />
+                <span style={{ color: '#6b7280', minWidth: '70px' }}>{l.technician_name || 'Unassigned'}</span>
+                <span style={{ flex: 1, marginLeft: '6px' }}>{truncate(l.description, 60)}</span>
+                <span style={{ color: '#6b7280', whiteSpace: 'nowrap', marginLeft: '8px' }}>{parseFloat(l.hours).toFixed(1)} hrs @ {fmtCur(l.rate)}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Parts lines */}
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <label style={{ ...labelStyle, marginBottom: 0 }}>Parts Lines ({selParts.length}/{partsLines.length})</label>
+            {partsLines.length > 0 && <button onClick={() => toggleAll(selParts, setSelParts, partsLines)} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.75rem' }}>{selParts.length === partsLines.length ? 'Deselect All' : 'Select All'}</button>}
+          </div>
+          {partsLines.length === 0 ? <div style={{ fontSize: '0.8rem', color: '#9ca3af', fontStyle: 'italic' }}>No parts lines on this work order</div> :
+            partsLines.map(l => (
+              <div key={l.id} style={lineStyle}>
+                <input type="checkbox" checked={selParts.includes(l.id)} onChange={() => toggleOne(l.id, selParts, setSelParts)} style={ckStyle} />
+                <span style={{ color: '#6b7280', minWidth: '60px' }}>{l.part_number || '—'}</span>
+                <span style={{ flex: 1, marginLeft: '6px' }}>{truncate(l.description, 60)}</span>
+                <span style={{ color: '#6b7280', whiteSpace: 'nowrap', marginLeft: '8px' }}>Qty {parseFloat(l.quantity)} @ {fmtCur(l.sale_price_each)}</span>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Freight lines */}
+        {freightLines.length > 0 && (
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Freight Lines ({selFreight.length}/{freightLines.length})</label>
+              <button onClick={() => toggleAll(selFreight, setSelFreight, freightLines)} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.75rem' }}>{selFreight.length === freightLines.length ? 'Deselect All' : 'Select All'}</button>
+            </div>
+            {freightLines.map(l => (
+              <div key={l.id} style={lineStyle}>
+                <input type="checkbox" checked={selFreight.includes(l.id)} onChange={() => toggleOne(l.id, selFreight, setSelFreight)} style={ckStyle} />
+                <span style={{ flex: 1 }}>{l.description}</span>
+                <span style={{ color: '#6b7280', marginLeft: '8px' }}>{fmtCur(l.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Summary + actions */}
+        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '12px', marginTop: '8px' }}>
+          <div style={{ fontSize: '0.85rem', color: '#374151', marginBottom: '4px' }}>
+            <strong>{selLabor.length}</strong> labor, <strong>{selParts.length}</strong> parts{selFreight.length > 0 ? `, ${selFreight.length} freight` : ''} selected
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '12px', fontStyle: 'italic' }}>
+            Status will be set to Estimate. Payments and signatures are not copied.
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={btnSecondary}>Cancel</button>
+            <button onClick={handleCopy} disabled={saving || !selectedCustomer || !unitId} style={{ ...btnPrimary, opacity: (!selectedCustomer || !unitId) ? 0.5 : 1 }}>
+              {saving ? 'Copying...' : 'Copy Work Order'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScheduleModal({ record, onSuccess, onClose }) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   const [date, setDate] = useState(today);

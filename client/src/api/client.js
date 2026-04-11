@@ -58,6 +58,7 @@ export const api = {
   deleteRecord: (id) => request(`/records/${id}`, { method: 'DELETE' }),
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
   sendReminder: (recordId) => request(`/records/${recordId}/send-reminder`, { method: 'POST' }),
+  copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Customers
   getCustomers: (params = {}) => {
