@@ -59,7 +59,7 @@ const STATUS_LABELS = {
   paid: 'Paid',
   on_hold: 'On Hold',
   void: 'Void',
-  filed: 'Filed Estimate',
+  filed: 'File Estimate',
 };
 
 export default function RecordList() {

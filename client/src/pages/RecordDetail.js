@@ -51,7 +51,7 @@ const ALL_STATUSES = [
   { value: 'payment_pending', label: 'Payment Pending' },
   { value: 'paid', label: 'Paid' },
   { value: 'on_hold', label: 'On Hold' },
-  { value: 'filed', label: 'Filed Estimate' },
+  { value: 'filed', label: 'File Estimate' },
 ];
 
 const METHOD_LABELS = {

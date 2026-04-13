@@ -72,7 +72,8 @@
       "Bash(\"C:\\\\Program Files\\\\PostgreSQL\\\\16\\\\bin\\\\psql.exe\" -U postgres -d mastertech_erp -f \"C:\\\\Users\\\\servi\\\\OneDrive\\\\Desktop\\\\mastertech-erp\\\\database\\\\migrations\\\\customer_import_3-23-26.sql\")",
       "Bash(PGPASSWORD=postgres \"/c/Program Files/PostgreSQL/16/bin/psql.exe\" -U postgres -d mastertech_erp -f \"C:/Users/servi/OneDrive/Desktop/mastertech-erp/database/migrations/customer_import_3-23-26.sql\")",
       "Bash(ls C:/Users/servi/OneDrive/Desktop/mastertech-erp/.env.*)",
-      "Bash(ls C:/Users/servi/OneDrive/Desktop/mastertech-erp/client/.env*)"
+      "Bash(ls C:/Users/servi/OneDrive/Desktop/mastertech-erp/client/.env*)",
+      "Bash(curl:*)"
     ]
   }
 }
