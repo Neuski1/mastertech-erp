@@ -107,36 +107,6 @@ function makeUnsubscribeUrl(email) {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/campaigns/debug-counts — Public diagnostic (no auth, before /:id)
-// ---------------------------------------------------------------------------
-router.get('/debug-counts', async (req, res) => {
-  const r = {};
-  try {
-    r.total_customers = (await pool.query("SELECT COUNT(*) AS c FROM customers WHERE deleted_at IS NULL")).rows[0].c;
-    r.have_email = (await pool.query("SELECT COUNT(*) AS c FROM customers WHERE deleted_at IS NULL AND email_primary IS NOT NULL AND email_primary != ''")).rows[0].c;
-    try { r.opted_out = (await pool.query("SELECT COUNT(*) AS c FROM customers WHERE deleted_at IS NULL AND marketing_opt_out = TRUE")).rows[0].c; } catch { r.opted_out = 'column missing'; }
-    try { r.email_invalid = (await pool.query("SELECT COUNT(*) AS c FROM customers WHERE deleted_at IS NULL AND email_invalid = TRUE")).rows[0].c; } catch { r.email_invalid = 'column missing'; }
-    r.active_storage = (await pool.query("SELECT COUNT(DISTINCT customer_id) AS c FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL")).rows[0].c;
-    r.open_work_orders = (await pool.query("SELECT COUNT(DISTINCT customer_id) AS c FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid','void')")).rows[0].c;
-    try {
-      r.campaigns = (await pool.query("SELECT id, name, template_type, status, recipient_count, sent_count FROM email_campaigns ORDER BY id")).rows;
-      r.recipients_by_status = (await pool.query("SELECT ec.id, ec.name, ecr.status, COUNT(*) AS cnt FROM email_campaigns ec JOIN email_campaign_recipients ecr ON ec.id = ecr.campaign_id GROUP BY ec.id, ec.name, ecr.status ORDER BY ec.id")).rows;
-      r.total_sent = (await pool.query("SELECT COUNT(*) AS c FROM email_campaign_recipients WHERE status = 'sent'")).rows[0].c;
-    } catch (e) { r.campaign_tables = 'error: ' + e.message; }
-    try { r.unsubscribes = (await pool.query("SELECT COUNT(*) AS c FROM email_unsubscribes")).rows[0].c; } catch { r.unsubscribes = 'table missing'; }
-    let q = `SELECT COUNT(*) AS c FROM customers c WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
-    try { await pool.query('SELECT marketing_opt_out FROM customers LIMIT 1'); q += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`; } catch {}
-    q += ` AND c.id NOT IN (SELECT DISTINCT customer_id FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL)`;
-    q += ` AND c.id NOT IN (SELECT DISTINCT customer_id FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid','void'))`;
-    r.audience_before_sent_exclusion = (await pool.query(q)).rows[0].c;
-    try {
-      r.audience_after_seasonal_exclusion = (await pool.query(q + ` AND LOWER(c.email_primary) NOT IN (SELECT LOWER(ecr.email) FROM email_campaign_recipients ecr JOIN email_campaigns ec ON ecr.campaign_id = ec.id WHERE ecr.status = 'sent' AND ec.template_type = 'seasonal')`)).rows[0].c;
-    } catch (e) { r.audience_after_seasonal_exclusion = 'error: ' + e.message; }
-    res.json(r);
-  } catch (err) { res.status(500).json({ error: err.message, partial: r }); }
-});
-
-// ---------------------------------------------------------------------------
 // GET /api/campaigns/audit — audience audit data
 // ---------------------------------------------------------------------------
 router.get('/audit', requireAuth, requireRole('admin'), async (req, res) => {
