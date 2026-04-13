@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
@@ -8,6 +8,8 @@ import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 export default function CustomerDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromSearchTerm = location.state?.searchTerm;
   const { canEditRecords, isAdmin } = useAuth();
   const [customer, setCustomer] = useState(null);
   const [units, setUnits] = useState([]);
@@ -272,7 +274,11 @@ export default function CustomerDetail() {
     <div style={{ maxWidth: '960px', margin: '0 auto' }}>
       {/* Nav */}
       <div style={{ marginBottom: '16px' }}>
-        <button onClick={() => navigate('/customers')} style={{ ...btnLink, marginBottom: '8px' }}>&larr; Back to Customers</button>
+        {fromSearchTerm ? (
+          <button onClick={() => navigate('/customers', { state: { searchTerm: fromSearchTerm } })} style={{ ...btnLink, marginBottom: '8px' }}>&larr; Back to Results</button>
+        ) : (
+          <button onClick={() => navigate('/customers')} style={{ ...btnLink, marginBottom: '8px' }}>&larr; Back to Customers</button>
+        )}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {isAdmin && !editing && (
             <button onClick={() => handleDeleteCustomer()} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>Delete Customer</button>

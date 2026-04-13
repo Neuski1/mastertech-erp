@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone } from '../utils/formatPhone';
@@ -15,13 +15,21 @@ function debounce(fn, delay) {
 
 export default function CustomerList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const isMobile = useIsMobile();
+  const initialSearch = location.state?.searchTerm || '';
   const [customers, setCustomers] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+
+  useEffect(() => {
+    if (location.state?.searchTerm) {
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
   const [showMarketing, setShowMarketing] = useState(false);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
 
@@ -253,7 +261,7 @@ export default function CustomerList() {
       ) : isMobile ? (
         <div>
           {customers.map(c => (
-            <div key={c.id} className="mobile-customer-card" onClick={() => navigate(`/customers/${c.id}`)}>
+            <div key={c.id} className="mobile-customer-card" onClick={() => navigate(`/customers/${c.id}`, { state: searchTerm ? { searchTerm } : undefined })}>
               <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>
                 {c.last_name}{c.first_name ? `, ${c.first_name}` : ''}
               </div>
@@ -288,7 +296,7 @@ export default function CustomerList() {
             </thead>
             <tbody>
               {customers.map(c => (
-                <tr key={c.id} onClick={() => navigate(`/customers/${c.id}`)} style={{ cursor: 'pointer' }}>
+                <tr key={c.id} onClick={() => navigate(`/customers/${c.id}`, { state: searchTerm ? { searchTerm } : undefined })} style={{ cursor: 'pointer' }}>
                   <td style={tdStyle}>{c.account_number || '—'}</td>
                   <td style={tdStyle}>
                     <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
