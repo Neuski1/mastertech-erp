@@ -125,8 +125,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
         ? parseFloat(sale_price_each)
         : parseFloat(inv.sale_price_each);
 
-      // Decrement inventory only for non-estimate records
-      if (recRows[0].status !== 'estimate') {
+      // Decrement inventory only for non-estimate/filed records
+      if (recRows[0].status !== 'estimate' && recRows[0].status !== 'filed') {
         await client.query(
           'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
           [parsedQty, inv.id]
@@ -383,7 +383,7 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
 
     // Restore inventory if it was an inventory part (skip for estimates — nothing was deducted)
     const { rows: delRecRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
-    if (line.is_inventory_part && line.inventory_id && delRecRows[0]?.status !== 'estimate') {
+    if (line.is_inventory_part && line.inventory_id && delRecRows[0]?.status !== 'estimate' && delRecRows[0]?.status !== 'filed') {
       await client.query(
         'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
         [parseFloat(line.quantity), line.inventory_id]

@@ -14,6 +14,7 @@ const STATUS_CONFIG = {
   paid:               { label: 'Paid',                color: '#065f46', bg: '#a7f3d0' },
   on_hold:            { label: 'On Hold',             color: '#6b7280', bg: '#f3f4f6' },
   void:               { label: 'Void',                color: '#ef4444', bg: '#fee2e2' },
+  filed:              { label: 'Filed',                color: '#475569', bg: '#e2e8f0' },
 };
 
 export default function StatusBadge({ status }) {

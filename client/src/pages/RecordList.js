@@ -31,6 +31,12 @@ const STATUS_GROUPS = [
     bg: '#fffbeb', border: '#fde68a', headerBg: '#fef3c7', headerColor: '#92400e',
   },
   {
+    key: 'filed',
+    label: 'Filed Estimates',
+    statuses: ['filed'],
+    bg: '#f8fafc', border: '#cbd5e1', headerBg: '#e2e8f0', headerColor: '#475569',
+  },
+  {
     key: 'closed',
     label: 'Closed',
     statuses: ['paid', 'void'],
@@ -53,6 +59,7 @@ const STATUS_LABELS = {
   paid: 'Paid',
   on_hold: 'On Hold',
   void: 'Void',
+  filed: 'Filed Estimate',
 };
 
 export default function RecordList() {
@@ -63,7 +70,7 @@ export default function RecordList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [collapsed, setCollapsed] = useState({ closed: true });
+  const [collapsed, setCollapsed] = useState({ closed: true, filed: true });
   const [groupSort, setGroupSort] = useState({}); // { groupKey: { field, dir } }
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -106,7 +113,7 @@ export default function RecordList() {
 
   const isPastDue = (r) => {
     if (!r.expected_completion_date) return false;
-    if (['complete', 'paid', 'void'].includes(r.status)) return false;
+    if (['complete', 'paid', 'void', 'filed'].includes(r.status)) return false;
     const due = new Date(r.expected_completion_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -304,9 +311,9 @@ export default function RecordList() {
                       sortGroupRecords(groupRecords, group.key).map(r => renderMobileCard(r))
                     ) : (
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        {renderTableHead(group.key !== 'closed', group.key)}
+                        {renderTableHead(!['closed', 'filed'].includes(group.key), group.key)}
                         <tbody>
-                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, group.key !== 'closed'))}
+                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, !['closed', 'filed'].includes(group.key)))}
                         </tbody>
                       </table>
                     )}

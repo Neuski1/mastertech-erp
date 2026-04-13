@@ -51,6 +51,7 @@ const ALL_STATUSES = [
   { value: 'payment_pending', label: 'Payment Pending' },
   { value: 'paid', label: 'Paid' },
   { value: 'on_hold', label: 'On Hold' },
+  { value: 'filed', label: 'Filed Estimate' },
 ];
 
 const METHOD_LABELS = {
@@ -711,6 +712,30 @@ ${paymentDetailHtml}
           )}
           {canEditRecords && !editing && (
             <button onClick={() => setShowCopyModal(true)} style={btnSecondary}>Copy to WO</button>
+          )}
+          {canEditRecords && !editing && record.status === 'estimate' && (
+            <button
+              onClick={() => {
+                if (window.confirm('File this estimate? It will move out of Needs Attention into the Filed Estimates section.')) {
+                  handleManualStatusChange('filed');
+                }
+              }}
+              style={btnFile}
+            >
+              File
+            </button>
+          )}
+          {canEditRecords && !editing && record.status === 'filed' && (
+            <button
+              onClick={() => {
+                if (window.confirm('Move this estimate back to active? It will reappear in Needs Attention.')) {
+                  handleManualStatusChange('estimate');
+                }
+              }}
+              style={btnFile}
+            >
+              Unfile
+            </button>
           )}
           {isEditable && !editing && record.status !== 'void' && (
             <button onClick={handleVoid} style={btnDanger}>Void</button>
@@ -1956,6 +1981,7 @@ const btnSchedule = { padding: '8px 16px', backgroundColor: '#0d9488', color: '#
 const btnEditYellow = { padding: '8px 16px', backgroundColor: '#FFD700', color: '#000', border: '1px solid #ccaa00', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.875rem' };
 const btnSectionEdit = { padding: '4px 12px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 };
 const btnLink = { background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.875rem', padding: 0 };
+const btnFile = { padding: '8px 16px', backgroundColor: '#e2e8f0', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const overlayStyle = {
   position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
   backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',

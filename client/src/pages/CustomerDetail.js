@@ -262,9 +262,11 @@ export default function CustomerDetail() {
   if (error && !customer) return <div style={{ color: 'red', padding: '40px' }}>Error: {error}</div>;
   if (!customer) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading...</div>;
 
+  const filedRecords = records.filter(r => r.status === 'filed');
+  const activeRecords = records.filter(r => r.status !== 'filed');
   const filteredRecords = unitFilter
-    ? records.filter(r => r.year === unitFilter.year && r.make === unitFilter.make && r.model === unitFilter.model)
-    : records;
+    ? activeRecords.filter(r => r.year === unitFilter.year && r.make === unitFilter.make && r.model === unitFilter.model)
+    : activeRecords;
 
   return (
     <div style={{ maxWidth: '960px', margin: '0 auto' }}>
@@ -533,6 +535,41 @@ export default function CustomerDetail() {
             setStorageCharges(Array.isArray(data) ? data : data.charges || []);
           }}
         />
+      )}
+
+      {/* ─── Filed Estimates ─── */}
+      {filedRecords.length > 0 && (
+        <div style={{ ...sectionStyle, borderLeft: '4px solid #94a3b8' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none', color: '#475569' }}>
+              Filed Estimates ({filedRecords.length})
+            </h2>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>WO #</th>
+                <th style={thStyle}>Date</th>
+                <th style={thStyle}>Unit</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+                <th style={thStyle}>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filedRecords.map(r => (
+                <tr key={r.id} onClick={() => navigate(`/records/${r.id}`, { state: { from: 'customer', customerId: customer.id } })} style={{ cursor: 'pointer' }}>
+                  <td style={tdStyle}><strong>{r.record_number}</strong></td>
+                  <td style={tdStyle}>{formatDate(r.created_at)}</td>
+                  <td style={tdStyle}>{[r.year, r.make, r.model].filter(Boolean).join(' ') || '—'}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(r.total_sales)}</td>
+                  <td style={{ ...tdStyle, maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.job_description || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* ─── Records History ─── */}

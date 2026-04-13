@@ -9,7 +9,8 @@ const { sendEmail } = require('../services/email');
 // Status transition rules
 // ---------------------------------------------------------------------------
 const VALID_TRANSITIONS = {
-  estimate:           ['approved', 'on_hold', 'void'],
+  estimate:           ['approved', 'on_hold', 'filed', 'void'],
+  filed:              ['estimate', 'void'],
   approved:           ['schedule_customer', 'in_progress', 'on_hold', 'void'],
   schedule_customer:  ['scheduled', 'in_progress', 'on_hold', 'void'],
   scheduled:          ['in_progress', 'on_hold', 'void'],
@@ -477,7 +478,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
   const ALL_STATUSES = [
     'estimate', 'approved', 'schedule_customer', 'scheduled', 'in_progress',
     'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending',
-    'partial', 'paid', 'on_hold', 'void',
+    'partial', 'paid', 'on_hold', 'void', 'filed',
   ];
 
   if (!ALL_STATUSES.includes(newStatus)) {
@@ -552,8 +553,9 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
-    // When estimate → non-estimate: deduct inventory for all inventory parts
-    if (record.status === 'estimate' && newStatus !== 'estimate') {
+    // When estimate/filed → active (non-estimate/filed): deduct inventory
+    const preCommit = (s) => s === 'estimate' || s === 'filed';
+    if (preCommit(record.status) && !preCommit(newStatus) && newStatus !== 'void') {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
@@ -567,8 +569,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       }
     }
 
-    // When non-estimate → estimate (revert) or → void: restore inventory for all inventory parts
-    if ((record.status !== 'estimate' && newStatus === 'estimate') || (record.status !== 'void' && newStatus === 'void')) {
+    // When active → estimate/filed (revert) or → void: restore inventory
+    if ((!preCommit(record.status) && preCommit(newStatus)) || (record.status !== 'void' && newStatus === 'void')) {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
