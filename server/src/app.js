@@ -209,6 +209,20 @@ const pool = require('./db/pool');
       ('payment_reminders_last_run_count', '0', 'Number of reminders sent in last cron run')
       ON CONFLICT (setting_key) DO NOTHING`);
     await pool.query("UPDATE records SET payment_pending_since = updated_at WHERE status = 'payment_pending' AND payment_pending_since IS NULL");
+    // Migration 038: add 'filed' to record status enum
+    await pool.query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'filed'");
+    // Migration 039: bookkeeper adjustments
+    await pool.query(`CREATE TABLE IF NOT EXISTS bookkeeper_adjustments (
+      id SERIAL PRIMARY KEY,
+      period_label VARCHAR(100) NOT NULL,
+      period_start DATE NOT NULL,
+      period_end DATE NOT NULL,
+      adjustment_amount NUMERIC(12,2) NOT NULL,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS bookkeeper_adjustments_period_idx ON bookkeeper_adjustments (period_start, period_end)');
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

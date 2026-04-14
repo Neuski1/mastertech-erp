@@ -24,9 +24,18 @@ router.get('/', requireRole('admin', 'bookkeeper'), async (req, res) => {
 });
 
 router.post('/', requireRole('admin'), async (req, res) => {
+  if (!req.body || typeof req.body !== 'object') {
+    console.error('POST /api/bookkeeper-adjustments — missing/invalid body:', req.body);
+    return res.status(400).json({ error: 'Request body missing or not JSON' });
+  }
   const { period_label, period_start, period_end, adjustment_amount, note } = req.body;
-  if (!period_label || !period_start || !period_end || adjustment_amount === undefined || adjustment_amount === null) {
-    return res.status(400).json({ error: 'period_label, period_start, period_end, and adjustment_amount are required' });
+  const missing = [];
+  if (!period_label) missing.push('period_label');
+  if (!period_start) missing.push('period_start');
+  if (!period_end) missing.push('period_end');
+  if (adjustment_amount === undefined || adjustment_amount === null || adjustment_amount === '') missing.push('adjustment_amount');
+  if (missing.length) {
+    return res.status(400).json({ error: `Missing required field(s): ${missing.join(', ')}` });
   }
   try {
     const { rows } = await pool.query(
@@ -36,8 +45,17 @@ router.post('/', requireRole('admin'), async (req, res) => {
     );
     res.status(201).json(rows[0]);
   } catch (err) {
-    console.error('POST /api/bookkeeper-adjustments error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('POST /api/bookkeeper-adjustments DB error:', {
+      message: err.message,
+      code: err.code,
+      detail: err.detail,
+      table: err.table,
+      column: err.column,
+      constraint: err.constraint,
+      payload: { period_label, period_start, period_end, adjustment_amount, note },
+    });
+    const detail = [err.message, err.detail].filter(Boolean).join(' — ');
+    res.status(500).json({ error: `DB error${err.code ? ' (' + err.code + ')' : ''}: ${detail}` });
   }
 });
 
