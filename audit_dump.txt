@@ -1,0 +1,2206 @@
+=== customers.js ===
+const express = require('express');
+const router = express.Router();
+const pool = require('../db/pool');
+
+// ---------------------------------------------------------------------------
+// GET /api/customers — CRM list with stats & filters
+// ---------------------------------------------------------------------------
+router.get('/', async (req, res) => {
+  const {
+    search, limit = 50, page = 1,
+    is_storage, has_open_records, last_service_from, last_service_to,
+    unit_make, unit_model, city, zip, has_open_estimate,
+  } = req.query;
+
+  const conditions = ['c.deleted_at IS NULL'];
+  const params = [];
+  let idx = 1;
+
+  if (search) {
+    conditions.push(`(
+      c.last_name ILIKE $${idx} OR c.first_name ILIKE $${idx} OR
+      c.company_name ILIKE $${idx} OR c.account_number ILIKE $${idx} OR
+      c.phone_primary ILIKE $${idx} OR c.phone_secondary ILIKE $${idx} OR
+      c.email_primary ILIKE $${idx} OR
+      (c.first_name || ' ' || c.last_name) ILIKE $${idx}
+    )`);
+    params.push(`%${search}%`);
+    idx++;
+  }
+
+  if (is_storage === 'true') {
+    conditions.push('c.is_storage_customer = TRUE');
+  } else if (is_storage === 'false') {
+    conditions.push('c.is_storage_customer = FALSE');
+  }
+
+  if (city) {
+    conditions.push(`c.address_city ILIKE $${idx}`);
+    params.push(`%${city}%`);
+    idx++;
+  }
+
+  if (zip) {
+    conditions.push(`c.address_zip = $${idx}`);
+    params.push(zip);
+    idx++;
+  }
+
+  // Sub-query filters
+  let havingClauses = [];
+
+  if (has_open_records === 'true') {
+    havingClauses.push("COUNT(CASE WHEN r.status NOT IN ('paid','void') AND r.deleted_at IS NULL THEN 1 END) > 0");
+  }
+
+  if (has_open_estimate === 'true') {
+    havingClauses.push("COUNT(CASE WHEN r.status = 'estimate' AND r.deleted_at IS NULL THEN 1 END) > 0");
+  }
+
+  if (last_service_from) {
+    havingClauses.push(`MAX(r.created_at) >= $${idx}`);
+    params.push(last_service_from);
+    idx++;
+  }
+
+  if (last_service_to) {
+    havingClauses.push(`(MAX(r.created_at) IS NULL OR MAX(r.created_at) <= $${idx})`);
+    params.push(last_service_to);
+    idx++;
+  }
+
+  if (unit_make) {
+    conditions.push(`EXISTS (SELECT 1 FROM units u2 WHERE u2.customer_id = c.id AND u2.make ILIKE $${idx} AND u2.deleted_at IS NULL)`);
+    params.push(`%${unit_make}%`);
+    idx++;
+  }
+
+  if (unit_model) {
+    conditions.push(`EXISTS (SELECT 1 FROM units u2 WHERE u2.customer_id = c.id AND u2.model ILIKE $${idx} AND u2.deleted_at IS NULL)`);
+    params.push(`%${unit_model}%`);
+    idx++;
+  }
+
+  const havingSQL = havingClauses.length > 0
+    ? `HAVING ${havingClauses.join(' AND ')}`
+    : '';
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  try {
+    // Count query
+    const countSQL = `
+      SELECT COUNT(*) FROM (
+        SELECT c.id
+        FROM customers c
+        LEFT JOIN records r ON r.customer_id = c.id
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY c.id
+        ${havingSQL}
+      ) sub`;
+    const countRes = await pool.query(countSQL, params);
+    const total = parseInt(countRes.rows[0].count);
+
+    // Data query
+    const dataSQL = `
+      SELECT c.id, c.account_number, c.first_name, c.last_name, c.company_name,
+             c.phone_primary, c.phone_secondary, c.email_primary, c.address_city, c.address_state,
+             c.address_zip, c.is_storage_customer, c.lead_source,
+             COUNT(DISTINCT u.id) FILTER (WHERE u.deleted_at IS NULL) AS unit_count,
+             COUNT(DISTINCT r.id) FILTER (WHERE r.deleted_at IS NULL) AS record_count,
+             MAX(r.created_at) FILTER (WHERE r.deleted_at IS NULL) AS last_service_date,
+             COUNT(CASE WHEN r.status NOT IN ('paid','void') AND r.deleted_at IS NULL THEN 1 END) AS open_record_count
+      FROM customers c
+      LEFT JOIN units u ON u.customer_id = c.id
+      LEFT JOIN records r ON r.customer_id = c.id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY c.id
+      ${havingSQL}
+      ORDER BY c.last_name, c.first_name
+      LIMIT $${idx++} OFFSET $${idx++}`;
+
+    const { rows } = await pool.query(dataSQL, [...params, parseInt(limit), offset]);
+
+    res.json({ customers: rows, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (err) {
+    console.error('GET /api/customers error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/customers — Create a new customer
+// ---------------------------------------------------------------------------
+router.post('/', async (req, res) => {
+  const { first_name, last_name, company_name, phone_primary, phone_secondary, email_primary,
+          address_street, address_city, address_state, address_zip } = req.body;
+
+  if (!last_name) {
+    return res.status(400).json({ error: 'last_name is required' });
+  }
+
+  try {
+    // Generate next account number
+    const numRes = await pool.query(
+      "SELECT account_number FROM customers WHERE account_number ~ '^[0-9]+$' ORDER BY account_number::int DESC LIMIT 1"
+    );
+    const nextNum = numRes.rows.length > 0 ? parseInt(numRes.rows[0].account_number) + 1 : 1001;
+    const accountNumber = String(nextNum);
+
+    const { rows } = await pool.query(
+      `INSERT INTO customers (account_number, first_name, last_name, company_name,
+         phone_primary, phone_secondary, email_primary, address_street, address_city, address_state, address_zip)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [accountNumber, first_name || null, last_name, company_name || null,
+       phone_primary || null, phone_secondary || null, email_primary || null, address_street || null,
+       address_city || null, address_state || null, address_zip || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/customers error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/customers/:id — Full customer detail
+// ---------------------------------------------------------------------------
+router.get('/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM customers WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/customers/:id/units
+// ---------------------------------------------------------------------------
+router.get('/:id/units', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM units WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY year DESC, make, model',
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/customers/:id/records — All records for a customer
+// ---------------------------------------------------------------------------
+router.get('/:id/records', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales,
+              r.created_at, r.job_description,
+              u.year, u.make, u.model
+       FROM records r
+       JOIN units u ON u.id = r.unit_id
+       WHERE r.customer_id = $1 AND r.deleted_at IS NULL
+       ORDER BY r.created_at DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/customers/:id/storage — Active storage for a customer
+// ---------------------------------------------------------------------------
+router.get('/:id/storage', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT sb.*, ss.space_number, ss.space_type,
+              u.year, u.make, u.model
+       FROM storage_billing sb
+       JOIN storage_spaces ss ON ss.id = sb.space_id
+       LEFT JOIN units u ON u.id = sb.unit_id
+       WHERE sb.customer_id = $1 AND sb.ended_at IS NULL
+       ORDER BY ss.space_number`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/customers/:id — Update customer fields
+// ---------------------------------------------------------------------------
+router.patch('/:id', async (req, res) => {
+  const allowedFields = [
+    'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
+    'email_primary', 'email_secondary', 'address_street', 'address_city',
+    'address_state', 'address_zip', 'tax_exempt', 'notes',
+  ];
+  const updates = [];
+  const values = [];
+  let idx = 1;
+
+  for (const field of allowedFields) {
+    if (req.body[field] !== undefined) {
+      updates.push(`${field} = $${idx++}`);
+      values.push(req.body[field]);
+    }
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  values.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE customers SET ${updates.join(', ')} WHERE id = $${idx} AND deleted_at IS NULL RETURNING *`,
+      values
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PATCH /api/customers/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/customers/:id/merge — Merge duplicate into master
+// ---------------------------------------------------------------------------
+router.post('/:id/merge', async (req, res) => {
+  const masterId = parseInt(req.params.id);
+  const { duplicateId, keepFields } = req.body;
+
+  if (!duplicateId) {
+    return res.status(400).json({ error: 'duplicateId is required' });
+  }
+  if (masterId === parseInt(duplicateId)) {
+    return res.status(400).json({ error: 'Cannot merge a customer with themselves' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Verify both customers exist
+    const masterRes = await client.query(
+      'SELECT * FROM customers WHERE id = $1 AND deleted_at IS NULL', [masterId]
+    );
+    if (masterRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Master customer not found' });
+    }
+
+    const dupRes = await client.query(
+      'SELECT * FROM customers WHERE id = $1 AND deleted_at IS NULL', [duplicateId]
+    );
+    if (dupRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Duplicate customer not found' });
+    }
+
+    // Step 1: Update master with chosen fields from duplicate
+    if (keepFields && Object.keys(keepFields).length > 0) {
+      const allowedFields = [
+        'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
+        'email_primary', 'email_secondary', 'address_street', 'address_city',
+        'address_state', 'address_zip', 'notes',
+      ];
+      const updates = [];
+      const values = [];
+      let idx = 1;
+      for (const [field, value] of Object.entries(keepFields)) {
+        if (allowedFields.includes(field)) {
+          updates.push(`${field} = $${idx++}`);
+          values.push(value);
+        }
+      }
+      if (updates.length > 0) {
+        values.push(masterId);
+        await client.query(
+          `UPDATE customers SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+          values
+        );
+      }
+    }
+
+    // Step 2: Reassign all related records
+    const reassignTables = [
+      'units',
+      'records',
+      'appointments',
+      'storage_billing',
+      'communication_log',
+      'marketing_contacts',
+      'leads',
+    ];
+
+    const counts = {};
+    for (const table of reassignTables) {
+      try {
+        const result = await client.query(
+          `UPDATE ${table} SET customer_id = $1 WHERE customer_id = $2`,
+          [masterId, duplicateId]
+        );
+        counts[table] = result.rowCount;
+      } catch (e) {
+        // Table might not exist or lack customer_id column — skip
+        counts[table] = 0;
+      }
+    }
+
+    // Step 3: Hard delete the duplicate
+    await client.query('DELETE FROM customers WHERE id = $1', [duplicateId]);
+
+    await client.query('COMMIT');
+
+    // Step 4: Return updated master
+    const updatedRes = await client.query(
+      'SELECT * FROM customers WHERE id = $1', [masterId]
+    );
+
+    res.json({
+      customer: updatedRes.rows[0],
+      merged: {
+        units: counts.units || 0,
+        records: counts.records || 0,
+        appointments: counts.appointments || 0,
+        storage: counts.storage_billing || 0,
+        communications: counts.communication_log || 0,
+        marketing: counts.marketing_contacts || 0,
+      },
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/customers/:id/merge error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+module.exports = router;
+=== FinancialReport.js ===
+import React, { useState, useCallback } from 'react';
+import { api } from '../api/client';
+
+const formatCurrency = (val) =>
+  `$${parseFloat(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const QUARTER_PRESETS = [
+  { label: 'Q1', start: '-01-01', end: '-03-31' },
+  { label: 'Q2', start: '-04-01', end: '-06-30' },
+  { label: 'Q3', start: '-07-01', end: '-09-30' },
+  { label: 'Q4', start: '-10-01', end: '-12-31' },
+];
+
+export default function FinancialReport() {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(currentYear);
+  const [quarter, setQuarter] = useState(0); // index into QUARTER_PRESETS
+  const [startDate, setStartDate] = useState(`${currentYear}-01-01`);
+  const [endDate, setEndDate] = useState(`${currentYear}-03-31`);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const applyPreset = (q, y) => {
+    const preset = QUARTER_PRESETS[q];
+    setStartDate(`${y}${preset.start}`);
+    setEndDate(`${y}${preset.end}`);
+  };
+
+  const handleQuarterChange = (q) => {
+    setQuarter(q);
+    applyPreset(q, year);
+  };
+
+  const handleYearChange = (y) => {
+    setYear(y);
+    applyPreset(quarter, y);
+  };
+
+  const fetchReport = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.getFinancialReport({ start_date: startDate, end_date: endDate });
+      setData(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [startDate, endDate]);
+
+  return (
+    <div>
+      <h1 style={{ marginTop: 0, marginBottom: '20px' }}>Financial Report</h1>
+
+      {/* Controls */}
+      <div style={controlsStyle}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <label style={labelStyle}>Year</label>
+          <select value={year} onChange={(e) => handleYearChange(parseInt(e.target.value))} style={selectStyle}>
+            {[currentYear - 2, currentYear - 1, currentYear].map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {QUARTER_PRESETS.map((p, i) => (
+            <button key={p.label} onClick={() => handleQuarterChange(i)}
+              style={{ ...qBtn, ...(quarter === i ? qBtnActive : {}) }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={inputStyle} />
+          <span style={{ color: '#6b7280' }}>to</span>
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={inputStyle} />
+        </div>
+        <button onClick={fetchReport} disabled={loading} style={runBtn}>
+          {loading ? 'Loading...' : 'Run Report'}
+        </button>
+      </div>
+
+      {error && <div style={errorStyle}>{error}</div>}
+
+      {data && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Revenue Summary */}
+          <div style={cardStyle}>
+            <h2 style={cardTitle}>Revenue Summary</h2>
+            <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '16px' }}>
+              {data.period.start_date} to {data.period.end_date}
+            </div>
+
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Category</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td style={tdLabel}>Labor Revenue</td><td style={tdVal}>{formatCurrency(data.revenue.service.labor)}</td></tr>
+                <tr><td style={tdLabel}>Parts Revenue</td><td style={tdVal}>{formatCurrency(data.revenue.service.parts)}</td></tr>
+                <tr><td style={tdLabel}>Freight Revenue</td><td style={tdVal}>{formatCurrency(data.revenue.service.freight)}</td></tr>
+                <tr><td style={tdLabel}>Shop Supplies</td><td style={tdVal}>{formatCurrency(data.revenue.service.shop_supplies)}</td></tr>
+                <tr><td style={tdLabel}>CC Fees Charged</td><td style={tdVal}>{formatCurrency(data.revenue.service.cc_fees_charged)}</td></tr>
+                <tr><td style={tdLabel}>Tax Collected</td><td style={tdVal}>{formatCurrency(data.revenue.service.tax_collected)}</td></tr>
+                <tr style={{ borderTop: '2px solid #e5e7eb' }}>
+                  <td style={{ ...tdLabel, fontWeight: 700 }}>Service Total ({data.revenue.service.record_count} records)</td>
+                  <td style={{ ...tdVal, fontWeight: 700 }}>{formatCurrency(data.revenue.service.total)}</td>
+                </tr>
+
+                <tr><td style={{ padding: '8px 0' }} colSpan="2"></td></tr>
+
+                <tr><td style={tdLabel}>Storage Revenue ({data.revenue.storage.charge_count} charges)</td><td style={tdVal}>{formatCurrency(data.revenue.storage.total)}</td></tr>
+                <tr><td style={tdLabel}>Misc Revenue ({data.revenue.misc.count} items)</td><td style={tdVal}>{formatCurrency(data.revenue.misc.total)}</td></tr>
+
+                <tr style={{ borderTop: '3px double #1e3a5f' }}>
+                  <td style={{ ...tdLabel, fontWeight: 700, color: '#1e3a5f', fontSize: '1rem' }}>Grand Total Revenue</td>
+                  <td style={{ ...tdVal, fontWeight: 700, color: '#1e3a5f', fontSize: '1rem' }}>{formatCurrency(data.revenue.grand_total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Collections by Method */}
+          <div style={cardStyle}>
+            <h2 style={cardTitle}>Collections by Payment Method</h2>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Method</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td style={tdLabel}>Credit Card</td><td style={tdVal}>{formatCurrency(data.collections.credit_card)}</td></tr>
+                <tr><td style={tdLabel}>Check</td><td style={tdVal}>{formatCurrency(data.collections.check)}</td></tr>
+                <tr><td style={tdLabel}>Cash</td><td style={tdVal}>{formatCurrency(data.collections.cash)}</td></tr>
+                <tr><td style={tdLabel}>Zelle</td><td style={tdVal}>{formatCurrency(data.collections.zelle)}</td></tr>
+                <tr style={{ borderTop: '2px solid #e5e7eb' }}>
+                  <td style={{ ...tdLabel, fontWeight: 700 }}>Total Collected</td>
+                  <td style={{ ...tdVal, fontWeight: 700 }}>{formatCurrency(data.collections.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Expenses */}
+          <div style={cardStyle}>
+            <h2 style={cardTitle}>Expenses</h2>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Category</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td style={tdLabel}>CC Processing Fees (3% of card payments)</td><td style={tdVal}>{formatCurrency(data.expenses.cc_processing_fees)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Styles
+const controlsStyle = {
+  display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap',
+  padding: '16px 20px', backgroundColor: '#fff', borderRadius: '8px',
+  border: '1px solid #e5e7eb', marginBottom: '20px',
+};
+const labelStyle = { fontSize: '0.8rem', fontWeight: 600, color: '#374151' };
+const selectStyle = { padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.875rem' };
+const inputStyle = { padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '0.875rem' };
+const qBtn = {
+  padding: '6px 14px', borderRadius: '6px', border: '1px solid #d1d5db',
+  backgroundColor: '#fff', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
+};
+const qBtnActive = { backgroundColor: '#1e3a5f', color: '#fff', borderColor: '#1e3a5f' };
+const runBtn = {
+  padding: '8px 20px', backgroundColor: '#1e3a5f', color: '#fff',
+  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
+};
+const errorStyle = {
+  padding: '12px', borderRadius: '6px', marginBottom: '20px',
+  backgroundColor: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', fontSize: '0.875rem',
+};
+const cardStyle = {
+  padding: '20px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb',
+};
+const cardTitle = {
+  fontSize: '1rem', fontWeight: 700, color: '#1e3a5f',
+  marginTop: 0, marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb',
+};
+const tableStyle = { width: '100%', borderCollapse: 'collapse' };
+const thStyle = { textAlign: 'left', padding: '8px 12px', fontSize: '0.75rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase' };
+const tdLabel = { padding: '10px 12px', fontSize: '0.875rem', color: '#374151' };
+const tdVal = { padding: '10px 12px', fontSize: '0.875rem', textAlign: 'right', fontFamily: 'monospace', color: '#111827' };
+=== reports.js ===
+const express = require('express');
+const router = express.Router();
+const pool = require('../db/pool');
+const { requireRole } = require('../middleware/auth');
+
+// ---------------------------------------------------------------------------
+// GET /api/reports/financial — Financial summary for a date range
+// Query params: start_date (YYYY-MM-DD), end_date (YYYY-MM-DD)
+// ---------------------------------------------------------------------------
+router.get('/financial', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  const { start_date, end_date } = req.query;
+
+  if (!start_date || !end_date) {
+    return res.status(400).json({ error: 'start_date and end_date are required (YYYY-MM-DD)' });
+  }
+
+  try {
+    // -----------------------------------------------------------------------
+    // SERVICE REVENUE — from completed/paid records
+    // FIX (Issue 1): Filter on actual_completion_date, NOT created_at.
+    // Uses COALESCE so imported Summit records (which have completion_date
+    // but NULL intake_date) and native records are both captured.
+    // -----------------------------------------------------------------------
+    const serviceRes = await pool.query(
+      `SELECT
+         COALESCE(SUM(labor_subtotal), 0)       AS labor,
+         COALESCE(SUM(parts_subtotal), 0)       AS parts,
+         COALESCE(SUM(freight_subtotal), 0)     AS freight,
+         COALESCE(SUM(shop_supplies_amount), 0) AS shop_supplies,
+         COALESCE(SUM(tax_amount), 0)           AS tax,
+         COALESCE(SUM(cc_fee_amount), 0)        AS cc_fees_charged,
+         COALESCE(SUM(total_sales), 0)          AS total_sales,
+         COUNT(*)                               AS record_count
+       FROM records
+       WHERE deleted_at IS NULL
+         AND status IN ('complete', 'payment_pending', 'partial', 'paid')
+         AND COALESCE(actual_completion_date, intake_date, created_at::date) >= $1
+         AND COALESCE(actual_completion_date, intake_date, created_at::date) <= $2`,
+      [start_date, end_date]
+    );
+    const service = serviceRes.rows[0];
+
+    // -----------------------------------------------------------------------
+    // STORAGE REVENUE — from storage_charges table
+    // FIX (Issue 2): Query the storage_charges table using charge_date
+    // within the date range. The previous approach only looked at active
+    // billings (storage_billing), missing historical charges and using the
+    // wrong date field.
+    // -----------------------------------------------------------------------
+    const storageRes = await pool.query(
+      `SELECT
+         COALESCE(SUM(amount), 0) AS total,
+         COUNT(*)                 AS charge_count
+       FROM storage_charges
+       WHERE charge_date >= $1::date
+         AND charge_date <= $2::date`,
+      [start_date, end_date]
+    );
+    const storage = storageRes.rows[0];
+
+    // -----------------------------------------------------------------------
+    // PAYMENT COLLECTIONS — broken down by payment method
+    // FIX (Issue 1): Filter on payment_date, NOT created_at.
+    // Payments are recognized on the date the payment was made.
+    // -----------------------------------------------------------------------
+    const collectionsRes = await pool.query(
+      `SELECT
+         payment_method,
+         COALESCE(SUM(amount), 0) AS total
+       FROM payments
+       WHERE deleted_at IS NULL
+         AND payment_date >= $1::date
+         AND payment_date <= $2::date
+       GROUP BY payment_method`,
+      [start_date, end_date]
+    );
+
+    const collections = { credit_card: 0, check: 0, cash: 0, zelle: 0, total: 0 };
+    for (const row of collectionsRes.rows) {
+      collections[row.payment_method] = parseFloat(row.total);
+      collections.total += parseFloat(row.total);
+    }
+    collections.total = parseFloat(collections.total.toFixed(2));
+
+    // -----------------------------------------------------------------------
+    // CC PROCESSING FEES — 3% of credit card payment collections
+    // FIX (Issue 3): Calculate from actual credit_card payments using
+    // payment_date, not from the cc_fee_amount field on records (which is
+    // the surcharge billed TO the customer, not the processing cost).
+    // -----------------------------------------------------------------------
+    const ccProcessingFees = parseFloat((collections.credit_card * 0.03).toFixed(2));
+
+    // -----------------------------------------------------------------------
+    // MISC REVENUE — payments of type 'overpayment'
+    // FIX (Issue 4): Query for payment_type = 'overpayment' which is the
+    // correct enum value. The previous query used 'miscellaneous' which does
+    // not exist in the payment_type_type enum, so it always returned $0.
+    // -----------------------------------------------------------------------
+    const miscRes = await pool.query(
+      `SELECT
+         COALESCE(SUM(amount), 0) AS total,
+         COUNT(*)                 AS count
+       FROM payments
+       WHERE deleted_at IS NULL
+         AND payment_type = 'overpayment'
+         AND payment_date >= $1::date
+         AND payment_date <= $2::date`,
+      [start_date, end_date]
+    );
+    const misc = miscRes.rows[0];
+
+    // Grand total revenue
+    const grandTotal = parseFloat(
+      (parseFloat(service.total_sales) + parseFloat(storage.total) + parseFloat(misc.total)).toFixed(2)
+    );
+
+    res.json({
+      period: { start_date, end_date },
+      revenue: {
+        service: {
+          labor: parseFloat(service.labor),
+          parts: parseFloat(service.parts),
+          freight: parseFloat(service.freight),
+          shop_supplies: parseFloat(service.shop_supplies),
+          tax_collected: parseFloat(service.tax),
+          cc_fees_charged: parseFloat(service.cc_fees_charged),
+          total: parseFloat(service.total_sales),
+          record_count: parseInt(service.record_count),
+        },
+        storage: {
+          total: parseFloat(storage.total),
+          charge_count: parseInt(storage.charge_count),
+        },
+        misc: {
+          total: parseFloat(misc.total),
+          count: parseInt(misc.count),
+        },
+        grand_total: grandTotal,
+      },
+      collections,
+      expenses: {
+        cc_processing_fees: ccProcessingFees,
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/reports/financial error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
+=== Storage.js ===
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import NewCustomerModal from '../components/NewCustomerModal';
+import { formatPhone } from '../utils/formatPhone';
+
+export default function Storage() {
+  const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
+  const [spaces, setSpaces] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [rates, setRates] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionMsg, setActionMsg] = useState('');
+
+  // Modal state
+  const [selectedSpace, setSelectedSpace] = useState(null);
+  const [showAssign, setShowAssign] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+
+  // Billing report
+  const [showReport, setShowReport] = useState(false);
+  const [report, setReport] = useState(null);
+  const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [reportLoading, setReportLoading] = useState(false);
+
+  // Billing run
+  const [showBillingModal, setShowBillingModal] = useState(false);
+  const [billingPreview, setBillingPreview] = useState(null);
+  const [billingRunning, setBillingRunning] = useState(false);
+  const [billingResults, setBillingResults] = useState(null);
+
+  // Add space modal
+  const [showAddSpace, setShowAddSpace] = useState(false);
+
+  // Ended storage history
+  const [showEnded, setShowEnded] = useState(false);
+  const [endedRecords, setEndedRecords] = useState([]);
+  const [endedLoading, setEndedLoading] = useState(false);
+
+  // Storage customer report
+  const [showStorageReport, setShowStorageReport] = useState(false);
+  const [storageReport, setStorageReport] = useState(null);
+  const [storageReportLoading, setStorageReportLoading] = useState(false);
+  const [storageReportShowAll, setStorageReportShowAll] = useState(false);
+  const [storageReportSearch, setStorageReportSearch] = useState('');
+
+  const fetchSpaces = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.getStorageSpaces();
+      setSpaces(data.spaces);
+      setSummary(data.summary);
+      setRates(data.rates);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchSpaces(); }, [fetchSpaces]);
+
+  const handleSpaceClick = (space) => {
+    setSelectedSpace(space);
+    if (space.billing_id) {
+      setShowDetail(true);
+    } else if (canEditRecords) {
+      setShowAssign(true);
+    }
+  };
+
+  const handleOpenBilling = async () => {
+    try {
+      const preview = await api.getBillingPreview();
+      setBillingPreview(preview);
+      setShowBillingModal(true);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const fetchReport = async () => {
+    setReportLoading(true);
+    try {
+      const data = await api.getStorageBillingReport({ month: reportMonth });
+      setReport(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const formatCurrency = (val) => {
+    const num = parseFloat(val) || 0;
+    return num.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  };
+
+  const numSort = (a, b) => {
+    const na = parseInt((a.label || '').replace(/\D/g, '')) || Infinity;
+    const nb = parseInt((b.label || '').replace(/\D/g, '')) || Infinity;
+    return na - nb;
+  };
+  const outdoor = spaces.filter(s => s.space_type === 'outdoor').sort(numSort);
+  const indoor = spaces.filter(s => s.space_type === 'indoor').sort(numSort);
+
+  if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading...</div>;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h1 style={{ margin: 0 }}>Storage</h1>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {canSeeFinancials && (
+            <button onClick={() => { setShowReport(!showReport); if (!showReport) fetchReport(); }} style={btnSecondary}>
+              {showReport ? 'Hide Report' : 'Billing Report'}
+            </button>
+          )}
+          {canSeeFinancials && (
+            <button onClick={async () => {
+              setShowStorageReport(!showStorageReport);
+              if (!showStorageReport) {
+                setStorageReportLoading(true);
+                try {
+                  const data = await api.getStorageReport({ show_all: storageReportShowAll });
+                  setStorageReport(data);
+                } catch (err) { setError(err.message); }
+                finally { setStorageReportLoading(false); }
+              }
+            }} style={btnSecondary}>
+              {showStorageReport ? 'Hide Customer Report' : 'Customer Report'}
+            </button>
+          )}
+          {canSeeFinancials && (
+            <button onClick={async () => {
+              setShowEnded(!showEnded);
+              if (!showEnded && endedRecords.length === 0) {
+                setEndedLoading(true);
+                try {
+                  const data = await api.getEndedStorage();
+                  setEndedRecords(data);
+                } catch (err) { setError(err.message); }
+                finally { setEndedLoading(false); }
+              }
+            }} style={btnSecondary}>
+              {showEnded ? 'Hide History' : 'Ended Storage'}
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setShowAddSpace(true)} style={btnSecondary}>+ Add Space</button>
+          )}
+          {isAdmin && (
+            <button onClick={handleOpenBilling} style={btnPrimary}>
+              Run Monthly Billing
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && <div style={errorBanner}>{error} <button onClick={() => setError('')} style={closeBtnStyle}>x</button></div>}
+      {actionMsg && <div style={successBanner}>{actionMsg} <button onClick={() => setActionMsg('')} style={closeBtnStyle}>x</button></div>}
+
+      {/* Summary Bar */}
+      {summary && (
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+          <SummaryCard label="Outdoor" occupied={summary.outdoor.occupied} total={summary.outdoor.total} color="#f59e0b" />
+          <SummaryCard label="Indoor" occupied={summary.indoor.occupied} total={summary.indoor.total} color="#3b82f6" />
+          <SummaryCard label="Total" occupied={summary.outdoor.occupied + summary.indoor.occupied} total={summary.total} color="#1e3a5f" />
+        </div>
+      )}
+
+      {/* Outdoor Grid */}
+      <div style={sectionStyle}>
+        <h2 style={sectionTitle}>Outdoor Spaces ({outdoor.filter(s => s.billing_id).length}/{outdoor.length} occupied)</h2>
+        <div style={gridStyle}>
+          {outdoor.map(space => (
+            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials} />
+          ))}
+        </div>
+      </div>
+
+      {/* Indoor Grid */}
+      <div style={sectionStyle}>
+        <h2 style={sectionTitle}>Indoor Spaces ({indoor.filter(s => s.billing_id).length}/{indoor.length} occupied)</h2>
+        <div style={gridStyle}>
+          {indoor.map(space => (
+            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials} />
+          ))}
+        </div>
+      </div>
+
+      {/* Billing Run Results */}
+      {billingResults && (
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={sectionTitle}>Billing Run Results — {billingResults.charge_month}</h2>
+            <button onClick={() => setBillingResults(null)} style={btnSecondary}>Dismiss</button>
+          </div>
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '0.85rem' }}>
+            <span style={{ color: '#065f46' }}>Recorded: {billingResults.recorded}</span>
+            <span style={{ fontWeight: 600 }}>Total: {formatCurrency(billingResults.total_amount)}</span>
+          </div>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Space</th>
+                <th style={thStyle}>Customer</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {billingResults.results.map((r, i) => (
+                <tr key={i}>
+                  <td style={tdStyle}>{r.space}</td>
+                  <td style={tdStyle}>{r.customer}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(r.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Billing Report */}
+      {showReport && (
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>Billing Report</h2>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={inputStyle} />
+              <button onClick={fetchReport} disabled={reportLoading} style={btnSmall}>
+                {reportLoading ? '...' : 'Load'}
+              </button>
+            </div>
+          </div>
+          {report && (
+            <>
+              <div style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#6b7280' }}>
+                Active billings: {report.total_active} — Total monthly: {formatCurrency(report.total_monthly_revenue)}
+              </div>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Space</th>
+                    <th style={thStyle}>Type</th>
+                    <th style={thStyle}>Customer</th>
+                    <th style={thStyle}>Unit</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
+                    <th style={thStyle}>Start</th>
+                    <th style={thStyle}>Square ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.billings.map(b => (
+                    <tr key={b.id}>
+                      <td style={tdStyle}>{b.space_label}</td>
+                      <td style={tdStyle}>{b.space_type}</td>
+                      <td style={tdStyle}>
+                        {b.last_name}{b.first_name ? `, ${b.first_name}` : ''}
+                        {b.company_name && <span style={{ color: '#6b7280', marginLeft: '4px' }}>({b.company_name})</span>}
+                      </td>
+                      <td style={tdStyle}>{[b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.monthly_rate)}</td>
+                      <td style={tdStyle}>{b.billing_start_date}</td>
+                      <td style={tdStyle}>{b.square_customer_id || <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>Not linked</span>}</td>
+                    </tr>
+                  ))}
+                  {report.billings.length === 0 && (
+                    <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No billings for this month</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Ended Storage History */}
+      {showEnded && (
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Ended Storage History</h2>
+          {endedLoading ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#9ca3af' }}>Loading...</div>
+          ) : endedRecords.length === 0 ? (
+            <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No ended storage records found.</p>
+          ) : (
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Customer</th>
+                  <th style={thStyle}>Unit</th>
+                  <th style={thStyle}>Space</th>
+                  <th style={thStyle}>Start</th>
+                  <th style={thStyle}>End</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
+                  <th style={thStyle}>Linear Ft</th>
+                </tr>
+              </thead>
+              <tbody>
+                {endedRecords.map(r => (
+                  <tr key={r.id}>
+                    <td style={tdStyle}>
+                      <a href={`/customers/${r.customer_id}`} style={{ color: '#1e3a5f', textDecoration: 'underline' }}>
+                        {r.last_name}{r.first_name ? `, ${r.first_name}` : ''}
+                      </a>
+                      {r.company_name && <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>{r.company_name}</div>}
+                    </td>
+                    <td style={tdStyle}>{[r.unit_year, r.unit_make, r.unit_model].filter(Boolean).join(' ') || '—'}</td>
+                    <td style={tdStyle}>{r.space_label}</td>
+                    <td style={tdStyle}>{r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString() : '—'}</td>
+                    <td style={tdStyle}>{r.billing_end_date ? new Date(r.billing_end_date).toLocaleDateString() : '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>${parseFloat(r.monthly_rate).toFixed(2)}</td>
+                    <td style={tdStyle}>{r.linear_feet ? `${parseFloat(r.linear_feet)}'` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Storage Customer Report */}
+      {showStorageReport && (
+        <StorageCustomerReport
+          report={storageReport}
+          loading={storageReportLoading}
+          showAll={storageReportShowAll}
+          search={storageReportSearch}
+          onSearchChange={setStorageReportSearch}
+          onToggleShowAll={async () => {
+            const next = !storageReportShowAll;
+            setStorageReportShowAll(next);
+            setStorageReportLoading(true);
+            try {
+              const data = await api.getStorageReport({ show_all: next });
+              setStorageReport(data);
+            } catch (err) { setError(err.message); }
+            finally { setStorageReportLoading(false); }
+          }}
+        />
+      )}
+
+      {/* Assign Modal */}
+      {showAssign && selectedSpace && (
+        <AssignModal
+          space={selectedSpace}
+          rates={rates}
+          onClose={() => { setShowAssign(false); setSelectedSpace(null); }}
+          onAssigned={() => { setShowAssign(false); setSelectedSpace(null); setActionMsg('Space assigned'); fetchSpaces(); }}
+        />
+      )}
+
+      {/* Add Space Modal */}
+      {showAddSpace && (
+        <AddSpaceModal
+          onClose={() => setShowAddSpace(false)}
+          onCreated={() => { setShowAddSpace(false); setActionMsg('Space added'); fetchSpaces(); }}
+        />
+      )}
+
+      {/* Detail Modal */}
+      {showDetail && selectedSpace && (
+        <DetailModal
+          space={selectedSpace}
+          canEdit={canEditRecords}
+          isAdmin={isAdmin}
+          canSeeFinancials={canSeeFinancials}
+          onClose={() => { setShowDetail(false); setSelectedSpace(null); }}
+          onUpdated={() => { setShowDetail(false); setSelectedSpace(null); setActionMsg('Storage updated'); fetchSpaces(); }}
+        />
+      )}
+
+      {/* Billing Confirmation Modal */}
+      {showBillingModal && billingPreview && (
+        <BillingConfirmModal
+          preview={billingPreview}
+          running={billingRunning}
+          onClose={() => { setShowBillingModal(false); setBillingPreview(null); }}
+          onConfirm={async (month) => {
+            setBillingRunning(true);
+            try {
+              const results = await api.runBilling({ charge_month: month });
+              setBillingResults(results);
+              setActionMsg(`Billing recorded for ${month}: ${results.recorded} entries, ${formatCurrency(results.total_amount)} total`);
+              setShowBillingModal(false);
+              setBillingPreview(null);
+            } catch (err) {
+              setError(err.message);
+            } finally {
+              setBillingRunning(false);
+            }
+          }}
+          formatCurrency={formatCurrency}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SpaceCard component
+// ---------------------------------------------------------------------------
+function SpaceCard({ space, onClick, canSeeFinancials }) {
+  const occupied = !!space.billing_id;
+  const label = space.label.replace(/^(Outdoor|Indoor)\s*/, '');
+
+  return (
+    <div onClick={onClick} style={{
+      ...spaceCardStyle,
+      backgroundColor: occupied ? '#fef2f2' : '#f0fdf4',
+      borderColor: occupied ? '#fca5a5' : '#86efac',
+      cursor: 'pointer',
+    }}>
+      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: occupied ? '#991b1b' : '#065f46', marginBottom: '4px' }}>
+        {label}
+      </div>
+      {occupied ? (
+        <div style={{ fontSize: '0.7rem', color: '#6b7280', lineHeight: 1.4 }}>
+          <div style={{ fontWeight: 600, color: '#374151' }}>
+            {space.last_name}{space.first_name ? `, ${space.first_name}` : ''}
+          </div>
+          {space.unit_year && (
+            <div>
+              {[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ')}
+              {space.linear_feet && <span style={{ color: '#6b7280' }}> {parseFloat(space.linear_feet)}'</span>}
+            </div>
+          )}
+          {canSeeFinancials && <div style={{ color: '#059669' }}>${parseFloat(space.monthly_rate).toFixed(0)}/mo</div>}
+        </div>
+      ) : (
+        <div style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 500 }}>Available</div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SummaryCard component
+// ---------------------------------------------------------------------------
+function SummaryCard({ label, occupied, total, color }) {
+  return (
+    <div style={{
+      flex: 1, padding: '16px', backgroundColor: '#fff',
+      borderRadius: '8px', border: '1px solid #e5e7eb',
+      borderLeft: `4px solid ${color}`,
+    }}>
+      <div style={{ fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>{label}</div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 700, color }}>{occupied}<span style={{ fontSize: '0.9rem', color: '#9ca3af' }}>/{total}</span></div>
+      <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>{total - occupied} available</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AssignModal — form to assign a customer/unit to a space
+// ---------------------------------------------------------------------------
+function AssignModal({ space, rates, onClose, onAssigned }) {
+  const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [units, setUnits] = useState([]);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [form, setForm] = useState({
+    unit_id: '',
+    monthly_rate: space.space_type === 'indoor' ? rates.indoor_monthly : rates.outdoor_monthly,
+    due_day: 1,
+    square_customer_id: '',
+    square_sub_id: '',
+    billing_start_date: new Date().toISOString().split('T')[0],
+    notes: '',
+    space_type: space.space_type,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const searchTimeout = useRef(null);
+
+  const handleCustomerSearch = (q) => {
+    setCustomerSearch(q);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (q.length < 2) { setCustomers([]); return; }
+    searchTimeout.current = setTimeout(async () => {
+      try {
+        const results = await api.getCustomers({ search: q, limit: 10 });
+        setCustomers(results.customers || []);
+      } catch (err) { console.error(err); }
+    }, 300);
+  };
+
+  const selectCustomer = async (cust) => {
+    setSelectedCustomer(cust);
+    setCustomers([]);
+    setCustomerSearch('');
+    try {
+      const unitList = await api.getCustomerUnits(cust.id);
+      setUnits(unitList);
+      if (unitList.length === 1) setForm(f => ({ ...f, unit_id: String(unitList[0].id) }));
+    } catch (err) { console.error(err); }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedCustomer) { setError('Select a customer'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await api.assignStorage({
+        space_id: space.id,
+        customer_id: selectedCustomer.id,
+        unit_id: form.unit_id ? parseInt(form.unit_id) : null,
+        monthly_rate: parseFloat(form.monthly_rate),
+        due_day: parseInt(form.due_day),
+        square_customer_id: form.square_customer_id || null,
+        square_sub_id: form.square_sub_id || null,
+        billing_start_date: form.billing_start_date || null,
+        notes: form.notes || null,
+      });
+      onAssigned();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Assign — {space.label}</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
+        </div>
+
+        {error && <div style={errorBannerSmall}>{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          {/* Customer Search */}
+          <div style={{ marginBottom: '16px', position: 'relative' }}>
+            <label style={labelStyle}>Customer</label>
+            {selectedCustomer ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontWeight: 600 }}>
+                  {selectedCustomer.last_name}{selectedCustomer.first_name ? `, ${selectedCustomer.first_name}` : ''}
+                  {selectedCustomer.company_name && ` (${selectedCustomer.company_name})`}
+                </span>
+                <button type="button" onClick={() => { setSelectedCustomer(null); setUnits([]); }} style={btnTinyGray}>Change</button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    placeholder="Search customers..."
+                    value={customerSearch}
+                    onChange={(e) => handleCustomerSearch(e.target.value)}
+                    autoFocus
+                    style={{ ...inputStyleFull, flex: 1 }}
+                  />
+                  <button type="button" onClick={() => setShowNewCustomer(true)} style={btnTinyGray}>+ New</button>
+                </div>
+                {customers.length > 0 && (
+                  <div style={dropdownStyle}>
+                    {customers.map(c => (
+                      <div key={c.id} onClick={() => selectCustomer(c)} style={dropdownItem}>
+                        <strong>{c.last_name}{c.first_name ? `, ${c.first_name}` : ''}</strong>
+                        {c.company_name && <span style={{ color: '#6b7280', marginLeft: '6px' }}>({c.company_name})</span>}
+                        <span style={{ color: '#9ca3af', fontSize: '0.75rem', marginLeft: '8px' }}>#{c.account_number}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {showNewCustomer && (
+              <NewCustomerModal
+                onClose={() => setShowNewCustomer(false)}
+                onCreated={(customer) => {
+                  setShowNewCustomer(false);
+                  selectCustomer(customer);
+                }}
+              />
+            )}
+          </div>
+
+          {/* Unit */}
+          {selectedCustomer && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Unit (optional)</label>
+              <select value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })} style={inputStyleFull}>
+                <option value="">No unit selected</option>
+                {units.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {[u.year, u.make, u.model].filter(Boolean).join(' ')} {u.license_plate ? `— ${u.license_plate}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Space Type & Start Date */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <label style={labelStyle}>Space Type</label>
+              <select value={form.space_type} onChange={(e) => setForm({ ...form, space_type: e.target.value })} style={inputStyleFull}>
+                <option value="outdoor">Outdoor</option>
+                <option value="indoor">Indoor</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Start Date</label>
+              <input type="date" value={form.billing_start_date} onChange={(e) => setForm({ ...form, billing_start_date: e.target.value })} style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Rate and Due Day */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <label style={labelStyle}>Monthly Rate ($)</label>
+              <input type="number" step="0.01" value={form.monthly_rate} onChange={(e) => setForm({ ...form, monthly_rate: e.target.value })} style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Due Day</label>
+              <input type="number" min="1" max="28" value={form.due_day} onChange={(e) => setForm({ ...form, due_day: e.target.value })} style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Notes</label>
+            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes..." style={{ ...inputStyleFull, minHeight: '60px' }} />
+          </div>
+
+          {/* Square IDs */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+            <div>
+              <label style={labelStyle}>Square Customer ID</label>
+              <input value={form.square_customer_id} onChange={(e) => setForm({ ...form, square_customer_id: e.target.value })} placeholder="Optional" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Square Subscription ID</label>
+              <input value={form.square_sub_id} onChange={(e) => setForm({ ...form, square_sub_id: e.target.value })} placeholder="Optional" style={inputStyleFull} />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button type="submit" disabled={saving || !selectedCustomer} style={btnPrimary}>
+              {saving ? 'Assigning...' : 'Assign Space'}
+            </button>
+            <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DetailModal — editable occupied space details, end storage, charge
+// ---------------------------------------------------------------------------
+function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpdated }) {
+  const [form, setForm] = useState({
+    space_type: space.space_type || 'outdoor',
+    monthly_rate: parseFloat(space.monthly_rate) || 0,
+    billing_start_date: space.billing_start_date ? (space.billing_start_date.includes('T') ? space.billing_start_date.split('T')[0] : space.billing_start_date) : '',
+    notes: space.billing_notes || '',
+    square_sub_id: space.square_sub_id || '',
+    square_customer_id: space.square_customer_id || '',
+    due_day: space.due_day || 1,
+    linear_feet: space.linear_feet || '',
+    end_date: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const customerName = `${space.last_name || ''}${space.first_name ? `, ${space.first_name}` : ''}` +
+    (space.company_name ? ` (${space.company_name})` : '');
+  const unitInfo = [space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ') || '—';
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await api.updateStorage(space.billing_id, {
+        space_type: form.space_type,
+        monthly_rate: parseFloat(form.monthly_rate),
+        billing_start_date: form.billing_start_date || undefined,
+        notes: form.notes,
+        square_sub_id: form.square_sub_id || null,
+        square_customer_id: form.square_customer_id || null,
+        due_day: parseInt(form.due_day),
+        linear_feet: form.linear_feet || null,
+      });
+      onUpdated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEndStorage = async () => {
+    const endDate = form.end_date || new Date().toISOString().split('T')[0];
+    if (!window.confirm(`End storage for ${space.label}? End date: ${endDate}`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.endStorage(space.billing_id, { end_date: endDate });
+      onUpdated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>{space.label}</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
+        </div>
+
+        {error && <div style={errorBannerSmall}>{error}</div>}
+
+        {/* Read-only customer info */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px', padding: '12px', backgroundColor: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+          <div>
+            <div style={labelStyle}>Customer</div>
+            <a href={`/customers/${space.customer_id}`} style={{ fontSize: '0.875rem', color: '#1e3a5f', fontWeight: 600, textDecoration: 'underline' }}>
+              {customerName}
+            </a>
+          </div>
+          <InfoField label="Account #" value={space.account_number || '—'} />
+          <InfoField label="Phone" value={formatPhone(space.phone_primary) || '—'} />
+          <div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>Email</div>
+            {space.email_primary ? (
+              <a href={`mailto:${space.email_primary}`} style={{ fontSize: '0.875rem', color: '#2563eb', textDecoration: 'underline' }}>{space.email_primary}</a>
+            ) : (
+              <div style={{ fontSize: '0.875rem' }}>—</div>
+            )}
+          </div>
+          <InfoField label="Unit" value={unitInfo} />
+        </div>
+
+        {/* Editable fields */}
+        {canEdit ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={labelStyle}>Space Type</label>
+                <select value={form.space_type} onChange={(e) => setForm({ ...form, space_type: e.target.value })} style={inputStyleFull}>
+                  <option value="outdoor">Outdoor</option>
+                  <option value="indoor">Indoor</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Start Date</label>
+                <input type="date" value={form.billing_start_date} onChange={(e) => setForm({ ...form, billing_start_date: e.target.value })} style={inputStyleFull} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={labelStyle}>Monthly Rate ($)</label>
+                <input type="number" step="0.01" value={form.monthly_rate} onChange={(e) => setForm({ ...form, monthly_rate: e.target.value })} style={inputStyleFull} />
+              </div>
+              <div>
+                <label style={labelStyle}>Linear Feet</label>
+                <input type="number" step="0.1" value={form.linear_feet} onChange={(e) => setForm({ ...form, linear_feet: e.target.value })} placeholder="e.g. 24.5" style={inputStyleFull} />
+              </div>
+              <div>
+                <label style={labelStyle}>Due Day</label>
+                <input type="number" min="1" max="28" value={form.due_day} onChange={(e) => setForm({ ...form, due_day: e.target.value })} style={inputStyleFull} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Notes</label>
+              <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={{ ...inputStyleFull, minHeight: '60px' }} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={labelStyle}>Square Customer ID</label>
+                <input value={form.square_customer_id} onChange={(e) => setForm({ ...form, square_customer_id: e.target.value })} placeholder="Optional" style={inputStyleFull} />
+              </div>
+              <div>
+                <label style={labelStyle}>Square Subscription ID</label>
+                <input value={form.square_sub_id} onChange={(e) => setForm({ ...form, square_sub_id: e.target.value })} placeholder="Optional" style={inputStyleFull} />
+              </div>
+            </div>
+
+            {/* End date */}
+            <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#fef2f2', borderRadius: '6px', border: '1px solid #fecaca' }}>
+              <label style={{ ...labelStyle, color: '#dc2626' }}>Move-out / End Date</label>
+              <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} style={inputStyleFull} />
+              <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>Set a date and click "End Storage" to close this assignment</div>
+            </div>
+          </>
+        ) : (
+          /* Read-only for non-editors */
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+            {canSeeFinancials && (
+              <>
+                <InfoField label="Monthly Rate" value={`$${parseFloat(space.monthly_rate).toFixed(2)}`} />
+                <InfoField label="Due Day" value={`${space.due_day || 1}st of each month`} />
+                <InfoField label="Start Date" value={space.billing_start_date || '—'} />
+                <InfoField label="Square Customer ID" value={space.square_customer_id || 'Not linked'} />
+                <InfoField label="Square Subscription" value={space.square_sub_id || 'Not linked'} />
+              </>
+            )}
+            {space.billing_notes && <InfoField label="Notes" value={space.billing_notes} />}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {canEdit && (
+            <button onClick={handleSave} disabled={saving} style={btnPrimary}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={handleEndStorage} disabled={saving} style={btnDanger}>End Storage</button>
+          )}
+          <button onClick={onClose} style={btnSecondary}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AddSpaceModal — create new storage space (admin only)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// BillingConfirmModal — preview and confirm monthly billing run
+// ---------------------------------------------------------------------------
+function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurrency }) {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Run Monthly Billing</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
+        </div>
+
+        <div style={{ padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Active Customers</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e3a5f' }}>{preview.count}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Total Amount</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#059669' }}>{formatCurrency(preview.total_amount)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '4px' }}>Billing Month</label>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.875rem' }} />
+        </div>
+
+        <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ ...thStyle, position: 'sticky', top: 0, backgroundColor: '#f9fafb' }}>Space</th>
+                <th style={{ ...thStyle, position: 'sticky', top: 0, backgroundColor: '#f9fafb' }}>Customer</th>
+                <th style={{ ...thStyle, position: 'sticky', top: 0, backgroundColor: '#f9fafb', textAlign: 'right' }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.billings.map((b, i) => (
+                <tr key={i}>
+                  <td style={tdStyle}>{b.space}</td>
+                  <td style={tdStyle}>{b.customer}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => onConfirm(month)} disabled={running} style={btnPrimary}>
+            {running ? 'Recording...' : `Record Billing for ${month}`}
+          </button>
+          <button onClick={onClose} disabled={running} style={btnSecondary}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddSpaceModal({ onClose, onCreated }) {
+  const [spaceNumber, setSpaceNumber] = useState('');
+  const [spaceType, setSpaceType] = useState('outdoor');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!spaceNumber.trim()) { setError('Space number is required'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await api.createStorageSpace({ space_number: spaceNumber.trim(), space_type: spaceType, notes: notes || null });
+      onCreated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Add Storage Space</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
+        </div>
+        {error && <div style={errorBannerSmall}>{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Space Number / Label</label>
+            <input type="text" value={spaceNumber} onChange={(e) => setSpaceNumber(e.target.value)} placeholder='e.g. 27, A1, OVERFLOW-1' style={inputStyleFull} autoFocus />
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Type</label>
+            <select value={spaceType} onChange={(e) => setSpaceType(e.target.value)} style={inputStyleFull}>
+              <option value="outdoor">Outdoor</option>
+              <option value="indoor">Indoor</option>
+            </select>
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <label style={labelStyle}>Notes (optional)</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={{ ...inputStyleFull, minHeight: '60px' }} />
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button type="submit" disabled={saving} style={btnPrimary}>{saving ? 'Creating...' : 'Add Space'}</button>
+            <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// StorageCustomerReport — replaces Carol's Excel tracker
+// ---------------------------------------------------------------------------
+function StorageCustomerReport({ report, loading, showAll, search, onSearchChange, onToggleShowAll }) {
+  if (loading) return <div style={{ ...sectionStyle, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Loading report...</div>;
+  if (!report) return null;
+
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
+  const filterRow = (r) => {
+    if (!search) return true;
+    const term = search.toLowerCase();
+    const name = `${r.first_name || ''} ${r.last_name || ''} ${r.company_name || ''}`.toLowerCase();
+    return name.includes(term);
+  };
+
+  const handleExportCSV = () => {
+    const allRows = [...report.indoor, ...report.outdoor].filter(filterRow);
+    const header = 'Customer,In/Out,Paid Thru,Monthly Rate,CC Fee,RV Make/Model/Feet,Phone,Email,Start Date,Square ID';
+    const csv = header + '\n' + allRows.map(r => {
+      const name = `${r.last_name || ''}${r.first_name ? ', ' + r.first_name : ''}`;
+      const inOut = r.space_type === 'indoor' ? 'IN' : 'OUT';
+      const unitStr = [r.unit_year, r.unit_make, r.unit_model].filter(Boolean).join(' ') + (r.linear_feet ? `  ${parseFloat(r.linear_feet)}'` : '');
+      const ccFee = (parseFloat(r.monthly_rate) * 0.035).toFixed(2);
+      return `"${name}","${inOut}","${r.due_day || 1}","${parseFloat(r.monthly_rate).toFixed(2)}","${ccFee}","${unitStr}","${r.phone_primary || ''}","${r.email_primary || ''}","${r.billing_start_date ? r.billing_start_date.split('T')[0] : ''}","${r.square_sub_id || ''}"`;
+    }).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `storage_report_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const renderSection = (title, rows, type) => {
+    const filtered = rows.filter(filterRow);
+    const subtotal = filtered.reduce((s, r) => s + parseFloat(r.monthly_rate), 0);
+    return (
+      <div style={{ marginBottom: '24px' }}>
+        <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: type === 'indoor' ? '#3b82f6' : '#f59e0b', marginBottom: '8px' }}>
+          {title} ({filtered.length})
+        </h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Customer</th>
+                <th style={{ ...thStyle, textAlign: 'center' }}>In/Out</th>
+                <th style={thStyle}>Paid Thru</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>CC Fee</th>
+                <th style={thStyle}>RV Make/Model + Feet</th>
+                <th style={thStyle}>Phone</th>
+                <th style={thStyle}>Email</th>
+                <th style={thStyle}>Start</th>
+                <th style={thStyle}>Square ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => {
+                const ccFee = (parseFloat(r.monthly_rate) * 0.035).toFixed(2);
+                const isEnded = !!r.billing_end_date;
+                return (
+                  <tr key={r.id} style={isEnded ? { opacity: 0.5 } : {}}>
+                    <td style={tdStyle}>
+                      <a href={`/customers/${r.customer_id}`} style={{ color: '#1e3a5f', textDecoration: 'underline', fontWeight: 600 }}>
+                        {r.last_name}{r.first_name ? `, ${r.first_name}` : ''}
+                      </a>
+                      {r.company_name && <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>{r.company_name}</div>}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <span style={{
+                        display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 700,
+                        backgroundColor: isEnded ? '#fee2e2' : '#d1fae5',
+                        color: isEnded ? '#dc2626' : '#065f46',
+                      }}>
+                        {isEnded ? 'OUT' : 'IN'}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{r.due_day ? `${r.due_day}${['st','nd','rd'][((r.due_day+90)%100-10)%10-1]||'th'}` : '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${parseFloat(r.monthly_rate).toFixed(2)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>${ccFee}</td>
+                    <td style={tdStyle}>
+                      {[r.unit_year, r.unit_make, r.unit_model].filter(Boolean).join(' ') || '—'}
+                      {r.linear_feet && <span style={{ color: '#6b7280' }}> {parseFloat(r.linear_feet)}'</span>}
+                    </td>
+                    <td style={tdStyle}>{formatPhone(r.phone_primary) || '—'}</td>
+                    <td style={tdStyle}>
+                      {r.email_primary ? (
+                        <a href={`mailto:${r.email_primary}`} style={{ color: '#2563eb', fontSize: '0.8rem' }}>{r.email_primary}</a>
+                      ) : '—'}
+                    </td>
+                    <td style={tdStyle}>{formatDate(r.billing_start_date)}</td>
+                    <td style={{ ...tdStyle, fontSize: '0.75rem', color: '#6b7280' }}>{r.square_sub_id || '—'}</td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr><td colSpan={10} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No records</td></tr>
+              )}
+              <tr style={{ backgroundColor: '#f9fafb' }}>
+                <td colSpan={3} style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>Subtotal {title}:</td>
+                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>${subtotal.toFixed(2)}</td>
+                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>${(subtotal * 0.035).toFixed(2)}</td>
+                <td colSpan={5} style={tdStyle}></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const grandTotal = report.totals.total_monthly;
+
+  return (
+    <div style={sectionStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h2 style={{ ...sectionTitle, marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>Storage Customer Report</h2>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input
+            type="text"
+            placeholder="Search customer..."
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            style={inputStyle}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={showAll} onChange={onToggleShowAll} />
+            Show Ended
+          </label>
+          <button onClick={handleExportCSV} style={btnSmall}>Export CSV</button>
+        </div>
+      </div>
+
+      {renderSection('Indoor', report.indoor, 'indoor')}
+      {renderSection('Outdoor', report.outdoor, 'outdoor')}
+
+      <div style={{ padding: '12px', backgroundColor: '#1e3a5f', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ color: '#fff', fontWeight: 700 }}>TOTAL MONTHLY REVENUE</span>
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', fontFamily: 'monospace' }}>${grandTotal.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
+function InfoField({ label, value }) {
+  return (
+    <div>
+      <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' }}>{label}</div>
+      <div style={{ fontSize: '0.875rem' }}>{value}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+const sectionStyle = {
+  marginBottom: '24px', padding: '20px', backgroundColor: '#fff',
+  borderRadius: '8px', border: '1px solid #e5e7eb',
+};
+const sectionTitle = {
+  fontSize: '1rem', fontWeight: 700, color: '#1e3a5f',
+  marginTop: 0, marginBottom: '16px', paddingBottom: '8px',
+  borderBottom: '1px solid #e5e7eb',
+};
+const gridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+  gap: '12px',
+};
+const spaceCardStyle = {
+  padding: '12px',
+  borderRadius: '8px',
+  border: '2px solid',
+  minHeight: '80px',
+  transition: 'transform 0.1s',
+};
+const overlayStyle = {
+  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex',
+  alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+};
+const modalStyle = {
+  backgroundColor: '#fff', borderRadius: '12px', padding: '28px',
+  width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto',
+  boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+};
+const tableStyle = { width: '100%', borderCollapse: 'collapse' };
+const thStyle = {
+  textAlign: 'left', padding: '8px 12px', backgroundColor: '#f9fafb',
+  borderBottom: '2px solid #e5e7eb', fontSize: '0.7rem', fontWeight: 600,
+  textTransform: 'uppercase', color: '#6b7280',
+};
+const tdStyle = { padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.85rem' };
+const labelStyle = {
+  display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280',
+  textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em',
+};
+const inputStyle = {
+  padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px',
+  fontSize: '0.875rem',
+};
+const inputStyleFull = {
+  ...inputStyle, width: '100%', boxSizing: 'border-box',
+};
+const dropdownStyle = {
+  position: 'absolute', top: '100%', left: 0, right: 0,
+  backgroundColor: '#fff', border: '1px solid #d1d5db',
+  borderRadius: '4px', maxHeight: '200px', overflowY: 'auto',
+  zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+};
+const dropdownItem = {
+  padding: '8px 12px', cursor: 'pointer',
+  borderBottom: '1px solid #f3f4f6', fontSize: '0.85rem',
+};
+const btnPrimary = {
+  padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff',
+  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
+};
+const btnSecondary = {
+  padding: '8px 16px', backgroundColor: '#f3f4f6', color: '#374151',
+  border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem',
+};
+const btnDanger = {
+  padding: '8px 16px', backgroundColor: '#fee2e2', color: '#dc2626',
+  border: '1px solid #fca5a5', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
+};
+const btnSmall = {
+  padding: '6px 12px', backgroundColor: '#1e3a5f', color: '#fff',
+  border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem',
+};
+const btnTinyGray = {
+  padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151',
+  border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem',
+};
+const errorBanner = {
+  padding: '10px 14px', backgroundColor: '#fee2e2', color: '#dc2626',
+  borderRadius: '6px', marginBottom: '16px', border: '1px solid #fecaca',
+  fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+};
+const successBanner = {
+  padding: '10px 14px', backgroundColor: '#f0fdf4', color: '#065f46',
+  borderRadius: '6px', marginBottom: '16px', border: '1px solid #bbf7d0',
+  fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+};
+const errorBannerSmall = {
+  padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626',
+  borderRadius: '4px', marginBottom: '12px', fontSize: '0.8rem',
+};
+const closeBtnStyle = {
+  background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600,
+  color: 'inherit', fontSize: '0.85rem',
+};
+const closeBtnLargeStyle = {
+  background: 'none', border: '1px solid #d1d5db', borderRadius: '4px',
+  cursor: 'pointer', padding: '4px 10px', fontSize: '0.85rem', color: '#6b7280',
+};
+=== VendorSelect.js ===
+import React, { useState, useEffect, useRef } from 'react';
+import { api } from '../api/client';
+
+export default function VendorSelect({ value, onChange, style }) {
+  const [vendors, setVendors] = useState([]);
+  const [query, setQuery] = useState(value || '');
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const ref = useRef();
+
+  useEffect(() => {
+    api.getVendors().then(setVendors).catch(() => {});
+  }, []);
+
+  useEffect(() => { setQuery(value || ''); }, [value]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = vendors.filter(v =>
+    v.name.toLowerCase().includes(query.toLowerCase())
+  );
+  const exactMatch = vendors.some(v => v.name.toLowerCase() === query.trim().toLowerCase());
+
+  const handleSelect = (name) => {
+    onChange(name);
+    setQuery(name);
+    setOpen(false);
+  };
+
+  const handleCreate = async () => {
+    if (!query.trim() || creating) return;
+    setCreating(true);
+    try {
+      const vendor = await api.createVendor(query.trim());
+      setVendors(prev => [...prev, vendor].sort((a, b) => a.name.localeCompare(b.name)));
+      handleSelect(vendor.name);
+    } catch (err) {
+      console.error('Create vendor error:', err);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Type to search vendors..."
+        style={style}
+      />
+      {open && query.length > 0 && (
+        <div style={dropdownStyle}>
+          {filtered.length > 0 ? (
+            filtered.slice(0, 10).map(v => (
+              <div key={v.id} onClick={() => handleSelect(v.name)} style={itemStyle}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+              >
+                {v.name}
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: '6px 10px', color: '#9ca3af', fontSize: '0.8rem' }}>No vendors found</div>
+          )}
+          {query.trim() && !exactMatch && (
+            <div onClick={handleCreate} style={{ ...itemStyle, borderTop: '1px solid #e5e7eb', color: '#1e3a5f', fontWeight: 600 }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+            >
+              {creating ? 'Creating...' : `+ Add New Vendor: "${query.trim().toUpperCase()}"`}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const dropdownStyle = {
+  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+  backgroundColor: '#fff', border: '1px solid #d1d5db', borderTop: 'none',
+  borderRadius: '0 0 4px 4px', maxHeight: '200px', overflowY: 'auto',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+};
+const itemStyle = {
+  padding: '6px 10px', cursor: 'pointer', fontSize: '0.8rem',
+};
+=== App.js ===
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Login from './pages/Login';
+import RecordList from './pages/RecordList';
+import RecordDetail from './pages/RecordDetail';
+import RecordNew from './pages/RecordNew';
+import InventoryList from './pages/InventoryList';
+import InventoryForm from './pages/InventoryForm';
+import Schedule from './pages/Schedule';
+import AppointmentForm from './pages/AppointmentForm';
+import Settings from './pages/Settings';
+import UserManagement from './pages/UserManagement';
+import Storage from './pages/Storage';
+import CustomerList from './pages/CustomerList';
+import CustomerDetail from './pages/CustomerDetail';
+import FinancialReport from './pages/FinancialReport';
+import CampaignAudit from './pages/CampaignAudit';
+import QBStatusDot from './components/QBStatusDot';
+
+function RequireAuth({ children }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return <div style={{ padding: '60px', textAlign: 'center', color: '#9ca3af' }}>Loading...</div>;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return children;
+}
+
+function AppLayout() {
+  const { user, logout, canManageUsers, canManageSettings, canSeeFinancials } = useAuth();
+
+  const roleLabelMap = {
+    admin: 'Admin',
+    service_writer: 'Service Writer',
+    technician: 'Technician',
+    bookkeeper: 'Bookkeeper',
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
+      {/* Header */}
+      <header style={{
+        backgroundColor: '#1e3a5f', padding: '0 24px',
+        display: 'flex', alignItems: 'center', height: '56px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+      }}>
+        <Link to="/records" style={{ color: '#fff', textDecoration: 'none', fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.025em' }}>
+          MASTER TECH ERP
+        </Link>
+        <nav style={{ marginLeft: '32px', display: 'flex', gap: '20px' }}>
+          <Link to="/customers" style={navLink}>Customers</Link>
+          <Link to="/records" style={navLink}>Records</Link>
+          <Link to="/inventory" style={navLink}>Inventory</Link>
+          <Link to="/schedule" style={navLink}>Schedule</Link>
+          <Link to="/storage" style={navLink}>Storage</Link>
+          {canSeeFinancials && <Link to="/reports" style={navLink}>Reports</Link>}
+          {canManageSettings && <Link to="/settings" style={navLink}>Settings</Link>}
+          {canManageUsers && <Link to="/users" style={navLink}>Users</Link>}
+        </nav>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <QBStatusDot />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              {user?.name} <span style={{ opacity: 0.7 }}>({roleLabelMap[user?.role] || user?.role})</span>
+            </span>
+            <button onClick={logout} style={logoutBtn}>Logout</button>
+          </div>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/records" />} />
+          <Route path="/customers" element={<CustomerList />} />
+          <Route path="/customers/:id" element={<CustomerDetail />} />
+          <Route path="/records" element={<RecordList />} />
+          <Route path="/records/new" element={<RecordNew />} />
+          <Route path="/records/:id" element={<RecordDetail />} />
+          <Route path="/inventory" element={<InventoryList />} />
+          <Route path="/inventory/new" element={<InventoryForm />} />
+          <Route path="/inventory/:id" element={<InventoryForm />} />
+          <Route path="/schedule" element={<Schedule />} />
+          <Route path="/schedule/new" element={<AppointmentForm />} />
+          <Route path="/schedule/:id" element={<AppointmentForm />} />
+          <Route path="/storage" element={<Storage />} />
+          <Route path="/reports" element={canSeeFinancials ? <FinancialReport /> : <Navigate to="/records" />} />
+          <Route path="/campaigns/audit" element={canSeeFinancials ? <CampaignAudit /> : <Navigate to="/records" />} />
+          <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
+          <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginRoute />} />
+          <Route path="/*" element={
+            <RequireAuth>
+              <AppLayout />
+            </RequireAuth>
+          } />
+        </Routes>
+      </AuthProvider>
+    </Router>
+  );
+}
+
+function LoginRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <div style={{ padding: '60px', textAlign: 'center', color: '#9ca3af' }}>Loading...</div>;
+  if (user) return <Navigate to="/records" replace />;
+  return <Login />;
+}
+
+const navLink = {
+  color: '#cbd5e1', textDecoration: 'none', fontSize: '0.875rem',
+  fontWeight: 500, padding: '4px 0', borderBottom: '2px solid transparent',
+};
+
+const logoutBtn = {
+  padding: '4px 12px',
+  backgroundColor: 'rgba(255,255,255,0.1)',
+  color: '#cbd5e1',
+  border: '1px solid rgba(255,255,255,0.2)',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '0.75rem',
+};
+
+export default App;

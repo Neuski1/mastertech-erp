@@ -15,7 +15,7 @@ async function request(path, options = {}) {
 
   // Handle 401 — token expired or invalid
   if (res.status === 401) {
-    sessionStorage.removeItem('erp_token');
+    localStorage.removeItem('erp_token');
     authToken = null;
     window.location.href = '/login';
     throw new Error('Session expired');

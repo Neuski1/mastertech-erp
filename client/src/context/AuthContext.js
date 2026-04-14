@@ -8,9 +8,9 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // On mount, check if token exists in sessionStorage (survives refresh but not tab close)
+  // On mount, check if token exists in localStorage (persists across tab/app closes; JWT 10h expiry governs session length)
   useEffect(() => {
-    const savedToken = sessionStorage.getItem('erp_token');
+    const savedToken = localStorage.getItem('erp_token');
     if (savedToken) {
       api.setToken(savedToken);
       setToken(savedToken);
@@ -18,7 +18,7 @@ export function AuthProvider({ children }) {
       api.getMe()
         .then(u => { setUser(u); setLoading(false); })
         .catch(() => {
-          sessionStorage.removeItem('erp_token');
+          localStorage.removeItem('erp_token');
           api.setToken(null);
           setLoading(false);
         });
@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
     setToken(data.token);
     setUser(data.user);
     api.setToken(data.token);
-    sessionStorage.setItem('erp_token', data.token);
+    localStorage.setItem('erp_token', data.token);
     return data.user;
   }, []);
 
@@ -40,7 +40,7 @@ export function AuthProvider({ children }) {
     setToken(null);
     setUser(null);
     api.setToken(null);
-    sessionStorage.removeItem('erp_token');
+    localStorage.removeItem('erp_token');
   }, []);
 
   // Auto-refresh token to keep session alive during active work days.
@@ -53,7 +53,7 @@ export function AuthProvider({ children }) {
         const data = await api.refreshToken();
         setToken(data.token);
         api.setToken(data.token);
-        sessionStorage.setItem('erp_token', data.token);
+        localStorage.setItem('erp_token', data.token);
       } catch {
         // Token expired or invalid — will be caught by 401 handler
       }

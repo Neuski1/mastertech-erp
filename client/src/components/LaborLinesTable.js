@@ -7,7 +7,7 @@ const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 // Standalone fetch that runs to completion even if the component unmounts.
 // This prevents lost saves when the user navigates away right after changing a field.
 async function sendLaborUpdate(recordId, lineId, data) {
-  const token = sessionStorage.getItem('erp_token');
+  const token = localStorage.getItem('erp_token');
   const res = await fetch(`${API_BASE}/labor/${recordId}/${lineId}`, {
     method: 'PATCH',
     headers: {
