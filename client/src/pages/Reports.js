@@ -139,15 +139,34 @@ export default function Reports() {
 
   return (
     <div style={{ maxWidth: '800px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      {/* Print-only header (hidden on screen, visible when printing) */}
+      <div className="print-only print-header">
+        <div className="company">Master Tech RV</div>
+        <div className="subtitle">Financial Report</div>
+        <div className="meta">
+          {new Date(from + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          {' — '}
+          {new Date(to + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </div>
+        <div className="meta">
+          Printed: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </div>
+      </div>
+
+      <div className="print-hide" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 style={{ margin: 0, color: '#1e3a5f' }}>Financial Reports</h1>
-        <a href="/reports/active-workorders" style={{ padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '0.85rem' }}>
-          Active Work Orders
-        </a>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <a href="/reports/active-workorders" style={{ padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '0.85rem' }}>
+            Active Work Orders
+          </a>
+          <button onClick={() => window.print()} style={{ padding: '8px 16px', backgroundColor: '#0d9488', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+            Print Report
+          </button>
+        </div>
       </div>
 
       {/* Date range selector */}
-      <div style={cardStyle}>
+      <div className="print-hide" style={cardStyle}>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '12px', flexWrap: 'wrap' }}>
           <div>
             <label style={labelStyle}>From</label>
@@ -174,7 +193,7 @@ export default function Reports() {
       {report && (
         <>
           {/* Revenue Summary */}
-          <div style={sectionStyle}>
+          <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Revenue Summary</h2>
             <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 12px' }}>
               {new Date(from + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} — {new Date(to + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
@@ -200,10 +219,10 @@ export default function Reports() {
                       <td style={{ padding: '6px 12px 6px 28px', fontSize: '0.85rem', fontStyle: 'italic', color: '#6b7280' }}>
                         Bookkeeper Adjustment — {a.period_label}
                         {isAdmin && !isEditingThis && (
-                          <>
+                          <span className="print-hide">
                             <button onClick={() => openEditAdjustment(a)} title="Edit" style={iconBtn}>✏️</button>
                             <button onClick={() => deleteAdjustment(a.id)} title="Delete" style={iconBtn}>🗑️</button>
-                          </>
+                          </span>
                         )}
                         {a.note && <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '2px' }}>{a.note}</div>}
                       </td>
@@ -217,7 +236,7 @@ export default function Reports() {
                   <Row label="ADJUSTED TOTAL" value={fmtCur(adjustedTotal)} bold border color="#0d9488" />
                 )}
                 {isAdmin && adjEditing === null && adjustments.length === 0 && (
-                  <tr>
+                  <tr className="print-hide">
                     <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'left' }}>
                       <button onClick={openAddAdjustment} style={{ background: 'none', border: 'none', color: '#0d9488', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, padding: 0 }}>
                         + Add Bookkeeper Adjustment
@@ -226,7 +245,7 @@ export default function Reports() {
                   </tr>
                 )}
                 {isAdmin && adjEditing === null && adjustments.length > 0 && (
-                  <tr>
+                  <tr className="print-hide">
                     <td colSpan={2} style={{ padding: '8px 12px', textAlign: 'left' }}>
                       <button onClick={openAddAdjustment} style={{ background: 'none', border: 'none', color: '#0d9488', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, padding: 0 }}>
                         + Add another adjustment
@@ -235,7 +254,7 @@ export default function Reports() {
                   </tr>
                 )}
                 {adjEditing !== null && (
-                  <tr>
+                  <tr className="print-hide">
                     <td colSpan={2} style={{ padding: '12px', backgroundColor: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '6px' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                         <div>
@@ -273,7 +292,7 @@ export default function Reports() {
           </div>
 
           {/* Work Order Activity */}
-          <div style={sectionStyle}>
+          <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Work Order Activity</h2>
             <table style={tableStyle}>
               <tbody>
@@ -287,7 +306,7 @@ export default function Reports() {
           </div>
 
           {/* Payment Methods */}
-          <div style={sectionStyle}>
+          <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Payment Methods</h2>
             <table style={tableStyle}>
               <tbody>
@@ -300,7 +319,7 @@ export default function Reports() {
           </div>
 
           {/* Storage Revenue */}
-          <div style={sectionStyle}>
+          <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Storage Revenue</h2>
             <table style={tableStyle}>
               <tbody>
@@ -311,7 +330,7 @@ export default function Reports() {
           </div>
 
           {/* Top Customers */}
-          <div style={sectionStyle}>
+          <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Top Customers by Revenue</h2>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -340,7 +359,7 @@ export default function Reports() {
 
           {/* Technician Profitability */}
           {techReport && techReport.technicians && (
-            <div style={sectionStyle}>
+            <div className="print-section" style={sectionStyle}>
               <h2 style={sectionTitle}>Technician Profitability</h2>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -388,7 +407,7 @@ export default function Reports() {
 
           {/* Contractor Profitability */}
           {contractorReport && contractorReport.contractors && (
-            <div style={sectionStyle}>
+            <div className="print-section" style={sectionStyle}>
               <h2 style={sectionTitle}>Contractor Profitability</h2>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -435,8 +454,8 @@ export default function Reports() {
             </div>
           )}
 
-          {/* Print button */}
-          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+          {/* Bottom print button — kept for convenience, hidden when printing */}
+          <div className="print-hide" style={{ textAlign: 'center', marginBottom: '24px' }}>
             <button onClick={() => window.print()} style={btnPrimary}>Print Report</button>
           </div>
         </>

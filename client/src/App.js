@@ -92,7 +92,7 @@ function AppLayout() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f3f4f6' }}>
       {/* Header — fixed to top on all screen sizes */}
-      <header style={{
+      <header className="print-hide" style={{
         backgroundColor: '#1e3a5f',
         padding: isMobile ? '8px 12px' : '0 24px',
         display: 'flex', alignItems: isMobile ? 'flex-start' : 'center',
