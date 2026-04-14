@@ -65,18 +65,32 @@ async function syncAppointmentToCalendar(appointment, action = 'create') {
   const customerName = [appointment.last_name, appointment.first_name].filter(Boolean).join(', ');
   const unitInfo = [appointment.unit_year, appointment.unit_make, appointment.unit_model].filter(Boolean).join(' ');
   const typeLabel = (appointment.appointment_type || '').replace(/_/g, ' ').toUpperCase();
+  const statusLabel = (appointment.status || '').replace(/_/g, ' ').toUpperCase();
+
+  const descLines = [
+    typeLabel && `Appointment Type: ${typeLabel}`,
+    statusLabel && `Status: ${statusLabel}`,
+    unitInfo && `Unit: ${unitInfo}`,
+    appointment.technician_name && `Technician: ${appointment.technician_name}`,
+    appointment.record_number && `WO#: ${appointment.record_number}`,
+    appointment.phone_primary && `Customer Phone: ${appointment.phone_primary}`,
+    appointment.email_primary && `Customer Email: ${appointment.email_primary}`,
+    appointment.dropoff_notes && `Drop-off Notes: ${appointment.dropoff_notes}`,
+    appointment.pickup_notes && `Pick-up Notes: ${appointment.pickup_notes}`,
+    appointment.internal_notes && `Internal Notes: ${appointment.internal_notes}`,
+    appointment.job_description && `Job Description: ${appointment.job_description}`,
+  ].filter(Boolean);
 
   const event = {
-    summary: `${typeLabel} — ${customerName}`,
-    description: [
-      unitInfo && `Unit: ${unitInfo}`,
-      appointment.job_description && `Job: ${appointment.job_description}`,
-      appointment.dropoff_notes && `Drop-off Notes: ${appointment.dropoff_notes}`,
-      appointment.internal_notes && `Internal Notes: ${appointment.internal_notes}`,
-    ].filter(Boolean).join('\n'),
+    summary: customerName ? `${customerName} — ${typeLabel}` : typeLabel,
+    description: descLines.join('\n'),
     start: { dateTime: startTime.toISOString(), timeZone: 'America/Denver' },
     end: { dateTime: endTime.toISOString(), timeZone: 'America/Denver' },
   };
+
+  if (appointment.email_primary) {
+    event.attendees = [{ email: appointment.email_primary }];
+  }
 
   try {
     if (action === 'create') {

@@ -168,14 +168,18 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
       ]
     );
 
-    // Re-fetch with joined data
+    // Re-fetch with joined data (same shape used for calendar sync)
     const { rows: full } = await pool.query(
       `SELECT a.*,
-              c.last_name, c.first_name, c.company_name,
-              t.name AS technician_name
+              c.last_name, c.first_name, c.company_name, c.phone_primary, c.email_primary,
+              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin,
+              t.name AS technician_name,
+              r.record_number, r.status AS record_status
        FROM appointments a
        JOIN customers c ON c.id = a.customer_id
+       LEFT JOIN units u ON u.id = a.unit_id
        LEFT JOIN technicians t ON t.id = a.technician_id
+       LEFT JOIN records r ON r.id = a.record_id
        WHERE a.id = $1`,
       [rows[0].id]
     );
@@ -324,8 +328,24 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
+    // Re-fetch with joined data so the calendar sync has the full context
+    const { rows: full } = await pool.query(
+      `SELECT a.*,
+              c.last_name, c.first_name, c.company_name, c.phone_primary, c.email_primary,
+              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin,
+              t.name AS technician_name,
+              r.record_number, r.status AS record_status
+       FROM appointments a
+       JOIN customers c ON c.id = a.customer_id
+       LEFT JOIN units u ON u.id = a.unit_id
+       LEFT JOIN technicians t ON t.id = a.technician_id
+       LEFT JOIN records r ON r.id = a.record_id
+       WHERE a.id = $1`,
+      [rows[0].id]
+    );
+    const appt = full[0] || rows[0];
+
     // Sync update to Google Calendar (fire and forget)
-    const appt = rows[0];
     if (appt.google_event_id) {
       syncAppointmentToCalendar(appt, 'update').catch(err => console.error('Google Calendar update error:', err.message));
     }
