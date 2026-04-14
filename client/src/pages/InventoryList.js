@@ -28,6 +28,11 @@ export default function InventoryList() {
   const [reportsOpen, setReportsOpen] = useState(false);
   const [vendorList, setVendorList] = useState([]);
   const [showVendorPanel, setShowVendorPanel] = useState(false);
+  const [editingVendor, setEditingVendor] = useState(null); // { oldName, newName }
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSelected, setMergeSelected] = useState(new Set());
+  const [mergeInto, setMergeInto] = useState('');
+  const [mergeSaving, setMergeSaving] = useState(false);
   const [vendorDeleteModal, setVendorDeleteModal] = useState(null); // { name, parts, allVendors }
   const [vendorReassignments, setVendorReassignments] = useState({}); // { partId: newVendor }
   const [bulkReassignVendor, setBulkReassignVendor] = useState('');
@@ -333,6 +338,57 @@ export default function InventoryList() {
     }
   };
 
+  const startEditVendor = (name) => setEditingVendor({ oldName: name, newName: name });
+  const cancelEditVendor = () => setEditingVendor(null);
+  const saveEditVendor = async () => {
+    const oldName = editingVendor.oldName;
+    const newName = (editingVendor.newName || '').trim();
+    if (!newName) { alert('New name is required'); return; }
+    if (newName === oldName) { setEditingVendor(null); return; }
+    try {
+      const result = await api.renameVendor(oldName, newName);
+      setEditingVendor(null);
+      await fetchVendors();
+      await fetchItems();
+      alert(`Renamed "${oldName}" → "${newName}" on ${result.updated} item${result.updated === 1 ? '' : 's'}.`);
+    } catch (err) {
+      alert('Rename failed: ' + err.message);
+    }
+  };
+
+  const toggleMergeSelection = (name) => {
+    setMergeSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+
+  const handleMerge = async () => {
+    const vendors = Array.from(mergeSelected);
+    const target = (mergeInto || '').trim();
+    if (vendors.length < 2) { alert('Select at least 2 vendors to merge.'); return; }
+    if (!target) { alert('Enter the canonical vendor name to merge into.'); return; }
+    const itemCount = vendorList
+      .filter(v => mergeSelected.has(v.name))
+      .reduce((sum, v) => sum + parseInt(v.item_count || 0, 10), 0);
+    if (!window.confirm(`This will rename ${itemCount} item${itemCount === 1 ? '' : 's'} across ${vendors.length} vendors to "${target}". This cannot be undone. Continue?`)) return;
+    setMergeSaving(true);
+    try {
+      const result = await api.mergeVendors(vendors, target);
+      setMergeMode(false);
+      setMergeSelected(new Set());
+      setMergeInto('');
+      await fetchVendors();
+      await fetchItems();
+      alert(`Merged ${vendors.length} vendors into "${target}" — ${result.updated} items updated.`);
+    } catch (err) {
+      alert('Merge failed: ' + err.message);
+    } finally {
+      setMergeSaving(false);
+    }
+  };
+
   const handleBulkReassign = () => {
     if (!bulkReassignVendor) return;
     const newAssignments = {};
@@ -609,31 +665,99 @@ export default function InventoryList() {
         <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ margin: 0, color: '#1e3a5f', fontSize: '1rem' }}>Vendor Management</h3>
-            <button onClick={() => setShowVendorPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: '#6b7280' }}>&times;</button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                onClick={() => { setMergeMode(m => !m); setMergeSelected(new Set()); setMergeInto(''); }}
+                style={{ padding: '4px 12px', backgroundColor: mergeMode ? '#0d9488' : '#f3f4f6', color: mergeMode ? '#fff' : '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}
+              >
+                {mergeMode ? 'Cancel Merge' : 'Merge Vendors'}
+              </button>
+              <button onClick={() => setShowVendorPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: '#6b7280' }}>&times;</button>
+            </div>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, padding: '8px 12px' }}>Vendor Name</th>
-                <th style={{ ...thStyle, padding: '8px 12px', textAlign: 'right' }}>Items</th>
-                <th style={{ ...thStyle, padding: '8px 12px', width: '80px' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {vendorList.map(v => (
-                <tr key={v.name}>
-                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>{v.name}</td>
-                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', textAlign: 'right' }}>{v.item_count}</td>
-                  <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6' }}>
-                    <button onClick={() => handleDeleteVendor(v.name)} style={{ padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' }}>Delete</button>
-                  </td>
+
+          {mergeMode && (
+            <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.85rem', color: '#115e59' }}>
+                Select 2+ vendors below, then enter the canonical name:
+              </span>
+              <input
+                type="text"
+                placeholder="Merge into (e.g. ADFAST)"
+                value={mergeInto}
+                onChange={(e) => setMergeInto(e.target.value)}
+                style={{ ...inputStyle, flex: 1, minWidth: '200px' }}
+              />
+              <span style={{ fontSize: '0.8rem', color: '#115e59' }}>{mergeSelected.size} selected</span>
+              <button
+                onClick={handleMerge}
+                disabled={mergeSaving || mergeSelected.size < 2 || !mergeInto.trim()}
+                style={{ padding: '6px 14px', backgroundColor: '#0d9488', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, opacity: (mergeSaving || mergeSelected.size < 2 || !mergeInto.trim()) ? 0.5 : 1 }}
+              >
+                {mergeSaving ? 'Merging...' : 'Merge'}
+              </button>
+            </div>
+          )}
+
+          <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {mergeMode && <th style={{ ...thStyle, padding: '8px 12px', width: '32px' }}></th>}
+                  <th style={{ ...thStyle, padding: '8px 12px' }}>Vendor Name</th>
+                  <th style={{ ...thStyle, padding: '8px 12px', textAlign: 'right' }}>Items</th>
+                  <th style={{ ...thStyle, padding: '8px 12px', width: '140px' }}></th>
                 </tr>
-              ))}
-              {vendorList.length === 0 && (
-                <tr><td colSpan={3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>No vendors found</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {vendorList.map(v => {
+                  const isEditingThis = editingVendor && editingVendor.oldName === v.name;
+                  return (
+                    <tr key={v.name}>
+                      {mergeMode && (
+                        <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6' }}>
+                          <input
+                            type="checkbox"
+                            checked={mergeSelected.has(v.name)}
+                            onChange={() => toggleMergeSelection(v.name)}
+                          />
+                        </td>
+                      )}
+                      <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>
+                        {isEditingThis ? (
+                          <input
+                            type="text"
+                            value={editingVendor.newName}
+                            onChange={(e) => setEditingVendor({ ...editingVendor, newName: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveEditVendor(); if (e.key === 'Escape') cancelEditVendor(); }}
+                            autoFocus
+                            style={{ ...inputStyle, padding: '4px 8px', fontSize: '0.85rem', width: '100%' }}
+                          />
+                        ) : v.name}
+                      </td>
+                      <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', textAlign: 'right' }}>{v.item_count}</td>
+                      <td style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>
+                        {isEditingThis ? (
+                          <>
+                            <button onClick={saveEditVendor} style={{ padding: '2px 8px', backgroundColor: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' }}>Save</button>
+                            <button onClick={cancelEditVendor} style={{ padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' }}>Cancel</button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => startEditVendor(v.name)} title="Rename" style={{ padding: '2px 8px', backgroundColor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' }}>✏️ Edit</button>
+                            <button onClick={() => handleDeleteVendor(v.name)} style={{ padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' }}>Delete</button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {vendorList.length === 0 && (
+                  <tr><td colSpan={mergeMode ? 4 : 3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>No vendors found</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

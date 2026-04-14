@@ -278,4 +278,6 @@ export const api = {
   getVendorParts: (name) => request(`/vendors/${encodeURIComponent(name)}/parts`),
   deleteVendor: (name) => request(`/vendors/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   bulkUpdateVendor: (parts) => request('/vendors/bulk-update', { method: 'PATCH', body: JSON.stringify({ parts }) }),
+  renameVendor: (name, newName) => request(`/vendors/${encodeURIComponent(name)}/rename`, { method: 'PUT', body: JSON.stringify({ newName }) }),
+  mergeVendors: (vendors, mergeInto) => request('/vendors/merge', { method: 'POST', body: JSON.stringify({ vendors, mergeInto }) }),
 };

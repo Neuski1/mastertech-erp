@@ -120,4 +120,49 @@ router.patch('/bulk-update', requireRole('admin'), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// PUT /api/vendors/:name/rename — Rename a vendor across all inventory items
+// ---------------------------------------------------------------------------
+router.put('/:name/rename', requireRole('admin'), async (req, res) => {
+  const oldName = req.params.name;
+  const { newName } = req.body || {};
+  if (!newName || !String(newName).trim()) {
+    return res.status(400).json({ error: 'newName is required' });
+  }
+  try {
+    const { rowCount } = await pool.query(
+      'UPDATE inventory SET vendor = $1 WHERE deleted_at IS NULL AND vendor = $2',
+      [String(newName).trim(), oldName]
+    );
+    res.json({ updated: rowCount });
+  } catch (err) {
+    console.error('PUT /api/vendors/:name/rename error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/vendors/merge — Merge multiple vendors into a single canonical name
+// Body: { vendors: string[], mergeInto: string }
+// ---------------------------------------------------------------------------
+router.post('/merge', requireRole('admin'), async (req, res) => {
+  const { vendors, mergeInto } = req.body || {};
+  if (!Array.isArray(vendors) || vendors.length < 2) {
+    return res.status(400).json({ error: 'vendors must be an array of at least 2 names' });
+  }
+  if (!mergeInto || !String(mergeInto).trim()) {
+    return res.status(400).json({ error: 'mergeInto is required' });
+  }
+  try {
+    const { rowCount } = await pool.query(
+      'UPDATE inventory SET vendor = $1 WHERE deleted_at IS NULL AND vendor = ANY($2::text[])',
+      [String(mergeInto).trim(), vendors]
+    );
+    res.json({ updated: rowCount });
+  } catch (err) {
+    console.error('POST /api/vendors/merge error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
