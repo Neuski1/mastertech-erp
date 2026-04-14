@@ -136,8 +136,15 @@ router.get('/', async (req, res) => {
     params.push(vendor);
   }
   if (category) {
-    conditions.push(`LOWER(i.category) = LOWER($${paramIdx++})`);
+    // inventory.category stores the short prefix code (e.g. "BAT"), but the
+    // dropdown may send either the code or the full name (e.g. "Battery" /
+    // "BATTERY"). Match either by falling back to a name→prefix lookup.
+    conditions.push(`(
+      LOWER(i.category) = LOWER($${paramIdx})
+      OR LOWER(i.category) = (SELECT LOWER(prefix) FROM inventory_categories WHERE LOWER(name) = LOWER($${paramIdx}))
+    )`);
     params.push(category);
+    paramIdx++;
   }
   if (location) {
     conditions.push(`LOWER(i.location::text) = LOWER($${paramIdx++})`);
