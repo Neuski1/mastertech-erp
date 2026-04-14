@@ -125,9 +125,15 @@ function AppLayout() {
 
         {/* Desktop nav */}
         {!isMobile && (
-          <nav style={{ marginLeft: '32px', display: 'flex', gap: '20px' }}>
+          <nav style={{ marginLeft: '32px', display: 'flex', gap: '20px', alignItems: 'center' }}>
             {allNavLinks.map(link => (
-              <Link key={link.to} to={link.to} style={navLink}>{link.label}</Link>
+              <Link
+                key={link.to}
+                to={link.to}
+                style={link.to === '/records' ? recordsNavLink : navLink}
+              >
+                {link.label}
+              </Link>
             ))}
           </nav>
         )}
@@ -153,7 +159,14 @@ function AppLayout() {
             display: 'flex', flexDirection: 'column',
           }}>
             {allNavLinks.map(link => (
-              <Link key={link.to} to={link.to} style={mobileNavLinkStyle} onClick={closeMobileNav}>
+              <Link
+                key={link.to}
+                to={link.to}
+                style={link.to === '/records'
+                  ? { ...mobileNavLinkStyle, backgroundColor: '#f59e0b', color: '#1e3a5f', fontSize: '1.15rem', fontWeight: 800, padding: '16px 12px', borderRadius: '6px', marginBottom: '4px', borderBottom: 'none' }
+                  : mobileNavLinkStyle}
+                onClick={closeMobileNav}
+              >
                 {link.label}
               </Link>
             ))}
@@ -219,6 +232,20 @@ function LoginRoute() {
 const navLink = {
   color: '#cbd5e1', textDecoration: 'none', fontSize: '0.875rem',
   fontWeight: 500, padding: '4px 0', borderBottom: '2px solid transparent',
+};
+
+// Records is the highest-traffic module — give it a warm amber pill so it's the
+// obvious click target in the nav.
+const recordsNavLink = {
+  color: '#1e3a5f',
+  backgroundColor: '#f59e0b',
+  textDecoration: 'none',
+  fontSize: '1.05rem',
+  fontWeight: 800,
+  padding: '8px 16px',
+  borderRadius: '999px',
+  letterSpacing: '0.02em',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
 };
 
 const logoutBtn = {
