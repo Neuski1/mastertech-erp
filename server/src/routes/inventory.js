@@ -132,15 +132,15 @@ router.get('/', async (req, res) => {
     paramIdx++;
   }
   if (vendor) {
-    conditions.push(`i.vendor = $${paramIdx++}`);
+    conditions.push(`LOWER(i.vendor) = LOWER($${paramIdx++})`);
     params.push(vendor);
   }
   if (category) {
-    conditions.push(`i.category = $${paramIdx++}`);
+    conditions.push(`LOWER(i.category) = LOWER($${paramIdx++})`);
     params.push(category);
   }
   if (location) {
-    conditions.push(`i.location = $${paramIdx++}`);
+    conditions.push(`LOWER(i.location::text) = LOWER($${paramIdx++})`);
     params.push(location);
   }
   if (low_stock === 'true') {
