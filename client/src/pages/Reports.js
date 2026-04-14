@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 function getMonthRange(offset = 0) {
   const d = new Date();
@@ -17,6 +18,7 @@ function getYearRange(offset = 0) {
 const METHOD_LABELS = { credit_card: 'Credit Card', check: 'Check', cash: 'Cash', zelle: 'Zelle' };
 
 export default function Reports() {
+  const { isAdmin } = useAuth();
   const thisMonth = getMonthRange(0);
   const [from, setFrom] = useState(thisMonth.from);
   const [to, setTo] = useState(thisMonth.to);
@@ -25,6 +27,10 @@ export default function Reports() {
   const [contractorReport, setContractorReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [adjustments, setAdjustments] = useState([]);
+  const [adjEditing, setAdjEditing] = useState(null); // null | 'new' | adjustmentId
+  const [adjForm, setAdjForm] = useState({ period_label: '', period_start: '', period_end: '', adjustment_amount: '', note: '' });
+  const [adjSaving, setAdjSaving] = useState(false);
 
   const fmtCur = (v) => parseFloat(v || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
@@ -32,18 +38,87 @@ export default function Reports() {
     setLoading(true);
     setError('');
     try {
-      const [data, techData, contractorData] = await Promise.all([
+      const [data, techData, contractorData, adjData] = await Promise.all([
         api.getFinancialReport({ from, to }),
         api.getTechProfitability({ from, to }).catch(() => null),
         api.getContractorProfitability({ from, to }).catch(() => null),
+        api.getBookkeeperAdjustments({ start: from, end: to }).catch(() => []),
       ]);
       setReport(data);
       setTechReport(techData);
       setContractorReport(contractorData);
+      setAdjustments(Array.isArray(adjData) ? adjData : []);
+      setAdjEditing(null);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openAddAdjustment = () => {
+    setAdjForm({
+      period_label: '',
+      period_start: from,
+      period_end: to,
+      adjustment_amount: '',
+      note: '',
+    });
+    setAdjEditing('new');
+  };
+
+  const openEditAdjustment = (a) => {
+    setAdjForm({
+      period_label: a.period_label || '',
+      period_start: (a.period_start || '').slice(0, 10),
+      period_end: (a.period_end || '').slice(0, 10),
+      adjustment_amount: String(a.adjustment_amount ?? ''),
+      note: a.note || '',
+    });
+    setAdjEditing(a.id);
+  };
+
+  const cancelAdjForm = () => setAdjEditing(null);
+
+  const saveAdjustment = async () => {
+    if (!adjForm.period_label.trim() || !adjForm.period_start || !adjForm.period_end || adjForm.adjustment_amount === '') {
+      setError('Period label, start, end, and amount are required');
+      return;
+    }
+    const amount = parseFloat(adjForm.adjustment_amount);
+    if (isNaN(amount)) { setError('Amount must be a number'); return; }
+    setAdjSaving(true);
+    setError('');
+    try {
+      const payload = {
+        period_label: adjForm.period_label.trim(),
+        period_start: adjForm.period_start,
+        period_end: adjForm.period_end,
+        adjustment_amount: amount,
+        note: adjForm.note || null,
+      };
+      if (adjEditing === 'new') {
+        const created = await api.createBookkeeperAdjustment(payload);
+        setAdjustments(prev => [created, ...prev]);
+      } else {
+        const updated = await api.updateBookkeeperAdjustment(adjEditing, payload);
+        setAdjustments(prev => prev.map(a => a.id === updated.id ? updated : a));
+      }
+      setAdjEditing(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAdjSaving(false);
+    }
+  };
+
+  const deleteAdjustment = async (id) => {
+    if (!window.confirm('Delete this bookkeeper adjustment?')) return;
+    try {
+      await api.deleteBookkeeperAdjustment(id);
+      setAdjustments(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -58,6 +133,9 @@ export default function Reports() {
   // Subtotal = sum of line items (labor + parts + freight + shop supplies)
   // Not derived from grossRevenue which may differ for Summit-imported records
   const subtotal = r ? r.labor + r.parts + r.misc + r.shopSupplies : 0;
+  const grandTotal = r ? r.grossRevenue + report.storage.total : 0;
+  const adjTotal = adjustments.reduce((sum, a) => sum + parseFloat(a.adjustment_amount || 0), 0);
+  const adjustedTotal = grandTotal + adjTotal;
 
   return (
     <div style={{ maxWidth: '800px' }}>
@@ -112,7 +190,84 @@ export default function Reports() {
                 <Row label="Credit Card Fees (3%)" value={fmtCur(r.ccFees)} indent />
                 <Row label="TOTAL SERVICE REVENUE" value={fmtCur(r.grossRevenue)} bold border />
                 <Row label="Storage Revenue" value={fmtCur(report.storage.total)} />
-                <Row label="GRAND TOTAL" value={fmtCur(r.grossRevenue + report.storage.total)} bold border color="#065f46" />
+                <Row label="GRAND TOTAL" value={fmtCur(grandTotal)} bold border color="#065f46" />
+                {adjustments.map(a => {
+                  const amt = parseFloat(a.adjustment_amount || 0);
+                  const amtColor = amt < 0 ? '#dc2626' : '#065f46';
+                  const isEditingThis = adjEditing === a.id;
+                  return (
+                    <tr key={a.id}>
+                      <td style={{ padding: '6px 12px 6px 28px', fontSize: '0.85rem', fontStyle: 'italic', color: '#6b7280' }}>
+                        Bookkeeper Adjustment — {a.period_label}
+                        {isAdmin && !isEditingThis && (
+                          <>
+                            <button onClick={() => openEditAdjustment(a)} title="Edit" style={iconBtn}>✏️</button>
+                            <button onClick={() => deleteAdjustment(a.id)} title="Delete" style={iconBtn}>🗑️</button>
+                          </>
+                        )}
+                        {a.note && <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '2px' }}>{a.note}</div>}
+                      </td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', fontSize: '0.85rem', fontStyle: 'italic', fontWeight: 600, color: amtColor }}>
+                        {amt < 0 ? '-' : ''}{fmtCur(Math.abs(amt))}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {adjustments.length > 0 && (
+                  <Row label="ADJUSTED TOTAL" value={fmtCur(adjustedTotal)} bold border color="#0d9488" />
+                )}
+                {isAdmin && adjEditing === null && adjustments.length === 0 && (
+                  <tr>
+                    <td colSpan={2} style={{ padding: '10px 12px', textAlign: 'left' }}>
+                      <button onClick={openAddAdjustment} style={{ background: 'none', border: 'none', color: '#0d9488', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, padding: 0 }}>
+                        + Add Bookkeeper Adjustment
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {isAdmin && adjEditing === null && adjustments.length > 0 && (
+                  <tr>
+                    <td colSpan={2} style={{ padding: '8px 12px', textAlign: 'left' }}>
+                      <button onClick={openAddAdjustment} style={{ background: 'none', border: 'none', color: '#0d9488', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, padding: 0 }}>
+                        + Add another adjustment
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {adjEditing !== null && (
+                  <tr>
+                    <td colSpan={2} style={{ padding: '12px', backgroundColor: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '6px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                        <div>
+                          <label style={labelStyle}>Period Label</label>
+                          <input type="text" value={adjForm.period_label} onChange={(e) => setAdjForm({ ...adjForm, period_label: e.target.value })} placeholder="e.g. Q1 2026" style={{ ...inputStyle, width: '100%' }} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Amount</label>
+                          <input type="number" step="0.01" value={adjForm.adjustment_amount} onChange={(e) => setAdjForm({ ...adjForm, adjustment_amount: e.target.value })} placeholder="-26747.41" style={{ ...inputStyle, width: '100%' }} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Period Start</label>
+                          <input type="date" value={adjForm.period_start} onChange={(e) => setAdjForm({ ...adjForm, period_start: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Period End</label>
+                          <input type="date" value={adjForm.period_end} onChange={(e) => setAdjForm({ ...adjForm, period_end: e.target.value })} style={{ ...inputStyle, width: '100%' }} />
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <label style={labelStyle}>Note (optional)</label>
+                          <input type="text" value={adjForm.note} onChange={(e) => setAdjForm({ ...adjForm, note: e.target.value })} placeholder="Per bookkeeper reconciliation" style={{ ...inputStyle, width: '100%' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button onClick={cancelAdjForm} disabled={adjSaving} style={btnQuick}>Cancel</button>
+                        <button onClick={saveAdjustment} disabled={adjSaving} style={{ ...btnPrimary, padding: '6px 14px', backgroundColor: '#0d9488' }}>
+                          {adjSaving ? 'Saving...' : 'Save'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -309,3 +464,4 @@ const inputStyle = { padding: '8px 12px', border: '1px solid #d1d5db', borderRad
 const labelStyle = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: '4px' };
 const btnPrimary = { padding: '10px 20px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' };
 const btnQuick = { padding: '6px 12px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' };
+const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', padding: '0 4px', marginLeft: '4px' };

@@ -78,6 +78,7 @@ app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
 app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
 app.use('/api/reports', requireAuth, require('./routes/reports'));
+app.use('/api/bookkeeper-adjustments', requireAuth, require('./routes/bookkeeperAdjustments'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally

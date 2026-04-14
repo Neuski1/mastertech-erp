@@ -198,6 +198,15 @@ export const api = {
     return request(`/reports/financial${qs ? `?${qs}` : ''}`);
   },
 
+  // Bookkeeper adjustments
+  getBookkeeperAdjustments: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/bookkeeper-adjustments${qs ? `?${qs}` : ''}`);
+  },
+  createBookkeeperAdjustment: (data) => request('/bookkeeper-adjustments', { method: 'POST', body: JSON.stringify(data) }),
+  updateBookkeeperAdjustment: (id, data) => request(`/bookkeeper-adjustments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteBookkeeperAdjustment: (id) => request(`/bookkeeper-adjustments/${id}`, { method: 'DELETE' }),
+
   // Google Calendar
   calGetStatus: () => request('/calendar/status'),
   calGetAuthUrl: () => request('/calendar/auth'),
