@@ -324,6 +324,9 @@ export default function CustomerDetail() {
             {customer.marketing_opt_out && (
               <span style={{ padding: '3px 10px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fee2e2', color: '#dc2626' }}>Opted Out</span>
             )}
+            {customer.sms_opt_out && (
+              <span style={{ padding: '3px 10px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#e5e7eb', color: '#4b5563' }}>SMS Opted Out</span>
+            )}
           </div>
         </div>
         <div style={gridStyle}>
@@ -400,6 +403,21 @@ export default function CustomerDetail() {
               </span>
             </label>
           )}
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!customer.sms_opt_out}
+              onChange={async (e) => {
+                try {
+                  const updated = await api.updateCustomer(id, { sms_opt_out: e.target.checked });
+                  setCustomer(updated);
+                } catch (err) { setError(err.message); }
+              }}
+            />
+            <span style={{ color: customer.sms_opt_out ? '#4b5563' : '#374151' }}>
+              {customer.sms_opt_out ? 'Opted out of SMS messages — toggle off to re-enable' : 'Exclude from SMS messages'}
+            </span>
+          </label>
         </div>
       </div>
 

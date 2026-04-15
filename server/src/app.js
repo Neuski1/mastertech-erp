@@ -83,6 +83,7 @@ app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
+app.use('/api/twilio', require('./routes/twilioWebhook')); // No auth — Twilio calls directly
 
 // Test email endpoint — quick debug, no auth required
 app.get('/api/test-email', async (req, res) => {
@@ -223,6 +224,10 @@ const pool = require('./db/pool');
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS bookkeeper_adjustments_period_idx ON bookkeeper_adjustments (period_start, period_end)');
+    // Migration 040: SMS opt-out + appointment reminder tracking
+    await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS sms_opt_out BOOLEAN DEFAULT false');
+    await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS sms_opt_out_date TIMESTAMPTZ');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sms_reminder_sent BOOLEAN DEFAULT false');
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
@@ -235,6 +240,9 @@ startDailyCampaignJob();
 
 const { startReminderCron } = require('./jobs/reminderCron');
 startReminderCron();
+
+const { startAppointmentReminderCron } = require('./jobs/appointmentReminderCron');
+startAppointmentReminderCron();
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {

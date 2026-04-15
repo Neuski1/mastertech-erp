@@ -30,11 +30,8 @@ if (process.env.RESEND_API_KEY) {
   });
 }
 
-// ── Twilio check (same pattern as services/sms.js) ──
-
-function isTwilioConfigured() {
-  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
-}
+// ── SMS sender (shared service, handles opt-out + Twilio config) ──
+const { sendPaymentReminderSMS, isTwilioConfigured } = require('./sms');
 
 // ── Email sending helper ──
 
@@ -98,19 +95,13 @@ function buildReminderEmailHtml({ customerName, amountDue, invoiceNumber, unitIn
 </html>`;
 }
 
-// ── Build SMS (under 160 chars) ──
-
-function buildReminderSms({ firstName, amountDue, invoiceNumber }) {
-  return `Hi ${firstName}, reminder: $${amountDue} due on Invoice #${invoiceNumber} at Master Tech RV. Call (303) 557-2214. Reply STOP to unsubscribe.`;
-}
-
 // ── Main: send payment reminder for a single record ──
 
 async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = null } = {}) {
   // Fetch record + customer + unit
   const { rows } = await pool.query(
     `SELECT r.*, c.first_name, c.last_name, c.email_primary, c.phone_primary,
-            c.comm_preference,
+            c.comm_preference, c.sms_opt_out,
             u.year AS unit_year, u.make AS unit_make, u.model AS unit_model
      FROM records r
      JOIN customers c ON c.id = r.customer_id
@@ -168,25 +159,17 @@ async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = 
     }
   }
 
-  // Send SMS if preference allows
-  if (['text', 'both'].includes(commPref) && rec.phone_primary && isTwilioConfigured()) {
-    try {
-      const twilio = require('twilio');
-      const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-      const body = buildReminderSms({
-        firstName,
-        amountDue: amountDue.toFixed(2),
-        invoiceNumber,
-      });
-      await client.messages.create({
-        body,
-        from: process.env.TWILIO_FROM_NUMBER,
-        to: rec.phone_primary,
-      });
+  // Send SMS if preference allows and customer hasn't opted out
+  if (['text', 'both'].includes(commPref) && rec.phone_primary && !rec.sms_opt_out && isTwilioConfigured()) {
+    const result = await sendPaymentReminderSMS(rec.phone_primary, {
+      customerFirstName: firstName,
+      amountDue: amountDue.toFixed(2),
+    });
+    if (result.success) {
       smsSent = true;
       console.log(`[paymentReminders] SMS sent to ${rec.phone_primary} for record #${invoiceNumber}`);
-    } catch (err) {
-      console.error(`[paymentReminders] SMS failed for record #${invoiceNumber}:`, err.message);
+    } else {
+      console.log(`[paymentReminders] SMS skipped/failed for record #${invoiceNumber}: ${result.skipped || result.error}`);
     }
   }
 

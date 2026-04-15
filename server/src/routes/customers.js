@@ -255,7 +255,7 @@ router.patch('/:id', async (req, res) => {
     'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
     'email_primary', 'email_secondary', 'address_street', 'address_city',
     'address_state', 'address_zip', 'tax_exempt', 'notes', 'marketing_opt_out',
-    'email_invalid',
+    'email_invalid', 'sms_opt_out',
   ];
   const updates = [];
   const values = [];
@@ -296,6 +296,13 @@ router.patch('/:id', async (req, res) => {
       try {
         await pool.query('UPDATE customers SET email_opt_out_date = NOW() WHERE id = $1', [req.params.id]);
       } catch { /* column may not exist */ }
+    }
+    // Track SMS opt-out date
+    if (req.body.sms_opt_out === true) {
+      try { await pool.query('UPDATE customers SET sms_opt_out_date = NOW() WHERE id = $1', [req.params.id]); } catch { /* column may not exist */ }
+    }
+    if (req.body.sms_opt_out === false) {
+      try { await pool.query('UPDATE customers SET sms_opt_out_date = NULL WHERE id = $1', [req.params.id]); } catch { /* column may not exist */ }
     }
     // If admin clears email_invalid, clear the date too
     if (req.body.email_invalid === false) {
