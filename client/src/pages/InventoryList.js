@@ -4,11 +4,6 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import useIsMobile from '../utils/useIsMobile';
 
-const FALLBACK_VENDORS = [
-  'Amazon', 'NTP', 'Torklift', 'Interstate', 'Lippert', 'Renogy',
-  'Iron', 'Woodstream', 'Adfas', 'TMC', 'Home Depot', 'Airstream', 'Other',
-];
-
 const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
 
@@ -58,14 +53,13 @@ export default function InventoryList() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch vendors from API
+  // Fetch vendors from Vendor Management — single source of truth for the dropdown
   const fetchVendors = useCallback(async () => {
     try {
       const data = await api.getVendors();
       setVendorList(data);
     } catch {
-      // Fallback to hardcoded list
-      setVendorList(FALLBACK_VENDORS.map(v => ({ name: v, item_count: '?' })));
+      setVendorList([]);
     }
   }, []);
 
@@ -82,9 +76,7 @@ export default function InventoryList() {
   const categoryLabels = {};
   categories.forEach(c => { categoryLabels[c.name] = c.name; categoryLabels[c.name.toUpperCase()] = c.name; categoryLabels[c.prefix] = c.name; });
 
-  const vendorNames = vendorList.length > 0
-    ? [...new Set([...vendorList.map(v => v.name), ...FALLBACK_VENDORS])].sort()
-    : FALLBACK_VENDORS;
+  const vendorNames = vendorList.map(v => v.name).sort();
 
   const handleLowStockReport = async () => {
     setReportsOpen(false);
