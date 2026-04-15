@@ -157,7 +157,6 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                     onBlur={(e) => {
                       if (e.target.value !== line.description) handleInlineSave(line.id, 'description', e.target.value);
                     }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
                     style={{ ...inlineEditable, minHeight: '36px', resize: 'none', whiteSpace: 'pre-wrap', overflow: 'hidden' }}
                   />
                 ) : (
