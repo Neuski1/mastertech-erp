@@ -20,6 +20,19 @@ function normalizePrivateKey(raw) {
   return key;
 }
 
+/**
+ * POYNT_APPLICATION_ID is stored in the browser TokenizeJs format:
+ *   "businessId=urn:aid:appId"
+ * The Node SDK expects just "urn:aid:appId" for JWT signing (iss/sub).
+ * Passing the full string makes Poynt's /token endpoint reject the JWT
+ * with "bad request".
+ */
+function extractSdkAppId(fullApplicationId) {
+  const match = fullApplicationId.match(/(urn:aid:[a-f0-9-]+)/i);
+  if (match) return match[1];
+  return fullApplicationId;
+}
+
 function getClient() {
   if (client) return client;
   const { POYNT_APPLICATION_ID, POYNT_PRIVATE_KEY } = process.env;
@@ -32,8 +45,10 @@ function getClient() {
   if (!hasBegin || !hasEnd) {
     throw new Error('Poynt private key is malformed — expected a PEM block with BEGIN/END PRIVATE KEY markers. Check that POYNT_PRIVATE_KEY in Railway preserves newlines.');
   }
+  const sdkAppId = extractSdkAppId(POYNT_APPLICATION_ID);
+  console.log(`[poynt] initializing SDK with applicationId: ${sdkAppId}`);
   const poynt = require('poynt');
-  client = poynt({ applicationId: POYNT_APPLICATION_ID, key });
+  client = poynt({ applicationId: sdkAppId, key });
   return client;
 }
 
