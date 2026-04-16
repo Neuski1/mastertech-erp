@@ -280,4 +280,12 @@ export const api = {
   bulkUpdateVendor: (parts) => request('/vendors/bulk-update', { method: 'PATCH', body: JSON.stringify({ parts }) }),
   renameVendor: (name, newName) => request(`/vendors/${encodeURIComponent(name)}/rename`, { method: 'PUT', body: JSON.stringify({ newName }) }),
   mergeVendors: (vendors, mergeInto) => request('/vendors/merge', { method: 'POST', body: JSON.stringify({ vendors, mergeInto }) }),
+
+  // Online payments (Poynt / GoDaddy Payments)
+  createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),
+  getOnlinePaymentLinks: (recordId) => request(`/payments/online/links${recordId ? `?record_id=${recordId}` : ''}`),
+  getOnlinePaymentHistory: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/payments/online/history${qs ? `?${qs}` : ''}`);
+  },
 };

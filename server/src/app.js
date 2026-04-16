@@ -57,6 +57,7 @@ app.use('/api/records', requireAuth, require('./routes/records'));
 app.use('/api/records', requireAuth, require('./routes/freight'));
 app.use('/api/labor', requireAuth, require('./routes/labor'));
 app.use('/api/parts', requireAuth, require('./routes/parts'));
+app.use('/api/payments/online', require('./routes/poyntPayments')); // public link routes + admin (auth inside)
 app.use('/api/payments', requireAuth, require('./routes/payments'));
 app.use('/api/customers', requireAuth, require('./routes/customers'));
 app.use('/api/units', requireAuth, require('./routes/units'));
@@ -228,6 +229,25 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS sms_opt_out BOOLEAN DEFAULT false');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS sms_opt_out_date TIMESTAMPTZ');
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS sms_reminder_sent BOOLEAN DEFAULT false');
+    // Migration 041: online payments (Poynt / GoDaddy Payments)
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS payment_token UUID');
+    await pool.query(`CREATE TABLE IF NOT EXISTS online_payments (
+      id SERIAL PRIMARY KEY,
+      payment_token UUID UNIQUE NOT NULL,
+      record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+      amount_cents INTEGER NOT NULL,
+      payment_type VARCHAR(32) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      customer_email VARCHAR(255),
+      transaction_id VARCHAR(128),
+      error_message TEXT,
+      created_by_user_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      paid_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS online_payments_record_idx ON online_payments (record_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS online_payments_status_idx ON online_payments (status)');
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

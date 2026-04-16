@@ -20,6 +20,8 @@ import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
 import Reports from './pages/Reports';
 import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
+import PayOnline from './pages/PayOnline';
+import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
 import QBStatusDot from './components/QBStatusDot';
 
 function RequireAuth({ children }) {
@@ -74,6 +76,7 @@ function AppLayout() {
     { to: '/storage', label: 'Storage' },
     ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
     ...(canManageSettings ? [{ to: '/reports', label: 'Reports' }] : []),
+    ...(canManageSettings ? [{ to: '/payments/online', label: 'Payments' }] : []),
     ...(canManageSettings ? [{ to: '/settings', label: 'Settings' }] : []),
     ...(canManageUsers ? [{ to: '/users', label: 'Users' }] : []),
   ];
@@ -197,6 +200,7 @@ function AppLayout() {
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />
           <Route path="/reports/active-workorders" element={<ActiveWorkOrdersReport />} />
+          <Route path="/payments/online" element={canManageSettings ? <OnlinePaymentsHistory /> : <Navigate to="/records" />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>
@@ -211,6 +215,7 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
+          <Route path="/pay/:paymentToken" element={<PayOnline />} />
           <Route path="/*" element={
             <RequireAuth>
               <AppLayout />

@@ -75,6 +75,7 @@ export default function RecordDetail() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showPayLinkModal, setShowPayLinkModal] = useState(false);
   const [qbSyncing, setQbSyncing] = useState(false);
   const [showSignModal, setShowSignModal] = useState(false);
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
@@ -805,8 +806,20 @@ ${paymentDetailHtml}
               {sendingReminder ? 'Sending...' : 'Send Reminder'}
             </button>
           )}
+          {(isAdmin || canEditRecords) && !editing && (
+            <button onClick={() => setShowPayLinkModal(true)} style={{ padding: '8px 16px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+              Send Payment Link
+            </button>
+          )}
         </div>
       </div>
+      {showPayLinkModal && (
+        <PaymentLinkModal
+          recordId={id}
+          record={record}
+          onClose={() => setShowPayLinkModal(false)}
+        />
+      )}
       {record.last_reminder_sent_at && (
         <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px' }}>
           Last reminder: {new Date(record.last_reminder_sent_at).toLocaleString()} ({record.reminder_count} sent)
@@ -1991,3 +2004,137 @@ const modalStyle = {
   backgroundColor: '#fff', borderRadius: '12px', padding: '24px',
   width: '420px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
 };
+
+function PaymentLinkModal({ recordId, record, onClose }) {
+  const suggestedParts = parseFloat(record?.parts_subtotal || 0) || 0;
+  const suggestedFinal = parseFloat(record?.amount_due || 0) || 0;
+  const [paymentType, setPaymentType] = useState('parts_deposit');
+  const [amount, setAmount] = useState(suggestedParts > 0 ? suggestedParts.toFixed(2) : '');
+  const [email, setEmail] = useState(record?.email_primary || '');
+  const [link, setLink] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleTypeChange = (t) => {
+    setPaymentType(t);
+    if (t === 'parts_deposit' && suggestedParts > 0) setAmount(suggestedParts.toFixed(2));
+    if (t === 'final_payment' && suggestedFinal > 0) setAmount(suggestedFinal.toFixed(2));
+  };
+
+  const handleGenerate = async () => {
+    setError('');
+    const parsed = parseFloat(amount);
+    if (!parsed || parsed <= 0) { setError('Enter a valid amount'); return; }
+    setCreating(true);
+    try {
+      const result = await api.createOnlinePaymentLink({
+        record_id: recordId,
+        amount_dollars: parsed,
+        payment_type: paymentType,
+        customer_email: email || null,
+      });
+      setLink(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!link?.url) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, width: '480px' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f', fontSize: '1.1rem' }}>Send Payment Link</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#6b7280' }}>&times;</button>
+        </div>
+
+        {!link ? (
+          <>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Payment Type</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <TypeOption active={paymentType === 'parts_deposit'} onClick={() => handleTypeChange('parts_deposit')} title="Parts Deposit" desc="Customer not yet in. WO status unchanged." />
+                <TypeOption active={paymentType === 'final_payment'} onClick={() => handleTypeChange('final_payment')} title="Final Payment" desc="Work complete. Moves WO to Paid." />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Amount (USD)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ color: '#6b7280' }}>$</span>
+                <input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)}
+                  style={{ flex: 1, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 4 }} />
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>
+                {paymentType === 'parts_deposit' && suggestedParts > 0 && `Suggested: $${suggestedParts.toFixed(2)} (parts subtotal)`}
+                {paymentType === 'final_payment' && suggestedFinal > 0 && `Suggested: $${suggestedFinal.toFixed(2)} (amount due)`}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Customer Email (optional — for pre-filled receipt)</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 4, boxSizing: 'border-box' }} />
+            </div>
+
+            {error && <div style={{ padding: 8, background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={onClose} style={{ padding: '8px 14px', border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleGenerate} disabled={creating}
+                style={{ padding: '8px 14px', background: '#059669', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                {creating ? 'Generating...' : 'Generate Link'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p style={{ margin: '0 0 8px', fontSize: '0.85rem', color: '#374151' }}>
+              Share this link with the customer. It stays active until paid.
+            </p>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: 12 }}>
+              <input readOnly value={link.url}
+                onFocus={(e) => e.target.select()}
+                style={{ flex: 1, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: '0.8rem', fontFamily: 'monospace' }} />
+              <button onClick={handleCopy}
+                style={{ padding: '8px 12px', background: copied ? '#10b981' : '#1e3a5f', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: 10, fontSize: '0.8rem', color: '#374151' }}>
+              <div>Type: {link.payment_type === 'parts_deposit' ? 'Parts Deposit' : 'Final Payment'}</div>
+              <div>Amount: ${(parseInt(link.amount_cents) / 100).toFixed(2)}</div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={onClose} style={{ padding: '8px 14px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TypeOption({ active, onClick, title, desc }) {
+  return (
+    <button type="button" onClick={onClick} style={{
+      flex: 1, padding: '10px 12px', textAlign: 'left', cursor: 'pointer',
+      border: active ? '2px solid #059669' : '1px solid #d1d5db',
+      background: active ? '#ecfdf5' : '#fff', borderRadius: 6,
+    }}>
+      <div style={{ fontWeight: 600, fontSize: '0.85rem', color: active ? '#065f46' : '#111827' }}>{title}</div>
+      <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 2 }}>{desc}</div>
+    </button>
+  );
+}
