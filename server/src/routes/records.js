@@ -743,7 +743,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 // POST /api/records/:id/email-document — Email document to customer
 // ---------------------------------------------------------------------------
 router.post('/:id/email-document', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const { personalMessage } = req.body || {};
+  const { personalMessage, includePaymentLink, paymentLinkType, paymentLinkAmountDollars } = req.body || {};
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
@@ -841,38 +841,40 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     const amountDue = parseFloat(r.amount_due) || 0;
     const partsTotal = parseFloat(r.parts_subtotal) || 0;
 
-    // Generate pay button when applicable
-    if (poyntReady) {
+    // Generate pay button — controlled by the frontend toggle.
+    // includePaymentLink=true → use the explicit type + amount from the modal.
+    // includePaymentLink not sent (legacy / auto) → fall back to auto-detect
+    // based on docType (backwards-compat with payment reminder emails, etc.).
+    if (poyntReady && includePaymentLink !== false) {
       try {
-        if (docType === 'Estimate' && partsTotal > 0) {
-          const cents = Math.round(partsTotal * 100);
+        let linkType = paymentLinkType;
+        let linkAmountDollars = paymentLinkAmountDollars;
+
+        // Auto-detect fallback when the frontend didn't send explicit values
+        if (!linkType || !linkAmountDollars) {
+          if (docType === 'Estimate' && partsTotal > 0) {
+            linkType = linkType || 'parts_deposit';
+            linkAmountDollars = linkAmountDollars || partsTotal;
+          } else if (amountDue > 0) {
+            linkType = linkType || 'final_payment';
+            linkAmountDollars = linkAmountDollars || amountDue;
+          }
+        }
+
+        if (linkType && linkAmountDollars > 0) {
+          const cents = Math.round(linkAmountDollars * 100);
+          const typeLabel = linkType === 'parts_deposit' ? 'Parts Deposit' : 'Invoice Payment';
           const link = await getOrCreateLink({
             recordId: r.id,
-            paymentType: 'parts_deposit',
+            paymentType: linkType,
             amountCents: cents,
             customerEmail: email,
             createdByUserId: req.user?.id || null,
           });
           payButtonHtml = buildPayButtonHtml({
             url: linkUrl(link.payment_token, req),
-            amountDollars: partsTotal.toFixed(2),
-            paymentTypeLabel: 'Parts Deposit',
-            recordNumber: r.record_number,
-            customerName,
-          });
-        } else if (docType === 'Invoice' && amountDue > 0) {
-          const cents = Math.round(amountDue * 100);
-          const link = await getOrCreateLink({
-            recordId: r.id,
-            paymentType: 'final_payment',
-            amountCents: cents,
-            customerEmail: email,
-            createdByUserId: req.user?.id || null,
-          });
-          payButtonHtml = buildPayButtonHtml({
-            url: linkUrl(link.payment_token, req),
-            amountDollars: amountDue.toFixed(2),
-            paymentTypeLabel: 'Invoice Payment',
+            amountDollars: parseFloat(linkAmountDollars).toFixed(2),
+            paymentTypeLabel: typeLabel,
             recordNumber: r.record_number,
             customerName,
           });

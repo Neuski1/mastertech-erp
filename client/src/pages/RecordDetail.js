@@ -87,6 +87,9 @@ export default function RecordDetail() {
   const [emailMsg, setEmailMsg] = useState(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailPersonalMsg, setEmailPersonalMsg] = useState('');
+  const [emailIncludePayLink, setEmailIncludePayLink] = useState(false);
+  const [emailPayLinkType, setEmailPayLinkType] = useState('parts_deposit');
+  const [emailPayLinkAmount, setEmailPayLinkAmount] = useState('');
 
   // Section-level inline editing
   const [editingDates, setEditingDates] = useState(false);
@@ -339,6 +342,14 @@ export default function RecordDetail() {
     const email = record.email_primary;
     if (!email) { alert('No email address on file for this customer.'); return; }
     setEmailPersonalMsg('');
+    const partsTotal = parseFloat(record.parts_subtotal) || 0;
+    const amountDue = parseFloat(record.amount_due) || 0;
+    const isEstimate = record.status === 'estimate';
+    const defaultType = isEstimate && partsTotal > 0 ? 'parts_deposit' : 'final_payment';
+    const defaultAmount = defaultType === 'parts_deposit' ? partsTotal : amountDue;
+    setEmailPayLinkType(defaultType);
+    setEmailPayLinkAmount(defaultAmount > 0 ? defaultAmount.toFixed(2) : '');
+    setEmailIncludePayLink(defaultAmount > 0);
     setShowEmailModal(true);
   };
 
@@ -347,9 +358,15 @@ export default function RecordDetail() {
     setEmailMsg(null);
     setShowEmailModal(false);
     try {
-      const result = await api.emailDocument(record.id, {
-        personalMessage: emailPersonalMsg || null,
-      });
+      const payload = { personalMessage: emailPersonalMsg || null };
+      if (emailIncludePayLink && parseFloat(emailPayLinkAmount) > 0) {
+        payload.includePaymentLink = true;
+        payload.paymentLinkType = emailPayLinkType;
+        payload.paymentLinkAmountDollars = parseFloat(emailPayLinkAmount);
+      } else {
+        payload.includePaymentLink = false;
+      }
+      const result = await api.emailDocument(record.id, payload);
       setEmailMsg({ type: 'success', text: `${result.docType} emailed to ${result.sentTo}` });
       setTimeout(() => setEmailMsg(null), 6000);
     } catch (err) {
@@ -1236,9 +1253,41 @@ ${paymentDetailHtml}
                   style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.875rem', resize: 'vertical', boxSizing: 'border-box' }}
                 />
               </div>
+              {/* Payment Link Toggle */}
+              <div style={{ marginBottom: '16px', padding: '12px', background: emailIncludePayLink ? '#eff6ff' : '#f9fafb', border: `1px solid ${emailIncludePayLink ? '#bfdbfe' : '#e5e7eb'}`, borderRadius: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: '#1e3a5f' }}>
+                  <input type="checkbox" checked={emailIncludePayLink} onChange={(e) => setEmailIncludePayLink(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  Include Payment Link
+                </label>
+                {emailIncludePayLink && (
+                  <div style={{ marginTop: '10px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: '140px' }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', color: '#6b7280', marginBottom: '3px' }}>Type</label>
+                      <select value={emailPayLinkType} onChange={(e) => {
+                        setEmailPayLinkType(e.target.value);
+                        const p = parseFloat(record.parts_subtotal) || 0;
+                        const d = parseFloat(record.amount_due) || 0;
+                        setEmailPayLinkAmount(e.target.value === 'parts_deposit' ? (p > 0 ? p.toFixed(2) : '') : (d > 0 ? d.toFixed(2) : ''));
+                      }} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem' }}>
+                        <option value="parts_deposit">Parts Deposit</option>
+                        <option value="final_payment">Final Payment</option>
+                      </select>
+                    </div>
+                    <div style={{ width: '120px' }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', color: '#6b7280', marginBottom: '3px' }}>Amount</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#6b7280', fontSize: '0.85rem' }}>$</span>
+                        <input type="number" step="0.01" min="0" value={emailPayLinkAmount}
+                          onChange={(e) => setEmailPayLinkAmount(e.target.value)}
+                          style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem' }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button onClick={handleEmailDocument} style={{ padding: '10px 24px', backgroundColor: '#0369a1', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
-                  Send Email
+                  {emailIncludePayLink ? 'Send Email with Payment Link' : 'Send Email'}
                 </button>
                 <button onClick={() => setShowEmailModal(false)} style={{ padding: '10px 24px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>
                   Cancel
