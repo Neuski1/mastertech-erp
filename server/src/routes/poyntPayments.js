@@ -1,9 +1,12 @@
 /**
  * Poynt (GoDaddy Payments) online payment routes.
  *
- * Mounted at /api/payments/online. Two groups:
- *   - Public (no auth): GET /:token, POST /:token/charge  — customer-facing pay page
- *   - Admin (requireAuth + requireRole): POST /links, GET /links, GET /  — history + link creation
+ * Mounted at /api/payments/online.
+ *
+ * IMPORTANT — route ordering: Express matches routes in definition order, and
+ * "/:token" happily captures any single-segment path. Static paths like
+ * /config, /links, /history MUST be declared BEFORE the parameterized /:token
+ * routes or they'll be intercepted and fail UUID casting in the DB.
  */
 
 const express = require('express');
@@ -14,10 +17,15 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { tokenizeCard, chargeToken, isPoyntConfigured } = require('../services/poynt');
 
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function typeLabel(t) {
   return t === 'parts_deposit' ? 'Parts Deposit' : 'Invoice Payment';
 }
+
+// =============================================================================
+// Static / specific paths — MUST come before the /:token wildcard routes below.
+// =============================================================================
 
 // ---------------------------------------------------------------------------
 // PUBLIC: GET /config — public IDs needed by the browser to init TokenizeJs
@@ -31,9 +39,197 @@ router.get('/config', (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: POST /links — create a new payment link for a record
+// Body: { record_id, amount_cents | amount_dollars, payment_type, customer_email? }
+// ---------------------------------------------------------------------------
+router.post('/links', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  const { record_id, payment_type, customer_email } = req.body || {};
+  let amountCents = req.body.amount_cents;
+  if (amountCents == null && req.body.amount_dollars != null) {
+    amountCents = Math.round(parseFloat(req.body.amount_dollars) * 100);
+  }
+  if (!record_id || !payment_type || !Number.isFinite(amountCents) || amountCents <= 0) {
+    return res.status(400).json({ error: 'record_id, payment_type, and a positive amount are required' });
+  }
+  if (!PAYMENT_TYPES.has(payment_type)) {
+    return res.status(400).json({ error: `Invalid payment_type — must be one of: ${[...PAYMENT_TYPES].join(', ')}` });
+  }
+
+  try {
+    const token = crypto.randomUUID();
+    const { rows } = await pool.query(
+      `INSERT INTO online_payments
+         (payment_token, record_id, amount_cents, payment_type, status, customer_email, created_by_user_id)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6)
+       RETURNING *`,
+      [token, record_id, amountCents, payment_type, customer_email || null, req.user?.id || null]
+    );
+
+    const base = process.env.PAYMENT_LINK_BASE_URL
+      || process.env.FRONTEND_URL
+      || `${req.protocol}://${req.get('host')}`;
+    const url = `${base.replace(/\/$/, '')}/pay/${token}`;
+
+    res.status(201).json({ ...rows[0], url });
+  } catch (err) {
+    console.error('POST /api/payments/online/links error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /links?record_id=... — list links (optionally filtered by record)
+// ---------------------------------------------------------------------------
+router.get('/links', requireAuth, async (req, res) => {
+  const { record_id } = req.query;
+  try {
+    const params = [];
+    let where = '';
+    if (record_id) {
+      params.push(record_id);
+      where = 'WHERE op.record_id = $1';
+    }
+    const { rows } = await pool.query(
+      `SELECT op.*, r.record_number
+         FROM online_payments op
+         JOIN records r ON r.id = op.record_id
+         ${where}
+         ORDER BY op.created_at DESC
+         LIMIT 200`,
+      params
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/payments/online/links error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: POST /links/:id/reminder — email a reminder for a specific unpaid link
+// ---------------------------------------------------------------------------
+router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT op.*, r.record_number,
+              c.first_name, c.last_name, c.email_primary, c.company_name
+         FROM online_payments op
+         JOIN records r ON r.id = op.record_id
+         JOIN customers c ON c.id = r.customer_id
+        WHERE op.id = $1`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Payment link not found' });
+    const link = rows[0];
+    if (link.status === 'paid') return res.status(400).json({ error: 'This link has already been paid.' });
+
+    const email = req.body?.to || link.customer_email || link.email_primary;
+    if (!email) return res.status(400).json({ error: 'No email address on file or in request.' });
+
+    const customerName = link.company_name
+      || [link.first_name, link.last_name].filter(Boolean).join(' ')
+      || 'Customer';
+    const amountDollars = (parseInt(link.amount_cents) / 100).toFixed(2);
+    const typeLbl = typeLabel(link.payment_type);
+
+    const { linkUrl, buildPayButtonHtml } = require('../services/onlinePaymentLinks');
+    const url = linkUrl(link.payment_token, req);
+
+    const firstName = link.first_name || 'there';
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#ffffff;">
+  <div style="background:#1e3a5f;padding:20px 28px;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:18px;letter-spacing:1px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+  </div>
+  <div style="padding:24px 28px;">
+    <p style="margin:0 0 12px;font-size:16px;">Hi ${firstName},</p>
+    <p style="margin:0 0 16px;">This is a friendly reminder that there's an outstanding balance on your work order. You can pay securely online using the button below.</p>
+    ${buildPayButtonHtml({ url, amountDollars, paymentTypeLabel: typeLbl, recordNumber: link.record_number, customerName })}
+    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Other payment options: Zelle to Carol@mastertechrvrepair.com, check by mail, or cash in person at our shop. Questions? Call (303) 557-2214 or just reply to this email.</p>
+  </div>
+  <div style="background:#f9fafb;padding:14px 28px;text-align:center;border-top:1px solid #e5e7eb;">
+    <p style="margin:0;font-size:11px;color:#9ca3af;">Master Tech RV Repair &amp; Storage &bull; 6590 East 49th Avenue, Commerce City, CO 80022 &bull; (303) 557-2214</p>
+  </div>
+</div></body></html>`;
+
+    const { sendEmail } = require('../services/email');
+    const subject = `Reminder: Payment Due for WO #${link.record_number}`;
+    const result = await sendEmail({
+      to: email,
+      cc: 'service@mastertechrvrepair.com',
+      subject,
+      html,
+      text: `Hi ${firstName}, reminder: ${typeLbl} of $${amountDollars} on WO #${link.record_number}. Pay online: ${url}\n\nMaster Tech RV Repair & Storage — (303) 557-2214`,
+    });
+    if (!result.success) return res.status(500).json({ error: result.error || 'Email failed' });
+
+    // Log in communication_log (best-effort — table presence may vary)
+    try {
+      await pool.query(
+        `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id, sent_at)
+         SELECT r.customer_id, $1, 'email', 'payment_link_reminder', $2, 'sent', true, $3, NOW()
+           FROM records r WHERE r.id = $4`,
+        [link.id, `Payment link reminder — $${amountDollars} ${typeLbl} (WO #${link.record_number})`, req.user?.id || null, link.record_id]
+      );
+    } catch { /* non-fatal */ }
+
+    res.json({ success: true, sentTo: email });
+  } catch (err) {
+    console.error('POST /api/payments/online/links/:id/reminder error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /history — full payment history for admin view
+// Query: date_from, date_to, payment_type, status
+// ---------------------------------------------------------------------------
+router.get('/history', requireAuth, async (req, res) => {
+  const { date_from, date_to, payment_type, status } = req.query;
+  try {
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+    if (date_from) { conditions.push(`op.created_at >= $${idx++}`); params.push(date_from); }
+    if (date_to)   { conditions.push(`op.created_at < ($${idx++}::date + INTERVAL '1 day')`); params.push(date_to); }
+    if (payment_type) { conditions.push(`op.payment_type = $${idx++}`); params.push(payment_type); }
+    if (status)       { conditions.push(`op.status = $${idx++}`); params.push(status); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows } = await pool.query(
+      `SELECT op.id, op.payment_token, op.amount_cents, op.payment_type, op.status,
+              op.customer_email, op.transaction_id, op.created_at, op.paid_at,
+              r.id AS record_id, r.record_number,
+              c.first_name, c.last_name, c.company_name
+         FROM online_payments op
+         JOIN records r ON r.id = op.record_id
+         JOIN customers c ON c.id = r.customer_id
+         ${where}
+         ORDER BY op.created_at DESC
+         LIMIT 500`,
+      params
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/payments/online/history error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================================
+// Wildcard token routes — declared LAST so they don't swallow /config, /links, etc.
+// The UUID regex guard is defense-in-depth in case a new static route is added
+// above without being registered before these.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
 // PUBLIC: GET /:token — customer-facing link info
 // ---------------------------------------------------------------------------
 router.get('/:token', async (req, res) => {
+  if (!UUID_RE.test(req.params.token)) {
+    return res.status(404).json({ error: 'Payment link not found' });
+  }
   try {
     const { rows } = await pool.query(
       `SELECT op.payment_token, op.amount_cents, op.payment_type, op.status,
@@ -75,6 +271,9 @@ router.get('/:token', async (req, res) => {
 // Body: { nonce, customerEmail }
 // ---------------------------------------------------------------------------
 router.post('/:token/charge', async (req, res) => {
+  if (!UUID_RE.test(req.params.token)) {
+    return res.status(404).json({ error: 'Payment link not found' });
+  }
   if (!isPoyntConfigured()) {
     return res.status(503).json({ error: 'Payment processor not configured' });
   }
@@ -166,7 +365,6 @@ router.post('/:token/charge', async (req, res) => {
     );
 
     // Mirror into the main payments table so WO totals update correctly.
-    // recalculateTotals sums rows in payments; this keeps amount_due accurate.
     await client.query(
       `INSERT INTO payments
          (record_id, payment_type, payment_method, amount, payment_date,
@@ -210,185 +408,6 @@ router.post('/:token/charge', async (req, res) => {
     res.status(500).json({ error: err.message || 'Payment processing failed' });
   } finally {
     client.release();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: POST /links — create a new payment link for a record
-// Body: { record_id, amount_cents | amount_dollars, payment_type, customer_email? }
-// ---------------------------------------------------------------------------
-router.post('/links', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
-  const { record_id, payment_type, customer_email } = req.body || {};
-  let amountCents = req.body.amount_cents;
-  if (amountCents == null && req.body.amount_dollars != null) {
-    amountCents = Math.round(parseFloat(req.body.amount_dollars) * 100);
-  }
-  if (!record_id || !payment_type || !Number.isFinite(amountCents) || amountCents <= 0) {
-    return res.status(400).json({ error: 'record_id, payment_type, and a positive amount are required' });
-  }
-  if (!PAYMENT_TYPES.has(payment_type)) {
-    return res.status(400).json({ error: `Invalid payment_type — must be one of: ${[...PAYMENT_TYPES].join(', ')}` });
-  }
-
-  try {
-    const token = crypto.randomUUID();
-    const { rows } = await pool.query(
-      `INSERT INTO online_payments
-         (payment_token, record_id, amount_cents, payment_type, status, customer_email, created_by_user_id)
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6)
-       RETURNING *`,
-      [token, record_id, amountCents, payment_type, customer_email || null, req.user?.id || null]
-    );
-
-    const base = process.env.PAYMENT_LINK_BASE_URL
-      || process.env.FRONTEND_URL
-      || `${req.protocol}://${req.get('host')}`;
-    const url = `${base.replace(/\/$/, '')}/pay/${token}`;
-
-    res.status(201).json({ ...rows[0], url });
-  } catch (err) {
-    console.error('POST /api/payments/online/links error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: GET /links?record_id=... — list links (optionally filtered by record)
-// ---------------------------------------------------------------------------
-router.get('/links', requireAuth, async (req, res) => {
-  const { record_id } = req.query;
-  try {
-    const params = [];
-    let where = '';
-    if (record_id) {
-      params.push(record_id);
-      where = 'WHERE op.record_id = $1';
-    }
-    const { rows } = await pool.query(
-      `SELECT op.*, r.record_number
-         FROM online_payments op
-         JOIN records r ON r.id = op.record_id
-         ${where}
-         ORDER BY op.created_at DESC
-         LIMIT 200`,
-      params
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('GET /api/payments/online/links error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: GET /history — full payment history for admin view
-// Query: date_from, date_to, payment_type, status
-// ---------------------------------------------------------------------------
-router.get('/history', requireAuth, async (req, res) => {
-  const { date_from, date_to, payment_type, status } = req.query;
-  try {
-    const conditions = [];
-    const params = [];
-    let idx = 1;
-    if (date_from) { conditions.push(`op.created_at >= $${idx++}`); params.push(date_from); }
-    if (date_to)   { conditions.push(`op.created_at < ($${idx++}::date + INTERVAL '1 day')`); params.push(date_to); }
-    if (payment_type) { conditions.push(`op.payment_type = $${idx++}`); params.push(payment_type); }
-    if (status)       { conditions.push(`op.status = $${idx++}`); params.push(status); }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const { rows } = await pool.query(
-      `SELECT op.id, op.payment_token, op.amount_cents, op.payment_type, op.status,
-              op.customer_email, op.transaction_id, op.created_at, op.paid_at,
-              r.record_number,
-              c.first_name, c.last_name, c.company_name
-         FROM online_payments op
-         JOIN records r ON r.id = op.record_id
-         JOIN customers c ON c.id = r.customer_id
-         ${where}
-         ORDER BY op.created_at DESC
-         LIMIT 500`,
-      params
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('GET /api/payments/online/history error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: POST /links/:id/reminder — email a reminder for a specific unpaid link
-// ---------------------------------------------------------------------------
-router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT op.*, r.record_number,
-              c.first_name, c.last_name, c.email_primary, c.company_name
-         FROM online_payments op
-         JOIN records r ON r.id = op.record_id
-         JOIN customers c ON c.id = r.customer_id
-        WHERE op.id = $1`,
-      [req.params.id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: 'Payment link not found' });
-    const link = rows[0];
-    if (link.status === 'paid') return res.status(400).json({ error: 'This link has already been paid.' });
-
-    const email = req.body?.to || link.customer_email || link.email_primary;
-    if (!email) return res.status(400).json({ error: 'No email address on file or in request.' });
-
-    const customerName = link.company_name
-      || [link.first_name, link.last_name].filter(Boolean).join(' ')
-      || 'Customer';
-    const amountDollars = (parseInt(link.amount_cents) / 100).toFixed(2);
-    const typeLbl = typeLabel(link.payment_type);
-
-    const { linkUrl, buildPayButtonHtml } = require('../services/onlinePaymentLinks');
-    const url = linkUrl(link.payment_token, req);
-
-    const firstName = link.first_name || 'there';
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
-<div style="max-width:600px;margin:0 auto;background:#ffffff;">
-  <div style="background:#1e3a5f;padding:20px 28px;text-align:center;">
-    <h1 style="color:#fff;margin:0;font-size:18px;letter-spacing:1px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
-  </div>
-  <div style="padding:24px 28px;">
-    <p style="margin:0 0 12px;font-size:16px;">Hi ${firstName},</p>
-    <p style="margin:0 0 16px;">This is a friendly reminder that there's an outstanding balance on your work order. You can pay securely online using the button below.</p>
-    ${buildPayButtonHtml({ url, amountDollars, paymentTypeLabel: typeLbl, recordNumber: link.record_number, customerName })}
-    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Other payment options: Zelle to Carol@mastertechrvrepair.com, check by mail, or cash in person at our shop. Questions? Call (303) 557-2214 or just reply to this email.</p>
-  </div>
-  <div style="background:#f9fafb;padding:14px 28px;text-align:center;border-top:1px solid #e5e7eb;">
-    <p style="margin:0;font-size:11px;color:#9ca3af;">Master Tech RV Repair &amp; Storage &bull; 6590 East 49th Avenue, Commerce City, CO 80022 &bull; (303) 557-2214</p>
-  </div>
-</div></body></html>`;
-
-    const { sendEmail } = require('../services/email');
-    const subject = `Reminder: Payment Due for WO #${link.record_number}`;
-    const result = await sendEmail({
-      to: email,
-      cc: 'service@mastertechrvrepair.com',
-      subject,
-      html,
-      text: `Hi ${firstName}, reminder: ${typeLbl} of $${amountDollars} on WO #${link.record_number}. Pay online: ${url}\n\nMaster Tech RV Repair & Storage — (303) 557-2214`,
-    });
-    if (!result.success) return res.status(500).json({ error: result.error || 'Email failed' });
-
-    // Log in communication_log (best-effort — table presence may vary)
-    try {
-      await pool.query(
-        `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id, sent_at)
-         SELECT r.customer_id, $1, 'email', 'payment_link_reminder', $2, 'sent', true, $3, NOW()
-           FROM records r WHERE r.id = $4`,
-        [link.id, `Payment link reminder — $${amountDollars} ${typeLbl} (WO #${link.record_number})`, req.user?.id || null, link.record_id]
-      );
-    } catch { /* non-fatal */ }
-
-    res.json({ success: true, sentTo: email });
-  } catch (err) {
-    console.error('POST /api/payments/online/links/:id/reminder error:', err);
-    res.status(500).json({ error: err.message });
   }
 });
 
