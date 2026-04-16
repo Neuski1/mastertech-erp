@@ -54,7 +54,7 @@ async function sendReminderEmail(to, subject, html) {
 
 // ── Build branded HTML email ──
 
-function buildReminderEmailHtml({ customerName, amountDue, invoiceNumber, unitInfo, reminderCount }) {
+function buildReminderEmailHtml({ customerName, amountDue, invoiceNumber, unitInfo, reminderCount, payButtonHtml = '' }) {
   const countNote = reminderCount >= 2
     ? `<p style="color:#dc2626;font-weight:600;margin:0 0 16px">This is reminder #${reminderCount}.</p>`
     : '';
@@ -76,7 +76,8 @@ function buildReminderEmailHtml({ customerName, amountDue, invoiceNumber, unitIn
         <p style="margin:0 0 4px;font-size:14px;color:#374151">Invoice #${invoiceNumber}</p>
         ${unitInfo ? `<p style="margin:0;font-size:14px;color:#6b7280">${unitInfo}</p>` : ''}
       </div>
-      <p style="margin:0 0 12px;font-weight:600">Payment Options:</p>
+      ${payButtonHtml}
+      <p style="margin:0 0 12px;font-weight:600">Other Payment Options:</p>
       <ul style="margin:0 0 20px;padding-left:20px;line-height:1.8">
         <li><strong>Credit/Debit Card:</strong> <a href="https://pay.mastertechrvrepair.com/" style="color:#2563eb">pay.mastertechrvrepair.com</a></li>
         <li><strong>Zelle:</strong> Carol@mastertechrvrepair.com</li>
@@ -140,6 +141,33 @@ async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = 
   let emailSent = false;
   let smsSent = false;
 
+  // Build a pay button if Poynt is configured — reuses an existing pending
+  // link of the same amount, or auto-creates a final_payment link for the balance.
+  let payButtonHtml = '';
+  const poyntReady = !!(process.env.POYNT_APPLICATION_ID && process.env.POYNT_PRIVATE_KEY
+    && process.env.POYNT_BUSINESS_ID && process.env.POYNT_STORE_ID);
+  if (poyntReady) {
+    try {
+      const { getOrCreateLink, linkUrl, buildPayButtonHtml } = require('./onlinePaymentLinks');
+      const link = await getOrCreateLink({
+        recordId: rec.id,
+        paymentType: 'final_payment',
+        amountCents: Math.round(amountDue * 100),
+        customerEmail: rec.email_primary || null,
+        createdByUserId: sentByUserId,
+      });
+      payButtonHtml = buildPayButtonHtml({
+        url: linkUrl(link.payment_token),
+        amountDollars: amountDue.toFixed(2),
+        paymentTypeLabel: 'Invoice Payment',
+        recordNumber: invoiceNumber,
+        customerName,
+      });
+    } catch (err) {
+      console.error('[paymentReminders] pay-link generation failed (non-fatal):', err.message);
+    }
+  }
+
   // Send email if preference allows
   if (['email', 'both'].includes(commPref) && rec.email_primary) {
     try {
@@ -150,6 +178,7 @@ async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = 
         invoiceNumber,
         unitInfo,
         reminderCount: newReminderCount,
+        payButtonHtml,
       });
       await sendReminderEmail(rec.email_primary, subject, html);
       emailSent = true;

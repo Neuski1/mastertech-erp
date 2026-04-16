@@ -284,6 +284,7 @@ export const api = {
   // Online payments (Poynt / GoDaddy Payments)
   createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),
   getOnlinePaymentLinks: (recordId) => request(`/payments/online/links${recordId ? `?record_id=${recordId}` : ''}`),
+  sendOnlinePaymentLinkReminder: (linkId, to = null) => request(`/payments/online/links/${linkId}/reminder`, { method: 'POST', body: JSON.stringify({ to }) }),
   getOnlinePaymentHistory: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/payments/online/history${qs ? `?${qs}` : ''}`);

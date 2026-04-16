@@ -298,4 +298,80 @@ router.get('/history', requireAuth, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// ADMIN: POST /links/:id/reminder — email a reminder for a specific unpaid link
+// ---------------------------------------------------------------------------
+router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT op.*, r.record_number,
+              c.first_name, c.last_name, c.email_primary, c.company_name
+         FROM online_payments op
+         JOIN records r ON r.id = op.record_id
+         JOIN customers c ON c.id = r.customer_id
+        WHERE op.id = $1`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Payment link not found' });
+    const link = rows[0];
+    if (link.status === 'paid') return res.status(400).json({ error: 'This link has already been paid.' });
+
+    const email = req.body?.to || link.customer_email || link.email_primary;
+    if (!email) return res.status(400).json({ error: 'No email address on file or in request.' });
+
+    const customerName = link.company_name
+      || [link.first_name, link.last_name].filter(Boolean).join(' ')
+      || 'Customer';
+    const amountDollars = (parseInt(link.amount_cents) / 100).toFixed(2);
+    const typeLbl = typeLabel(link.payment_type);
+
+    const { linkUrl, buildPayButtonHtml } = require('../services/onlinePaymentLinks');
+    const url = linkUrl(link.payment_token, req);
+
+    const firstName = link.first_name || 'there';
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#ffffff;">
+  <div style="background:#1e3a5f;padding:20px 28px;text-align:center;">
+    <h1 style="color:#fff;margin:0;font-size:18px;letter-spacing:1px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+  </div>
+  <div style="padding:24px 28px;">
+    <p style="margin:0 0 12px;font-size:16px;">Hi ${firstName},</p>
+    <p style="margin:0 0 16px;">This is a friendly reminder that there's an outstanding balance on your work order. You can pay securely online using the button below.</p>
+    ${buildPayButtonHtml({ url, amountDollars, paymentTypeLabel: typeLbl, recordNumber: link.record_number, customerName })}
+    <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Other payment options: Zelle to Carol@mastertechrvrepair.com, check by mail, or cash in person at our shop. Questions? Call (303) 557-2214 or just reply to this email.</p>
+  </div>
+  <div style="background:#f9fafb;padding:14px 28px;text-align:center;border-top:1px solid #e5e7eb;">
+    <p style="margin:0;font-size:11px;color:#9ca3af;">Master Tech RV Repair &amp; Storage &bull; 6590 East 49th Avenue, Commerce City, CO 80022 &bull; (303) 557-2214</p>
+  </div>
+</div></body></html>`;
+
+    const { sendEmail } = require('../services/email');
+    const subject = `Reminder: Payment Due for WO #${link.record_number}`;
+    const result = await sendEmail({
+      to: email,
+      cc: 'service@mastertechrvrepair.com',
+      subject,
+      html,
+      text: `Hi ${firstName}, reminder: ${typeLbl} of $${amountDollars} on WO #${link.record_number}. Pay online: ${url}\n\nMaster Tech RV Repair & Storage — (303) 557-2214`,
+    });
+    if (!result.success) return res.status(500).json({ error: result.error || 'Email failed' });
+
+    // Log in communication_log (best-effort — table presence may vary)
+    try {
+      await pool.query(
+        `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id, sent_at)
+         SELECT r.customer_id, $1, 'email', 'payment_link_reminder', $2, 'sent', true, $3, NOW()
+           FROM records r WHERE r.id = $4`,
+        [link.id, `Payment link reminder — $${amountDollars} ${typeLbl} (WO #${link.record_number})`, req.user?.id || null, link.record_id]
+      );
+    } catch { /* non-fatal */ }
+
+    res.json({ success: true, sentTo: email });
+  } catch (err) {
+    console.error('POST /api/payments/online/links/:id/reminder error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

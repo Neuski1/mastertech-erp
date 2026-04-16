@@ -782,6 +782,12 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       console.log('Approval URL generated:', approvalUrl);
     }
 
+    // Payment link embedding (Poynt) — only when Poynt is configured
+    const { getOrCreateLink, linkUrl, buildPayButtonHtml } = require('../services/onlinePaymentLinks');
+    let payButtonHtml = '';
+    const poyntReady = !!(process.env.POYNT_APPLICATION_ID && process.env.POYNT_PRIVATE_KEY
+      && process.env.POYNT_BUSINESS_ID && process.env.POYNT_STORE_ID);
+
     // Fetch line items + payments + photos
     const [laborRes, partsRes, freightRes, payRes, photosRes] = await Promise.all([
       pool.query('SELECT * FROM record_labor_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
@@ -833,6 +839,48 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     const noCharge = parseFloat(r.no_charge_amount) || 0;
     const discount = parseFloat(r.discount_amount) || 0;
     const amountDue = parseFloat(r.amount_due) || 0;
+    const partsTotal = parseFloat(r.parts_subtotal) || 0;
+
+    // Generate pay button when applicable
+    if (poyntReady) {
+      try {
+        if (docType === 'Estimate' && partsTotal > 0) {
+          const cents = Math.round(partsTotal * 100);
+          const link = await getOrCreateLink({
+            recordId: r.id,
+            paymentType: 'parts_deposit',
+            amountCents: cents,
+            customerEmail: email,
+            createdByUserId: req.user?.id || null,
+          });
+          payButtonHtml = buildPayButtonHtml({
+            url: linkUrl(link.payment_token, req),
+            amountDollars: partsTotal.toFixed(2),
+            paymentTypeLabel: 'Parts Deposit',
+            recordNumber: r.record_number,
+            customerName,
+          });
+        } else if (docType === 'Invoice' && amountDue > 0) {
+          const cents = Math.round(amountDue * 100);
+          const link = await getOrCreateLink({
+            recordId: r.id,
+            paymentType: 'final_payment',
+            amountCents: cents,
+            customerEmail: email,
+            createdByUserId: req.user?.id || null,
+          });
+          payButtonHtml = buildPayButtonHtml({
+            url: linkUrl(link.payment_token, req),
+            amountDollars: amountDue.toFixed(2),
+            paymentTypeLabel: 'Invoice Payment',
+            recordNumber: r.record_number,
+            customerName,
+          });
+        }
+      } catch (err) {
+        console.error('Pay-link generation error (non-fatal):', err.message);
+      }
+    }
 
     const methodLabels = { credit_card: 'Card', check: 'Check', cash: 'Cash', zelle: 'Zelle' };
     const payments = payRes.rows;
@@ -970,6 +1018,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <p style="margin:12px 0 0;font-size:11px;color:#6b7280;">By clicking approve, you authorize Master Tech RV Repair &amp; Storage to proceed with the work described above.</p>
       <p style="margin:8px 0 0;font-size:11px;color:#6b7280;">Questions? Call (303) 557-2214 or reply to this email.</p>
     </div>` : ''}
+    ${payButtonHtml}
   </div>
   <div style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:12px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>

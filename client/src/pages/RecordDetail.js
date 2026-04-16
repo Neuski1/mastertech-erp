@@ -76,6 +76,7 @@ export default function RecordDetail() {
   const [successMsg, setSuccessMsg] = useState('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [showPayLinkModal, setShowPayLinkModal] = useState(false);
+  const [payLinksRefresh, setPayLinksRefresh] = useState(0);
   const [qbSyncing, setQbSyncing] = useState(false);
   const [showSignModal, setShowSignModal] = useState(false);
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
@@ -817,9 +818,10 @@ ${paymentDetailHtml}
         <PaymentLinkModal
           recordId={id}
           record={record}
-          onClose={() => setShowPayLinkModal(false)}
+          onClose={() => { setShowPayLinkModal(false); setPayLinksRefresh((n) => n + 1); }}
         />
       )}
+      <OnlinePaymentLinksSection recordId={id} refreshKey={payLinksRefresh} />
       {record.last_reminder_sent_at && (
         <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px' }}>
           Last reminder: {new Date(record.last_reminder_sent_at).toLocaleString()} ({record.reminder_count} sent)
@@ -2122,6 +2124,112 @@ function PaymentLinkModal({ recordId, record, onClose }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function OnlinePaymentLinksSection({ recordId, refreshKey }) {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [sendingId, setSendingId] = useState(null);
+  const [sentMsg, setSentMsg] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api.getOnlinePaymentLinks(recordId);
+      setLinks(data);
+      setError('');
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }, [recordId]);
+
+  useEffect(() => { load(); }, [load, refreshKey]);
+
+  if (loading) return null;
+  if (!links || links.length === 0) return null;
+
+  const pending = links.filter(l => l.status === 'pending');
+  if (pending.length === 0 && !links.some(l => l.status === 'paid')) return null;
+
+  const handleResend = async (id) => {
+    setSendingId(id);
+    setError('');
+    setSentMsg('');
+    try {
+      const r = await api.sendOnlinePaymentLinkReminder(id);
+      setSentMsg(`Reminder sent to ${r.sentTo}`);
+      setTimeout(() => setSentMsg(''), 4000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  const handleCopy = async (token) => {
+    const base = window.location.origin;
+    try { await navigator.clipboard.writeText(`${base}/pay/${token}`); } catch {}
+  };
+
+  const typeLabel = (t) => t === 'parts_deposit' ? 'Parts Deposit' : 'Final Payment';
+
+  return (
+    <div style={{ margin: '12px 0', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h3 style={{ margin: 0, fontSize: '0.85rem', color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Online Payment Links</h3>
+        {sentMsg && <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>{sentMsg}</span>}
+        {error && <span style={{ fontSize: '0.75rem', color: '#dc2626' }}>{error}</span>}
+      </div>
+      <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ color: '#6b7280', textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase' }}>
+            <th style={{ padding: '4px 8px' }}>Created</th>
+            <th style={{ padding: '4px 8px' }}>Type</th>
+            <th style={{ padding: '4px 8px', textAlign: 'right' }}>Amount</th>
+            <th style={{ padding: '4px 8px' }}>Status</th>
+            <th style={{ padding: '4px 8px' }}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {links.map(l => {
+            const isPending = l.status === 'pending';
+            const statusStyle = l.status === 'paid' ? { bg: '#d1fae5', c: '#065f46' }
+              : l.status === 'failed' ? { bg: '#fee2e2', c: '#991b1b' }
+              : { bg: '#fef3c7', c: '#92400e' };
+            return (
+              <tr key={l.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                <td style={{ padding: '6px 8px', color: '#374151' }}>{new Date(l.created_at).toLocaleDateString()}</td>
+                <td style={{ padding: '6px 8px' }}>{typeLabel(l.payment_type)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500 }}>${(parseInt(l.amount_cents) / 100).toFixed(2)}</td>
+                <td style={{ padding: '6px 8px' }}>
+                  <span style={{ background: statusStyle.bg, color: statusStyle.c, padding: '2px 8px', borderRadius: 9999, fontSize: '0.7rem', fontWeight: 600, textTransform: 'capitalize' }}>
+                    {l.status}
+                  </span>
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  {isPending && (
+                    <>
+                      <button onClick={() => handleCopy(l.payment_token)}
+                        style={{ marginRight: 6, padding: '3px 10px', border: '1px solid #d1d5db', background: '#fff', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem' }}>
+                        Copy Link
+                      </button>
+                      <button onClick={() => handleResend(l.id)} disabled={sendingId === l.id}
+                        style={{ padding: '3px 10px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+                        {sendingId === l.id ? 'Sending...' : 'Send Payment Reminder'}
+                      </button>
+                    </>
+                  )}
+                  {l.status === 'paid' && l.transaction_id && (
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#6b7280' }}>Txn: {l.transaction_id}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
