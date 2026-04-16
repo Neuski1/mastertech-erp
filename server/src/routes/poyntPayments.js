@@ -14,7 +14,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { tokenizeCard, chargeToken, isPoyntConfigured } = require('../services/poynt');
+const { chargeNonce, isPoyntConfigured } = require('../services/poynt');
 
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -303,57 +303,19 @@ router.post('/:token/charge', async (req, res) => {
       return res.status(409).json({ error: 'This invoice has already been paid.' });
     }
 
-    // Step 1: tokenize the nonce
-    let tokenized;
-    try {
-      tokenized = await tokenizeCard({ nonce });
-      console.log('[poynt] tokenize OK, response keys:', Object.keys(tokenized || {}));
-    } catch (err) {
-      const detail = err?.developerMessage || err?.message || err?.code || err?.name || 'unknown';
-      console.error('[poynt] tokenize failed — full error:', {
-        message: err?.message,
-        code: err?.code,
-        statusCode: err?.statusCode,
-        requestId: err?.requestId,
-        developerMessage: err?.developerMessage,
-        stack: err?.stack && err.stack.split('\n').slice(0, 5).join('\n'),
-      });
-      await client.query(
-        `UPDATE online_payments SET status = 'failed', error_message = $2, updated_at = NOW()
-           WHERE id = $1`,
-        [link.id, `Tokenize failed: ${detail}`]
-      );
-      await client.query('COMMIT');
-      return res.status(400).json({
-        error: `Could not tokenize card: ${detail}`,
-        step: 'tokenize',
-      });
-    }
-
-    const cardToken = tokenized && (
-      tokenized.paymentJWT
-      || tokenized.token
-      || tokenized.card_token
-      || tokenized.cardToken
-      || tokenized.data?.paymentJWT
-      || tokenized.data?.token
-    );
-    if (!cardToken) {
-      await client.query('ROLLBACK');
-      console.error('Poynt tokenize returned no JWT. Keys:', Object.keys(tokenized || {}), 'Full:', JSON.stringify(tokenized));
-      return res.status(502).json({ error: 'Tokenization failed — no token returned.' });
-    }
-
-    // Step 2: charge
+    // Charge the nonce directly — Poynt Collect nonces go straight to
+    // chargeToken with { nonce } (NOT a separate tokenize step, which is
+    // for terminal/raw card data and returns "bad request" on browser nonces).
     let charge;
     try {
-      charge = await chargeToken({
-        cardToken,
+      console.log('[poynt] charging nonce (length=%d) for %d cents...', nonce.length, parseInt(link.amount_cents));
+      charge = await chargeNonce({
+        nonce,
         amountCents: parseInt(link.amount_cents),
         customerEmail: customerEmail || link.customer_email || undefined,
-        requestId: link.payment_token, // idempotency — one charge per link
+        requestId: link.payment_token,
       });
-      console.log('[poynt] charge OK:', { id: charge?.id, status: charge?.status });
+      console.log('[poynt] charge OK:', { id: charge?.id, status: charge?.status, transactionId: charge?.transactionId });
     } catch (err) {
       console.error('[poynt] charge failed — full error:', {
         message: err?.message,
@@ -362,6 +324,7 @@ router.post('/:token/charge', async (req, res) => {
         requestId: err?.requestId,
         developerMessage: err?.developerMessage,
         processorResponse: err?.processorResponse,
+        raw: JSON.stringify(err).slice(0, 1000),
       });
       const reason = err?.developerMessage || err?.message || err?.code || 'Card declined';
       await client.query(
@@ -371,7 +334,7 @@ router.post('/:token/charge', async (req, res) => {
       );
       await client.query('COMMIT');
       return res.status(402).json({
-        error: `Payment declined: ${reason}`,
+        error: `Payment failed: ${reason}`,
         step: 'charge',
         code: err?.code || null,
       });

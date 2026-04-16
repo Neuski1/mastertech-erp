@@ -1,22 +1,21 @@
 /**
  * Poynt (GoDaddy Payments) Collect service.
- * Handles card nonce tokenization + SALE charge via the Poynt Node SDK.
- * Requires POYNT_APPLICATION_ID, POYNT_PRIVATE_KEY, POYNT_BUSINESS_ID, POYNT_STORE_ID.
+ * Charges a Poynt Collect nonce via the Poynt Node SDK in a single step.
+ *
+ * The SDK's chargeToken() accepts either { token } (pre-tokenized) or
+ * { nonce } (browser nonce from Poynt Collect). For Collect, the nonce
+ * path is correct — a separate tokenizeCard() call is for terminal/raw
+ * card data and returns "bad request" when given a Collect nonce.
  */
 
 let client = null;
 
 function normalizePrivateKey(raw) {
   if (!raw) return raw;
-  // Railway (and many CI systems) store multiline secrets with literal "\n"
-  // rather than real newlines. Poynt's SDK feeds the PEM straight into
-  // jsonwebtoken which requires real newlines — so we normalize here.
   let key = raw.includes('\\n') ? raw.replace(/\\n/g, '\n') : raw;
-  // Handle quoted values copied with surrounding quotes
   if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
     key = key.slice(1, -1);
   }
-  // Trim whitespace on each line — some UIs inject leading spaces
   key = key.split('\n').map((l) => l.trim()).join('\n').trim();
   return key;
 }
@@ -31,7 +30,7 @@ function getClient() {
   const hasBegin = /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(key);
   const hasEnd = /-----END [A-Z ]*PRIVATE KEY-----/.test(key);
   if (!hasBegin || !hasEnd) {
-    throw new Error('Poynt private key is malformed — expected a PEM block with BEGIN/END PRIVATE KEY markers. Check that POYNT_PRIVATE_KEY in Railway preserves newlines (paste the full PEM including header/footer).');
+    throw new Error('Poynt private key is malformed — expected a PEM block with BEGIN/END PRIVATE KEY markers. Check that POYNT_PRIVATE_KEY in Railway preserves newlines.');
   }
   const poynt = require('poynt');
   client = poynt({ applicationId: POYNT_APPLICATION_ID, key });
@@ -43,26 +42,18 @@ function isPoyntConfigured() {
     && process.env.POYNT_BUSINESS_ID && process.env.POYNT_STORE_ID);
 }
 
-function tokenizeCard({ nonce }) {
-  return new Promise((resolve, reject) => {
-    let c;
-    try { c = getClient(); } catch (err) { return reject(err); }
-    c.tokenizeCard(
-      { businessId: process.env.POYNT_BUSINESS_ID, nonce },
-      (err, result) => err ? reject(err) : resolve(result)
-    );
-  });
-}
-
 /**
- * Charge a tokenized card. Amounts in CENTS.
+ * Charge a Poynt Collect nonce directly. No separate tokenize step needed.
+ * The SDK builds fundingSource: { nonce } internally when you pass `nonce`
+ * instead of `token`.
+ *
  * @param {Object} opts
- * @param {string} opts.cardToken - paymentJWT returned by tokenizeCard
- * @param {number} opts.amountCents
+ * @param {string} opts.nonce - browser nonce from Poynt Collect getNonce()
+ * @param {number} opts.amountCents - amount in cents (integer)
  * @param {string} [opts.customerEmail]
- * @param {string} [opts.requestId]
+ * @param {string} [opts.requestId] - idempotency key
  */
-function chargeToken({ cardToken, amountCents, customerEmail, requestId }) {
+function chargeNonce({ nonce, amountCents, customerEmail, requestId }) {
   return new Promise((resolve, reject) => {
     let c;
     try { c = getClient(); } catch (err) { return reject(err); }
@@ -72,7 +63,7 @@ function chargeToken({ cardToken, amountCents, customerEmail, requestId }) {
         storeId: process.env.POYNT_STORE_ID,
         action: 'SALE',
         source: 'WEB',
-        token: cardToken,
+        nonce,
         amounts: {
           transactionAmount: amountCents,
           orderAmount: amountCents,
@@ -87,4 +78,4 @@ function chargeToken({ cardToken, amountCents, customerEmail, requestId }) {
   });
 }
 
-module.exports = { tokenizeCard, chargeToken, isPoyntConfigured };
+module.exports = { chargeNonce, isPoyntConfigured };
