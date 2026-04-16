@@ -28,6 +28,34 @@ function loadPoyntSdk() {
 }
 
 /**
+ * Extract a readable error message from whatever shape Poynt Collect emits.
+ * Never returns the literal string "error" — that's the event name, not a message.
+ */
+function describeCollectError(err) {
+  if (!err) return 'Card information is incomplete.';
+  if (typeof err === 'string' && err.toLowerCase() !== 'error') return err;
+
+  // Poynt sometimes emits { code, message, details } or nests under .error / .data
+  const candidates = [
+    err.message,
+    err.description,
+    err.developerMessage,
+    err.errorMessage,
+    err.error?.message,
+    err.error?.description,
+    err.data?.message,
+    err.detail,
+    err.details,
+    Array.isArray(err.errors) && err.errors[0]?.message,
+    err.code,
+  ].filter((v) => typeof v === 'string' && v && v.toLowerCase() !== 'error');
+
+  if (candidates.length > 0) return candidates[0];
+  try { return `Card entry error: ${JSON.stringify(err)}`; }
+  catch { return 'Card information is incomplete.'; }
+}
+
+/**
  * Wrap collect.getNonce() to handle both the event-driven API
  * (payment-nonce / error events) and any promise return.
  * Resolves with the nonce string, rejects with a readable error.
@@ -52,13 +80,14 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
       return data.nonce || data.data || (data.response && (data.response.nonce || data.response.data)) || null;
     };
     const onNonce = (data) => {
+      console.log('[pay] payment-nonce event fired, raw:', data);
       const nonce = extractNonce(data);
       if (nonce) finish(resolve, nonce);
       else finish(reject, new Error('Payment SDK returned no nonce. Please re-enter your card and try again.'));
     };
     const onError = (err) => {
-      const msg = err?.message || err?.error?.message || err?.type || 'Card information is incomplete.';
-      finish(reject, new Error(msg));
+      console.error('[pay] Poynt error event:', err);
+      finish(reject, new Error(describeCollectError(err)));
     };
 
     if (typeof collect.on === 'function') {
@@ -72,13 +101,23 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
 
     let result;
     try { result = collect.getNonce(); }
-    catch (err) { return finish(reject, err instanceof Error ? err : new Error(String(err))); }
+    catch (err) {
+      console.error('[pay] collect.getNonce() threw synchronously:', err);
+      return finish(reject, err instanceof Error ? err : new Error(describeCollectError(err)));
+    }
 
     // Also accept a promise-style return, which some SDK versions still use.
     if (result && typeof result.then === 'function') {
       result.then(
-        (d) => { const n = extractNonce(d); if (n) finish(resolve, n); },
-        (e) => finish(reject, e instanceof Error ? e : new Error(e?.message || 'Payment failed'))
+        (d) => {
+          console.log('[pay] getNonce() promise resolved, raw:', d);
+          const n = extractNonce(d);
+          if (n) finish(resolve, n);
+        },
+        (e) => {
+          console.error('[pay] getNonce() promise rejected:', e);
+          finish(reject, e instanceof Error ? e : new Error(describeCollectError(e)));
+        }
       );
     }
   });
@@ -93,6 +132,7 @@ export default function PayOnline() {
   const [sdkReady, setSdkReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
+  const [errorDetails, setErrorDetails] = useState(null);
   const [success, setSuccess] = useState(null);
   const [config, setConfig] = useState(null);
   const collectRef = useRef(null);
@@ -158,6 +198,7 @@ export default function PayOnline() {
   const handlePay = async (e) => {
     e.preventDefault();
     setPaymentError('');
+    setErrorDetails(null);
     if (!collectRef.current) return;
     if (!email || !email.includes('@')) {
       setPaymentError('Please enter a valid email for your receipt.');
@@ -165,18 +206,32 @@ export default function PayOnline() {
     }
     setSubmitting(true);
     try {
+      console.log('[pay] requesting nonce from Poynt...');
       const nonce = await getNonceFromCollect(collectRef.current);
+      console.log('[pay] nonce received, length:', nonce && nonce.length, 'preview:', nonce && (nonce.slice(0, 12) + '...'));
+      console.log('[pay] posting to /charge...');
       const res = await fetch(`${API_BASE}/payments/online/${paymentToken}/charge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nonce, customerEmail: email }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Payment failed');
+      let data;
+      try { data = await res.json(); }
+      catch {
+        const text = await res.text().catch(() => '');
+        throw Object.assign(new Error(`Server returned ${res.status} ${res.statusText}`), {
+          details: { status: res.status, bodyPreview: text.slice(0, 500) },
+        });
+      }
+      console.log('[pay] /charge response:', res.status, data);
+      if (!res.ok) {
+        throw Object.assign(new Error(data?.error || `Server returned ${res.status}`), { details: data });
+      }
       setSuccess(data);
     } catch (err) {
-      console.error('Payment error:', err);
+      console.error('[pay] Payment error:', err);
       setPaymentError(err.message || 'Payment failed. Please try again.');
+      setErrorDetails(err.details || null);
     } finally {
       setSubmitting(false);
     }
@@ -251,7 +306,15 @@ export default function PayOnline() {
         {paymentError && (
           <div style={{ margin: '16px 0 0', padding: '10px 12px', background: '#fef2f2',
             border: '1px solid #fca5a5', borderRadius: 6, color: '#991b1b', fontSize: '0.875rem' }}>
-            {paymentError}
+            <div style={{ fontWeight: 600 }}>{paymentError}</div>
+            {errorDetails && (
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ cursor: 'pointer', fontSize: '0.75rem', color: '#7f1d1d' }}>Technical details</summary>
+                <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.7rem', margin: '6px 0 0', color: '#4b5563' }}>
+                  {(() => { try { return JSON.stringify(errorDetails, null, 2); } catch { return String(errorDetails); } })()}
+                </pre>
+              </details>
+            )}
           </div>
         )}
 

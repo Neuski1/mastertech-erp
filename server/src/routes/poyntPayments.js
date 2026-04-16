@@ -307,14 +307,27 @@ router.post('/:token/charge', async (req, res) => {
     let tokenized;
     try {
       tokenized = await tokenizeCard({ nonce });
+      console.log('[poynt] tokenize OK, response keys:', Object.keys(tokenized || {}));
     } catch (err) {
+      const detail = err?.developerMessage || err?.message || err?.code || err?.name || 'unknown';
+      console.error('[poynt] tokenize failed — full error:', {
+        message: err?.message,
+        code: err?.code,
+        statusCode: err?.statusCode,
+        requestId: err?.requestId,
+        developerMessage: err?.developerMessage,
+        stack: err?.stack && err.stack.split('\n').slice(0, 5).join('\n'),
+      });
       await client.query(
         `UPDATE online_payments SET status = 'failed', error_message = $2, updated_at = NOW()
            WHERE id = $1`,
-        [link.id, `Tokenize failed: ${err.message || err.name || 'unknown'}`]
+        [link.id, `Tokenize failed: ${detail}`]
       );
       await client.query('COMMIT');
-      return res.status(400).json({ error: 'Could not tokenize card. The page may have timed out — please refresh and try again.' });
+      return res.status(400).json({
+        error: `Could not tokenize card: ${detail}`,
+        step: 'tokenize',
+      });
     }
 
     const cardToken = tokenized && (
@@ -340,15 +353,28 @@ router.post('/:token/charge', async (req, res) => {
         customerEmail: customerEmail || link.customer_email || undefined,
         requestId: link.payment_token, // idempotency — one charge per link
       });
+      console.log('[poynt] charge OK:', { id: charge?.id, status: charge?.status });
     } catch (err) {
-      const reason = (err && (err.message || err.developerMessage || err.code)) || 'Card declined';
+      console.error('[poynt] charge failed — full error:', {
+        message: err?.message,
+        code: err?.code,
+        statusCode: err?.statusCode,
+        requestId: err?.requestId,
+        developerMessage: err?.developerMessage,
+        processorResponse: err?.processorResponse,
+      });
+      const reason = err?.developerMessage || err?.message || err?.code || 'Card declined';
       await client.query(
         `UPDATE online_payments SET status = 'failed', error_message = $2, updated_at = NOW()
            WHERE id = $1`,
         [link.id, `Charge failed: ${reason}`]
       );
       await client.query('COMMIT');
-      return res.status(402).json({ error: `Payment declined: ${reason}` });
+      return res.status(402).json({
+        error: `Payment declined: ${reason}`,
+        step: 'charge',
+        code: err?.code || null,
+      });
     }
 
     const txnId = charge && (charge.id || charge.transactionId);
