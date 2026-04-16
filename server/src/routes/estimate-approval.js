@@ -92,12 +92,44 @@ router.get('/:token', async (req, res) => {
       text: `${customerName} approved Estimate #${record.record_number}. View at ${backendUrl}/records/${record.id}`,
     }).catch(e => console.error('Staff notification error:', e.message));
 
+    // Generate a Parts Deposit pay link if parts_subtotal > 0 and Poynt is configured
+    let payBlock = '';
+    const partsSubtotal = parseFloat(record.parts_subtotal) || 0;
+    const poyntReady = !!(process.env.POYNT_APPLICATION_ID && process.env.POYNT_PRIVATE_KEY
+      && process.env.POYNT_BUSINESS_ID && process.env.POYNT_STORE_ID);
+    if (poyntReady && partsSubtotal > 0) {
+      try {
+        const { getOrCreateLink, linkUrl } = require('../services/onlinePaymentLinks');
+        const cents = Math.round(partsSubtotal * 100);
+        const link = await getOrCreateLink({
+          recordId: record.id,
+          paymentType: 'parts_deposit',
+          amountCents: cents,
+          customerEmail: record.email_primary || null,
+        });
+        const payUrl = linkUrl(link.payment_token, req);
+        const amountStr = partsSubtotal.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+        payBlock = `
+          <div style="margin-top:28px;padding:20px 16px;background:#eff6ff;border:2px solid #bfdbfe;border-radius:10px;">
+            <p style="margin:0 0 6px;color:#1e3a5f;font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Get Started Now</p>
+            <p style="margin:0 0 14px;color:#374151;font-size:14px;">To order the parts for your RV, please submit a deposit:</p>
+            <a href="${payUrl}" style="display:inline-block;padding:16px 32px;background:#1e3a5f;color:#fff;font-size:17px;font-weight:bold;text-decoration:none;border-radius:8px;min-width:220px;">
+              Pay Parts Deposit &mdash; ${amountStr}
+            </a>
+            <p style="margin:12px 0 0;font-size:11px;color:#6b7280;">Secure payment by GoDaddy Payments. You can also call (303) 557-2214 to pay by phone.</p>
+          </div>`;
+      } catch (err) {
+        console.error('Estimate approval pay-link error (non-fatal):', err.message);
+      }
+    }
+
     // Show confirmation page
     res.send(brandedPage('Estimate Approved',
       `<div style="font-size:64px;margin-bottom:16px;">&#9989;</div>
        <h2 style="color:#065f46;margin:0 0 12px;">Estimate Approved!</h2>
        <p style="color:#374151;font-size:15px;">Thank you${record.first_name ? ' ' + record.first_name : ''}, your estimate <strong>#${record.record_number}</strong> has been approved.</p>
        <p style="color:#6b7280;">We will contact you shortly to schedule your service.</p>
+       ${payBlock}
        <div style="margin-top:24px;padding:16px;background:#f0fdf4;border-radius:8px;">
          <p style="margin:0;color:#374151;"><strong>(303) 557-2214</strong></p>
          <p style="margin:4px 0 0;color:#6b7280;">service@mastertechrvrepair.com</p>

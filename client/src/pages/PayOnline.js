@@ -3,9 +3,6 @@ import { useParams } from 'react-router-dom';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 const POYNT_SDK_URL = 'https://collect.commerce.godaddy.com/sdk.js';
-const POYNT_BUSINESS_ID = process.env.REACT_APP_POYNT_BUSINESS_ID || '9538e7da-e4aa-4ab6-8678-aab648c15d25';
-const POYNT_APPLICATION_ID = process.env.REACT_APP_POYNT_APPLICATION_ID
-  || '9538e7da-e4aa-4ab6-8678-aab648c15d25=urn:aid:479613dd-dc78-4fd6-8681-e22291d6f845';
 
 // Load the Poynt Collect SDK once
 function loadPoyntSdk() {
@@ -15,6 +12,8 @@ function loadPoyntSdk() {
     return new Promise((resolve, reject) => {
       existing.addEventListener('load', resolve);
       existing.addEventListener('error', reject);
+      // Already loaded?
+      if (window.TokenizeJs) resolve();
     });
   }
   return new Promise((resolve, reject) => {
@@ -23,8 +22,65 @@ function loadPoyntSdk() {
     s.async = true;
     s.defer = true;
     s.onload = resolve;
-    s.onerror = () => reject(new Error('Failed to load payment SDK'));
+    s.onerror = () => reject(new Error('Failed to load payment SDK. Please check your internet connection and try again.'));
     document.head.appendChild(s);
+  });
+}
+
+/**
+ * Wrap collect.getNonce() to handle both the event-driven API
+ * (payment-nonce / error events) and any promise return.
+ * Resolves with the nonce string, rejects with a readable error.
+ */
+function getNonceFromCollect(collect, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    if (!collect) return reject(new Error('Payment form not ready.'));
+    let settled = false;
+    let timer;
+
+    const finish = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { collect.off && collect.off('payment-nonce', onNonce); } catch {}
+      try { collect.off && collect.off('error', onError); } catch {}
+      fn(val);
+    };
+    const extractNonce = (data) => {
+      if (!data) return null;
+      if (typeof data === 'string') return data;
+      return data.nonce || data.data || (data.response && (data.response.nonce || data.response.data)) || null;
+    };
+    const onNonce = (data) => {
+      const nonce = extractNonce(data);
+      if (nonce) finish(resolve, nonce);
+      else finish(reject, new Error('Payment SDK returned no nonce. Please re-enter your card and try again.'));
+    };
+    const onError = (err) => {
+      const msg = err?.message || err?.error?.message || err?.type || 'Card information is incomplete.';
+      finish(reject, new Error(msg));
+    };
+
+    if (typeof collect.on === 'function') {
+      collect.on('payment-nonce', onNonce);
+      collect.on('error', onError);
+    }
+
+    timer = setTimeout(() => {
+      finish(reject, new Error('Card entry timed out. Please re-enter your card and try again.'));
+    }, timeoutMs);
+
+    let result;
+    try { result = collect.getNonce(); }
+    catch (err) { return finish(reject, err instanceof Error ? err : new Error(String(err))); }
+
+    // Also accept a promise-style return, which some SDK versions still use.
+    if (result && typeof result.then === 'function') {
+      result.then(
+        (d) => { const n = extractNonce(d); if (n) finish(resolve, n); },
+        (e) => finish(reject, e instanceof Error ? e : new Error(e?.message || 'Payment failed'))
+      );
+    }
   });
 }
 
@@ -38,21 +94,29 @@ export default function PayOnline() {
   const [submitting, setSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [success, setSuccess] = useState(null);
+  const [config, setConfig] = useState(null);
   const collectRef = useRef(null);
   const mountedRef = useRef(false);
 
-  // Fetch link details
+  // Fetch link + Poynt config in parallel
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/payments/online/${paymentToken}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Payment link not found');
-        if (!cancelled) {
-          setLink(data);
-          setEmail(data.defaultEmail || '');
+        const [linkRes, cfgRes] = await Promise.all([
+          fetch(`${API_BASE}/payments/online/${paymentToken}`),
+          fetch(`${API_BASE}/payments/online/config`),
+        ]);
+        const linkData = await linkRes.json();
+        if (!linkRes.ok) throw new Error(linkData.error || 'Payment link not found');
+        const cfgData = await cfgRes.json();
+        if (cancelled) return;
+        if (!cfgData.businessId || !cfgData.applicationId) {
+          throw new Error('Payment processor is not configured. Please contact us.');
         }
+        setLink(linkData);
+        setEmail(linkData.defaultEmail || '');
+        setConfig(cfgData);
       } catch (err) {
         if (!cancelled) setFetchError(err.message);
       } finally {
@@ -62,9 +126,9 @@ export default function PayOnline() {
     return () => { cancelled = true; };
   }, [paymentToken]);
 
-  // Load SDK + mount card form once link is loaded and not already paid
+  // Load SDK + mount card form once link+config are loaded and not already paid
   useEffect(() => {
-    if (!link || link.alreadyPaid || success) return;
+    if (!link || !config || link.alreadyPaid || success) return;
     let cancelled = false;
     loadPoyntSdk()
       .then(() => {
@@ -74,7 +138,7 @@ export default function PayOnline() {
           return;
         }
         try {
-          const collect = new window.TokenizeJs(POYNT_BUSINESS_ID, POYNT_APPLICATION_ID);
+          const collect = new window.TokenizeJs(config.businessId, config.applicationId);
           collect.mount('card-element', document, {
             hideZip: false,
             iFrameStyles: { base: { color: '#111827', fontSize: '16px' } },
@@ -83,13 +147,13 @@ export default function PayOnline() {
           mountedRef.current = true;
           setSdkReady(true);
         } catch (err) {
-          setPaymentError('Could not initialize payment form.');
-          console.error(err);
+          console.error('TokenizeJs init error:', err);
+          setPaymentError('Could not initialize payment form. Please refresh.');
         }
       })
       .catch((err) => { if (!cancelled) setPaymentError(err.message); });
     return () => { cancelled = true; };
-  }, [link, success]);
+  }, [link, config, success]);
 
   const handlePay = async (e) => {
     e.preventDefault();
@@ -101,11 +165,7 @@ export default function PayOnline() {
     }
     setSubmitting(true);
     try {
-      const nonceResult = await collectRef.current.getNonce();
-      const nonce = nonceResult && (nonceResult.data || nonceResult.nonce || nonceResult);
-      if (!nonce || typeof nonce !== 'string') {
-        throw new Error('Please re-enter card information and try again.');
-      }
+      const nonce = await getNonceFromCollect(collectRef.current);
       const res = await fetch(`${API_BASE}/payments/online/${paymentToken}/charge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,6 +175,7 @@ export default function PayOnline() {
       if (!res.ok) throw new Error(data.error || 'Payment failed');
       setSuccess(data);
     } catch (err) {
+      console.error('Payment error:', err);
       setPaymentError(err.message || 'Payment failed. Please try again.');
     } finally {
       setSubmitting(false);

@@ -20,6 +20,17 @@ function typeLabel(t) {
 }
 
 // ---------------------------------------------------------------------------
+// PUBLIC: GET /config — public IDs needed by the browser to init TokenizeJs
+// ---------------------------------------------------------------------------
+router.get('/config', (_req, res) => {
+  res.json({
+    businessId: process.env.POYNT_BUSINESS_ID || null,
+    applicationId: process.env.POYNT_APPLICATION_ID || null,
+    configured: isPoyntConfigured(),
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PUBLIC: GET /:token — customer-facing link info
 // ---------------------------------------------------------------------------
 router.get('/:token', async (req, res) => {
@@ -107,10 +118,17 @@ router.post('/:token/charge', async (req, res) => {
       return res.status(400).json({ error: 'Could not tokenize card. The page may have timed out — please refresh and try again.' });
     }
 
-    const cardToken = tokenized && (tokenized.paymentJWT || tokenized.token || tokenized.card_token);
+    const cardToken = tokenized && (
+      tokenized.paymentJWT
+      || tokenized.token
+      || tokenized.card_token
+      || tokenized.cardToken
+      || tokenized.data?.paymentJWT
+      || tokenized.data?.token
+    );
     if (!cardToken) {
       await client.query('ROLLBACK');
-      console.error('Poynt tokenize returned no JWT:', tokenized);
+      console.error('Poynt tokenize returned no JWT. Keys:', Object.keys(tokenized || {}), 'Full:', JSON.stringify(tokenized));
       return res.status(502).json({ error: 'Tokenization failed — no token returned.' });
     }
 
