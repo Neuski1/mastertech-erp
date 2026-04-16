@@ -235,7 +235,7 @@ router.get('/:token', async (req, res) => {
       `SELECT op.payment_token, op.amount_cents, op.payment_type, op.status,
               op.customer_email, op.created_at, op.paid_at,
               r.record_number,
-              c.first_name, c.last_name, c.company_name
+              c.first_name, c.last_name, c.company_name, c.email_primary
          FROM online_payments op
          JOIN records r ON r.id = op.record_id
          JOIN customers c ON c.id = r.customer_id
@@ -258,7 +258,7 @@ router.get('/:token', async (req, res) => {
       paymentTypeLabel: typeLabel(row.payment_type),
       status: row.status,
       alreadyPaid: row.status === 'paid',
-      defaultEmail: row.customer_email || '',
+      defaultEmail: row.customer_email || row.email_primary || '',
     });
   } catch (err) {
     console.error('GET /api/payments/online/:token error:', err);
@@ -317,26 +317,29 @@ router.post('/:token/charge', async (req, res) => {
       });
       console.log('[poynt] charge OK:', { id: charge?.id, status: charge?.status, transactionId: charge?.transactionId });
     } catch (err) {
-      console.error('[poynt] charge failed — full error:', {
-        message: err?.message,
-        code: err?.code,
-        statusCode: err?.statusCode,
-        requestId: err?.requestId,
-        developerMessage: err?.developerMessage,
-        processorResponse: err?.processorResponse,
-        raw: JSON.stringify(err).slice(0, 1000),
-      });
-      const reason = err?.developerMessage || err?.message || err?.code || 'Card declined';
+      // The Poynt SDK returns the API response body as a plain object (not an
+      // Error instance). Dump the FULL object so Railway logs show exactly
+      // what Poynt said — httpStatus, message, developerMessage, code, etc.
+      let errDump;
+      try { errDump = JSON.stringify(err, null, 2); } catch { errDump = String(err); }
+      console.error('[poynt] charge FAILED — full Poynt response:\n' + errDump);
+      console.error('[poynt] charge error keys:', Object.keys(err || {}));
+
+      const reason = err?.developerMessage || err?.message || err?.code || 'Payment failed';
+      const httpStatus = err?.httpStatus || err?.statusCode;
       await client.query(
         `UPDATE online_payments SET status = 'failed', error_message = $2, updated_at = NOW()
            WHERE id = $1`,
-        [link.id, `Charge failed: ${reason}`]
+        [link.id, `Charge failed (HTTP ${httpStatus || '?'}): ${reason}`]
       );
       await client.query('COMMIT');
       return res.status(402).json({
         error: `Payment failed: ${reason}`,
         step: 'charge',
         code: err?.code || null,
+        httpStatus: httpStatus || null,
+        developerMessage: err?.developerMessage || null,
+        poyntRequestId: err?.requestId || null,
       });
     }
 

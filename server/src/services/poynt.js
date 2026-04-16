@@ -8,6 +8,10 @@
  * card data and returns "bad request" when given a Collect nonce.
  */
 
+// Enable the Poynt SDK's built-in debug logging so Railway logs show the
+// raw HTTP request URL, body, and response for every API call.
+try { require('debug').enable('poynt'); } catch {}
+
 let client = null;
 
 function normalizePrivateKey(raw) {
@@ -46,7 +50,9 @@ function getClient() {
     throw new Error('Poynt private key is malformed — expected a PEM block with BEGIN/END PRIVATE KEY markers. Check that POYNT_PRIVATE_KEY in Railway preserves newlines.');
   }
   const sdkAppId = extractSdkAppId(POYNT_APPLICATION_ID);
-  console.log(`[poynt] initializing SDK with applicationId: ${sdkAppId}`);
+  const keyLines = key.split('\n').length;
+  const keyStart = key.slice(0, 40);
+  console.log(`[poynt] initializing SDK — applicationId: ${sdkAppId}, key: ${keyLines} lines, starts: "${keyStart}..."`);
   const poynt = require('poynt');
   client = poynt({ applicationId: sdkAppId, key });
   return client;
