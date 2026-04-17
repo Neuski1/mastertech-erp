@@ -72,6 +72,7 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
       clearTimeout(timer);
       try { collect.off && collect.off('payment-nonce', onNonce); } catch {}
       try { collect.off && collect.off('error', onError); } catch {}
+      try { collect.off && collect.off('nonce_error', onNonceError); } catch {}
       fn(val);
     };
     const extractNonce = (data) => {
@@ -89,10 +90,20 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
       console.error('[pay] Poynt error event:', err);
       finish(reject, new Error(describeCollectError(err)));
     };
+    const onNonceError = (err) => {
+      let raw;
+      try { raw = JSON.stringify(err); } catch { raw = String(err); }
+      console.error('[pay] Poynt nonce_error event:', raw);
+      finish(reject, Object.assign(
+        new Error(describeCollectError(err) || 'Card could not be tokenized.'),
+        { details: err }
+      ));
+    };
 
     if (typeof collect.on === 'function') {
       collect.on('payment-nonce', onNonce);
       collect.on('error', onError);
+      collect.on('nonce_error', onNonceError);
     }
 
     timer = setTimeout(() => {
