@@ -14,7 +14,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { chargeNonce, isPoyntConfigured } = require('../services/poynt');
+const { chargeNonce, isPoyntConfigured, healthCheck } = require('../services/poynt');
 
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,6 +36,20 @@ router.get('/config', (_req, res) => {
     applicationId: process.env.POYNT_APPLICATION_ID || null,
     configured: isPoyntConfigured(),
   });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /health — diagnostic for Poynt credentials + SDK init.
+// Reports booleans only — never returns the private key value.
+// Placed above /:token so the wildcard doesn't capture it.
+// ---------------------------------------------------------------------------
+router.get('/health', requireAuth, requireRole('admin'), (_req, res) => {
+  try {
+    res.json(healthCheck());
+  } catch (err) {
+    console.error('GET /api/payments/online/health error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------------------------------------------------------------------------

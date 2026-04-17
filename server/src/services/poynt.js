@@ -99,4 +99,49 @@ function chargeNonce({ nonce, amountCents, customerEmail, requestId }) {
   });
 }
 
-module.exports = { chargeNonce, isPoyntConfigured };
+/**
+ * Diagnostic: report config presence, PEM shape, and whether a fresh SDK
+ * init succeeds — without ever returning the key itself.
+ */
+function healthCheck() {
+  const { POYNT_APPLICATION_ID, POYNT_BUSINESS_ID, POYNT_STORE_ID, POYNT_PRIVATE_KEY } = process.env;
+  const result = {
+    applicationIdSet: !!POYNT_APPLICATION_ID,
+    businessIdSet: !!POYNT_BUSINESS_ID,
+    storeIdSet: !!POYNT_STORE_ID,
+    privateKeySet: !!POYNT_PRIVATE_KEY,
+    privateKeyLooksValid: false,
+    privateKeyLineCount: 0,
+    sdkAppIdExtracted: null,
+    sdkInitOk: false,
+    sdkInitError: null,
+  };
+
+  if (POYNT_PRIVATE_KEY) {
+    const key = normalizePrivateKey(POYNT_PRIVATE_KEY);
+    const hasBegin = /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(key);
+    const hasEnd = /-----END [A-Z ]*PRIVATE KEY-----/.test(key);
+    result.privateKeyLooksValid = hasBegin && hasEnd;
+    result.privateKeyLineCount = key.split('\n').length;
+  }
+
+  if (POYNT_APPLICATION_ID) {
+    result.sdkAppIdExtracted = extractSdkAppId(POYNT_APPLICATION_ID);
+  }
+
+  if (result.applicationIdSet && result.privateKeyLooksValid) {
+    try {
+      const key = normalizePrivateKey(POYNT_PRIVATE_KEY);
+      const sdkAppId = extractSdkAppId(POYNT_APPLICATION_ID);
+      const poynt = require('poynt');
+      poynt({ applicationId: sdkAppId, key });
+      result.sdkInitOk = true;
+    } catch (err) {
+      result.sdkInitError = err && (err.message || String(err));
+    }
+  }
+
+  return result;
+}
+
+module.exports = { chargeNonce, isPoyntConfigured, healthCheck };
