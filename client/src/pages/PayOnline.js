@@ -77,16 +77,34 @@ function getNonceFromCollect(collect, timeoutMs = 30000) {
       try { collect.off && collect.off('nonce_error', onNonceError); } catch {}
       fn(val);
     };
+    // The SDK delivers the nonce event as { type: "nonce", data: { nonce: "<string>", source: "..." } }.
+    // We previously returned data.data (the whole inner object) whenever data.nonce was missing,
+    // which crashed on .slice() downstream. Dig through the known shapes and only ever return a string.
     const extractNonce = (data) => {
       if (!data) return null;
       if (typeof data === 'string') return data;
-      return data.nonce || data.data || (data.response && (data.response.nonce || data.response.data)) || null;
+      const candidates = [
+        data.data && data.data.nonce,
+        data.data && data.data.token,
+        data.nonce,
+        data.token,
+        data.response && data.response.nonce,
+        data.response && data.response.data && data.response.data.nonce,
+        typeof data.data === 'string' ? data.data : null,
+      ];
+      for (const c of candidates) {
+        if (typeof c === 'string' && c.length > 0) return c;
+      }
+      return null;
     };
     const onNonce = (data) => {
+      let rawJson;
+      try { rawJson = JSON.stringify(data); } catch { rawJson = String(data); }
       console.log('[pay] nonce event fired, raw:', data);
+      console.log('[pay] nonce data structure:', rawJson);
       const nonce = extractNonce(data);
-      if (nonce) finish(resolve, nonce);
-      else finish(reject, new Error('Payment SDK returned no nonce. Please re-enter your card and try again.'));
+      if (typeof nonce === 'string' && nonce.length > 0) finish(resolve, nonce);
+      else finish(reject, new Error('Payment SDK returned no usable nonce. Please re-enter your card and try again.'));
     };
     const onError = (err) => {
       console.error('[pay] Poynt error event:', err);
@@ -151,6 +169,13 @@ export default function PayOnline() {
   const collectRef = useRef(null);
   const mountedRef = useRef(false);
 
+  // Diagnostic: trace any setEmail that overrides the value from the API.
+  // If we see "email state changed to: admin@..." after the API set Carol's,
+  // something else (autofill, another effect, etc.) is stomping it.
+  useEffect(() => {
+    console.log('[pay] email state changed to:', email);
+  }, [email]);
+
   // Fetch link + Poynt config in parallel
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +192,7 @@ export default function PayOnline() {
         if (!cfgData.businessId || !cfgData.applicationId) {
           throw new Error('Payment processor is not configured. Please contact us.');
         }
+        console.log('[pay] API returned link.defaultEmail:', linkData.defaultEmail, '| full link:', linkData);
         setLink(linkData);
         setEmail(linkData.defaultEmail || '');
         setConfig(cfgData);
@@ -307,6 +333,10 @@ export default function PayOnline() {
           onChange={(e) => setEmail(e.target.value)}
           style={input}
           placeholder="you@example.com"
+          name="receipt-email"
+          autoComplete="off"
+          data-lpignore="true"
+          data-form-type="other"
         />
 
         <label style={formLabel}>Card information</label>
