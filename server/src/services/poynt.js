@@ -25,11 +25,12 @@ function normalizePrivateKey(raw) {
 }
 
 /**
- * POYNT_APPLICATION_ID is stored in the browser TokenizeJs format:
- *   "businessId=urn:aid:appId"
- * The Node SDK expects just "urn:aid:appId" for JWT signing (iss/sub).
- * Passing the full string makes Poynt's /token endpoint reject the JWT
- * with "bad request".
+ * POYNT_APPLICATION_ID env var packs two IDs in the form:
+ *   "<uuid>=urn:aid:<appId>"
+ * Both the browser TokenizeJs SDK and the server Node SDK need just the
+ * "urn:aid:<appId>" portion. Passing the full string causes Poynt's API
+ * to respond with "No application found associated with applicationId ..."
+ * on the browser side, and to reject the signed JWT on the server side.
  */
 function extractSdkAppId(fullApplicationId) {
   const match = fullApplicationId.match(/(urn:aid:[a-f0-9-]+)/i);
@@ -144,4 +145,4 @@ function healthCheck() {
   return result;
 }
 
-module.exports = { chargeNonce, isPoyntConfigured, healthCheck };
+module.exports = { chargeNonce, isPoyntConfigured, healthCheck, extractSdkAppId };

@@ -14,7 +14,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { chargeNonce, isPoyntConfigured, healthCheck } = require('../services/poynt');
+const { chargeNonce, isPoyntConfigured, healthCheck, extractSdkAppId } = require('../services/poynt');
 
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,9 +31,13 @@ function typeLabel(t) {
 // PUBLIC: GET /config — public IDs needed by the browser to init TokenizeJs
 // ---------------------------------------------------------------------------
 router.get('/config', (_req, res) => {
+  // Trim the packed env var down to "urn:aid:<appId>" — the browser
+  // TokenizeJs SDK rejects the full "<uuid>=urn:aid:<appId>" string with
+  // "No application found associated with applicationId ...".
+  const rawAppId = process.env.POYNT_APPLICATION_ID || null;
   res.json({
     businessId: process.env.POYNT_BUSINESS_ID || null,
-    applicationId: process.env.POYNT_APPLICATION_ID || null,
+    applicationId: rawAppId ? extractSdkAppId(rawAppId) : null,
     configured: isPoyntConfigured(),
   });
 });
