@@ -56,11 +56,13 @@ function describeCollectError(err) {
 }
 
 /**
- * Wrap collect.getNonce() to handle both the event-driven API
- * (payment-nonce / error events) and any promise return.
+ * Wrap collect.getNonce() to handle the event-driven API and any
+ * promise return. The Poynt Collect SDK emits "nonce" on success and
+ * "nonce_error" on tokenization failure (confirmed by the SDK source:
+ * `if(message.type==="nonce"||message.type==="nonce_error")`).
  * Resolves with the nonce string, rejects with a readable error.
  */
-function getNonceFromCollect(collect, timeoutMs = 15000) {
+function getNonceFromCollect(collect, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     if (!collect) return reject(new Error('Payment form not ready.'));
     let settled = false;
@@ -70,7 +72,7 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { collect.off && collect.off('payment-nonce', onNonce); } catch {}
+      try { collect.off && collect.off('nonce', onNonce); } catch {}
       try { collect.off && collect.off('error', onError); } catch {}
       try { collect.off && collect.off('nonce_error', onNonceError); } catch {}
       fn(val);
@@ -81,7 +83,7 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
       return data.nonce || data.data || (data.response && (data.response.nonce || data.response.data)) || null;
     };
     const onNonce = (data) => {
-      console.log('[pay] payment-nonce event fired, raw:', data);
+      console.log('[pay] nonce event fired, raw:', data);
       const nonce = extractNonce(data);
       if (nonce) finish(resolve, nonce);
       else finish(reject, new Error('Payment SDK returned no nonce. Please re-enter your card and try again.'));
@@ -101,7 +103,7 @@ function getNonceFromCollect(collect, timeoutMs = 15000) {
     };
 
     if (typeof collect.on === 'function') {
-      collect.on('payment-nonce', onNonce);
+      collect.on('nonce', onNonce);
       collect.on('error', onError);
       collect.on('nonce_error', onNonceError);
     }
@@ -362,6 +364,6 @@ const row = { display: 'flex', justifyContent: 'space-between', padding: '4px 0'
 const labelCell = { color: '#6b7280' };
 const valCell = { color: '#111827', fontWeight: 500 };
 const formLabel = { display: 'block', margin: '12px 0 6px', fontSize: '0.8rem', color: '#374151', fontWeight: 500 };
-const input = { width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.95rem', boxSizing: 'border-box' };
+const input = { width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.95rem', color: '#111827', background: '#fff', boxSizing: 'border-box' };
 const msg = { textAlign: 'center', color: '#6b7280' };
 const err = { textAlign: 'center', color: '#dc2626' };
