@@ -642,7 +642,7 @@ router.get('/waitlist', async (req, res) => {
     let sql = `
       SELECT w.*,
              c.first_name AS cust_first, c.last_name AS cust_last,
-             c.phone AS cust_phone, c.email AS cust_email
+             c.phone_primary AS cust_phone, c.email_primary AS cust_email
         FROM storage_waitlist w
         LEFT JOIN customers c ON c.id = w.customer_id
        WHERE 1=1`;
@@ -769,7 +769,7 @@ router.delete('/waitlist/:id', requireRole('admin', 'service_writer', 'technicia
 router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT w.*, c.first_name, c.last_name, c.phone, c.email
+      `SELECT w.*, c.first_name, c.last_name, c.phone_primary AS phone, c.email_primary AS email
          FROM storage_waitlist w LEFT JOIN customers c ON c.id = w.customer_id
         WHERE w.id = $1`,
       [req.params.id]
