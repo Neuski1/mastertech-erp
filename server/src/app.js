@@ -290,8 +290,23 @@ require('./db/pool').query(`
   CREATE INDEX IF NOT EXISTS idx_storage_waitlist_type ON storage_waitlist(space_type);
   CREATE INDEX IF NOT EXISTS idx_storage_waitlist_status ON storage_waitlist(status);
   CREATE INDEX IF NOT EXISTS idx_storage_waitlist_customer ON storage_waitlist(customer_id);
-`).then(() => console.log('storage_waitlist table ready'))
-  .catch(err => console.error('storage_waitlist migration error:', err.message));
+`).then(() => {
+  console.log('storage_waitlist table ready');
+  // Seed initial waitlist entries from Carol's spreadsheet (only if table is empty)
+  require('./db/pool').query(`
+    INSERT INTO storage_waitlist (contact_name, space_type, rv_length_feet, position, status)
+    SELECT v.contact_name, v.space_type, v.rv_length_feet, v.position, 'waiting'
+    FROM (VALUES
+      ('Mark Cohen',   'indoor',  22.0, 1),
+      ('Alexis Byler', 'indoor',  19.0, 2),
+      ('Adam Smith',   'indoor',  24.0, 3),
+      ('Jay Phelps',   'outdoor', 20.0, 4),
+      ('Mark Nichols',  'indoor',  33.0, 5)
+    ) AS v(contact_name, space_type, rv_length_feet, position)
+    WHERE NOT EXISTS (SELECT 1 FROM storage_waitlist LIMIT 1)
+  `).then(r => { if (r.rowCount > 0) console.log('Seeded', r.rowCount, 'waitlist entries'); })
+    .catch(err => console.error('waitlist seed error:', err.message));
+}).catch(err => console.error('storage_waitlist migration error:', err.message));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
