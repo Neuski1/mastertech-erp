@@ -51,6 +51,7 @@ router.post('/generate', requireAuth, requireRole('admin', 'service_writer'), as
         vin: r.vin || '',
         space_type: r.space_type,
         start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
+        start_date_raw: r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '',
         monthly_amount: monthlyRate.toFixed(2),
         lease_date: new Date().toLocaleDateString('en-US'),
         // Digital acceptance info if already accepted
@@ -276,7 +277,13 @@ router.get('/view/:token', async (req, res) => {
           <li>Lessee cannot access the unit during any period that rent is past due.</li>
           <li>Contract renews automatically unless 30 days written notice is given.</li>
         </ul>
-        <p><strong>Late Payment:</strong> 5 days late = $25 fee; 10 days = additional $50; 14+ days = $20/day up to 30 days. After 30 days unpaid, Lessor may take possession and sell said property.</p>
+
+        <h3 style="color:#1e3a5f;margin:20px 0 8px;">Payment Options</h3>
+        <p><strong>Autopay:</strong> Payments are processed via Square and are subject to a 3.5% credit card processing fee. An invoice will be generated on the last day of each month. You can securely store your card on file for automatic payments.</p>
+        <p><strong>Check, Cash, or Zelle:</strong> No processing fee. Payments may be mailed or dropped off at our facility. For Zelle, send to carol@mastertechrvrepair.com.</p>
+
+        <h3 style="color:#1e3a5f;margin:20px 0 8px;">Late Payment Penalty</h3>
+        <p>5 days late = $25 fee &bull; 10 days = additional $50 &bull; 14+ days = $20/day up to 30 days.<br/>After 30 days unpaid, Lessor may take possession and sell said property for reimbursement.</p>
       </div>
 
       <div style="text-align:center;margin:32px 0 16px;">
@@ -298,10 +305,14 @@ router.get('/view/:token', async (req, res) => {
 router.get('/accept/:token', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT sb.*, c.first_name, c.last_name, c.email_primary, s.label
+      `SELECT sb.*, c.first_name, c.last_name, c.email_primary, c.phone_primary, c.company_name,
+              s.label, s.space_type, s.linear_feet AS space_linear_feet,
+              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
+              u.license_plate, u.vin, u.linear_feet AS unit_linear_feet
        FROM storage_billing sb
        JOIN customers c ON c.id = sb.customer_id
        JOIN storage_spaces s ON s.id = sb.space_id
+       LEFT JOIN units u ON u.id = sb.unit_id
        WHERE sb.contract_token = $1 AND sb.deleted_at IS NULL`,
       [req.params.token]
     );
@@ -326,6 +337,8 @@ router.get('/accept/:token', async (req, res) => {
       ));
     }
 
+    const acceptedAt = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' });
+
     // Mark as accepted
     await pool.query(
       `UPDATE storage_billing SET
@@ -335,13 +348,69 @@ router.get('/accept/:token', async (req, res) => {
       [req.ip, r.id]
     );
 
-    // Notify staff
-    const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim();
+    const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+
+    // Generate accepted contract PDF and email copy to customer
+    const linearFeet = r.unit_linear_feet || r.space_linear_feet || '';
+    const monthlyRate = parseFloat(r.monthly_rate) || 0;
+    const { calcProrated } = require('../services/storageContract');
+    const startDateRaw = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
+
+    const pdfData = {
+      lessee_name: customerName,
+      lessee_phone: r.phone_primary || '',
+      lessee_email: r.email_primary || '',
+      rv_year: r.unit_year || '',
+      rv_make: r.unit_make || '',
+      rv_model: r.unit_model || '',
+      rv_length_feet: linearFeet ? `${linearFeet} ft` : '',
+      license_plate: r.license_plate || '',
+      vin: r.vin || '',
+      space_type: r.space_type,
+      start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
+      start_date_raw: startDateRaw,
+      monthly_amount: monthlyRate.toFixed(2),
+      lease_date: new Date().toLocaleDateString('en-US'),
+      accepted_at: acceptedAt,
+      accepted_ip: req.ip,
+    };
+
+    // Email copy of accepted contract to customer (in background)
+    if (r.email_primary) {
+      generateContractPDF(pdfData).then(pdfBuffer => {
+        return sendEmail({
+          to: r.email_primary,
+          subject: `Your Accepted Storage Agreement — Master Tech RV (Space ${r.label})`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#1e3a5f;padding:20px 32px;text-align:center;border-radius:12px 12px 0 0;">
+              <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR & STORAGE</h1>
+              <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;font-style:italic;">Our Service Makes Happy Campers!</p>
+            </div>
+            <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;">
+              <p style="color:#374151;">Hello ${r.first_name || customerName},</p>
+              <p style="color:#374151;">Thank you for accepting your Storage Lease Agreement for Space <strong>${r.label}</strong>. A copy of your signed agreement is attached to this email for your records.</p>
+              <p style="color:#374151;">If you have any questions, please call us at <strong>(303) 557-2214</strong> or reply to this email.</p>
+              <p style="color:#374151;">Welcome to Master Tech RV Storage!</p>
+            </div>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:16px 32px;text-align:center;border-radius:0 0 12px 12px;">
+              <p style="margin:0;color:#6b7280;font-size:12px;">6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+            </div>
+          </div>`,
+          attachments: [{
+            filename: `Storage_Agreement_${customerName.replace(/\s/g, '_')}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          }],
+        });
+      }).catch(e => console.error('Contract copy email error:', e.message));
+    }
+
+    // Notify staff
     sendEmail({
       to: 'service@mastertechrvrepair.com',
       subject: `Storage Contract Accepted — ${customerName} (Space ${r.label})`,
-      html: `<p><strong>${customerName}</strong> digitally accepted the storage lease for Space <strong>${r.label}</strong> at ${new Date().toLocaleString('en-US', { timeZone: 'America/Denver' })}.</p>
+      html: `<p><strong>${customerName}</strong> digitally accepted the storage lease for Space <strong>${r.label}</strong> at ${acceptedAt}.</p>
              <p><a href="${frontendUrl}/storage">View Storage Module</a></p>`,
     }).catch(e => console.error('Contract acceptance notification error:', e.message));
 
@@ -350,7 +419,7 @@ router.get('/accept/:token', async (req, res) => {
       await pool.query(
         `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content)
          VALUES ($1, 'email', 'storage_contract_accepted', $2)`,
-        [r.customer_id, `Customer digitally accepted storage contract for space ${r.label}`]
+        [r.customer_id, `Customer digitally accepted storage contract for space ${r.label}. Copy emailed to ${r.email_primary || 'N/A'}.`]
       );
     } catch (e) { console.error('Comm log error:', e.message); }
 
@@ -359,6 +428,7 @@ router.get('/accept/:token', async (req, res) => {
         <div style="font-size:64px;margin-bottom:16px;">&#9989;</div>
         <h2 style="color:#065f46;">Storage Agreement Accepted!</h2>
         <p style="color:#374151;font-size:15px;">Thank you${r.first_name ? ' ' + r.first_name : ''}, your storage lease for Space <strong>${r.label}</strong> is confirmed.</p>
+        <p style="color:#6b7280;">A copy of your signed agreement has been emailed to <strong>${r.email_primary || 'your email on file'}</strong>.</p>
         <p style="color:#6b7280;">We look forward to serving you!</p>
         <div style="margin-top:24px;padding:16px;background:#f0fdf4;border-radius:8px;">
           <p style="margin:0;color:#374151;"><strong>(303) 557-2214</strong></p>
