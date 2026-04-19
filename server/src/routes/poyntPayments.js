@@ -23,6 +23,12 @@ function typeLabel(t) {
   return t === 'parts_deposit' ? 'Parts Deposit' : 'Invoice Payment';
 }
 
+// Map link payment_type to the DB payment_type_type enum value.
+// The enum has 'deposit' but links use 'parts_deposit'; 'final_payment' exists in both.
+function dbPaymentType(t) {
+  return t === 'parts_deposit' ? 'deposit' : t;
+}
+
 // =============================================================================
 // Static / specific paths — MUST come before the /:token wildcard routes below.
 // =============================================================================
@@ -382,7 +388,7 @@ router.post('/:token/charge', async (req, res) => {
        VALUES ($1, $2, 'credit_card', $3, NOW(), $4, $5, NULL)`,
       [
         link.record_id,
-        link.payment_type, // 'parts_deposit' or 'final_payment'
+        dbPaymentType(link.payment_type), // maps 'parts_deposit' → 'deposit' for DB enum
         (parseInt(link.amount_cents) / 100).toFixed(2),
         txnId || null,
         `Online payment (GoDaddy/Poynt) — ${typeLabel(link.payment_type)}`,
