@@ -631,4 +631,209 @@ router.patch('/charges/:id', requireRole('admin'), async (req, res) => {
   }
 });
 
+// ===========================================================================
+// WAITLIST ROUTES
+// ===========================================================================
+
+// GET /api/storage/waitlist — List waitlist entries
+router.get('/waitlist', async (req, res) => {
+  try {
+    const { space_type, status } = req.query;
+    let sql = `
+      SELECT w.*,
+             c.first_name AS cust_first, c.last_name AS cust_last,
+             c.phone AS cust_phone, c.email AS cust_email
+        FROM storage_waitlist w
+        LEFT JOIN customers c ON c.id = w.customer_id
+       WHERE 1=1`;
+    const params = [];
+    if (space_type) {
+      params.push(space_type);
+      sql += ` AND w.space_type = $${params.length}`;
+    }
+    if (status) {
+      params.push(status);
+      sql += ` AND w.status = $${params.length}`;
+    } else {
+      sql += ` AND w.status IN ('waiting', 'notified')`;
+    }
+    sql += ` ORDER BY w.space_type, w.position ASC NULLS LAST, w.created_at ASC`;
+    const { rows } = await pool.query(sql, params);
+    // Return counts by type
+    const countRes = await pool.query(
+      `SELECT space_type, COUNT(*) AS cnt
+         FROM storage_waitlist WHERE status IN ('waiting','notified')
+        GROUP BY space_type`
+    );
+    const counts = { indoor: 0, outdoor: 0 };
+    countRes.rows.forEach(r => { counts[r.space_type] = parseInt(r.cnt); });
+    res.json({ entries: rows, counts });
+  } catch (err) {
+    console.error('GET /api/storage/waitlist error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/storage/waitlist — Add to waitlist
+router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  try {
+    const {
+      customer_id, contact_name, contact_phone, contact_email,
+      space_type, rv_year, rv_make, rv_model, rv_length_feet,
+      preferred_start, budget_monthly, notes
+    } = req.body;
+    if (!space_type || !['indoor', 'outdoor'].includes(space_type)) {
+      return res.status(400).json({ error: 'space_type must be indoor or outdoor' });
+    }
+    if (!customer_id && !contact_name) {
+      return res.status(400).json({ error: 'Either customer_id or contact_name is required' });
+    }
+    // Auto-assign position (next in line for this type)
+    const posRes = await pool.query(
+      `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos
+         FROM storage_waitlist
+        WHERE space_type = $1 AND status IN ('waiting', 'notified')`,
+      [space_type]
+    );
+    const position = posRes.rows[0].next_pos;
+    const { rows } = await pool.query(
+      `INSERT INTO storage_waitlist
+         (customer_id, contact_name, contact_phone, contact_email,
+          space_type, rv_year, rv_make, rv_model, rv_length_feet,
+          preferred_start, budget_monthly, notes, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       RETURNING *`,
+      [customer_id || null, contact_name || null, contact_phone || null, contact_email || null,
+       space_type, rv_year || null, rv_make || null, rv_model || null, rv_length_feet || null,
+       preferred_start || null, budget_monthly || null, notes || null, position]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/storage/waitlist error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/storage/waitlist/:id — Update waitlist entry
+router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const fields = ['contact_name', 'contact_phone', 'contact_email', 'space_type',
+                    'rv_year', 'rv_make', 'rv_model', 'rv_length_feet',
+                    'preferred_start', 'budget_monthly', 'notes', 'status', 'position', 'customer_id'];
+    const sets = [];
+    const params = [];
+    fields.forEach(f => {
+      if (req.body[f] !== undefined) {
+        params.push(req.body[f] === '' ? null : req.body[f]);
+        sets.push(`${f} = $${params.length}`);
+      }
+    });
+    if (req.body.status === 'notified') {
+      sets.push(`notified_at = NOW()`);
+    } else if (req.body.status === 'assigned') {
+      sets.push(`assigned_at = NOW()`);
+    }
+    if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+    sets.push('updated_at = NOW()');
+    params.push(id);
+    const { rows } = await pool.query(
+      `UPDATE storage_waitlist SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PATCH /api/storage/waitlist/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/storage/waitlist/:id — Remove from waitlist (sets status to cancelled)
+router.delete('/waitlist/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE storage_waitlist SET status = 'cancelled', updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/storage/waitlist/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/storage/waitlist/:id/notify — Notify customer of availability
+router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT w.*, c.first_name, c.last_name, c.phone, c.email
+         FROM storage_waitlist w LEFT JOIN customers c ON c.id = w.customer_id
+        WHERE w.id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    const entry = rows[0];
+    const name = entry.first_name || entry.contact_name || 'Customer';
+    const email = entry.email || entry.contact_email;
+    const phone = entry.phone || entry.contact_phone;
+    const typeLabel = entry.space_type === 'indoor' ? 'indoor' : 'outdoor';
+
+    const results = { email: null, sms: null };
+
+    // Send email notification
+    if (email) {
+      try {
+        const { Resend } = require('resend');
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: 'Master Tech RV <service@mastertechrvrepair.com>',
+          to: email,
+          subject: `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} Storage Space Available — Master Tech RV`,
+          html: `<p>Hi ${name},</p>
+<p>Great news! An <strong>${typeLabel} storage</strong> space has become available at Master Tech RV Repair & Storage.</p>
+<p>Since you're on our waitlist, we wanted to give you first opportunity to reserve this spot.</p>
+<p>Please call us at <strong>(303) 557-2214</strong> or reply to this email as soon as possible to secure your space. Spots fill up quickly!</p>
+<p>Thank you,<br/>Master Tech RV Repair & Storage</p>`
+        });
+        results.email = 'sent';
+      } catch (emailErr) {
+        console.error('Waitlist email error:', emailErr);
+        results.email = 'failed: ' + emailErr.message;
+      }
+    }
+
+    // Send SMS notification (if Twilio is configured)
+    if (phone && process.env.TWILIO_ACCOUNT_SID) {
+      try {
+        const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        const cleanPhone = phone.replace(/\D/g, '');
+        const toPhone = cleanPhone.length === 10 ? `+1${cleanPhone}` : `+${cleanPhone}`;
+        await twilio.messages.create({
+          body: `Hi ${name}! An ${typeLabel} storage space is now available at Master Tech RV. Call us at (303) 557-2214 to reserve your spot before it's taken!`,
+          from: process.env.TWILIO_FROM_NUMBER,
+          to: toPhone
+        });
+        results.sms = 'sent';
+      } catch (smsErr) {
+        console.error('Waitlist SMS error:', smsErr);
+        results.sms = 'failed: ' + smsErr.message;
+      }
+    }
+
+    // Mark as notified
+    await pool.query(
+      `UPDATE storage_waitlist SET status = 'notified', notified_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+
+    res.json({ success: true, results });
+  } catch (err) {
+    console.error('POST /api/storage/waitlist/:id/notify error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

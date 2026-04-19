@@ -33,6 +33,32 @@ export default function Storage() {
   // Add space modal
   const [showAddSpace, setShowAddSpace] = useState(false);
 
+  // Waitlist state
+  const [activeTab, setActiveTab] = useState('spaces'); // 'spaces' | 'waitlist'
+  const [waitlist, setWaitlist] = useState([]);
+  const [waitlistCounts, setWaitlistCounts] = useState({ indoor: 0, outdoor: 0 });
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const [showAddWaitlist, setShowAddWaitlist] = useState(false);
+  const [showWaitlistDetail, setShowWaitlistDetail] = useState(null);
+  const [waitlistFilter, setWaitlistFilter] = useState('all'); // 'all' | 'indoor' | 'outdoor'
+
+  const fetchWaitlist = useCallback(async () => {
+    setWaitlistLoading(true);
+    try {
+      const params = {};
+      if (waitlistFilter !== 'all') params.space_type = waitlistFilter;
+      const data = await api.getStorageWaitlist(params);
+      setWaitlist(data.entries);
+      setWaitlistCounts(data.counts);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWaitlistLoading(false);
+    }
+  }, [waitlistFilter]);
+
+  useEffect(() => { if (activeTab === 'waitlist') fetchWaitlist(); }, [activeTab, fetchWaitlist]);
+
   const fetchSpaces = useCallback(async () => {
     setLoading(true);
     try {
@@ -100,25 +126,56 @@ export default function Storage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '8px' }}>
         <h1 style={{ margin: 0 }}>Storage</h1>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {canSeeFinancials && (
+          {activeTab === 'spaces' && canSeeFinancials && (
             <button onClick={() => { setShowReport(!showReport); if (!showReport) fetchReport(); }} style={btnSecondary}>
               {showReport ? 'Hide Report' : 'Billing Report'}
             </button>
           )}
-          {isAdmin && (
+          {activeTab === 'spaces' && isAdmin && (
             <button onClick={() => setShowAddSpace(true)} style={btnSecondary}>+ Add Space</button>
           )}
-          {isAdmin && (
+          {activeTab === 'spaces' && isAdmin && (
             <button onClick={handleOpenBilling} style={btnPrimary}>
               Run Monthly Billing
+            </button>
+          )}
+          {activeTab === 'waitlist' && (isAdmin || canEditRecords) && (
+            <button onClick={() => setShowAddWaitlist(true)} style={btnPrimary}>
+              + Add to Waitlist
             </button>
           )}
         </div>
       </div>
 
+      {/* Tab Bar */}
+      <div style={{ display: 'flex', gap: '0', marginBottom: '20px', borderBottom: '2px solid #e5e7eb' }}>
+        <button onClick={() => setActiveTab('spaces')} style={{
+          padding: '10px 24px', fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer',
+          border: 'none', borderBottom: activeTab === 'spaces' ? '2px solid #1e3a5f' : '2px solid transparent',
+          color: activeTab === 'spaces' ? '#1e3a5f' : '#6b7280',
+          backgroundColor: 'transparent', marginBottom: '-2px',
+        }}>Spaces</button>
+        <button onClick={() => setActiveTab('waitlist')} style={{
+          padding: '10px 24px', fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer',
+          border: 'none', borderBottom: activeTab === 'waitlist' ? '2px solid #1e3a5f' : '2px solid transparent',
+          color: activeTab === 'waitlist' ? '#1e3a5f' : '#6b7280',
+          backgroundColor: 'transparent', marginBottom: '-2px',
+          display: 'flex', alignItems: 'center', gap: '6px',
+        }}>
+          Waitlist
+          {(waitlistCounts.indoor + waitlistCounts.outdoor) > 0 && (
+            <span style={{
+              backgroundColor: '#f59e0b', color: '#fff', borderRadius: '10px',
+              padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700,
+            }}>{waitlistCounts.indoor + waitlistCounts.outdoor}</span>
+          )}
+        </button>
+      </div>
+
       {error && <div style={errorBanner}>{error} <button onClick={() => setError('')} style={closeBtnStyle}>x</button></div>}
       {actionMsg && <div style={successBanner}>{actionMsg} <button onClick={() => setActionMsg('')} style={closeBtnStyle}>x</button></div>}
 
+      {activeTab === 'spaces' && <>
       {/* Summary Bar */}
       {summary && (
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
@@ -232,6 +289,179 @@ export default function Storage() {
             </>
           )}
         </div>
+      )}
+      </>}
+
+      {/* ===== WAITLIST TAB ===== */}
+      {activeTab === 'waitlist' && (
+        <div>
+          {/* Waitlist Summary */}
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            <div onClick={() => setWaitlistFilter('all')} style={{
+              flex: '1', minWidth: '120px', padding: '14px 18px', borderRadius: '8px',
+              backgroundColor: waitlistFilter === 'all' ? '#1e3a5f' : '#fff',
+              color: waitlistFilter === 'all' ? '#fff' : '#1e3a5f',
+              border: '1px solid #e5e7eb', cursor: 'pointer', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{waitlistCounts.indoor + waitlistCounts.outdoor}</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Waiting</div>
+            </div>
+            <div onClick={() => setWaitlistFilter('outdoor')} style={{
+              flex: '1', minWidth: '120px', padding: '14px 18px', borderRadius: '8px',
+              backgroundColor: waitlistFilter === 'outdoor' ? '#f59e0b' : '#fff',
+              color: waitlistFilter === 'outdoor' ? '#fff' : '#92400e',
+              border: '1px solid #e5e7eb', cursor: 'pointer', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{waitlistCounts.outdoor}</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Outdoor</div>
+            </div>
+            <div onClick={() => setWaitlistFilter('indoor')} style={{
+              flex: '1', minWidth: '120px', padding: '14px 18px', borderRadius: '8px',
+              backgroundColor: waitlistFilter === 'indoor' ? '#3b82f6' : '#fff',
+              color: waitlistFilter === 'indoor' ? '#fff' : '#1e40af',
+              border: '1px solid #e5e7eb', cursor: 'pointer', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{waitlistCounts.indoor}</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Indoor</div>
+            </div>
+          </div>
+
+          {/* Waitlist Table */}
+          <div style={sectionStyle}>
+            <h2 style={sectionTitle}>
+              {waitlistFilter === 'all' ? 'All Waitlist' : waitlistFilter === 'indoor' ? 'Indoor Waitlist' : 'Outdoor Waitlist'}
+            </h2>
+            {waitlistLoading ? <div style={{ textAlign: 'center', padding: '20px', color: '#9ca3af' }}>Loading...</div> : (
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>#</th>
+                    <th style={thStyle}>Name</th>
+                    <th style={thStyle}>Contact</th>
+                    <th style={thStyle}>Type</th>
+                    <th style={thStyle}>RV</th>
+                    <th style={thStyle}>Length</th>
+                    <th style={thStyle}>Date Added</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waitlist.map((entry, idx) => {
+                    const name = entry.cust_first ? `${entry.cust_first} ${entry.cust_last}` : entry.contact_name || '—';
+                    const phone = entry.cust_phone || entry.contact_phone || '';
+                    const emailAddr = entry.cust_email || entry.contact_email || '';
+                    const rv = [entry.rv_year, entry.rv_make, entry.rv_model].filter(Boolean).join(' ') || '—';
+                    return (
+                      <tr key={entry.id} style={{ cursor: 'pointer' }} onClick={() => setShowWaitlistDetail(entry)}>
+                        <td style={tdStyle}>{entry.position || idx + 1}</td>
+                        <td style={{ ...tdStyle, fontWeight: 600 }}>{name}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontSize: '0.8rem' }}>{formatPhone(phone)}</div>
+                          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{emailAddr}</div>
+                        </td>
+                        <td style={tdStyle}>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
+                            backgroundColor: entry.space_type === 'indoor' ? '#dbeafe' : '#fef3c7',
+                            color: entry.space_type === 'indoor' ? '#1e40af' : '#92400e',
+                          }}>{entry.space_type}</span>
+                        </td>
+                        <td style={tdStyle}>{rv}</td>
+                        <td style={tdStyle}>{entry.rv_length_feet ? `${entry.rv_length_feet} ft` : '—'}</td>
+                        <td style={tdStyle}>{new Date(entry.created_at).toLocaleDateString()}</td>
+                        <td style={tdStyle}>
+                          <span style={{
+                            padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
+                            backgroundColor: entry.status === 'waiting' ? '#f0fdf4' : entry.status === 'notified' ? '#fefce8' : '#f3f4f6',
+                            color: entry.status === 'waiting' ? '#065f46' : entry.status === 'notified' ? '#854d0e' : '#6b7280',
+                          }}>{entry.status}</span>
+                        </td>
+                        <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {entry.status === 'waiting' && (
+                              <button onClick={async () => {
+                                try {
+                                  const res = await api.notifyWaitlistEntry(entry.id);
+                                  const msgs = [];
+                                  if (res.results?.email === 'sent') msgs.push('Email sent');
+                                  if (res.results?.sms === 'sent') msgs.push('SMS sent');
+                                  setActionMsg(msgs.length ? msgs.join(' + ') : 'Notified (no contact method available)');
+                                  fetchWaitlist();
+                                } catch (err) { setError(err.message); }
+                              }} style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
+                                Notify
+                              </button>
+                            )}
+                            <button onClick={async () => {
+                              if (window.confirm('Remove from waitlist?')) {
+                                try {
+                                  await api.removeFromWaitlist(entry.id);
+                                  setActionMsg('Removed from waitlist');
+                                  fetchWaitlist();
+                                } catch (err) { setError(err.message); }
+                              }
+                            }} style={btnTinyGray}>Remove</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {waitlist.length === 0 && (
+                    <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af', padding: '30px' }}>
+                      No one on the waitlist{waitlistFilter !== 'all' ? ` for ${waitlistFilter} storage` : ''}
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Waitlist Detail Modal */}
+      {showWaitlistDetail && (
+        <div style={overlayStyle} onClick={() => setShowWaitlistDetail(null)}>
+          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, color: '#1e3a5f', fontSize: '1.1rem' }}>Waitlist Entry</h2>
+              <button onClick={() => setShowWaitlistDetail(null)} style={closeBtnLargeStyle}>×</button>
+            </div>
+            {(() => {
+              const e = showWaitlistDetail;
+              const name = e.cust_first ? `${e.cust_first} ${e.cust_last}` : e.contact_name || '—';
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <InfoField label="Name" value={name} />
+                  <InfoField label="Type" value={e.space_type} />
+                  <InfoField label="Phone" value={formatPhone(e.cust_phone || e.contact_phone) || '—'} />
+                  <InfoField label="Email" value={e.cust_email || e.contact_email || '—'} />
+                  <InfoField label="RV Year" value={e.rv_year || '—'} />
+                  <InfoField label="RV Make" value={e.rv_make || '—'} />
+                  <InfoField label="RV Model" value={e.rv_model || '—'} />
+                  <InfoField label="RV Length" value={e.rv_length_feet ? `${e.rv_length_feet} ft` : '—'} />
+                  <InfoField label="Preferred Start" value={e.preferred_start || '—'} />
+                  <InfoField label="Budget" value={e.budget_monthly ? `$${parseFloat(e.budget_monthly).toFixed(2)}/mo` : '—'} />
+                  <InfoField label="Position" value={`#${e.position}`} />
+                  <InfoField label="Status" value={e.status} />
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <InfoField label="Notes" value={e.notes || '—'} />
+                  </div>
+                  <InfoField label="Added" value={new Date(e.created_at).toLocaleDateString()} />
+                  {e.notified_at && <InfoField label="Notified" value={new Date(e.notified_at).toLocaleDateString()} />}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Add to Waitlist Modal */}
+      {showAddWaitlist && (
+        <AddWaitlistModal
+          onClose={() => setShowAddWaitlist(false)}
+          onAdded={() => { setShowAddWaitlist(false); setActionMsg('Added to waitlist'); fetchWaitlist(); }}
+        />
       )}
 
       {/* Assign Modal */}
@@ -836,6 +1066,195 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
           </button>
           <button onClick={onClose} disabled={running} style={btnSecondary}>Cancel</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AddWaitlistModal({ onClose, onAdded }) {
+  const [form, setForm] = useState({
+    contact_name: '', contact_phone: '', contact_email: '',
+    space_type: 'indoor', rv_year: '', rv_make: '', rv_model: '',
+    rv_length_feet: '', preferred_start: '', budget_monthly: '', notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  // Customer search
+  const [custSearch, setCustSearch] = useState('');
+  const [custResults, setCustResults] = useState([]);
+  const [selectedCust, setSelectedCust] = useState(null);
+  const searchTimeout = useRef(null);
+
+  const searchCustomers = (q) => {
+    setCustSearch(q);
+    setSelectedCust(null);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (q.length < 2) { setCustResults([]); return; }
+    searchTimeout.current = setTimeout(async () => {
+      try {
+        const data = await api.getCustomers({ search: q });
+        setCustResults((data.customers || data).slice(0, 8));
+      } catch (_) {}
+    }, 300);
+  };
+
+  const selectCustomer = (c) => {
+    setSelectedCust(c);
+    setCustSearch(`${c.first_name} ${c.last_name}`);
+    setCustResults([]);
+    setForm(f => ({
+      ...f,
+      contact_name: `${c.first_name} ${c.last_name}`,
+      contact_phone: c.phone || f.contact_phone,
+      contact_email: c.email || f.contact_email,
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.contact_name && !selectedCust) { setErr('Name is required'); return; }
+    if (!form.space_type) { setErr('Storage type is required'); return; }
+    setSaving(true);
+    try {
+      await api.addToWaitlist({
+        ...form,
+        customer_id: selectedCust?.id || null,
+        rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
+        budget_monthly: form.budget_monthly ? parseFloat(form.budget_monthly) : null,
+      });
+      onAdded();
+    } catch (e) {
+      setErr(e.message);
+      setSaving(false);
+    }
+  };
+
+  const up = (field, val) => setForm(f => ({ ...f, [field]: val }));
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f', fontSize: '1.1rem' }}>Add to Storage Waitlist</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>×</button>
+        </div>
+        {err && <div style={errorBannerSmall}>{err}</div>}
+        <form onSubmit={handleSubmit}>
+          {/* Customer Search */}
+          <div style={{ marginBottom: '14px', position: 'relative' }}>
+            <label style={labelStyle}>Customer / Name *</label>
+            <input value={custSearch} onChange={(e) => searchCustomers(e.target.value)}
+              placeholder="Search existing customers or type a name..."
+              style={inputStyleFull} />
+            {custResults.length > 0 && (
+              <div style={dropdownStyle}>
+                {custResults.map(c => (
+                  <div key={c.id} onClick={() => selectCustomer(c)} style={dropdownItem}
+                    onMouseOver={(e) => e.target.style.backgroundColor = '#f3f4f6'}
+                    onMouseOut={(e) => e.target.style.backgroundColor = '#fff'}>
+                    {c.first_name} {c.last_name} {c.phone ? `— ${c.phone}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!selectedCust && custSearch.length >= 2 && custResults.length === 0 && (
+              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '4px' }}>
+                No customer found — entry will be saved with the name below
+              </div>
+            )}
+          </div>
+
+          {/* Contact Name (if no customer selected) */}
+          {!selectedCust && (
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Contact Name *</label>
+              <input value={form.contact_name} onChange={(e) => up('contact_name', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+            <div>
+              <label style={labelStyle}>Phone</label>
+              <input value={form.contact_phone} onChange={(e) => up('contact_phone', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input value={form.contact_email} onChange={(e) => up('contact_email', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Storage Type */}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Storage Type *</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {['indoor', 'outdoor'].map(t => (
+                <button key={t} type="button" onClick={() => up('space_type', t)} style={{
+                  flex: 1, padding: '8px', borderRadius: '6px', fontWeight: 600, fontSize: '0.85rem',
+                  cursor: 'pointer', textTransform: 'capitalize',
+                  border: form.space_type === t ? '2px solid' : '1px solid #d1d5db',
+                  backgroundColor: form.space_type === t ? (t === 'indoor' ? '#dbeafe' : '#fef3c7') : '#fff',
+                  color: form.space_type === t ? (t === 'indoor' ? '#1e40af' : '#92400e') : '#6b7280',
+                  borderColor: form.space_type === t ? (t === 'indoor' ? '#3b82f6' : '#f59e0b') : '#d1d5db',
+                }}>{t}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* RV Info */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
+            <div>
+              <label style={labelStyle}>RV Year</label>
+              <input value={form.rv_year} onChange={(e) => up('rv_year', e.target.value)}
+                placeholder="2024" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>RV Make</label>
+              <input value={form.rv_make} onChange={(e) => up('rv_make', e.target.value)}
+                placeholder="Airstream" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>RV Model</label>
+              <input value={form.rv_model} onChange={(e) => up('rv_model', e.target.value)}
+                placeholder="Basecamp" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Linear Feet</label>
+              <input type="number" value={form.rv_length_feet} onChange={(e) => up('rv_length_feet', e.target.value)}
+                placeholder="22" style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Preferences */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+            <div>
+              <label style={labelStyle}>Requested Start Date</label>
+              <input type="date" value={form.preferred_start} onChange={(e) => up('preferred_start', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Budget ($/month)</label>
+              <input type="number" value={form.budget_monthly} onChange={(e) => up('budget_monthly', e.target.value)}
+                placeholder="250" style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginBottom: '18px' }}>
+            <label style={labelStyle}>Notes</label>
+            <textarea value={form.notes} onChange={(e) => up('notes', e.target.value)}
+              rows={2} style={{ ...inputStyleFull, resize: 'vertical' }} placeholder="e.g. check size, needs June 2026..." />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+            <button type="submit" disabled={saving} style={btnPrimary}>
+              {saving ? 'Adding...' : 'Add to Waitlist'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

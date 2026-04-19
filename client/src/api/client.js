@@ -233,6 +233,16 @@ export const api = {
   },
   getStorageByCustomer: (customerId) => request(`/storage/customer/${customerId}`),
 
+  // Storage Waitlist
+  getStorageWaitlist: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/storage/waitlist${qs ? `?${qs}` : ''}`);
+  },
+  addToWaitlist: (data) => request('/storage/waitlist', { method: 'POST', body: JSON.stringify(data) }),
+  updateWaitlistEntry: (id, data) => request(`/storage/waitlist/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  removeFromWaitlist: (id) => request(`/storage/waitlist/${id}`, { method: 'DELETE' }),
+  notifyWaitlistEntry: (id) => request(`/storage/waitlist/${id}/notify`, { method: 'POST' }),
+
   // CRM — Customer detail sub-resources
   getCustomerRecords: (customerId) => request(`/customers/${customerId}/records`),
   getCustomerStorage: (customerId) => request(`/customers/${customerId}/storage`),
