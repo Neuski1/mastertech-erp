@@ -160,6 +160,7 @@ export default function PayOnline() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [email, setEmail] = useState('');
+  const [editingEmail, setEditingEmail] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState('');
@@ -326,18 +327,29 @@ export default function PayOnline() {
 
       <form onSubmit={handlePay}>
         <label style={formLabel}>Email for receipt</label>
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={input}
-          placeholder="you@example.com"
-          name="receipt-email"
-          autoComplete="off"
-          data-lpignore="true"
-          data-form-type="other"
-        />
+        {!editingEmail && email ? (
+          <div style={{ ...input, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb' }}>
+            <span style={{ color: '#111827' }}>{email}</span>
+            <button type="button" onClick={() => setEditingEmail(true)} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500, padding: 0 }}>change</button>
+          </div>
+        ) : (
+          <input
+            type="text"
+            inputMode="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => { if (email) setEditingEmail(false); }}
+            style={input}
+            placeholder="you@example.com"
+            name={'rcpt-' + Date.now()}
+            autoComplete="nope"
+            data-lpignore="true"
+            data-form-type="other"
+            data-keeper-ignore="true"
+            autoFocus={editingEmail}
+          />
+        )}
 
         <label style={formLabel}>Card information</label>
         <div id="card-element" style={{
