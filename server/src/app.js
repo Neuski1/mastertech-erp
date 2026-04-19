@@ -265,8 +265,7 @@ const { startAppointmentReminderCron } = require('./jobs/appointmentReminderCron
 startAppointmentReminderCron();
 
 // Auto-migrate: create storage_waitlist if missing
-const pool = require('./db/pool');
-pool.query(`
+require('./db/pool').query(`
   CREATE TABLE IF NOT EXISTS storage_waitlist (
     id              SERIAL PRIMARY KEY,
     customer_id     INT REFERENCES customers(id),
