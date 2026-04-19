@@ -243,6 +243,14 @@ export const api = {
   removeFromWaitlist: (id) => request(`/storage/waitlist/${id}`, { method: 'DELETE' }),
   notifyWaitlistEntry: (id) => request(`/storage/waitlist/${id}/notify`, { method: 'POST' }),
 
+  // Storage Contract
+  generateStorageContract: (data) => fetch(`${BASE}/storage-contract/generate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+    body: JSON.stringify(data),
+  }).then(r => { if (!r.ok) throw new Error('Failed to generate contract'); return r.blob(); }),
+  emailStorageContract: (billing_id) => request('/storage-contract/email', { method: 'POST', body: JSON.stringify({ billing_id }) }),
+  sendStorageGuidelines: (data) => request('/storage-contract/send-guidelines', { method: 'POST', body: JSON.stringify(data) }),
+
   // CRM — Customer detail sub-resources
   getCustomerRecords: (customerId) => request(`/customers/${customerId}/records`),
   getCustomerStorage: (customerId) => request(`/customers/${customerId}/storage`),

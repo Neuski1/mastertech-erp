@@ -73,6 +73,7 @@ app.use('/api/square/webhook', require('./routes/square-webhook')); // No auth â
 app.use('/api/square', requireAuth, require('./routes/square'));
 app.use('/api/quickbooks', requireAuth, require('./routes/quickbooks'));
 app.use('/api/storage', requireAuth, require('./routes/storage'));
+app.use('/api/storage-contract', require('./routes/storage-contract')); // Public accept/view + auth'd generate/email
 app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
@@ -248,6 +249,12 @@ const pool = require('./db/pool');
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS online_payments_record_idx ON online_payments (record_id)');
     await pool.query('CREATE INDEX IF NOT EXISTS online_payments_status_idx ON online_payments (status)');
+    // Migration 042: storage contract fields on storage_billing
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_token UUID');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_sent_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_accepted_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_accepted_ip VARCHAR(50)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_storage_billing_contract_token ON storage_billing (contract_token) WHERE contract_token IS NOT NULL');
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

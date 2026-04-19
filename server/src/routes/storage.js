@@ -17,6 +17,7 @@ router.get('/', async (req, res) => {
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
               sb.due_day, sb.square_customer_id, sb.square_sub_id,
               sb.notes AS billing_notes,
+              sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at,
               c.last_name, c.first_name, c.company_name, c.account_number,
               c.phone_primary,
               u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,

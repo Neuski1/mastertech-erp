@@ -573,6 +573,8 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [sendContract, setSendContract] = useState(true);
+  const [sendGuidelines, setSendGuidelines] = useState(false);
   const searchTimeout = useRef(null);
 
   const handleCustomerSearch = (q) => {
@@ -604,7 +606,7 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
     setSaving(true);
     setError('');
     try {
-      await api.assignStorage({
+      const result = await api.assignStorage({
         space_id: space.id,
         customer_id: selectedCustomer.id,
         unit_id: form.unit_id ? parseInt(form.unit_id) : null,
@@ -615,6 +617,12 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
         billing_start_date: form.billing_start_date || null,
         notes: form.notes || null,
       });
+      // Fire contract email and/or guidelines in background
+      const billingId = result?.id;
+      if (billingId) {
+        if (sendContract) api.emailStorageContract(billingId).catch(err => console.error('Contract email error:', err));
+        if (sendGuidelines) api.sendStorageGuidelines({ billing_id: billingId }).catch(err => console.error('Guidelines email error:', err));
+      }
       onAssigned();
     } catch (err) {
       setError(err.message);
@@ -750,6 +758,19 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
             </div>
           </div>
 
+          {/* Contract & Guidelines checkboxes */}
+          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '8px', textTransform: 'uppercase' }}>After Assignment</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px', fontSize: '0.85rem', color: '#374151' }}>
+              <input type="checkbox" checked={sendContract} onChange={(e) => setSendContract(e.target.checked)} />
+              Email Storage Contract (with digital accept link)
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>
+              <input type="checkbox" checked={sendGuidelines} onChange={(e) => setSendGuidelines(e.target.checked)} />
+              Email Storage Guidelines
+            </label>
+          </div>
+
           <div style={{ display: 'flex', gap: '8px' }}>
             <button type="submit" disabled={saving || !selectedCustomer} style={btnPrimary}>
               {saving ? 'Assigning...' : 'Assign Space'}
@@ -782,6 +803,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
   const [customerUnits, setCustomerUnits] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [contractMsg, setContractMsg] = useState('');
 
   // Load customer's units for the dropdown
   useEffect(() => {
@@ -961,6 +983,50 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
               </>
             )}
             {space.billing_notes && <InfoField label="Notes" value={space.billing_notes} />}
+          </div>
+        )}
+
+        {/* Contract & Guidelines */}
+        {canEdit && (
+          <div style={{ marginBottom: '16px', padding: '14px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contract & Guidelines</div>
+            {contractMsg && <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', fontWeight: 600 }}>{contractMsg}</div>}
+            {space.contract_accepted_at && (
+              <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#f0fdf4', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
+                Contract accepted on {new Date(space.contract_accepted_at).toLocaleString()}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button onClick={async () => {
+                try {
+                  setContractMsg('Generating...');
+                  const blob = await api.generateStorageContract({ billing_id: space.billing_id });
+                  const url = URL.createObjectURL(blob);
+                  window.open(url, '_blank');
+                  setContractMsg('Contract PDF opened');
+                } catch (err) { setContractMsg('Error: ' + err.message); }
+              }} style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', padding: '6px 14px' }}>
+                Download Contract
+              </button>
+              <button onClick={async () => {
+                try {
+                  setContractMsg('Emailing contract...');
+                  const res = await api.emailStorageContract(space.billing_id);
+                  setContractMsg(res.message || 'Contract emailed with accept link');
+                } catch (err) { setContractMsg('Error: ' + err.message); }
+              }} style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', padding: '6px 14px' }}>
+                Email Contract
+              </button>
+              <button onClick={async () => {
+                try {
+                  setContractMsg('Sending guidelines...');
+                  const res = await api.sendStorageGuidelines({ billing_id: space.billing_id });
+                  setContractMsg(res.message || 'Guidelines emailed');
+                } catch (err) { setContractMsg('Error: ' + err.message); }
+              }} style={{ ...btnTinyGray, backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', padding: '6px 14px' }}>
+                Send Guidelines
+              </button>
+            </div>
           </div>
         )}
 
