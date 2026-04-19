@@ -824,11 +824,7 @@ ${paymentDetailHtml}
               {sendingReminder ? 'Sending...' : 'Send Reminder'}
             </button>
           )}
-          {(isAdmin || canEditRecords) && !editing && (
-            <button onClick={() => setShowPayLinkModal(true)} style={{ padding: '8px 16px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
-              Send Payment Link
-            </button>
-          )}
+          {/* Payment link button removed — links are sent via email checkbox */}
         </div>
       </div>
       {showPayLinkModal && (
