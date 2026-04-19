@@ -341,6 +341,7 @@ export default function Storage() {
                     <th style={thStyle}>Type</th>
                     <th style={thStyle}>RV</th>
                     <th style={thStyle}>Length</th>
+                    <th style={thStyle}>Notes</th>
                     <th style={thStyle}>Date Added</th>
                     <th style={thStyle}>Status</th>
                     <th style={thStyle}>Actions</th>
@@ -369,6 +370,9 @@ export default function Storage() {
                         </td>
                         <td style={tdStyle}>{rv}</td>
                         <td style={tdStyle}>{entry.rv_length_feet ? `${entry.rv_length_feet} ft` : '—'}</td>
+                        <td style={{ ...tdStyle, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem', color: '#6b7280' }}>
+                          {entry.notes || '—'}
+                        </td>
                         <td style={tdStyle}>{new Date(entry.created_at).toLocaleDateString()}</td>
                         <td style={tdStyle}>
                           <span style={{
@@ -408,7 +412,7 @@ export default function Storage() {
                     );
                   })}
                   {waitlist.length === 0 && (
-                    <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af', padding: '30px' }}>
+                    <tr><td colSpan={10} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af', padding: '30px' }}>
                       No one on the waitlist{waitlistFilter !== 'all' ? ` for ${waitlistFilter} storage` : ''}
                     </td></tr>
                   )}
@@ -419,41 +423,13 @@ export default function Storage() {
         </div>
       )}
 
-      {/* Waitlist Detail Modal */}
+      {/* Waitlist Edit Modal */}
       {showWaitlistDetail && (
-        <div style={overlayStyle} onClick={() => setShowWaitlistDetail(null)}>
-          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#1e3a5f', fontSize: '1.1rem' }}>Waitlist Entry</h2>
-              <button onClick={() => setShowWaitlistDetail(null)} style={closeBtnLargeStyle}>×</button>
-            </div>
-            {(() => {
-              const e = showWaitlistDetail;
-              const name = e.cust_first ? `${e.cust_first} ${e.cust_last}` : e.contact_name || '—';
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <InfoField label="Name" value={name} />
-                  <InfoField label="Type" value={e.space_type} />
-                  <InfoField label="Phone" value={formatPhone(e.cust_phone || e.contact_phone) || '—'} />
-                  <InfoField label="Email" value={e.cust_email || e.contact_email || '—'} />
-                  <InfoField label="RV Year" value={e.rv_year || '—'} />
-                  <InfoField label="RV Make" value={e.rv_make || '—'} />
-                  <InfoField label="RV Model" value={e.rv_model || '—'} />
-                  <InfoField label="RV Length" value={e.rv_length_feet ? `${e.rv_length_feet} ft` : '—'} />
-                  <InfoField label="Preferred Start" value={e.preferred_start || '—'} />
-                  <InfoField label="Budget" value={e.budget_monthly ? `$${parseFloat(e.budget_monthly).toFixed(2)}/mo` : '—'} />
-                  <InfoField label="Position" value={`#${e.position}`} />
-                  <InfoField label="Status" value={e.status} />
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <InfoField label="Notes" value={e.notes || '—'} />
-                  </div>
-                  <InfoField label="Added" value={new Date(e.created_at).toLocaleDateString()} />
-                  {e.notified_at && <InfoField label="Notified" value={new Date(e.notified_at).toLocaleDateString()} />}
-                </div>
-              );
-            })()}
-          </div>
-        </div>
+        <EditWaitlistModal
+          entry={showWaitlistDetail}
+          onClose={() => setShowWaitlistDetail(null)}
+          onSaved={() => { setShowWaitlistDetail(null); setActionMsg('Waitlist entry updated'); fetchWaitlist(); }}
+        />
       )}
 
       {/* Add to Waitlist Modal */}
@@ -1071,6 +1047,163 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
   );
 }
 
+function EditWaitlistModal({ entry, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    contact_name: entry.contact_name || (entry.cust_first ? `${entry.cust_first} ${entry.cust_last}` : ''),
+    contact_phone: entry.contact_phone || entry.cust_phone || '',
+    contact_email: entry.contact_email || entry.cust_email || '',
+    space_type: entry.space_type || 'indoor',
+    rv_year: entry.rv_year || '',
+    rv_make: entry.rv_make || '',
+    rv_model: entry.rv_model || '',
+    rv_length_feet: entry.rv_length_feet || '',
+    preferred_start: entry.preferred_start ? entry.preferred_start.slice(0, 10) : '',
+    budget_monthly: entry.budget_monthly || '',
+    notes: entry.notes || '',
+    status: entry.status || 'waiting',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const up = (field, val) => setForm(f => ({ ...f, [field]: val }));
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!form.contact_name) { setErr('Name is required'); return; }
+    setSaving(true);
+    try {
+      await api.updateWaitlistEntry(entry.id, {
+        ...form,
+        rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
+        budget_monthly: form.budget_monthly ? parseFloat(form.budget_monthly) : null,
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, maxWidth: '560px' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f', fontSize: '1.1rem' }}>Edit Waitlist Entry</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>×</button>
+        </div>
+        {err && <div style={errorBannerSmall}>{err}</div>}
+        <form onSubmit={handleSave}>
+          {/* Name */}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Contact Name *</label>
+            <input value={form.contact_name} onChange={(e) => up('contact_name', e.target.value)}
+              style={inputStyleFull} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+            <div>
+              <label style={labelStyle}>Phone</label>
+              <input value={form.contact_phone} onChange={(e) => up('contact_phone', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input value={form.contact_email} onChange={(e) => up('contact_email', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Storage Type */}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Storage Type *</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {['indoor', 'outdoor'].map(t => (
+                <button key={t} type="button" onClick={() => up('space_type', t)} style={{
+                  flex: 1, padding: '8px', borderRadius: '6px', fontWeight: 600, fontSize: '0.85rem',
+                  cursor: 'pointer', textTransform: 'capitalize',
+                  border: form.space_type === t ? '2px solid' : '1px solid #d1d5db',
+                  backgroundColor: form.space_type === t ? (t === 'indoor' ? '#dbeafe' : '#fef3c7') : '#fff',
+                  color: form.space_type === t ? (t === 'indoor' ? '#1e40af' : '#92400e') : '#6b7280',
+                  borderColor: form.space_type === t ? (t === 'indoor' ? '#3b82f6' : '#f59e0b') : '#d1d5db',
+                }}>{t}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* RV Info */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
+            <div>
+              <label style={labelStyle}>RV Year</label>
+              <input value={form.rv_year} onChange={(e) => up('rv_year', e.target.value)}
+                placeholder="2024" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>RV Make</label>
+              <input value={form.rv_make} onChange={(e) => up('rv_make', e.target.value)}
+                placeholder="Airstream" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>RV Model</label>
+              <input value={form.rv_model} onChange={(e) => up('rv_model', e.target.value)}
+                placeholder="Basecamp" style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Linear Feet</label>
+              <input type="number" value={form.rv_length_feet} onChange={(e) => up('rv_length_feet', e.target.value)}
+                placeholder="22" style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Preferences */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+            <div>
+              <label style={labelStyle}>Requested Start Date</label>
+              <input type="date" value={form.preferred_start} onChange={(e) => up('preferred_start', e.target.value)}
+                style={inputStyleFull} />
+            </div>
+            <div>
+              <label style={labelStyle}>Budget ($/month)</label>
+              <input type="number" value={form.budget_monthly} onChange={(e) => up('budget_monthly', e.target.value)}
+                placeholder="250" style={inputStyleFull} />
+            </div>
+          </div>
+
+          {/* Status */}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Status</label>
+            <select value={form.status} onChange={(e) => up('status', e.target.value)} style={inputStyleFull}>
+              <option value="waiting">Waiting</option>
+              <option value="notified">Notified</option>
+              <option value="assigned">Assigned</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginBottom: '18px' }}>
+            <label style={labelStyle}>Notes</label>
+            <textarea value={form.notes} onChange={(e) => up('notes', e.target.value)}
+              rows={3} style={{ ...inputStyleFull, resize: 'vertical' }} placeholder="e.g. check size, needs June 2026..." />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
+              Added {new Date(entry.created_at).toLocaleDateString()}
+              {entry.notified_at && ` · Notified ${new Date(entry.notified_at).toLocaleDateString()}`}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+              <button type="submit" disabled={saving} style={btnPrimary}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function AddWaitlistModal({ onClose, onAdded }) {
   const [form, setForm] = useState({
     contact_name: '', contact_phone: '', contact_email: '',
@@ -1105,8 +1238,8 @@ function AddWaitlistModal({ onClose, onAdded }) {
     setForm(f => ({
       ...f,
       contact_name: `${c.first_name} ${c.last_name}`,
-      contact_phone: c.phone || f.contact_phone,
-      contact_email: c.email || f.contact_email,
+      contact_phone: c.phone_primary || f.contact_phone,
+      contact_email: c.email_primary || f.contact_email,
     }));
   };
 
@@ -1152,7 +1285,7 @@ function AddWaitlistModal({ onClose, onAdded }) {
                   <div key={c.id} onClick={() => selectCustomer(c)} style={dropdownItem}
                     onMouseOver={(e) => e.target.style.backgroundColor = '#f3f4f6'}
                     onMouseOut={(e) => e.target.style.backgroundColor = '#fff'}>
-                    {c.first_name} {c.last_name} {c.phone ? `— ${c.phone}` : ''}
+                    {c.first_name} {c.last_name} {c.phone_primary ? `— ${c.phone_primary}` : ''}
                   </div>
                 ))}
               </div>
