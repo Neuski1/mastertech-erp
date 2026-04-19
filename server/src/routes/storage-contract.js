@@ -246,24 +246,52 @@ router.get('/view/:token', async (req, res) => {
     const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
     const linearFeet = r.unit_linear_feet || r.space_linear_feet || '';
     const monthlyRate = parseFloat(r.monthly_rate) || 0;
-    const rvInfo = [r.unit_year, r.unit_make, r.unit_model].filter(Boolean).join(' ') || 'N/A';
     const startDate = r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : 'TBD';
 
     const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
     const acceptUrl = `${baseUrl}/api/storage-contract/accept/${req.params.token}`;
 
-    // Show contract summary + accept button
+    // Determine which RV fields are missing (customer can fill these in)
+    const inputStyle = 'width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;';
+    const readOnly = 'background:#f9fafb;border:1px solid #e5e7eb;padding:8px 10px;border-radius:6px;font-size:14px;color:#374151;';
+
+    function fieldRow(label, value, name, placeholder) {
+      if (value) {
+        return `<tr>
+          <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">${label}:</td>
+          <td style="padding:8px 0;"><div style="${readOnly}">${value}</div><input type="hidden" name="${name}" value="${value.replace(/"/g, '&quot;')}"/></td>
+        </tr>`;
+      }
+      return `<tr>
+        <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">${label}:</td>
+        <td style="padding:8px 0;"><input type="text" name="${name}" placeholder="${placeholder}" style="${inputStyle}"/></td>
+      </tr>`;
+    }
+
+    // Show contract summary + editable RV fields + accept button
     res.send(brandedPage('Storage Lease Agreement', `
       <h2 style="color:#1e3a5f;margin:0 0 20px;text-align:center;">RV Storage Lease Agreement</h2>
+      <form method="POST" action="${acceptUrl}">
+
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin-bottom:20px;">
         <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
-          <tr><td style="padding:6px 0;font-weight:600;width:140px;">Lessee:</td><td>${customerName}</td></tr>
-          <tr><td style="padding:6px 0;font-weight:600;">Space:</td><td>${r.label} (${r.space_type})</td></tr>
-          <tr><td style="padding:6px 0;font-weight:600;">RV:</td><td>${rvInfo}</td></tr>
-          <tr><td style="padding:6px 0;font-weight:600;">RV Length:</td><td>${linearFeet ? linearFeet + ' ft' : 'N/A'}</td></tr>
-          ${r.license_plate ? `<tr><td style="padding:6px 0;font-weight:600;">License Plate:</td><td>${r.license_plate}</td></tr>` : ''}
-          <tr><td style="padding:6px 0;font-weight:600;">Start Date:</td><td>${startDate}</td></tr>
-          <tr><td style="padding:6px 0;font-weight:600;">Monthly Rate:</td><td>$${monthlyRate.toFixed(2)}</td></tr>
+          <tr><td style="padding:8px 0;font-weight:600;width:140px;">Lessee:</td><td style="padding:8px 0;"><div style="${readOnly}">${customerName}</div></td></tr>
+          <tr><td style="padding:8px 0;font-weight:600;">Space:</td><td style="padding:8px 0;"><div style="${readOnly}">${r.label} (${r.space_type})</div></td></tr>
+          <tr><td style="padding:8px 0;font-weight:600;">Start Date:</td><td style="padding:8px 0;"><div style="${readOnly}">${startDate}</div></td></tr>
+          <tr><td style="padding:8px 0;font-weight:600;">Monthly Rate:</td><td style="padding:8px 0;"><div style="${readOnly}">$${monthlyRate.toFixed(2)}</div></td></tr>
+        </table>
+      </div>
+
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:20px;">
+        <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">RV / Unit Details</h3>
+        ${!(r.unit_year && r.unit_make && r.unit_model && (linearFeet || r.license_plate)) ? '<p style="color:#6b7280;font-size:12px;margin:0 0 12px;">Please fill in any missing details about your RV below.</p>' : ''}
+        <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
+          ${fieldRow('RV Year', r.unit_year || '', 'rv_year', 'e.g. 2022')}
+          ${fieldRow('RV Make', r.unit_make || '', 'rv_make', 'e.g. Airstream')}
+          ${fieldRow('RV Model', r.unit_model || '', 'rv_model', 'e.g. Basecamp 20X')}
+          ${fieldRow('RV Length (ft)', linearFeet ? linearFeet + '' : '', 'rv_length_feet', 'e.g. 22')}
+          ${fieldRow('License Plate #', r.license_plate || '', 'license_plate', 'e.g. ABC-1234')}
+          ${fieldRow('VIN #', r.vin || '', 'vin', 'Vehicle Identification Number')}
         </table>
       </div>
 
@@ -287,11 +315,12 @@ router.get('/view/:token', async (req, res) => {
       </div>
 
       <div style="text-align:center;margin:32px 0 16px;">
-        <a href="${acceptUrl}" style="display:inline-block;padding:18px 50px;background:#065f46;color:#fff;font-size:17px;font-weight:bold;text-decoration:none;border-radius:8px;">
+        <button type="submit" style="display:inline-block;padding:18px 50px;background:#065f46;color:#fff;font-size:17px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">
           I Accept This Agreement
-        </a>
+        </button>
       </div>
-      <p style="text-align:center;color:#9ca3af;font-size:11px;">By clicking "I Accept", you are electronically signing this lease agreement.</p>
+      <p style="text-align:center;color:#9ca3af;font-size:11px;">By clicking &ldquo;I Accept&rdquo;, you are electronically signing this lease agreement.</p>
+      </form>
     `));
   } catch (err) {
     console.error('GET /api/storage-contract/view error:', err);
@@ -300,14 +329,14 @@ router.get('/view/:token', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────
-// GET /api/storage-contract/accept/:token — Public: accept contract
+// POST /api/storage-contract/accept/:token — Public: accept contract + save RV details
 // ──────────────────────────────────────────────────────
-router.get('/accept/:token', async (req, res) => {
+router.post('/accept/:token', express.urlencoded({ extended: true }), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT sb.*, c.first_name, c.last_name, c.email_primary, c.phone_primary, c.company_name,
               s.label, s.space_type, s.linear_feet AS space_linear_feet,
-              u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
+              u.id AS unit_id, u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
               u.license_plate, u.vin, u.linear_feet AS unit_linear_feet
        FROM storage_billing sb
        JOIN customers c ON c.id = sb.customer_id
@@ -348,11 +377,56 @@ router.get('/accept/:token', async (req, res) => {
       [req.ip, r.id]
     );
 
+    // Save customer-provided RV details to the unit record
+    const form = req.body || {};
+    const rvYear = (form.rv_year || '').trim();
+    const rvMake = (form.rv_make || '').trim();
+    const rvModel = (form.rv_model || '').trim();
+    const rvLength = (form.rv_length_feet || '').trim();
+    const licensePlate = (form.license_plate || '').trim();
+    const vinNum = (form.vin || '').trim();
+
+    // Use submitted values, falling back to existing DB values
+    const finalYear = rvYear || r.unit_year || '';
+    const finalMake = rvMake || r.unit_make || '';
+    const finalModel = rvModel || r.unit_model || '';
+    const finalLength = rvLength || (r.unit_linear_feet ? String(parseFloat(r.unit_linear_feet)) : '') || '';
+    const finalPlate = licensePlate || r.license_plate || '';
+    const finalVin = vinNum || r.vin || '';
+
+    // Update unit record if it exists and customer provided new info
+    if (r.unit_id && (rvYear || rvMake || rvModel || rvLength || licensePlate || vinNum)) {
+      const sets = [];
+      const params = [];
+      if (rvYear && !r.unit_year) { params.push(rvYear); sets.push(`year = $${params.length}`); }
+      if (rvMake && !r.unit_make) { params.push(rvMake); sets.push(`make = $${params.length}`); }
+      if (rvModel && !r.unit_model) { params.push(rvModel); sets.push(`model = $${params.length}`); }
+      if (rvLength && !r.unit_linear_feet) { params.push(parseFloat(rvLength)); sets.push(`linear_feet = $${params.length}`); }
+      if (licensePlate && !r.license_plate) { params.push(licensePlate); sets.push(`license_plate = $${params.length}`); }
+      if (vinNum && !r.vin) { params.push(vinNum); sets.push(`vin = $${params.length}`); }
+      if (sets.length > 0) {
+        params.push(r.unit_id);
+        await pool.query(`UPDATE units SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+        console.log(`Updated unit ${r.unit_id} with customer-provided RV details`);
+      }
+    } else if (!r.unit_id && (rvYear || rvMake || rvModel || licensePlate || vinNum)) {
+      // No unit exists — create one and link to billing
+      try {
+        const { rows: newUnit } = await pool.query(
+          `INSERT INTO units (customer_id, year, make, model, linear_feet, license_plate, vin)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [r.customer_id, rvYear || null, rvMake || null, rvModel || null,
+           rvLength ? parseFloat(rvLength) : null, licensePlate || null, vinNum || null]
+        );
+        await pool.query('UPDATE storage_billing SET unit_id = $1 WHERE id = $2', [newUnit[0].id, r.id]);
+        console.log(`Created unit ${newUnit[0].id} from customer contract submission`);
+      } catch (e) { console.error('Unit creation error (non-fatal):', e.message); }
+    }
+
     const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 
-    // Generate accepted contract PDF and email copy to customer
-    const linearFeet = r.unit_linear_feet || r.space_linear_feet || '';
+    // Generate accepted contract PDF with final RV details and email copy to customer
     const monthlyRate = parseFloat(r.monthly_rate) || 0;
     const { calcProrated } = require('../services/storageContract');
     const startDateRaw = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
@@ -361,12 +435,12 @@ router.get('/accept/:token', async (req, res) => {
       lessee_name: customerName,
       lessee_phone: r.phone_primary || '',
       lessee_email: r.email_primary || '',
-      rv_year: r.unit_year || '',
-      rv_make: r.unit_make || '',
-      rv_model: r.unit_model || '',
-      rv_length_feet: linearFeet ? `${linearFeet} ft` : '',
-      license_plate: r.license_plate || '',
-      vin: r.vin || '',
+      rv_year: finalYear,
+      rv_make: finalMake,
+      rv_model: finalModel,
+      rv_length_feet: finalLength ? `${finalLength} ft` : '',
+      license_plate: finalPlate,
+      vin: finalVin,
       space_type: r.space_type,
       start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
       start_date_raw: startDateRaw,
@@ -406,11 +480,14 @@ router.get('/accept/:token', async (req, res) => {
       }).catch(e => console.error('Contract copy email error:', e.message));
     }
 
-    // Notify staff
+    // Notify staff (include what RV details the customer provided)
+    const custProvided = [rvYear, rvMake, rvModel, rvLength ? rvLength + ' ft' : '', licensePlate, vinNum].filter(Boolean);
+    const rvNote = custProvided.length > 0 ? `<p style="color:#6b7280;font-size:13px;">Customer provided RV details: ${custProvided.join(', ')}</p>` : '';
     sendEmail({
       to: 'service@mastertechrvrepair.com',
       subject: `Storage Contract Accepted — ${customerName} (Space ${r.label})`,
       html: `<p><strong>${customerName}</strong> digitally accepted the storage lease for Space <strong>${r.label}</strong> at ${acceptedAt}.</p>
+             ${rvNote}
              <p><a href="${frontendUrl}/storage">View Storage Module</a></p>`,
     }).catch(e => console.error('Contract acceptance notification error:', e.message));
 
@@ -419,7 +496,7 @@ router.get('/accept/:token', async (req, res) => {
       await pool.query(
         `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content)
          VALUES ($1, 'email', 'storage_contract_accepted', $2)`,
-        [r.customer_id, `Customer digitally accepted storage contract for space ${r.label}. Copy emailed to ${r.email_primary || 'N/A'}.`]
+        [r.customer_id, `Customer digitally accepted storage contract for space ${r.label}. Copy emailed to ${r.email_primary || 'N/A'}.${custProvided.length ? ' RV details provided: ' + custProvided.join(', ') : ''}`]
       );
     } catch (e) { console.error('Comm log error:', e.message); }
 
@@ -437,7 +514,7 @@ router.get('/accept/:token', async (req, res) => {
       </div>`
     ));
   } catch (err) {
-    console.error('GET /api/storage-contract/accept error:', err);
+    console.error('POST /api/storage-contract/accept error:', err);
     res.status(500).send('Server error');
   }
 });
