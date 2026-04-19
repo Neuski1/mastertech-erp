@@ -290,6 +290,17 @@ export const api = {
     return request(`/campaigns/audience/count${qs ? `?${qs}` : ''}`);
   },
 
+  // Partners CRM
+  getPartners: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/partners${qs ? `?${qs}` : ''}`);
+  },
+  getPartner: (id) => request(`/partners/${id}`),
+  createPartner: (data) => request('/partners', { method: 'POST', body: JSON.stringify(data) }),
+  updatePartner: (id, data) => request(`/partners/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePartner: (id) => request(`/partners/${id}`, { method: 'DELETE' }),
+  getPartnerFunnelStats: () => request('/partners/funnel-stats'),
+
   // Vendors
   getVendors: () => request('/vendors'),
   createVendor: (name) => request('/vendors', { method: 'POST', body: JSON.stringify({ name }) }),

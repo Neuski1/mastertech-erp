@@ -84,6 +84,7 @@ app.use('/api/bookkeeper-adjustments', requireAuth, require('./routes/bookkeeper
 app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
+app.use('/api/partners', requireAuth, require('./routes/partners'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 app.use('/api/twilio', require('./routes/twilioWebhook')); // No auth — Twilio calls directly
 
@@ -255,6 +256,22 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_accepted_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_accepted_ip VARCHAR(50)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_storage_billing_contract_token ON storage_billing (contract_token) WHERE contract_token IS NOT NULL');
+    // Migration 043: partners CRM table
+    await pool.query(`CREATE TABLE IF NOT EXISTS partners (
+      id SERIAL PRIMARY KEY,
+      business_name VARCHAR(255) NOT NULL,
+      location VARCHAR(255),
+      contact_phone VARCHAR(100),
+      website VARCHAR(255),
+      contact_name VARCHAR(255),
+      email VARCHAR(255),
+      date_contacted DATE,
+      status VARCHAR(30) NOT NULL DEFAULT 'new',
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_partners_status ON partners (status)');
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
@@ -314,6 +331,35 @@ require('./db/pool').query(`
   `).then(r => { if (r.rowCount > 0) console.log('Seeded', r.rowCount, 'waitlist entries'); })
     .catch(err => console.error('waitlist seed error:', err.message));
 }).catch(err => console.error('storage_waitlist migration error:', err.message));
+
+// Seed partner data from Carol's spreadsheet (only if table is empty)
+pool.query(`
+  INSERT INTO partners (business_name, location, contact_phone, website, notes, status)
+  SELECT v.business_name, v.location, v.contact_phone, v.website, v.notes, 'new'
+  FROM (VALUES
+    ('A-Discount Storage', 'Englewood, CO 80110', '303-761-1099', 'a-discountstorage.com', 'Family-owned since 1978. RV/boat/trailer storage and dump station.'),
+    ('Ralston Valley RV & Boat Storage', 'Arvada, CO 80007', '720-362-1000', 'rentrvstorage.com', 'Family-owned / locally operated. Focused on RV/boat storage.'),
+    ('Recreational Storage Solutions', 'Erie, CO', NULL, 'rvstorage-denver.com', 'Locally owned 34-acre RV/boat storage facility. Premium amenities.'),
+    ('Aspen RV & Boat Storage', 'Aurora, CO 80011', '303-344-2776', 'aspenrvandboat.com', 'Class A RV & boat storage, centrally located in Denver metro.'),
+    ('Henderson Mini Storage', 'Henderson, CO 80640', '303-905-1714', NULL, 'Local facility offering RV storage, outside units, dump station.'),
+    ('ATS RV Park', '5650 W 60th Ave, Arvada', '303-431-4297', NULL, NULL),
+    ('Dodos RV Storage', '6325 W 56th Ave, Arvada', '303-881-1921', NULL, NULL),
+    ('Denver RV Storage', '303 E 56th Ave, Denver', '303-296-2007', NULL, NULL),
+    ('Colorado Signal Co/Adults Toy Storage', '3800 E 64th Ave, Commerce City', '720-520-6300', NULL, NULL),
+    ('IN RV Storage', '7500 Washington St, Denver', '303-287-1152', NULL, NULL),
+    ('Pink Door Storage', '5775 Tennyson St, Arvada', '720-204-5458', NULL, NULL),
+    ('Arvada Boat & RV Storage', '8850 Indiana St, Arvada', '720-399-6214', NULL, NULL),
+    ('Mikes 56th Ave RV Storage', '5830 W 56th Ave, Arvada', '303-422-6181', NULL, NULL),
+    ('Chambers Road RV Storage', '2700 Chambers Rd, Aurora', '303-360-0808', NULL, NULL),
+    ('Clary RV Storage', '15555 E Colfax, Aurora', '303-364-1693', NULL, NULL),
+    ('Honey Bee RV Storage', '21920 E Atlantic, Aurora', '970-699-3252', NULL, NULL),
+    ('RV Vault', '2151 S Rome Way, Aurora', '720-903-2119', NULL, NULL),
+    ('Ridge Valley Storage', '5300 Gray Ct, Arvada', '303-786-7348', NULL, NULL),
+    ('Main St Storage', '728 S Main St, Brighton', '720-980-1444', NULL, NULL)
+  ) AS v(business_name, location, contact_phone, website, notes)
+  WHERE NOT EXISTS (SELECT 1 FROM partners LIMIT 1)
+`).then(r => { if (r.rowCount > 0) console.log('Seeded', r.rowCount, 'partner records'); })
+  .catch(err => console.error('partners seed error:', err.message));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {

@@ -12,6 +12,7 @@ import AppointmentForm from './pages/AppointmentForm';
 import Settings from './pages/Settings';
 import UserManagement from './pages/UserManagement';
 import Storage from './pages/Storage';
+import Partners from './pages/Partners';
 import CustomerList from './pages/CustomerList';
 import CustomerDetail from './pages/CustomerDetail';
 import PartsSalesList from './pages/PartsSalesList';
@@ -74,6 +75,7 @@ function AppLayout() {
     { to: '/schedule', label: 'Schedule' },
     { to: '/parts-sales', label: 'Parts Sale' },
     { to: '/storage', label: 'Storage' },
+    { to: '/partners', label: 'Partners' },
     ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
     ...(canManageSettings ? [{ to: '/reports', label: 'Reports' }] : []),
     ...(canManageSettings ? [{ to: '/payments/online', label: 'Payments' }] : []),
@@ -195,6 +197,7 @@ function AppLayout() {
           <Route path="/parts-sales" element={<PartsSalesList />} />
           <Route path="/parts-sales/:id" element={<PartsSaleDetail />} />
           <Route path="/storage" element={<Storage />} />
+          <Route path="/partners" element={<Partners />} />
           <Route path="/marketing" element={canManageSettings ? <CampaignList /> : <Navigate to="/records" />} />
           <Route path="/marketing/new" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
