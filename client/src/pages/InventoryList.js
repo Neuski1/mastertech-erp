@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import useIsMobile from '../utils/useIsMobile';
@@ -8,18 +8,19 @@ const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
 
 export default function InventoryList() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState('');
-  const [vendor, setVendor] = useState('');
-  const [category, setCategory] = useState('');
-  const [location, setLocation] = useState('');
-  const [lowStockOnly, setLowStockOnly] = useState(false);
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(searchParams.get('q') || '');
+  const [vendor, setVendor] = useState(searchParams.get('vendor') || '');
+  const [category, setCategory] = useState(searchParams.get('category') || '');
+  const [location, setLocation] = useState(searchParams.get('location') || '');
+  const [lowStockOnly, setLowStockOnly] = useState(searchParams.get('low') === '1');
+  const [page, setPage] = useState(parseInt(searchParams.get('page')) || 1);
   const [loading, setLoading] = useState(true);
   const [reorderCount, setReorderCount] = useState(0);
-  const [sortField, setSortField] = useState('qty_on_hand');
-  const [sortDirection, setSortDirection] = useState('desc');
+  const [sortField, setSortField] = useState(searchParams.get('sort') || 'qty_on_hand');
+  const [sortDirection, setSortDirection] = useState(searchParams.get('order') || 'desc');
   const [reportsOpen, setReportsOpen] = useState(false);
   const [vendorList, setVendorList] = useState([]);
   const [showVendorPanel, setShowVendorPanel] = useState(false);
@@ -41,6 +42,20 @@ export default function InventoryList() {
   const isAdmin = user?.role === 'admin';
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+
+  // Sync filter state to URL so back-navigation preserves search results
+  useEffect(() => {
+    const params = {};
+    if (search) params.q = search;
+    if (vendor) params.vendor = vendor;
+    if (category) params.category = category;
+    if (location) params.location = location;
+    if (lowStockOnly) params.low = '1';
+    if (page > 1) params.page = String(page);
+    if (sortField !== 'qty_on_hand') params.sort = sortField;
+    if (sortDirection !== 'desc') params.order = sortDirection;
+    setSearchParams(params, { replace: true });
+  }, [search, vendor, category, location, lowStockOnly, page, sortField, sortDirection, setSearchParams]);
 
   // Close reports dropdown on outside click
   useEffect(() => {

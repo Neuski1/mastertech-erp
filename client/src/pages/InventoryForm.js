@@ -153,7 +153,7 @@ export default function InventoryForm() {
 
   return (
     <div>
-      <button onClick={() => navigate('/inventory')} style={linkBtn}>
+      <button onClick={() => navigate(-1)} style={linkBtn}>
         &larr; Back to Inventory
       </button>
 
@@ -345,7 +345,7 @@ export default function InventoryForm() {
             <button type="submit" disabled={saving} style={btnPrimary}>
               {saving ? 'Saving...' : isEdit ? 'Update Part' : 'Create Part'}
             </button>
-            <button type="button" onClick={() => navigate('/inventory')} style={btnSecondary}>
+            <button type="button" onClick={() => navigate(-1)} style={btnSecondary}>
               Cancel
             </button>
 
