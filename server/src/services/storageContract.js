@@ -67,18 +67,12 @@ function generateContractPDF(data) {
     doc.text('(also known as \u201CUnit\u201D) at a rate of:');
     doc.moveDown(0.8);
 
-    // --- SELECT ONE ---
-    doc.font('Helvetica-Bold').fontSize(11).text('SELECT ONE:');
-    doc.moveDown(0.3);
-    const indoorRate = data.indoor_rate || '22.00';
-    const outdoorRate = data.outdoor_rate || '6.00';
+    // --- Storage Type (show only the selected type) ---
     const isIndoor = data.space_type === 'indoor';
-    const isOutdoor = data.space_type === 'outdoor';
-
-    doc.font('Helvetica').fontSize(10.5);
-    doc.text(`${isIndoor ? '\u2611' : '\u2610'}  $${indoorRate} per linear foot for Indoor Storage`);
-    doc.moveDown(0.2);
-    doc.text(`${isOutdoor ? '\u2611' : '\u2610'}  $${outdoorRate} per linear foot for Outdoor Storage`);
+    const perFootRate = isIndoor ? (data.indoor_rate || '22.00') : (data.outdoor_rate || '6.00');
+    const storageLabel = isIndoor ? 'Indoor Storage' : 'Outdoor Storage';
+    doc.font('Helvetica-Bold').fontSize(10.5).text(`${storageLabel}:  `, { continued: true });
+    doc.font('Helvetica').text(`$${perFootRate} per linear foot`);
     doc.moveDown(0.8);
 
     // --- RV Length / License / VIN ---
@@ -96,7 +90,7 @@ function generateContractPDF(data) {
 
     // --- Term & Monthly Amount ---
     const startDate = data.start_date || '_______________';
-    const endDate = data.end_date || '_______________';
+    const endDate = data.end_date || 'Open';
     doc.fontSize(10.5).text(
       `The term of this lease commences ${startDate} until ${endDate}, payable in advance of the period and without notice:`,
       { width: w, lineGap }
@@ -197,9 +191,10 @@ function generateContractPDF(data) {
     const lesseePhone = data.lessee_phone || '________________________';
     const lesseeEmail = data.lessee_email || '________________________________';
 
+    const lesseeDate = data.accepted_at ? new Date(data.accepted_at).toLocaleDateString('en-US') : lesseeFillDate;
     doc.font('Helvetica-Bold').text('Lessee Name:  ', { continued: true });
     doc.font('Helvetica').text(`${lesseeFillName}`, { continued: true });
-    doc.text(`              Date: ${lesseeFillDate}`);
+    doc.text(`              Date: ${lesseeDate}`);
     doc.moveDown(0.5);
     doc.font('Helvetica-Bold').text('Cell Phone:  ', { continued: true });
     doc.font('Helvetica').text(`${lesseePhone}`, { continued: true });
@@ -228,8 +223,13 @@ function generateContractPDF(data) {
     }
     doc.moveDown(1.5);
 
+    // Lessor signature — preprinted
     doc.font('Helvetica-Bold').text('Lessor Signature:  ', { continued: true });
-    doc.font('Helvetica').text('_______________________________________________         Date: _______________');
+    doc.font('Helvetica-Oblique').fontSize(16).text('Carol Martinez', { continued: true });
+    doc.font('Helvetica').fontSize(10.5).text(`         Date: ${data.lease_date || new Date().toLocaleDateString('en-US')}`);
+    doc.moveDown(0.3);
+    doc.fontSize(9).fillColor('#6b7280').text('Owner, Master Tech RV Repair & Storage');
+    doc.fillColor('#000000').fontSize(10.5);
     doc.moveDown(0.8);
     doc.text('Lessor Contact Info:');
     doc.text('Phone: (303) 557-2214');

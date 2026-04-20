@@ -52,6 +52,7 @@ router.post('/generate', requireAuth, requireRole('admin', 'service_writer'), as
         space_type: r.space_type,
         start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
         start_date_raw: r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '',
+        end_date: 'Open',
         monthly_amount: monthlyRate.toFixed(2),
         lease_date: new Date().toLocaleDateString('en-US'),
         // Digital acceptance info if already accepted
@@ -289,7 +290,8 @@ router.get('/view/:token', async (req, res) => {
           ${editableRow('Phone', r.phone_primary || '', 'lessee_phone', 'e.g. (303) 555-1234')}
           ${editableRow('Email', r.email_primary || '', 'lessee_email', 'e.g. name@example.com')}
           ${editableRow('Start Date', startDate, 'start_date', 'MM/DD/YYYY')}
-          ${fixedRow('Space', `${r.label} (${r.space_type})`)}
+          ${editableRow('End Date', '', 'end_date', 'MM/DD/YYYY or leave blank for Open')}
+          ${fixedRow('Space', `${r.label} — ${r.space_type === 'indoor' ? 'Indoor' : 'Outdoor'} Storage`)}
           ${fixedRow('Monthly Rate', `$${monthlyRate.toFixed(2)}`)}
         </table>
       </div>
@@ -325,12 +327,26 @@ router.get('/view/:token', async (req, res) => {
         <p>5 days late = $25 fee &bull; 10 days = additional $50 &bull; 14+ days = $20/day up to 30 days.<br/>After 30 days unpaid, Lessor may take possession and sell said property for reimbursement.</p>
       </div>
 
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin-bottom:20px;">
+        <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">Lessor (Owner)</h3>
+        <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
+          <tr>
+            <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Signature:</td>
+            <td style="padding:8px 0;"><span style="font-family:Georgia,serif;font-style:italic;font-size:22px;color:#1e3a5f;">Carol Martinez</span><br/><span style="font-size:11px;color:#6b7280;">Owner, Master Tech RV Repair &amp; Storage</span></td>
+          </tr>
+          <tr>
+            <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Date:</td>
+            <td style="padding:8px 0;">${new Date().toLocaleDateString('en-US')}</td>
+          </tr>
+        </table>
+      </div>
+
       <div style="text-align:center;margin:32px 0 16px;">
         <button type="submit" style="display:inline-block;padding:18px 50px;background:#065f46;color:#fff;font-size:17px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">
           I Accept This Agreement
         </button>
       </div>
-      <p style="text-align:center;color:#9ca3af;font-size:11px;">By clicking &ldquo;I Accept&rdquo;, you are electronically signing this lease agreement.</p>
+      <p style="text-align:center;color:#9ca3af;font-size:11px;">By clicking &ldquo;I Accept&rdquo;, you are electronically signing this lease agreement. Today&rsquo;s date will be recorded as your acceptance date.</p>
       </form>
     `));
   } catch (err) {
@@ -432,6 +448,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     const rvLength = (form.rv_length_feet || '').trim();
     const licensePlate = (form.license_plate || '').trim();
     const vinNum = (form.vin || '').trim();
+    const endDate = (form.end_date || '').trim();
 
     // Use submitted values, falling back to existing DB values
     const finalYear = rvYear || r.unit_year || '';
@@ -493,6 +510,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       space_type: r.space_type,
       start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
       start_date_raw: startDateRaw,
+      end_date: endDate || 'Open',
       monthly_amount: monthlyRate.toFixed(2),
       lease_date: new Date().toLocaleDateString('en-US'),
       accepted_at: acceptedAt,
