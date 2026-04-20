@@ -257,9 +257,10 @@ router.get('/view/:token', async (req, res) => {
 
     function fieldRow(label, value, name, placeholder) {
       if (value) {
+        const v = String(value);
         return `<tr>
           <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">${label}:</td>
-          <td style="padding:8px 0;"><div style="${readOnly}">${value}</div><input type="hidden" name="${name}" value="${value.replace(/"/g, '&quot;')}"/></td>
+          <td style="padding:8px 0;"><div style="${readOnly}">${v}</div><input type="hidden" name="${name}" value="${v.replace(/"/g, '&quot;')}"/></td>
         </tr>`;
       }
       return `<tr>
