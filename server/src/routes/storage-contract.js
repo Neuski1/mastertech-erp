@@ -332,7 +332,7 @@ router.get('/view/:token', async (req, res) => {
         <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
           <tr>
             <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Signature:</td>
-            <td style="padding:8px 0;"><span style="font-family:Georgia,serif;font-style:italic;font-size:22px;color:#1e3a5f;">Carol Martinez</span><br/><span style="font-size:11px;color:#6b7280;">Owner, Master Tech RV Repair &amp; Storage</span></td>
+            <td style="padding:8px 0;"><span style="font-family:Georgia,serif;font-style:italic;font-size:22px;color:#1e3a5f;">Carol Neu</span><br/><span style="font-size:11px;color:#6b7280;">Owner, Master Tech RV Repair &amp; Storage</span></td>
           </tr>
           <tr>
             <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Date:</td>

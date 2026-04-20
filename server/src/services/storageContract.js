@@ -225,7 +225,7 @@ function generateContractPDF(data) {
 
     // Lessor signature — preprinted
     doc.font('Helvetica-Bold').text('Lessor Signature:  ', { continued: true });
-    doc.font('Helvetica-Oblique').fontSize(16).text('Carol Martinez', { continued: true });
+    doc.font('Helvetica-Oblique').fontSize(16).text('Carol Neu', { continued: true });
     doc.font('Helvetica').fontSize(10.5).text(`         Date: ${data.lease_date || new Date().toLocaleDateString('en-US')}`);
     doc.moveDown(0.3);
     doc.fontSize(9).fillColor('#6b7280').text('Owner, Master Tech RV Repair & Storage');
