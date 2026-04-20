@@ -372,7 +372,9 @@ export default function Storage() {
                         <td style={tdStyle}>{entry.rv_length_feet ? `${entry.rv_length_feet} ft` : '—'}</td>
                         <td style={tdStyle}>
                           {entry.preferred_start ? (() => {
-                            const d = new Date(entry.preferred_start + 'T00:00:00');
+                            const raw = entry.preferred_start.toString().slice(0, 10);
+                            const d = new Date(raw + 'T00:00:00');
+                            if (isNaN(d)) return '—';
                             const now = new Date(); now.setHours(0,0,0,0);
                             return (
                               <span style={{
