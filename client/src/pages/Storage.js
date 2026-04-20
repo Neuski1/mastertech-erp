@@ -1138,10 +1138,12 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
     if (!form.contact_name) { setErr('Name is required'); return; }
     setSaving(true);
     try {
+      const ft = parseFloat(form.rv_length_feet) || 0;
+      const calcRate = ft && form.space_type ? ft * (form.space_type === 'indoor' ? 22 : 6) : null;
       await api.updateWaitlistEntry(entry.id, {
         ...form,
         rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
-        budget_monthly: form.budget_monthly ? parseFloat(form.budget_monthly) : null,
+        budget_monthly: calcRate,
       });
       onSaved();
     } catch (e) {
@@ -1228,9 +1230,16 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
                 style={inputStyleFull} />
             </div>
             <div>
-              <label style={labelStyle}>Budget ($/month)</label>
-              <input type="number" value={form.budget_monthly} onChange={(e) => up('budget_monthly', e.target.value)}
-                placeholder="250" style={inputStyleFull} />
+              <label style={labelStyle}>Monthly Storage Rate</label>
+              <input type="text" readOnly
+                value={(() => {
+                  const ft = parseFloat(form.rv_length_feet);
+                  if (!ft || !form.space_type) return '';
+                  const rate = form.space_type === 'indoor' ? 22 : 6;
+                  return `$${(ft * rate).toFixed(2)}`;
+                })()}
+                placeholder="Enter linear feet & type above"
+                style={{ ...inputStyleFull, backgroundColor: '#f0fdf4', fontWeight: 600 }} />
             </div>
           </div>
 
@@ -1315,11 +1324,13 @@ function AddWaitlistModal({ onClose, onAdded }) {
     if (!form.space_type) { setErr('Storage type is required'); return; }
     setSaving(true);
     try {
+      const ft = parseFloat(form.rv_length_feet) || 0;
+      const calcRate = ft && form.space_type ? ft * (form.space_type === 'indoor' ? 22 : 6) : null;
       await api.addToWaitlist({
         ...form,
         customer_id: selectedCust?.id || null,
         rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
-        budget_monthly: form.budget_monthly ? parseFloat(form.budget_monthly) : null,
+        budget_monthly: calcRate,
       });
       onAdded();
     } catch (e) {
@@ -1434,9 +1445,16 @@ function AddWaitlistModal({ onClose, onAdded }) {
                 style={inputStyleFull} />
             </div>
             <div>
-              <label style={labelStyle}>Budget ($/month)</label>
-              <input type="number" value={form.budget_monthly} onChange={(e) => up('budget_monthly', e.target.value)}
-                placeholder="250" style={inputStyleFull} />
+              <label style={labelStyle}>Monthly Storage Rate</label>
+              <input type="text" readOnly
+                value={(() => {
+                  const ft = parseFloat(form.rv_length_feet);
+                  if (!ft || !form.space_type) return '';
+                  const rate = form.space_type === 'indoor' ? 22 : 6;
+                  return `$${(ft * rate).toFixed(2)}`;
+                })()}
+                placeholder="Enter linear feet & type above"
+                style={{ ...inputStyleFull, backgroundColor: '#f0fdf4', fontWeight: 600 }} />
             </div>
           </div>
 
