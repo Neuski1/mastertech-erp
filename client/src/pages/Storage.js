@@ -355,11 +355,17 @@ export default function Storage() {
                     const rv = [entry.rv_year, entry.rv_make, entry.rv_model].filter(Boolean).join(' ') || '—';
                     const prevType = idx > 0 ? waitlist[idx - 1].space_type : null;
                     const showDivider = waitlistFilter === 'all' && prevType && prevType !== entry.space_type;
+                    const showSectionHeader = waitlistFilter === 'all' && (idx === 0 || prevType !== entry.space_type);
                     return (
                       <React.Fragment key={entry.id}>
                       {showDivider && (
-                        <tr><td colSpan={11} style={{ padding: 0 }}>
-                          <hr style={{ border: 'none', borderTop: '3px solid #1e3a5f', margin: '8px 0' }} />
+                        <tr><td colSpan={11} style={{ padding: 0, borderBottom: 'none' }}>
+                          <hr style={{ border: 'none', borderTop: '3px solid #1e3a5f', margin: '12px 0 4px 0' }} />
+                        </td></tr>
+                      )}
+                      {showSectionHeader && (
+                        <tr><td colSpan={11} style={{ padding: '8px 12px', backgroundColor: entry.space_type === 'indoor' ? '#dbeafe' : '#fef3c7', fontWeight: 700, fontSize: '0.85rem', color: entry.space_type === 'indoor' ? '#1e40af' : '#92400e', borderBottom: '2px solid ' + (entry.space_type === 'indoor' ? '#93c5fd' : '#fcd34d') }}>
+                          {entry.space_type === 'indoor' ? '🏠 INDOOR STORAGE' : '☀️ OUTDOOR STORAGE'}
                         </td></tr>
                       )}
                       <tr style={{ cursor: 'pointer' }} onClick={() => setShowWaitlistDetail(entry)}>
