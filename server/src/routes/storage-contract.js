@@ -251,48 +251,58 @@ router.get('/view/:token', async (req, res) => {
     const baseUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
     const acceptUrl = `${baseUrl}/api/storage-contract/accept/${req.params.token}`;
 
-    // Determine which RV fields are missing (customer can fill these in)
-    const inputStyle = 'width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;';
-    const readOnly = 'background:#f9fafb;border:1px solid #e5e7eb;padding:8px 10px;border-radius:6px;font-size:14px;color:#374151;';
+    // Editable input — yellow background if empty, white if filled
+    const inputBase = 'width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box;';
+    const inputFilled = inputBase + 'background:#fff;';
+    const inputEmpty = inputBase + 'background:#fefce8;border-color:#facc15;';
+    // Read-only (Space & Rate only)
+    const readOnlyStyle = 'background:#f0f0f0;border:1px solid #d1d5db;padding:8px 10px;border-radius:6px;font-size:14px;color:#374151;';
 
-    function fieldRow(label, value, name, placeholder) {
-      if (value) {
-        const v = String(value);
-        return `<tr>
-          <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">${label}:</td>
-          <td style="padding:8px 0;"><div style="${readOnly}">${v}</div><input type="hidden" name="${name}" value="${v.replace(/"/g, '&quot;')}"/></td>
-        </tr>`;
-      }
+    function editableRow(label, value, name, placeholder) {
+      const v = value ? String(value) : '';
+      const style = v ? inputFilled : inputEmpty;
       return `<tr>
         <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">${label}:</td>
-        <td style="padding:8px 0;"><input type="text" name="${name}" placeholder="${placeholder}" style="${inputStyle}"/></td>
+        <td style="padding:8px 0;"><input type="text" name="${name}" value="${v.replace(/"/g, '&quot;')}" placeholder="${placeholder}" style="${style}"/></td>
       </tr>`;
     }
 
-    // Show contract summary + editable RV fields + accept button
+    function fixedRow(label, displayValue) {
+      return `<tr>
+        <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">${label}:</td>
+        <td style="padding:8px 0;"><div style="${readOnlyStyle}">${displayValue}</div></td>
+      </tr>`;
+    }
+
+    const startDateInput = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
+
+    // Show contract summary + editable fields + accept button
     res.send(brandedPage('Storage Lease Agreement', `
       <h2 style="color:#1e3a5f;margin:0 0 20px;text-align:center;">RV Storage Lease Agreement</h2>
+      <p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 20px;">Please review and complete the information below. Fields highlighted in <span style="background:#fefce8;padding:2px 6px;border:1px solid #facc15;border-radius:4px;">yellow</span> need to be filled in.</p>
       <form method="POST" action="${acceptUrl}">
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin-bottom:20px;">
+        <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">Lessee Information</h3>
         <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
-          <tr><td style="padding:8px 0;font-weight:600;width:140px;">Lessee:</td><td style="padding:8px 0;"><div style="${readOnly}">${customerName}</div></td></tr>
-          <tr><td style="padding:8px 0;font-weight:600;">Space:</td><td style="padding:8px 0;"><div style="${readOnly}">${r.label} (${r.space_type})</div></td></tr>
-          <tr><td style="padding:8px 0;font-weight:600;">Start Date:</td><td style="padding:8px 0;"><div style="${readOnly}">${startDate}</div></td></tr>
-          <tr><td style="padding:8px 0;font-weight:600;">Monthly Rate:</td><td style="padding:8px 0;"><div style="${readOnly}">$${monthlyRate.toFixed(2)}</div></td></tr>
+          ${editableRow('Name', customerName, 'lessee_name', 'Your full name')}
+          ${editableRow('Phone', r.phone_primary || '', 'lessee_phone', 'e.g. (303) 555-1234')}
+          ${editableRow('Email', r.email_primary || '', 'lessee_email', 'e.g. name@example.com')}
+          ${editableRow('Start Date', startDate, 'start_date', 'MM/DD/YYYY')}
+          ${fixedRow('Space', `${r.label} (${r.space_type})`)}
+          ${fixedRow('Monthly Rate', `$${monthlyRate.toFixed(2)}`)}
         </table>
       </div>
 
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:20px;">
         <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">RV / Unit Details</h3>
-        ${!(r.unit_year && r.unit_make && r.unit_model && (linearFeet || r.license_plate)) ? '<p style="color:#6b7280;font-size:12px;margin:0 0 12px;">Please fill in any missing details about your RV below.</p>' : ''}
         <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
-          ${fieldRow('RV Year', r.unit_year || '', 'rv_year', 'e.g. 2022')}
-          ${fieldRow('RV Make', r.unit_make || '', 'rv_make', 'e.g. Airstream')}
-          ${fieldRow('RV Model', r.unit_model || '', 'rv_model', 'e.g. Basecamp 20X')}
-          ${fieldRow('RV Length (ft)', linearFeet ? linearFeet + '' : '', 'rv_length_feet', 'e.g. 22')}
-          ${fieldRow('License Plate #', r.license_plate || '', 'license_plate', 'e.g. ABC-1234')}
-          ${fieldRow('VIN #', r.vin || '', 'vin', 'Vehicle Identification Number')}
+          ${editableRow('RV Year', r.unit_year || '', 'rv_year', 'e.g. 2022')}
+          ${editableRow('RV Make', r.unit_make || '', 'rv_make', 'e.g. Airstream')}
+          ${editableRow('RV Model', r.unit_model || '', 'rv_model', 'e.g. Basecamp 20X')}
+          ${editableRow('RV Length (ft)', linearFeet ? String(linearFeet) : '', 'rv_length_feet', 'e.g. 22')}
+          ${editableRow('License Plate #', r.license_plate || '', 'license_plate', 'e.g. ABC-1234')}
+          ${editableRow('VIN #', r.vin || '', 'vin', 'Vehicle Identification Number')}
         </table>
       </div>
 
@@ -385,8 +395,37 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       [req.ip, r.id]
     );
 
-    // Save customer-provided RV details to the unit record
+    // Save customer-provided details
     const form = req.body || {};
+
+    // Update customer contact info if provided
+    const lesseeName = (form.lessee_name || '').trim();
+    const lesseePhone = (form.lessee_phone || '').trim();
+    const lesseeEmail = (form.lessee_email || '').trim();
+    try {
+      const custSets = [];
+      const custParams = [];
+      if (lesseePhone && lesseePhone !== (r.phone_primary || '')) {
+        custParams.push(lesseePhone); custSets.push(`phone_primary = $${custParams.length}`);
+      }
+      if (lesseeEmail && lesseeEmail !== (r.email_primary || '')) {
+        custParams.push(lesseeEmail); custSets.push(`email_primary = $${custParams.length}`);
+      }
+      if (lesseeName) {
+        const parts = lesseeName.split(' ');
+        const first = parts[0] || '';
+        const last = parts.slice(1).join(' ') || '';
+        if (first && first !== (r.first_name || '')) { custParams.push(first); custSets.push(`first_name = $${custParams.length}`); }
+        if (last && last !== (r.last_name || '')) { custParams.push(last); custSets.push(`last_name = $${custParams.length}`); }
+      }
+      if (custSets.length > 0) {
+        custParams.push(r.customer_id);
+        await pool.query(`UPDATE customers SET ${custSets.join(', ')} WHERE id = $${custParams.length}`, custParams);
+        console.log(`Updated customer ${r.customer_id} contact info from contract acceptance`);
+      }
+    } catch (e) { console.error('Customer update error (non-fatal):', e.message); }
+
+    // Save RV details to the unit record
     const rvYear = (form.rv_year || '').trim();
     const rvMake = (form.rv_make || '').trim();
     const rvModel = (form.rv_model || '').trim();
@@ -402,16 +441,16 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     const finalPlate = licensePlate || r.license_plate || '';
     const finalVin = vinNum || r.vin || '';
 
-    // Update unit record if it exists and customer provided new info
+    // Update unit record with whatever the customer submitted (overwrite with latest values)
     if (r.unit_id && (rvYear || rvMake || rvModel || rvLength || licensePlate || vinNum)) {
       const sets = [];
       const params = [];
-      if (rvYear && !r.unit_year) { params.push(rvYear); sets.push(`year = $${params.length}`); }
-      if (rvMake && !r.unit_make) { params.push(rvMake); sets.push(`make = $${params.length}`); }
-      if (rvModel && !r.unit_model) { params.push(rvModel); sets.push(`model = $${params.length}`); }
-      if (rvLength && !r.unit_linear_feet) { params.push(parseFloat(rvLength)); sets.push(`linear_feet = $${params.length}`); }
-      if (licensePlate && !r.license_plate) { params.push(licensePlate); sets.push(`license_plate = $${params.length}`); }
-      if (vinNum && !r.vin) { params.push(vinNum); sets.push(`vin = $${params.length}`); }
+      if (rvYear) { params.push(rvYear); sets.push(`year = $${params.length}`); }
+      if (rvMake) { params.push(rvMake); sets.push(`make = $${params.length}`); }
+      if (rvModel) { params.push(rvModel); sets.push(`model = $${params.length}`); }
+      if (rvLength) { params.push(parseFloat(rvLength)); sets.push(`linear_feet = $${params.length}`); }
+      if (licensePlate) { params.push(licensePlate); sets.push(`license_plate = $${params.length}`); }
+      if (vinNum) { params.push(vinNum); sets.push(`vin = $${params.length}`); }
       if (sets.length > 0) {
         params.push(r.unit_id);
         await pool.query(`UPDATE units SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
@@ -431,7 +470,9 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       } catch (e) { console.error('Unit creation error (non-fatal):', e.message); }
     }
 
-    const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
+    const customerName = lesseeName || `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
+    const customerPhone = lesseePhone || r.phone_primary || '';
+    const customerEmail = lesseeEmail || r.email_primary || '';
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 
     // Generate accepted contract PDF with final RV details and email copy to customer
@@ -441,8 +482,8 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
 
     const pdfData = {
       lessee_name: customerName,
-      lessee_phone: r.phone_primary || '',
-      lessee_email: r.email_primary || '',
+      lessee_phone: customerPhone,
+      lessee_email: customerEmail,
       rv_year: finalYear,
       rv_make: finalMake,
       rv_model: finalModel,
@@ -459,10 +500,10 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     };
 
     // Email copy of accepted contract to customer (in background)
-    if (r.email_primary) {
+    if (customerEmail) {
       generateContractPDF(pdfData).then(pdfBuffer => {
         return sendEmail({
-          to: r.email_primary,
+          to: customerEmail,
           subject: `Your Accepted Storage Agreement — Master Tech RV (Space ${r.label})`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
             <div style="background:#1e3a5f;padding:20px 32px;text-align:center;border-radius:12px 12px 0 0;">
@@ -504,7 +545,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       await pool.query(
         `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content)
          VALUES ($1, 'email', 'storage_contract_accepted', $2)`,
-        [r.customer_id, `Customer digitally accepted storage contract for space ${r.label}. Copy emailed to ${r.email_primary || 'N/A'}.${custProvided.length ? ' RV details provided: ' + custProvided.join(', ') : ''}`]
+        [r.customer_id, `Customer digitally accepted storage contract for space ${r.label}. Copy emailed to ${customerEmail || r.email_primary || 'N/A'}.${custProvided.length ? ' RV details provided: ' + custProvided.join(', ') : ''}`]
       );
     } catch (e) { console.error('Comm log error:', e.message); }
 
@@ -513,7 +554,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
         <div style="font-size:64px;margin-bottom:16px;">&#9989;</div>
         <h2 style="color:#065f46;">Storage Agreement Accepted!</h2>
         <p style="color:#374151;font-size:15px;">Thank you${r.first_name ? ' ' + r.first_name : ''}, your storage lease for Space <strong>${r.label}</strong> is confirmed.</p>
-        <p style="color:#6b7280;">A copy of your signed agreement has been emailed to <strong>${r.email_primary || 'your email on file'}</strong>.</p>
+        <p style="color:#6b7280;">A copy of your signed agreement has been emailed to <strong>${customerEmail || r.email_primary || 'your email on file'}</strong>.</p>
         <p style="color:#6b7280;">We look forward to serving you!</p>
         <div style="margin-top:24px;padding:16px;background:#f0fdf4;border-radius:8px;">
           <p style="margin:0;color:#374151;"><strong>(303) 557-2214</strong></p>
