@@ -272,30 +272,33 @@ const pool = require('./db/pool');
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_partners_status ON partners (status)');
-    // Seed partner data from Carol's spreadsheet (only if table is empty)
+    // One-time: clear old partner seed if it ran (A-Discount Storage was in old list but not new)
+    const hasOld = await pool.query("SELECT 1 FROM partners WHERE business_name = 'A-Discount Storage' LIMIT 1");
+    if (hasOld.rows.length > 0) { await pool.query('TRUNCATE partners RESTART IDENTITY'); }
+    // Seed partner data from Carol's updated spreadsheet (only if table is empty)
     const partnerCount = await pool.query('SELECT COUNT(*)::int AS cnt FROM partners');
     if (partnerCount.rows[0].cnt === 0) {
       const seedResult = await pool.query(`
-        INSERT INTO partners (business_name, location, contact_phone, website, notes, status) VALUES
-        ('A-Discount Storage', 'Englewood, CO 80110', '303-761-1099', 'a-discountstorage.com', 'Family-owned since 1978. RV/boat/trailer storage and dump station.', 'new'),
-        ('Ralston Valley RV & Boat Storage', 'Arvada, CO 80007', '720-362-1000', 'rentrvstorage.com', 'Family-owned / locally operated. Focused on RV/boat storage.', 'new'),
-        ('Recreational Storage Solutions', 'Erie, CO', NULL, 'rvstorage-denver.com', 'Locally owned 34-acre RV/boat storage facility. Premium amenities.', 'new'),
-        ('Aspen RV & Boat Storage', 'Aurora, CO 80011', '303-344-2776', 'aspenrvandboat.com', 'Class A RV & boat storage, centrally located in Denver metro.', 'new'),
-        ('Henderson Mini Storage', 'Henderson, CO 80640', '303-905-1714', NULL, 'Local facility offering RV storage, outside units, dump station.', 'new'),
-        ('ATS RV Park', '5650 W 60th Ave, Arvada', '303-431-4297', NULL, NULL, 'new'),
-        ('Dodos RV Storage', '6325 W 56th Ave, Arvada', '303-881-1921', NULL, NULL, 'new'),
-        ('Denver RV Storage', '303 E 56th Ave, Denver', '303-296-2007', NULL, NULL, 'new'),
-        ('Colorado Signal Co/Adults Toy Storage', '3800 E 64th Ave, Commerce City', '720-520-6300', NULL, NULL, 'new'),
-        ('IN RV Storage', '7500 Washington St, Denver', '303-287-1152', NULL, NULL, 'new'),
-        ('Pink Door Storage', '5775 Tennyson St, Arvada', '720-204-5458', NULL, NULL, 'new'),
-        ('Arvada Boat & RV Storage', '8850 Indiana St, Arvada', '720-399-6214', NULL, NULL, 'new'),
-        ('Mikes 56th Ave RV Storage', '5830 W 56th Ave, Arvada', '303-422-6181', NULL, NULL, 'new'),
-        ('Chambers Road RV Storage', '2700 Chambers Rd, Aurora', '303-360-0808', NULL, NULL, 'new'),
-        ('Clary RV Storage', '15555 E Colfax, Aurora', '303-364-1693', NULL, NULL, 'new'),
-        ('Honey Bee RV Storage', '21920 E Atlantic, Aurora', '970-699-3252', NULL, NULL, 'new'),
-        ('RV Vault', '2151 S Rome Way, Aurora', '720-903-2119', NULL, NULL, 'new'),
-        ('Ridge Valley Storage', '5300 Gray Ct, Arvada', '303-786-7348', NULL, NULL, 'new'),
-        ('Main St Storage', '728 S Main St, Brighton', '720-980-1444', NULL, NULL, 'new')
+        INSERT INTO partners (business_name, location, contact_phone, website, contact_name, email, notes, status) VALUES
+        ('Ralston Valley RV & Boat Storage', 'Arvada, CO 80007', '720-362-1000 / 720-315-3228', 'https://www.rentrvstorage.com', 'Allison D. Farr (Owner) and Chris Farr', NULL, 'They offer service and maintenance on site', 'new'),
+        ('Recreational Storage Solutions', 'Erie, CO', '303-727-0242', 'https://www.rvstorage-denver.com', 'Don Eyman (President)', 'info@rsscolorado.com', 'Locally owned 34-acre RV/boat storage facility. Premium amenities.', 'new'),
+        ('Aspen RV & Boat Storage', 'Aurora, CO 80011', '303-344-2776', 'https://www.aspenrvandboat.com', 'Ken Allen (Manager)', NULL, 'Class A RV & boat storage, centrally located in Denver metro.', 'new'),
+        ('Henderson Mini Storage', 'Henderson, CO 80640 (11905 E 124th Ave)', '303-905-1714 / 720-512-7962', 'https://rockportstoragecolorado.com', 'Joseph G. Harrington (Owner)', 'rockportstorage2@gmail.com', 'Local facility offering RV storage, outside units, dump station.', 'new'),
+        ('Dodos RV Storage', '6325 W 56th Ave, Arvada', '303-881-1921 / 303-239-6789', 'https://dodostorage.com', 'Janet Marie Acree (Owner)', 'janddprimmer@gmail.com', NULL, 'new'),
+        ('RV There Storage', '2905 Co Rd 41, Hudson', '303-536-0614', 'rvtherestorage.com', 'Glenda Woodward & Mark Woodward', NULL, NULL, 'new'),
+        ('ATS RV Park / Co Signal', '5650 W 60th Ave, Arvada', '303-431-4297', 'https://atsrvpark.com', NULL, NULL, NULL, 'new'),
+        ('Colorado Signal Co/Adults Toy Storage', '3800 E 64th Ave, Commerce City', '720-520-6300', 'https://atsrvpark.com', 'Debra Kay Purcella (Registered Agent)', NULL, 'Two locations - Commerce City and Arvada. Adults Toy Storage (ATS)', 'new'),
+        ('IN RV Storage', '7500 Washington St, Denver', '303-287-1152', 'https://inselfstorage.com', 'Sheila Mae (Site Manager)', NULL, NULL, 'new'),
+        ('Pink Door Storage', '5775 Tennyson St, Arvada', '720-204-5458', 'https://pinkdoorstorage.com', 'Mandy McBride (Manager)', NULL, 'Self Storage Consulting Group, LLC 844-879-7724 Based in Gilbert, AZ', 'new'),
+        ('Arvada Boat & RV Storage', '8850 Indiana St, Arvada', '720-399-6214', 'https://arvadarvboatstorage.com', 'Gerald Pickelo Nunez (Registered Agent)', NULL, NULL, 'new'),
+        ('Chambers Road RV Storage', '2700 Chambers Rd, Aurora', '303-360-0808', 'https://www.chambersroadrv.com', 'Ronald Pietrafeso (Owner/Manager)', NULL, 'lane@johnstowinginc.org', 'new'),
+        ('Clary RV Storage', '15555 E Colfax, Aurora', '303-364-1693', NULL, 'Vicki Reavis (Owner)', NULL, 'Jeanie might be at front desk', 'new'),
+        ('Honey Bee RV Storage', '2360 S. Rome Way', '970-699-3252', 'https://honeybeerv.com', 'Jason local contact', NULL, 'Macritchie Group in Illinois owns them', 'new'),
+        ('RV Vault', '2151 S Rome Way, Aurora', '720-903-2119', 'https://rvvaultstorage.com', NULL, NULL, NULL, 'new'),
+        ('Ridge Valley Storage', '5300 Gray Ct, Arvada', '303-786-7348', 'https://ridgevalleystorage.com', NULL, NULL, NULL, 'new'),
+        ('Main St. Storage', '728 S Main St, Brighton', '720-980-1444', 'https://www.mainstreetrvstorage.com', 'Sarah K. Mihalcin (Registered Agent)', NULL, NULL, 'new'),
+        ('A Toy Box Storage', '8021 E 100th Ave, Henderson', '303-288-6622', NULL, 'Robin Hackett, Owner', NULL, NULL, 'new'),
+        ('Skyline RV & Boat Storage', '13546 County Road 8', '720-400-3922', 'skylinervboatstorage.com', NULL, NULL, NULL, 'new')
       `);
       console.log('Seeded', seedResult.rowCount, 'partner records');
     }
