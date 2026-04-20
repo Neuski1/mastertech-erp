@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import NewCustomerModal from '../components/NewCustomerModal';
-import { formatPhone } from '../utils/formatPhone';
+import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 
 export default function Storage() {
   const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
@@ -1169,8 +1169,8 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
             <div>
               <label style={labelStyle}>Phone</label>
-              <input value={form.contact_phone} onChange={(e) => up('contact_phone', e.target.value)}
-                style={inputStyleFull} />
+              <input value={form.contact_phone} onChange={(e) => up('contact_phone', handlePhoneInput(e.target.value))}
+                placeholder="(303) 555-1212" style={inputStyleFull} />
             </div>
             <div>
               <label style={labelStyle}>Email</label>
@@ -1375,8 +1375,8 @@ function AddWaitlistModal({ onClose, onAdded }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
             <div>
               <label style={labelStyle}>Phone</label>
-              <input value={form.contact_phone} onChange={(e) => up('contact_phone', e.target.value)}
-                style={inputStyleFull} />
+              <input value={form.contact_phone} onChange={(e) => up('contact_phone', handlePhoneInput(e.target.value))}
+                placeholder="(303) 555-1212" style={inputStyleFull} />
             </div>
             <div>
               <label style={labelStyle}>Email</label>
