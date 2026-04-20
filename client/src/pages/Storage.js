@@ -341,8 +341,8 @@ export default function Storage() {
                     <th style={thStyle}>Type</th>
                     <th style={thStyle}>RV</th>
                     <th style={thStyle}>Length</th>
+                    <th style={thStyle}>Requested Start</th>
                     <th style={thStyle}>Notes</th>
-                    <th style={thStyle}>Date Added</th>
                     <th style={thStyle}>Status</th>
                     <th style={thStyle}>Actions</th>
                   </tr>
@@ -355,7 +355,7 @@ export default function Storage() {
                     const rv = [entry.rv_year, entry.rv_make, entry.rv_model].filter(Boolean).join(' ') || '—';
                     return (
                       <tr key={entry.id} style={{ cursor: 'pointer' }} onClick={() => setShowWaitlistDetail(entry)}>
-                        <td style={tdStyle}>{entry.position || idx + 1}</td>
+                        <td style={tdStyle}>{idx + 1}</td>
                         <td style={{ ...tdStyle, fontWeight: 600 }}>{name}</td>
                         <td style={tdStyle}>
                           <div style={{ fontSize: '0.8rem' }}>{formatPhone(phone)}</div>
@@ -370,10 +370,19 @@ export default function Storage() {
                         </td>
                         <td style={tdStyle}>{rv}</td>
                         <td style={tdStyle}>{entry.rv_length_feet ? `${entry.rv_length_feet} ft` : '—'}</td>
+                        <td style={tdStyle}>
+                          {entry.preferred_start ? (
+                            <span style={{
+                              fontWeight: 600,
+                              color: new Date(entry.preferred_start) <= new Date() ? '#dc2626' : '#065f46',
+                            }}>
+                              {new Date(entry.preferred_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td style={{ ...tdStyle, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem', color: '#6b7280' }}>
                           {entry.notes || '—'}
                         </td>
-                        <td style={tdStyle}>{new Date(entry.created_at).toLocaleDateString()}</td>
                         <td style={tdStyle}>
                           <span style={{
                             padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
@@ -412,7 +421,7 @@ export default function Storage() {
                     );
                   })}
                   {waitlist.length === 0 && (
-                    <tr><td colSpan={10} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af', padding: '30px' }}>
+                    <tr><td colSpan={11} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af', padding: '30px' }}>
                       No one on the waitlist{waitlistFilter !== 'all' ? ` for ${waitlistFilter} storage` : ''}
                     </td></tr>
                   )}

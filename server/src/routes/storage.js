@@ -658,7 +658,7 @@ router.get('/waitlist', async (req, res) => {
     } else {
       sql += ` AND w.status IN ('waiting', 'notified')`;
     }
-    sql += ` ORDER BY w.space_type, w.position ASC NULLS LAST, w.created_at ASC`;
+    sql += ` ORDER BY w.space_type, w.preferred_start ASC NULLS LAST, w.created_at ASC`;
     const { rows } = await pool.query(sql, params);
     // Return counts by type
     const countRes = await pool.query(
