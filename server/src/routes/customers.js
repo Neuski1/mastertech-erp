@@ -513,4 +513,41 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/customers/:id/documents — List customer documents (metadata only)
+// ---------------------------------------------------------------------------
+router.get('/:id/documents', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, doc_type, title, mime_type, file_size, related_id, created_at
+       FROM customer_documents WHERE customer_id = $1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/customers/:id/documents error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/customers/:id/documents/:docId/download — Download a document
+// ---------------------------------------------------------------------------
+router.get('/:id/documents/:docId/download', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT title, file_data, mime_type FROM customer_documents WHERE id = $1 AND customer_id = $2`,
+      [req.params.docId, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Document not found' });
+    const doc = rows[0];
+    res.setHeader('Content-Type', doc.mime_type);
+    res.setHeader('Content-Disposition', `inline; filename="${doc.title.replace(/[^a-zA-Z0-9._\- ]/g, '')}.pdf"`);
+    res.send(doc.file_data);
+  } catch (err) {
+    console.error('GET /api/customers/:id/documents/:docId/download error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

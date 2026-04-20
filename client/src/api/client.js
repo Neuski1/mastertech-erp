@@ -255,6 +255,17 @@ export const api = {
   getCustomerRecords: (customerId) => request(`/customers/${customerId}/records`),
   getCustomerStorage: (customerId) => request(`/customers/${customerId}/storage`),
 
+  // Customer Documents
+  getCustomerDocuments: (customerId) => request(`/customers/${customerId}/documents`),
+  downloadCustomerDocument: async (customerId, docId) => {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/customers/${customerId}/documents/${docId}/download`, { headers });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    return blob;
+  },
+
   // Marketing
   getMarketingLog: (customerId) => request(`/marketing/customer/${customerId}`),
   addMarketingNote: (data) => request('/marketing/note', { method: 'POST', body: JSON.stringify(data) }),

@@ -517,10 +517,23 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       accepted_ip: req.ip,
     };
 
+    // Generate the signed contract PDF, save to customer documents, then email copy
+    const signedPdfBuffer = await generateContractPDF(pdfData);
+
+    // Save signed contract to customer_documents table
+    try {
+      const docTitle = `Storage Contract — Space ${r.label} (Signed ${new Date().toLocaleDateString('en-US')})`;
+      await pool.query(
+        `INSERT INTO customer_documents (customer_id, doc_type, title, file_data, mime_type, file_size, related_id)
+         VALUES ($1, 'storage_contract', $2, $3, 'application/pdf', $4, $5)`,
+        [r.customer_id, docTitle, signedPdfBuffer, signedPdfBuffer.length, r.id]
+      );
+      console.log(`Saved signed contract PDF to customer_documents for customer ${r.customer_id}`);
+    } catch (e) { console.error('Document save error (non-fatal):', e.message); }
+
     // Email copy of accepted contract to customer (in background)
     if (customerEmail) {
-      generateContractPDF(pdfData).then(pdfBuffer => {
-        return sendEmail({
+      sendEmail({
           to: customerEmail,
           subject: `Your Accepted Storage Agreement — Master Tech RV (Space ${r.label})`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
@@ -540,11 +553,10 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
           </div>`,
           attachments: [{
             filename: `Storage_Agreement_${customerName.replace(/\s/g, '_')}.pdf`,
-            content: pdfBuffer,
+            content: signedPdfBuffer,
             contentType: 'application/pdf',
           }],
-        });
-      }).catch(e => console.error('Contract copy email error:', e.message));
+        }).catch(e => console.error('Contract copy email error:', e.message));
     }
 
     // Notify staff (include what RV details the customer provided)

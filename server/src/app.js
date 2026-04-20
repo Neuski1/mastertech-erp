@@ -313,6 +313,19 @@ const pool = require('./db/pool');
       `);
       console.log('Seeded', seedResult.rowCount, 'partner records');
     }
+    // Migration 045: customer documents table (stores signed contracts, etc.)
+    await pool.query(`CREATE TABLE IF NOT EXISTS customer_documents (
+      id SERIAL PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      doc_type VARCHAR(50) NOT NULL DEFAULT 'contract',
+      title VARCHAR(255) NOT NULL,
+      file_data BYTEA NOT NULL,
+      mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
+      file_size INTEGER,
+      related_id INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_customer_documents_customer ON customer_documents (customer_id)');
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

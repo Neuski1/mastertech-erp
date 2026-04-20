@@ -26,6 +26,7 @@ export default function CustomerDetail() {
   const [unitSaving, setUnitSaving] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
   const [storageCharges, setStorageCharges] = useState([]);
+  const [documents, setDocuments] = useState([]);
 
   // Marketing note
   const [noteChannel, setNoteChannel] = useState('Note');
@@ -49,18 +50,20 @@ export default function CustomerDetail() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [cust, unitList, recList, storList, mktList] = await Promise.all([
+      const [cust, unitList, recList, storList, mktList, docList] = await Promise.all([
         api.getCustomer(id),
         api.getCustomerUnits(id),
         api.getCustomerRecords(id),
         api.getCustomerStorage(id).catch(() => []),
         api.getMarketingLog(id).catch(() => []),
+        api.getCustomerDocuments(id).catch(() => []),
       ]);
       setCustomer(cust);
       setFormData(cust);
       setUnits(unitList);
       setRecords(recList);
       setStorage(storList);
+      setDocuments(docList);
       setMarketingLog(mktList);
       // Fetch storage billing history
       api.getStorageCharges({ customer_id: id }).then(data => {
@@ -458,6 +461,54 @@ export default function CustomerDetail() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ─── Documents ─── */}
+      {documents.length > 0 && (
+        <div style={{ ...sectionStyle, backgroundColor: '#fefce8', borderColor: '#fde68a' }}>
+          <h2 style={sectionTitle}>Documents</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Document</th>
+                <th style={thStyle}>Type</th>
+                <th style={thStyle}>Date</th>
+                <th style={thStyle}>Size</th>
+                <th style={{ ...thStyle, width: '80px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {documents.map(doc => (
+                <tr key={doc.id}>
+                  <td style={tdStyle}><strong>{doc.title}</strong></td>
+                  <td style={tdStyle}>
+                    <span style={{ padding: '2px 8px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#dbeafe', color: '#1e40af' }}>
+                      {doc.doc_type === 'storage_contract' ? 'Contract' : doc.doc_type}
+                    </span>
+                  </td>
+                  <td style={tdStyle}>{new Date(doc.created_at).toLocaleDateString('en-US')}</td>
+                  <td style={tdStyle}>{doc.file_size ? `${(doc.file_size / 1024).toFixed(0)} KB` : '—'}</td>
+                  <td style={tdStyle}>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const blob = await api.downloadCustomerDocument(id, doc.id);
+                          const url = URL.createObjectURL(blob);
+                          window.open(url, '_blank');
+                        } catch (err) {
+                          alert('Failed to open document: ' + err.message);
+                        }
+                      }}
+                      style={{ padding: '3px 10px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
