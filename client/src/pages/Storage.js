@@ -353,8 +353,16 @@ export default function Storage() {
                     const phone = entry.cust_phone || entry.contact_phone || '';
                     const emailAddr = entry.cust_email || entry.contact_email || '';
                     const rv = [entry.rv_year, entry.rv_make, entry.rv_model].filter(Boolean).join(' ') || '—';
+                    const prevType = idx > 0 ? waitlist[idx - 1].space_type : null;
+                    const showDivider = waitlistFilter === 'all' && prevType && prevType !== entry.space_type;
                     return (
-                      <tr key={entry.id} style={{ cursor: 'pointer' }} onClick={() => setShowWaitlistDetail(entry)}>
+                      <React.Fragment key={entry.id}>
+                      {showDivider && (
+                        <tr><td colSpan={11} style={{ padding: 0 }}>
+                          <hr style={{ border: 'none', borderTop: '3px solid #1e3a5f', margin: '8px 0' }} />
+                        </td></tr>
+                      )}
+                      <tr style={{ cursor: 'pointer' }} onClick={() => setShowWaitlistDetail(entry)}>
                         <td style={tdStyle}>{idx + 1}</td>
                         <td style={{ ...tdStyle, fontWeight: 600 }}>{name}</td>
                         <td style={tdStyle}>
@@ -424,6 +432,7 @@ export default function Storage() {
                           </div>
                         </td>
                       </tr>
+                      </React.Fragment>
                     );
                   })}
                   {waitlist.length === 0 && (
