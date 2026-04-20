@@ -371,14 +371,18 @@ export default function Storage() {
                         <td style={tdStyle}>{rv}</td>
                         <td style={tdStyle}>{entry.rv_length_feet ? `${entry.rv_length_feet} ft` : '—'}</td>
                         <td style={tdStyle}>
-                          {entry.preferred_start ? (
-                            <span style={{
-                              fontWeight: 600,
-                              color: new Date(entry.preferred_start) <= new Date() ? '#dc2626' : '#065f46',
-                            }}>
-                              {new Date(entry.preferred_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                            </span>
-                          ) : '—'}
+                          {entry.preferred_start ? (() => {
+                            const d = new Date(entry.preferred_start + 'T00:00:00');
+                            const now = new Date(); now.setHours(0,0,0,0);
+                            return (
+                              <span style={{
+                                fontWeight: 600,
+                                color: d <= now ? '#dc2626' : '#065f46',
+                              }}>
+                                {d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                              </span>
+                            );
+                          })() : '—'}
                         </td>
                         <td style={{ ...tdStyle, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem', color: '#6b7280' }}>
                           {entry.notes || '—'}
