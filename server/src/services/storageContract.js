@@ -64,7 +64,7 @@ function generateContractPDF(data) {
     const rvInfo = [data.rv_year, data.rv_make, data.rv_model].filter(Boolean).join(' ') || '_________________________________';
     doc.font('Helvetica-Bold').text('RV Year, Make, Model: ', { continued: true });
     doc.font('Helvetica').text(rvInfo);
-    doc.text('(also known as \u201CUnit\u201D) at a rate of:');
+    doc.text('(also known as \u201CUnit\u201D)');
     doc.moveDown(0.8);
 
     // --- Storage Type (show only the selected type) ---
