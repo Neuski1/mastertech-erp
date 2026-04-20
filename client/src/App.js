@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import UserManagement from './pages/UserManagement';
 import Storage from './pages/Storage';
 import Partners from './pages/Partners';
+import Suppliers from './pages/Suppliers';
 import CustomerList from './pages/CustomerList';
 import CustomerDetail from './pages/CustomerDetail';
 import PartsSalesList from './pages/PartsSalesList';
@@ -72,6 +73,7 @@ function AppLayout() {
     { to: '/customers', label: 'Customers' },
     { to: '/records', label: 'Records' },
     { to: '/inventory', label: 'Inventory' },
+    { to: '/suppliers', label: 'Suppliers' },
     { to: '/schedule', label: 'Schedule' },
     { to: '/parts-sales', label: 'Parts Sale' },
     { to: '/storage', label: 'Storage' },
@@ -188,6 +190,7 @@ function AppLayout() {
           <Route path="/records" element={<RecordList />} />
           <Route path="/records/new" element={<RecordNew />} />
           <Route path="/records/:id" element={<RecordDetail />} />
+          <Route path="/suppliers" element={<Suppliers />} />
           <Route path="/inventory" element={<InventoryList />} />
           <Route path="/inventory/new" element={<InventoryForm />} />
           <Route path="/inventory/:id" element={<InventoryForm />} />

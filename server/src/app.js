@@ -85,6 +85,7 @@ app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/partners', requireAuth, require('./routes/partners'));
+app.use('/api/purchase-orders', requireAuth, require('./routes/purchaseOrders'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 app.use('/api/twilio', require('./routes/twilioWebhook')); // No auth — Twilio calls directly
 
@@ -326,6 +327,62 @@ const pool = require('./db/pool');
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_customer_documents_customer ON customer_documents (customer_id)');
+
+    // Migration 046: purchase orders and line items (Supplier Module)
+    await pool.query(`CREATE TABLE IF NOT EXISTS purchase_orders (
+      id SERIAL PRIMARY KEY,
+      vendor VARCHAR(255) NOT NULL,
+      order_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      subtotal NUMERIC(10,2) DEFAULT 0,
+      shipping_cost NUMERIC(10,2) DEFAULT 0,
+      total NUMERIC(10,2) DEFAULT 0,
+      order_number VARCHAR(100),
+      tracking_number VARCHAR(255),
+      notes TEXT,
+      received_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders (vendor)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders (status)');
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS po_line_items (
+      id SERIAL PRIMARY KEY,
+      po_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      inventory_item_id INTEGER REFERENCES inventory(id) ON DELETE SET NULL,
+      description VARCHAR(500) NOT NULL,
+      vendor_part_number VARCHAR(100),
+      qty INTEGER NOT NULL DEFAULT 1,
+      cost_each NUMERIC(10,2) NOT NULL DEFAULT 0,
+      line_total NUMERIC(10,2) NOT NULL DEFAULT 0,
+      matched BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_po_line_items_po ON po_line_items (po_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_po_line_items_inventory ON po_line_items (inventory_item_id)');
+
+    // Migration 047: vendor_details table (website URLs, contact info for suppliers)
+    await pool.query(`CREATE TABLE IF NOT EXISTS vendor_details (
+      id SERIAL PRIMARY KEY,
+      vendor_name VARCHAR(255) NOT NULL UNIQUE,
+      website VARCHAR(500),
+      contact_name VARCHAR(255),
+      contact_email VARCHAR(255),
+      contact_phone VARCHAR(50),
+      account_number VARCHAR(100),
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+
+    // Seed known suppliers
+    await pool.query(`INSERT INTO vendor_details (vendor_name, website) VALUES
+      ('NTP/Stag', 'https://www.viantp.com'),
+      ('Amazon Business', 'https://www.amazon.com'),
+      ('etrailer', 'https://www.etrailer.com')
+      ON CONFLICT (vendor_name) DO NOTHING`);
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

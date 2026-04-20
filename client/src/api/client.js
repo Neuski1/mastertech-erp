@@ -324,6 +324,22 @@ export const api = {
   renameVendor: (name, newName) => request(`/vendors/${encodeURIComponent(name)}/rename`, { method: 'PUT', body: JSON.stringify({ newName }) }),
   mergeVendors: (vendors, mergeInto) => request('/vendors/merge', { method: 'POST', body: JSON.stringify({ vendors, mergeInto }) }),
 
+  // Purchase Orders / Supplier Module
+  getPurchaseOrders: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/purchase-orders${qs ? `?${qs}` : ''}`);
+  },
+  getPurchaseOrder: (id) => request(`/purchase-orders/${id}`),
+  createPurchaseOrder: (data) => request('/purchase-orders', { method: 'POST', body: JSON.stringify(data) }),
+  updatePurchaseOrder: (id, data) => request(`/purchase-orders/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  receivePurchaseOrder: (id) => request(`/purchase-orders/${id}/receive`, { method: 'POST' }),
+  deletePurchaseOrder: (id) => request(`/purchase-orders/${id}`, { method: 'DELETE' }),
+  addPOLineItem: (poId, data) => request(`/purchase-orders/${poId}/items`, { method: 'POST', body: JSON.stringify(data) }),
+  matchPOLineItem: (poId, itemId, inventoryItemId) => request(`/purchase-orders/${poId}/items/${itemId}/match`, { method: 'PATCH', body: JSON.stringify({ inventory_item_id: inventoryItemId }) }),
+  deletePOLineItem: (poId, itemId) => request(`/purchase-orders/${poId}/items/${itemId}`, { method: 'DELETE' }),
+  getVendorDetails: () => request('/purchase-orders/vendors/details'),
+  updateVendorDetails: (name, data) => request(`/purchase-orders/vendors/details/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
+
   // Online payments (Poynt / GoDaddy Payments)
   createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),
   getOnlinePaymentLinks: (recordId) => request(`/payments/online/links${recordId ? `?record_id=${recordId}` : ''}`),
