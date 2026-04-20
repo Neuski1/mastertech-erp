@@ -130,7 +130,7 @@ router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async
       await pool.query('UPDATE storage_billing SET contract_sent_at = NOW() WHERE id = $1', [billing_id]);
     }
 
-    const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+    const baseUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
     const acceptUrl = `${baseUrl}/api/storage-contract/accept/${token}`;
     const viewUrl = `${baseUrl}/api/storage-contract/view/${token}`;
 
@@ -248,7 +248,7 @@ router.get('/view/:token', async (req, res) => {
     const monthlyRate = parseFloat(r.monthly_rate) || 0;
     const startDate = r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : 'TBD';
 
-    const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+    const baseUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
     const acceptUrl = `${baseUrl}/api/storage-contract/accept/${req.params.token}`;
 
     // Determine which RV fields are missing (customer can fill these in)
@@ -324,7 +324,14 @@ router.get('/view/:token', async (req, res) => {
     `));
   } catch (err) {
     console.error('GET /api/storage-contract/view error:', err);
-    res.status(500).send('Server error');
+    res.status(500).send(brandedPage('Error',
+      `<div style="text-align:center;">
+        <div style="font-size:48px;margin-bottom:16px;">&#9888;</div>
+        <h2 style="color:#dc2626;">Something Went Wrong</h2>
+        <p style="color:#6b7280;">We encountered an error loading your contract. Please contact Master Tech RV at <strong>(303) 557-2214</strong>.</p>
+        <p style="color:#9ca3af;font-size:11px;margin-top:20px;">Error: ${err.message}</p>
+      </div>`
+    ));
   }
 });
 
