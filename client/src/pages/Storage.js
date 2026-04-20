@@ -1131,6 +1131,103 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
+  // ── Set Up Contract flow ──
+  const [contractMode, setContractMode] = useState(false);
+  const [availableSpaces, setAvailableSpaces] = useState([]);
+  const [selectedSpaceId, setSelectedSpaceId] = useState('');
+  const [contractStartDate, setContractStartDate] = useState(form.preferred_start || new Date().toISOString().split('T')[0]);
+  const [sendContract, setSendContract] = useState(true);
+  const [sendGuidelines, setSendGuidelines] = useState(true);
+  const [contractSaving, setContractSaving] = useState(false);
+  const [contractSuccess, setContractSuccess] = useState('');
+
+  const startContractSetup = async () => {
+    setErr('');
+    if (!form.contact_name) { setErr('Contact name is required'); return; }
+    if (!form.space_type) { setErr('Storage type is required'); return; }
+    try {
+      const data = await api.getStorageSpaces();
+      const spaces = (data.spaces || data || []).filter(s =>
+        s.space_type === form.space_type && s.status === 'available'
+      );
+      setAvailableSpaces(spaces);
+      if (spaces.length === 1) setSelectedSpaceId(String(spaces[0].id));
+      setContractMode(true);
+    } catch (e) { setErr('Failed to load spaces: ' + e.message); }
+  };
+
+  const handleSetupContract = async () => {
+    if (!selectedSpaceId) { setErr('Please select a space'); return; }
+    setContractSaving(true);
+    setErr('');
+    try {
+      // 1. Create customer if not already linked
+      let customerId = entry.customer_id;
+      if (!customerId) {
+        const nameParts = form.contact_name.trim().split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+        const newCust = await api.createCustomer({
+          first_name: firstName,
+          last_name: lastName,
+          phone_primary: form.contact_phone || null,
+          email_primary: form.contact_email || null,
+          is_storage_customer: true,
+        });
+        customerId = newCust.id;
+      } else {
+        // Mark existing customer as storage customer
+        try { await api.updateCustomer(customerId, { is_storage_customer: true }); } catch {}
+      }
+
+      // 2. Create unit from RV details
+      let unitId = null;
+      if (form.rv_year || form.rv_make || form.rv_model) {
+        const newUnit = await api.createUnit({
+          customer_id: customerId,
+          year: form.rv_year || null,
+          make: form.rv_make || null,
+          model: form.rv_model || null,
+          linear_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
+        });
+        unitId = newUnit.id;
+      }
+
+      // 3. Calculate monthly rate
+      const ft = parseFloat(form.rv_length_feet) || 0;
+      const perFoot = form.space_type === 'indoor' ? 22 : 6;
+      const monthlyRate = ft > 0 ? ft * perFoot : 0;
+
+      // 4. Assign space (creates billing record)
+      const result = await api.assignStorage({
+        space_id: parseInt(selectedSpaceId),
+        customer_id: customerId,
+        unit_id: unitId,
+        monthly_rate: monthlyRate,
+        due_day: 1,
+        billing_start_date: contractStartDate || null,
+        notes: form.notes || null,
+      });
+
+      // 5. Email contract & guidelines
+      const billingId = result?.id;
+      if (billingId) {
+        if (sendContract) api.emailStorageContract(billingId).catch(e => console.error('Contract email error:', e));
+        if (sendGuidelines) api.sendStorageGuidelines({ billing_id: billingId }).catch(e => console.error('Guidelines email error:', e));
+      }
+
+      // 6. Update waitlist entry to "assigned"
+      await api.updateWaitlistEntry(entry.id, { ...form, status: 'assigned', customer_id: customerId });
+
+      setContractSuccess(`Customer created, assigned to Space, and contract ${sendContract ? 'emailed' : 'ready'}!`);
+      setTimeout(() => onSaved(), 2000);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setContractSaving(false);
+    }
+  };
+
   const up = (field, val) => setForm(f => ({ ...f, [field]: val }));
 
   const handleSave = async (e) => {
@@ -1261,10 +1358,69 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
               rows={3} style={{ ...inputStyleFull, resize: 'vertical' }} placeholder="e.g. check size, needs June 2026..." />
           </div>
 
+          {/* Set Up Contract Section */}
+          {contractMode && (
+            <div style={{ marginBottom: '18px', padding: '16px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px' }}>
+              <h3 style={{ margin: '0 0 12px', color: '#1e3a5f', fontSize: '0.95rem' }}>Set Up Contract</h3>
+              {contractSuccess ? (
+                <div style={{ padding: '12px', backgroundColor: '#d1fae5', borderRadius: '6px', color: '#065f46', fontWeight: 600, textAlign: 'center' }}>
+                  ✓ {contractSuccess}
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={labelStyle}>Select Available Space *</label>
+                    {availableSpaces.length === 0 ? (
+                      <div style={{ padding: '10px', backgroundColor: '#fef2f2', borderRadius: '6px', color: '#dc2626', fontSize: '0.85rem' }}>
+                        No available {form.space_type} spaces. Please add a space first.
+                      </div>
+                    ) : (
+                      <select value={selectedSpaceId} onChange={(e) => setSelectedSpaceId(e.target.value)} style={inputStyleFull}>
+                        <option value="">-- Select a space --</option>
+                        {availableSpaces.map(s => (
+                          <option key={s.id} value={s.id}>{s.label} — {s.space_type} ({s.linear_feet ? s.linear_feet + ' ft' : 'no size'})</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={labelStyle}>Start Date</label>
+                    <input type="date" value={contractStartDate} onChange={(e) => setContractStartDate(e.target.value)} style={inputStyleFull} />
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={sendContract} onChange={(e) => setSendContract(e.target.checked)} /> Email contract to customer
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer', marginTop: '6px' }}>
+                      <input type="checkbox" checked={sendGuidelines} onChange={(e) => setSendGuidelines(e.target.checked)} /> Email storage guidelines
+                    </label>
+                  </div>
+                  <div style={{ padding: '10px', backgroundColor: '#f0fdf4', borderRadius: '6px', marginBottom: '12px', fontSize: '0.85rem', color: '#065f46' }}>
+                    <strong>Summary:</strong> {form.contact_name} → {form.space_type} storage
+                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft • $${(parseFloat(form.rv_length_feet) * (form.space_type === 'indoor' ? 22 : 6)).toFixed(2)}/mo`}
+                    {!entry.customer_id && ' • New customer record will be created'}
+                  </div>
+                  <button type="button" onClick={handleSetupContract} disabled={contractSaving || !selectedSpaceId}
+                    style={{ ...btnPrimary, width: '100%', padding: '12px', backgroundColor: '#065f46', opacity: (!selectedSpaceId || contractSaving) ? 0.5 : 1 }}>
+                    {contractSaving ? 'Setting up...' : 'Assign Space & Send Contract'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
-              Added {new Date(entry.created_at).toLocaleDateString()}
-              {entry.notified_at && ` · Notified ${new Date(entry.notified_at).toLocaleDateString()}`}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
+                Added {new Date(entry.created_at).toLocaleDateString()}
+                {entry.notified_at && ` · Notified ${new Date(entry.notified_at).toLocaleDateString()}`}
+              </div>
+              {!contractMode && entry.status !== 'assigned' && (
+                <button type="button" onClick={startContractSetup}
+                  style={{ padding: '6px 14px', backgroundColor: '#065f46', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                  Set Up Contract
+                </button>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
