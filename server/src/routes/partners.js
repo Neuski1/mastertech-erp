@@ -172,4 +172,62 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/partners/:id/activities — Get activity log for a partner
+// ---------------------------------------------------------------------------
+router.get('/:id/activities', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT pa.*, u.name AS created_by_name
+       FROM partner_activities pa
+       LEFT JOIN users u ON u.id = pa.created_by
+       WHERE pa.partner_id = $1
+       ORDER BY pa.contact_date DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/partners/:id/activities error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/partners/:id/activities — Add activity log entry
+// ---------------------------------------------------------------------------
+router.post('/:id/activities', async (req, res) => {
+  const { activity_type, contact_date, summary } = req.body;
+  if (!summary || !summary.trim()) {
+    return res.status(400).json({ error: 'Summary is required' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO partner_activities (partner_id, activity_type, contact_date, summary, created_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.params.id, activity_type || 'note', contact_date || new Date(), summary.trim(), req.user?.id || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/partners/:id/activities error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/partners/:id/activities/:actId — Delete an activity entry
+// ---------------------------------------------------------------------------
+router.delete('/:id/activities/:actId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'DELETE FROM partner_activities WHERE id = $1 AND partner_id = $2 RETURNING id',
+      [req.params.actId, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Activity not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE activity error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

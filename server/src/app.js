@@ -272,6 +272,17 @@ const pool = require('./db/pool');
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_partners_status ON partners (status)');
+    // Migration 044: partner activity log
+    await pool.query(`CREATE TABLE IF NOT EXISTS partner_activities (
+      id SERIAL PRIMARY KEY,
+      partner_id INTEGER NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
+      activity_type VARCHAR(30) NOT NULL DEFAULT 'note',
+      contact_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      summary TEXT NOT NULL,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_partner_activities_partner ON partner_activities (partner_id)');
     // One-time: clear old partner seed if it ran (A-Discount Storage was in old list but not new)
     const hasOld = await pool.query("SELECT 1 FROM partners WHERE business_name = 'A-Discount Storage' LIMIT 1");
     if (hasOld.rows.length > 0) { await pool.query('TRUNCATE partners RESTART IDENTITY'); }

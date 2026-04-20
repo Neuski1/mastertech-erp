@@ -11,6 +11,18 @@ const STAGES = [
   { key: 'not_interested', label: 'Not Interested', color: '#dc2626', bg: '#fef2f2' },
 ];
 
+const ACTIVITY_TYPES = [
+  { key: 'left_vm', label: 'Left Voicemail', icon: '\u260E' },
+  { key: 'email_sent', label: 'Sent Email', icon: '\u2709' },
+  { key: 'phone_call', label: 'Phone Call', icon: '\uD83D\uDCDE' },
+  { key: 'meeting', label: 'Met In Person', icon: '\uD83E\uDD1D' },
+  { key: 'text_sent', label: 'Sent Text', icon: '\uD83D\uDCAC' },
+  { key: 'follow_up', label: 'Follow Up', icon: '\uD83D\uDD04' },
+  { key: 'note', label: 'General Note', icon: '\uD83D\uDCDD' },
+];
+const ACTIVITY_MAP = {};
+ACTIVITY_TYPES.forEach(a => { ACTIVITY_MAP[a.key] = a; });
+
 const STAGE_MAP = {};
 STAGES.forEach(s => { STAGE_MAP[s.key] = s; });
 
@@ -33,6 +45,10 @@ export default function Partners() {
   const [form, setForm] = useState({ ...emptyPartner });
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [activities, setActivities] = useState([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [newActivity, setNewActivity] = useState({ activity_type: 'left_vm', summary: '', contact_date: new Date().toISOString().split('T')[0] });
+  const [addingActivity, setAddingActivity] = useState(false);
 
   const fetchPartners = useCallback(async () => {
     setLoading(true);
@@ -62,6 +78,19 @@ export default function Partners() {
     setShowModal(true);
   };
 
+  const fetchActivities = async (partnerId) => {
+    setActivitiesLoading(true);
+    try {
+      const data = await api.getPartnerActivities(partnerId);
+      setActivities(data);
+    } catch (err) {
+      console.error('Failed to load activities:', err);
+      setActivities([]);
+    } finally {
+      setActivitiesLoading(false);
+    }
+  };
+
   const openEdit = (p) => {
     setEditPartner(p);
     setForm({
@@ -75,7 +104,10 @@ export default function Partners() {
       status: p.status || 'new',
       notes: p.notes || '',
     });
+    setNewActivity({ activity_type: 'left_vm', summary: '', contact_date: new Date().toISOString().split('T')[0] });
+    setActivities([]);
     setShowModal(true);
+    fetchActivities(p.id);
   };
 
   const handleSave = async () => {
@@ -104,6 +136,30 @@ export default function Partners() {
       setActionMsg('Partner deleted');
       setConfirmDelete(null);
       fetchPartners();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleAddActivity = async () => {
+    if (!newActivity.summary.trim()) return alert('Please enter a note/summary');
+    setAddingActivity(true);
+    try {
+      await api.addPartnerActivity(editPartner.id, newActivity);
+      setNewActivity({ activity_type: 'left_vm', summary: '', contact_date: new Date().toISOString().split('T')[0] });
+      fetchActivities(editPartner.id);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setAddingActivity(false);
+    }
+  };
+
+  const handleDeleteActivity = async (actId) => {
+    if (!editPartner) return;
+    try {
+      await api.deletePartnerActivity(editPartner.id, actId);
+      fetchActivities(editPartner.id);
     } catch (err) {
       alert(err.message);
     }
@@ -335,6 +391,66 @@ export default function Partners() {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* ---- ACTIVITY LOG (edit mode only) ---- */}
+            {editPartner && (
+              <div style={{ marginTop: 20, paddingTop: 20, borderTop: '2px solid #e5e7eb' }}>
+                <h3 style={{ margin: '0 0 12px', fontSize: 16, color: '#1e3a5f' }}>Activity Log</h3>
+
+                {/* Add new activity */}
+                <div style={{ background: '#f9fafb', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                    <select style={{ ...inputStyle, width: 170 }} value={newActivity.activity_type}
+                      onChange={e => setNewActivity({ ...newActivity, activity_type: e.target.value })}>
+                      {ACTIVITY_TYPES.map(a => <option key={a.key} value={a.key}>{a.icon} {a.label}</option>)}
+                    </select>
+                    <input type="date" style={{ ...inputStyle, width: 150 }} value={newActivity.contact_date}
+                      onChange={e => setNewActivity({ ...newActivity, contact_date: e.target.value })} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input style={{ ...inputStyle, flex: 1 }} placeholder="What happened? (e.g. Left VM with front desk, asked for callback)"
+                      value={newActivity.summary}
+                      onChange={e => setNewActivity({ ...newActivity, summary: e.target.value })}
+                      onKeyDown={e => { if (e.key === 'Enter' && newActivity.summary.trim()) handleAddActivity(); }}
+                    />
+                    <button onClick={handleAddActivity} disabled={addingActivity}
+                      style={{ ...btnPrimary, whiteSpace: 'nowrap', opacity: addingActivity ? 0.6 : 1 }}>
+                      {addingActivity ? '...' : '+ Log'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Activity timeline */}
+                {activitiesLoading ? (
+                  <div style={{ textAlign: 'center', color: '#9ca3af', padding: 16 }}>Loading activity log...</div>
+                ) : activities.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: '#9ca3af', padding: 16, fontSize: 13 }}>No activity logged yet. Add your first contact above.</div>
+                ) : (
+                  <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                    {activities.map(act => {
+                      const aType = ACTIVITY_MAP[act.activity_type] || { icon: '\uD83D\uDCDD', label: act.activity_type };
+                      return (
+                        <div key={act.id} style={{ display: 'flex', gap: 10, padding: '10px 0', borderBottom: '1px solid #f3f4f6', alignItems: 'flex-start' }}>
+                          <div style={{ fontSize: 18, width: 28, textAlign: 'center', flexShrink: 0, paddingTop: 2 }}>{aType.icon}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>{aType.label}</span>
+                              <span style={{ fontSize: 12, color: '#9ca3af' }}>
+                                {new Date(act.contact_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 13, color: '#4b5563', whiteSpace: 'pre-wrap' }}>{act.summary}</div>
+                          </div>
+                          <button onClick={() => handleDeleteActivity(act.id)}
+                            style={{ background: 'none', border: 'none', color: '#d1d5db', cursor: 'pointer', fontSize: 14, flexShrink: 0, padding: '2px 4px' }}
+                            title="Delete entry">&#10005;</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
