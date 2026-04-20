@@ -1144,6 +1144,24 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
+  // ── Customer units (for RV prefill) ──
+  const [custUnits, setCustUnits] = useState([]);
+  useEffect(() => {
+    if (entry.customer_id) {
+      api.getCustomerUnits(entry.customer_id).then(setCustUnits).catch(() => setCustUnits([]));
+    }
+  }, [entry.customer_id]);
+
+  const prefillUnit = (u) => {
+    setForm(f => ({
+      ...f,
+      rv_year: u.year || '',
+      rv_make: u.make || '',
+      rv_model: u.model || '',
+      rv_length_feet: u.linear_feet ? String(parseFloat(u.linear_feet)) : '',
+    }));
+  };
+
   // ── Set Up Contract flow ──
   const [contractMode, setContractMode] = useState(false);
   const [availableSpaces, setAvailableSpaces] = useState([]);
@@ -1308,6 +1326,30 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
             </div>
           </div>
 
+          {/* Unit Selector (if customer has RVs on file) */}
+          {custUnits.length > 1 && (
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Select RV / Unit</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {custUnits.map(u => {
+                  const label = [u.year, u.make, u.model].filter(Boolean).join(' ') || 'Unknown Unit';
+                  const isSelected = form.rv_year === (u.year || '') && form.rv_make === (u.make || '') && form.rv_model === (u.model || '');
+                  return (
+                    <button key={u.id} type="button" onClick={() => prefillUnit(u)} style={{
+                      padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600,
+                      cursor: 'pointer',
+                      border: isSelected ? '2px solid #1e3a5f' : '1px solid #d1d5db',
+                      backgroundColor: isSelected ? '#dbeafe' : '#fff',
+                      color: isSelected ? '#1e3a5f' : '#374151',
+                    }}>
+                      {label}{u.linear_feet ? ` (${parseFloat(u.linear_feet)} ft)` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* RV Info */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
             <div>
@@ -1460,11 +1502,13 @@ function AddWaitlistModal({ onClose, onAdded }) {
   const [custSearch, setCustSearch] = useState('');
   const [custResults, setCustResults] = useState([]);
   const [selectedCust, setSelectedCust] = useState(null);
+  const [custUnits, setCustUnits] = useState([]);
   const searchTimeout = useRef(null);
 
   const searchCustomers = (q) => {
     setCustSearch(q);
     setSelectedCust(null);
+    setCustUnits([]);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     if (q.length < 2) { setCustResults([]); return; }
     searchTimeout.current = setTimeout(async () => {
@@ -1475,7 +1519,17 @@ function AddWaitlistModal({ onClose, onAdded }) {
     }, 300);
   };
 
-  const selectCustomer = (c) => {
+  const prefillUnit = (u) => {
+    setForm(f => ({
+      ...f,
+      rv_year: u.year || '',
+      rv_make: u.make || '',
+      rv_model: u.model || '',
+      rv_length_feet: u.linear_feet ? String(parseFloat(u.linear_feet)) : '',
+    }));
+  };
+
+  const selectCustomer = async (c) => {
     setSelectedCust(c);
     setCustSearch(`${c.first_name} ${c.last_name}`);
     setCustResults([]);
@@ -1485,6 +1539,14 @@ function AddWaitlistModal({ onClose, onAdded }) {
       contact_phone: c.phone_primary || f.contact_phone,
       contact_email: c.email_primary || f.contact_email,
     }));
+    // Fetch customer's units and prefill RV info
+    try {
+      const units = await api.getCustomerUnits(c.id);
+      setCustUnits(units);
+      if (units.length === 1) {
+        prefillUnit(units[0]);
+      }
+    } catch (_) { setCustUnits([]); }
   };
 
   const handleSubmit = async (e) => {
@@ -1581,6 +1643,30 @@ function AddWaitlistModal({ onClose, onAdded }) {
               ))}
             </div>
           </div>
+
+          {/* Unit Selector (if customer has multiple RVs) */}
+          {custUnits.length > 1 && (
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Select RV / Unit</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {custUnits.map(u => {
+                  const label = [u.year, u.make, u.model].filter(Boolean).join(' ') || 'Unknown Unit';
+                  const isSelected = form.rv_year === (u.year || '') && form.rv_make === (u.make || '') && form.rv_model === (u.model || '');
+                  return (
+                    <button key={u.id} type="button" onClick={() => prefillUnit(u)} style={{
+                      padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600,
+                      cursor: 'pointer',
+                      border: isSelected ? '2px solid #1e3a5f' : '1px solid #d1d5db',
+                      backgroundColor: isSelected ? '#dbeafe' : '#fff',
+                      color: isSelected ? '#1e3a5f' : '#374151',
+                    }}>
+                      {label}{u.linear_feet ? ` (${parseFloat(u.linear_feet)} ft)` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* RV Info */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
