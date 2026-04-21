@@ -450,53 +450,59 @@ export default function Suppliers() {
               {mergedVendors.length === 0 ? (
                 <div style={{ ...cardStyle, borderRadius: '0 0 8px 8px', textAlign: 'center', color: '#6b7280' }}>No inventory suppliers found</div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '15px', padding: '15px', background: '#fff', borderRadius: '0 0 8px 8px', border: '1px solid #e5e7eb', borderTop: 'none' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '15px', padding: '15px', background: '#fff', borderRadius: '0 0 8px 8px', border: '1px solid #e5e7eb', borderTop: 'none' }}>
                   {mergedVendors.map((vendor) => (
                     <div key={vendor.name} style={{ padding: '16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafbfc' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                      {/* Header: Name + Buttons */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           {mergeMode && (
                             <input type="checkbox" checked={mergeSelected.has(vendor.name)} onChange={() => toggleMergeSelect(vendor.name)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
                           )}
-                          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#1f2937' }}>{vendor.name}</h3>
+                          <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.name}</h3>
                         </div>
                         <div style={{ display: 'flex', gap: '4px' }}>
                           <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
                           <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
                         </div>
                       </div>
-                      {vendor.website && (
-                        <div style={{ marginBottom: '10px' }}>
-                          <a href={vendor.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.8rem' }}>
-                            {vendor.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                          </a>
+
+                      {/* Stats Row */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', padding: '10px', background: '#f0f4f8', borderRadius: '6px', marginBottom: '12px' }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ color: '#6b7280', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>Items</div>
+                          <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.item_count || 0}</div>
                         </div>
-                      )}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f3f4f6' }}>
-                        <div>
-                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Items</div>
-                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.item_count || 0}</div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ color: '#6b7280', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>Cost Value</div>
+                          <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e3a5f' }}>{formatCurrency(vendor.total_value || 0)}</div>
                         </div>
-                        <div>
-                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Cost Value</div>
-                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{formatCurrency(vendor.total_value || 0)}</div>
-                        </div>
-                        <div>
-                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>POs</div>
-                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.po_count || 0}</div>
-                        </div>
-                        <div>
-                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Account #</div>
-                          <div style={{ fontSize: '0.85rem', fontWeight: 500, color: '#374151' }}>{vendor.account_number || '—'}</div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ color: '#6b7280', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>POs</div>
+                          <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.po_count || 0}</div>
                         </div>
                       </div>
-                      {vendor.contact_name && (
-                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #f3f4f6', fontSize: '0.8rem' }}>
-                          <strong>{vendor.contact_name}</strong>
-                          {vendor.contact_email && <div style={{ color: '#2563eb' }}>{vendor.contact_email}</div>}
-                          {vendor.contact_phone && <div style={{ color: '#374151' }}>{vendor.contact_phone}</div>}
+
+                      {/* Profile Details */}
+                      <div style={{ fontSize: '0.8rem', color: '#374151' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '4px 8px', lineHeight: '1.6' }}>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Website</span>
+                          <span>{vendor.website ? <a href={vendor.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{vendor.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Account #</span>
+                          <span>{vendor.account_number || <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Contact</span>
+                          <span>{vendor.contact_name || <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Email</span>
+                          <span>{vendor.contact_email ? <a href={`mailto:${vendor.contact_email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{vendor.contact_email}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Phone</span>
+                          <span>{vendor.contact_phone ? <a href={`tel:${vendor.contact_phone.replace(/\D/g, '')}`} style={{ color: '#374151', textDecoration: 'none' }}>{vendor.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                         </div>
-                      )}
+                        {vendor.notes && (
+                          <div style={{ marginTop: '8px', padding: '8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.78rem', color: '#92400e', fontStyle: 'italic' }}>
+                            {vendor.notes}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -523,21 +529,31 @@ export default function Suppliers() {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
                         {miscBySubcategory[subcat].map(s => (
-                          <div key={s.name} style={{ padding: '12px 16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafbfc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
+                          <div key={s.name} style={{ padding: '14px 16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafbfc' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                               <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1f2937' }}>{s.name}</div>
-                              {s.website && (
-                                <a href={s.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.75rem' }}>
-                                  {s.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                                </a>
-                              )}
-                              {s.contact_name && <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>{s.contact_name}{s.contact_phone ? ` — ${s.contact_phone}` : ''}</div>}
-                              {s.notes && <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '2px', fontStyle: 'italic' }}>{s.notes}</div>}
+                              <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                <button onClick={() => handleEditVendor(s)} style={btnSmall}>Edit</button>
+                                <button onClick={() => handleDeleteMiscSupplier(s.name)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
+                              </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                              <button onClick={() => handleEditVendor(s)} style={btnSmall}>Edit</button>
-                              <button onClick={() => handleDeleteMiscSupplier(s.name)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
+                            <div style={{ fontSize: '0.78rem', color: '#374151', display: 'grid', gridTemplateColumns: '70px 1fr', gap: '2px 8px', lineHeight: '1.6' }}>
+                              <span style={{ color: '#6b7280', fontWeight: 600 }}>Website</span>
+                              <span>{s.website ? <a href={s.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{s.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                              <span style={{ color: '#6b7280', fontWeight: 600 }}>Contact</span>
+                              <span>{s.contact_name || <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                              <span style={{ color: '#6b7280', fontWeight: 600 }}>Email</span>
+                              <span>{s.contact_email ? <a href={`mailto:${s.contact_email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{s.contact_email}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                              <span style={{ color: '#6b7280', fontWeight: 600 }}>Phone</span>
+                              <span>{s.contact_phone ? <a href={`tel:${s.contact_phone.replace(/\D/g, '')}`} style={{ color: '#374151', textDecoration: 'none' }}>{s.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                              <span style={{ color: '#6b7280', fontWeight: 600 }}>Account</span>
+                              <span>{s.account_number || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                             </div>
+                            {s.notes && (
+                              <div style={{ marginTop: '6px', padding: '6px 8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.75rem', color: '#92400e', fontStyle: 'italic' }}>
+                                {s.notes}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
