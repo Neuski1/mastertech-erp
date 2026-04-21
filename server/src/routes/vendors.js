@@ -9,7 +9,8 @@ const { requireRole } = require('../middleware/auth');
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT vendor AS name, COUNT(*) AS item_count
+      `SELECT vendor AS name, COUNT(*) AS item_count,
+              COALESCE(SUM(qty_on_hand * COALESCE(cost_each, 0)), 0) AS total_value
        FROM inventory
        WHERE deleted_at IS NULL AND vendor IS NOT NULL AND vendor != ''
          AND (qty_on_hand > 0 OR COALESCE(reorder_level, 0) > 0)

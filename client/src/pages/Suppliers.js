@@ -102,7 +102,7 @@ export default function Suppliers() {
   // Merge inventory vendors (from inventory table) with their detail records
   const mergedVendors = vendors.map(vendor => {
     const details = vendorDetails.find(d => d.vendor_name && d.vendor_name.toLowerCase() === vendor.name.toLowerCase());
-    return { name: vendor.name, item_count: vendor.item_count || 0, supplier_type: 'inventory', ...details };
+    return { ...details, name: vendor.name, item_count: vendor.item_count || 0, total_value: vendor.total_value || 0, supplier_type: 'inventory' };
   });
 
   // Misc suppliers: vendor_details rows where supplier_type = 'misc' and NOT already in inventory vendors
