@@ -22,6 +22,12 @@ export default function Suppliers() {
   const [mergeSaving, setMergeSaving] = useState(false);
   const [actionMsg, setActionMsg] = useState('');
 
+  // Misc Supplier State
+  const [addMiscModalOpen, setAddMiscModalOpen] = useState(false);
+  const [miscForm, setMiscForm] = useState({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
+  const [subcategories, setSubcategories] = useState([]);
+  const [newSubcategory, setNewSubcategory] = useState('');
+
   // Purchase Orders Tab State
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [poTotal, setPoTotal] = useState(0);
@@ -63,8 +69,11 @@ export default function Suppliers() {
       const vendorsList = await api.getVendors();
       let vendorDetailsData = [];
       try { vendorDetailsData = await api.getVendorDetails(); } catch(e) {}
+      let subcats = [];
+      try { subcats = await api.getSupplierSubcategories(); } catch(e) {}
       setVendors(vendorsList || []);
       setVendorDetails(vendorDetailsData || []);
+      setSubcategories(subcats || []);
     } catch (error) {
       console.error('Error fetching vendors:', error);
     } finally {
@@ -88,12 +97,28 @@ export default function Suppliers() {
     }
   }, [poStatusFilter, poVendorFilter]);
 
+  // Merge inventory vendors (from inventory table) with their detail records
   const mergedVendors = vendors.map(vendor => {
     const details = vendorDetails.find(d => d.vendor_name && d.vendor_name.toLowerCase() === vendor.name.toLowerCase());
-    return { name: vendor.name, item_count: vendor.item_count || 0, ...details };
+    return { name: vendor.name, item_count: vendor.item_count || 0, supplier_type: 'inventory', ...details };
   });
 
-  const totalSuppliers = mergedVendors.length;
+  // Misc suppliers: vendor_details rows where supplier_type = 'misc' and NOT already in inventory vendors
+  const inventoryNames = new Set(vendors.map(v => v.name.toLowerCase()));
+  const miscSuppliers = vendorDetails
+    .filter(d => d.supplier_type === 'misc' && !inventoryNames.has((d.vendor_name || '').toLowerCase()))
+    .map(d => ({ name: d.vendor_name, item_count: 0, ...d }));
+
+  // Group misc suppliers by subcategory
+  const miscBySubcategory = {};
+  miscSuppliers.forEach(s => {
+    const cat = s.subcategory || 'Uncategorized';
+    if (!miscBySubcategory[cat]) miscBySubcategory[cat] = [];
+    miscBySubcategory[cat].push(s);
+  });
+  const sortedSubcats = Object.keys(miscBySubcategory).sort((a, b) => a === 'Uncategorized' ? 1 : b === 'Uncategorized' ? -1 : a.localeCompare(b));
+
+  const totalSuppliers = mergedVendors.length + miscSuppliers.length;
   const totalInventoryValue = mergedVendors.reduce((sum, v) => sum + parseFloat(v.total_value || 0), 0);
   const totalPurchaseOrders = mergedVendors.reduce((sum, v) => sum + parseInt(v.po_count || 0), 0);
 
@@ -105,15 +130,51 @@ export default function Suppliers() {
       contact_email: vendor.contact_email || '',
       contact_phone: vendor.contact_phone || '',
       account_number: vendor.account_number || '',
-      notes: vendor.notes || ''
+      notes: vendor.notes || '',
+      supplier_type: vendor.supplier_type || 'inventory',
+      subcategory: vendor.subcategory || ''
     });
     setEditModalOpen(true);
+  };
+
+  const handleAddMiscSupplier = async () => {
+    const name = miscForm.vendor_name.trim();
+    if (!name) { alert('Supplier name is required'); return; }
+    const subcat = newSubcategory.trim() || miscForm.subcategory;
+    try {
+      await api.updateVendorDetails(name, {
+        ...miscForm,
+        supplier_type: 'misc',
+        subcategory: subcat || null
+      });
+      setAddMiscModalOpen(false);
+      setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
+      setNewSubcategory('');
+      await fetchVendors();
+      setActionMsg(`Added misc supplier "${name}"`);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleDeleteMiscSupplier = async (name) => {
+    if (!window.confirm(`Delete misc supplier "${name}"?`)) return;
+    try {
+      await api.deleteVendorDetails(name);
+      await fetchVendors();
+      setActionMsg(`"${name}" removed`);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
   };
 
   const handleSaveVendor = async () => {
     if (!editingVendor) return;
     try {
-      await api.updateVendorDetails(editingVendor.name, editFormData);
+      const subcat = editFormData._newSubcategory ? editFormData._newSubcategory.trim() : editFormData.subcategory;
+      const payload = { ...editFormData, subcategory: subcat || null };
+      delete payload._newSubcategory;
+      await api.updateVendorDetails(editingVendor.name, payload);
       setEditModalOpen(false);
       await fetchVendors();
     } catch (error) {
@@ -320,10 +381,14 @@ export default function Suppliers() {
       {activeTab === 'suppliers' && (
         <div>
           {/* Summary Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '25px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '25px' }}>
             <div style={cardStyle}>
-              <div style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Suppliers</div>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{totalSuppliers}</div>
+              <div style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase' }}>Inventory Suppliers</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{mergedVendors.length}</div>
+            </div>
+            <div style={cardStyle}>
+              <div style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase' }}>Misc. Suppliers</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#0d9488', marginTop: '8px' }}>{miscSuppliers.length}</div>
             </div>
             <div style={cardStyle}>
               <div style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Inventory Value</div>
@@ -338,9 +403,14 @@ export default function Suppliers() {
           {/* Action Bar */}
           <div style={{ ...cardStyle, marginBottom: '15px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             {!mergeMode ? (
-              <button onClick={() => { setMergeMode(true); setMergeSelected(new Set()); setMergeInto(''); }} style={btnSecondary}>
-                Merge Suppliers
-              </button>
+              <>
+                <button onClick={() => { setMergeMode(true); setMergeSelected(new Set()); setMergeInto(''); }} style={btnSecondary}>
+                  Merge Suppliers
+                </button>
+                <button onClick={() => { setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
+                  + Add Misc. Supplier
+                </button>
+              </>
             ) : (
               <>
                 <span style={{ fontWeight: 600, color: '#1f2937' }}>Select suppliers to merge:</span>
@@ -361,66 +431,114 @@ export default function Suppliers() {
             )}
           </div>
 
-          {/* Suppliers List */}
           {loadingVendors ? (
             <div style={{ ...cardStyle, textAlign: 'center', color: '#6b7280' }}>Loading suppliers...</div>
-          ) : mergedVendors.length === 0 ? (
-            <div style={{ ...cardStyle, textAlign: 'center', color: '#6b7280' }}>No suppliers found</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '15px' }}>
-              {mergedVendors.map((vendor) => (
-                <div key={vendor.name} style={cardStyle}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {mergeMode && (
-                        <input type="checkbox" checked={mergeSelected.has(vendor.name)} onChange={() => toggleMergeSelect(vendor.name)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+            <>
+              {/* ═══════════ SECTION 1: INVENTORY SUPPLIERS ═══════════ */}
+              <div style={{ background: '#1e3a5f', color: '#fff', padding: '10px 16px', borderRadius: '8px 8px 0 0', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Inventory Suppliers</span>
+                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({mergedVendors.length})</span>
+              </div>
+              {mergedVendors.length === 0 ? (
+                <div style={{ ...cardStyle, borderRadius: '0 0 8px 8px', textAlign: 'center', color: '#6b7280' }}>No inventory suppliers found</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '15px', padding: '15px', background: '#fff', borderRadius: '0 0 8px 8px', border: '1px solid #e5e7eb', borderTop: 'none' }}>
+                  {mergedVendors.map((vendor) => (
+                    <div key={vendor.name} style={{ padding: '16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafbfc' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {mergeMode && (
+                            <input type="checkbox" checked={mergeSelected.has(vendor.name)} onChange={() => toggleMergeSelect(vendor.name)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                          )}
+                          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#1f2937' }}>{vendor.name}</h3>
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
+                          <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
+                        </div>
+                      </div>
+                      {vendor.website && (
+                        <div style={{ marginBottom: '10px' }}>
+                          <a href={vendor.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.8rem' }}>
+                            {vendor.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                          </a>
+                        </div>
                       )}
-                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.name}</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f3f4f6' }}>
+                        <div>
+                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Items</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.item_count || 0}</div>
+                        </div>
+                        <div>
+                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Value</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{formatCurrency(vendor.total_value || 0)}</div>
+                        </div>
+                        <div>
+                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>POs</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.po_count || 0}</div>
+                        </div>
+                        <div>
+                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Account #</div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 500, color: '#374151' }}>{vendor.account_number || '—'}</div>
+                        </div>
+                      </div>
+                      {vendor.contact_name && (
+                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #f3f4f6', fontSize: '0.8rem' }}>
+                          <strong>{vendor.contact_name}</strong>
+                          {vendor.contact_email && <div style={{ color: '#2563eb' }}>{vendor.contact_email}</div>}
+                          {vendor.contact_phone && <div style={{ color: '#374151' }}>{vendor.contact_phone}</div>}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
-                      <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
-                    </div>
-                  </div>
-
-                  {vendor.website && (
-                    <div style={{ marginBottom: '12px' }}>
-                      <a href={vendor.website} target="_blank" rel="noopener noreferrer"
-                        style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.85rem' }}>
-                        {vendor.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                      </a>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' }}>
-                    <div>
-                      <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600 }}>Items</div>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1f2937' }}>{vendor.item_count || 0}</div>
-                    </div>
-                    <div>
-                      <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600 }}>Value</div>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1f2937' }}>{formatCurrency(vendor.total_value || 0)}</div>
-                    </div>
-                    <div>
-                      <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600 }}>POs</div>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1f2937' }}>{vendor.po_count || 0}</div>
-                    </div>
-                    <div>
-                      <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600 }}>Account #</div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#374151' }}>{vendor.account_number || '—'}</div>
-                    </div>
-                  </div>
-
-                  {vendor.contact_name && (
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f3f4f6', fontSize: '0.85rem' }}>
-                      <strong>{vendor.contact_name}</strong>
-                      {vendor.contact_email && <div style={{ color: '#2563eb' }}>{vendor.contact_email}</div>}
-                      {vendor.contact_phone && <div style={{ color: '#374151' }}>{vendor.contact_phone}</div>}
-                    </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+
+              {/* ═══════════ SECTION 2: MISC. SUPPLIERS ═══════════ */}
+              <div style={{ background: '#0d9488', color: '#fff', padding: '10px 16px', borderRadius: '8px 8px 0 0', marginTop: '30px', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Misc. Suppliers</span>
+                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({miscSuppliers.length}) — Customer-specific parts</span>
+              </div>
+              {miscSuppliers.length === 0 ? (
+                <div style={{ ...cardStyle, borderRadius: '0 0 8px 8px', textAlign: 'center', color: '#6b7280', padding: '30px' }}>
+                  No misc suppliers yet. Click <strong>+ Add Misc. Supplier</strong> above to add one.
+                </div>
+              ) : (
+                <div style={{ background: '#fff', borderRadius: '0 0 8px 8px', border: '1px solid #e5e7eb', borderTop: 'none', padding: '15px' }}>
+                  {sortedSubcats.map(subcat => (
+                    <div key={subcat} style={{ marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <span style={{ background: '#f0fdfa', color: '#0d9488', padding: '4px 12px', borderRadius: '999px', fontSize: '0.85rem', fontWeight: 700, border: '1px solid #99f6e4' }}>
+                          {subcat}
+                        </span>
+                        <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>{miscBySubcategory[subcat].length} supplier{miscBySubcategory[subcat].length !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+                        {miscBySubcategory[subcat].map(s => (
+                          <div key={s.name} style={{ padding: '12px 16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafbfc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1f2937' }}>{s.name}</div>
+                              {s.website && (
+                                <a href={s.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.75rem' }}>
+                                  {s.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                                </a>
+                              )}
+                              {s.contact_name && <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>{s.contact_name}{s.contact_phone ? ` — ${s.contact_phone}` : ''}</div>}
+                              {s.notes && <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '2px', fontStyle: 'italic' }}>{s.notes}</div>}
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                              <button onClick={() => handleEditVendor(s)} style={btnSmall}>Edit</button>
+                              <button onClick={() => handleDeleteMiscSupplier(s.name)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -504,6 +622,28 @@ export default function Suppliers() {
         <div style={modalOverlayStyle} onClick={() => setEditModalOpen(false)}>
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 20px 0', color: '#1f2937' }}>Edit Supplier: {editingVendor.name}</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Type</label>
+                <select value={editFormData.supplier_type || 'inventory'} onChange={(e) => setEditFormData({ ...editFormData, supplier_type: e.target.value })} style={inputStyle}>
+                  <option value="inventory">Inventory Supplier</option>
+                  <option value="misc">Misc. Supplier</option>
+                </select>
+              </div>
+              {editFormData.supplier_type === 'misc' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Subcategory</label>
+                  <select value={editFormData.subcategory || ''} onChange={(e) => { if (e.target.value === '__new__') { setEditFormData({ ...editFormData, subcategory: '', _newSubcategory: '' }); } else { setEditFormData({ ...editFormData, subcategory: e.target.value, _newSubcategory: '' }); } }} style={inputStyle}>
+                    <option value="">None</option>
+                    {subcategories.map(s => <option key={s} value={s}>{s}</option>)}
+                    <option value="__new__">+ New Subcategory...</option>
+                  </select>
+                  {editFormData.subcategory === '' && editFormData._newSubcategory !== undefined && (
+                    <input type="text" value={editFormData._newSubcategory || ''} onChange={(e) => setEditFormData({ ...editFormData, _newSubcategory: e.target.value })} placeholder="Type new subcategory name..." style={{ ...inputStyle, marginTop: '6px' }} autoFocus />
+                  )}
+                </div>
+              )}
+            </div>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Website</label>
               <input type="text" value={editFormData.website} onChange={(e) => setEditFormData({ ...editFormData, website: e.target.value })} style={inputStyle} placeholder="https://example.com" />
@@ -711,6 +851,52 @@ export default function Suppliers() {
                   Mark Received
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD MISC SUPPLIER MODAL */}
+      {addMiscModalOpen && (
+        <div style={modalOverlayStyle} onClick={() => setAddMiscModalOpen(false)}>
+          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 20px 0', color: '#0d9488' }}>Add Misc. Supplier</h2>
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Name *</label>
+              <input type="text" value={miscForm.vendor_name} onChange={(e) => setMiscForm({ ...miscForm, vendor_name: e.target.value })} style={inputStyle} placeholder="e.g. Home Depot, Lowe's, local shop..." autoFocus />
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Subcategory</label>
+              <select value={miscForm.subcategory} onChange={(e) => { setMiscForm({ ...miscForm, subcategory: e.target.value }); if (e.target.value !== '__new__') setNewSubcategory(''); }} style={inputStyle}>
+                <option value="">None</option>
+                {subcategories.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="__new__">+ Create New Subcategory...</option>
+              </select>
+              {miscForm.subcategory === '__new__' && (
+                <input type="text" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} placeholder="Type new subcategory name (e.g. Awnings, Glass, Plumbing)..." style={{ ...inputStyle, marginTop: '6px' }} autoFocus />
+              )}
+            </div>
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Website</label>
+              <input type="text" value={miscForm.website} onChange={(e) => setMiscForm({ ...miscForm, website: e.target.value })} style={inputStyle} placeholder="https://example.com" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Name</label>
+                <input type="text" value={miscForm.contact_name} onChange={(e) => setMiscForm({ ...miscForm, contact_name: e.target.value })} style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Phone</label>
+                <input type="tel" value={miscForm.contact_phone} onChange={(e) => setMiscForm({ ...miscForm, contact_phone: e.target.value })} style={inputStyle} />
+              </div>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Notes</label>
+              <textarea value={miscForm.notes} onChange={(e) => setMiscForm({ ...miscForm, notes: e.target.value })} style={{ ...inputStyle, minHeight: '60px', fontFamily: 'inherit' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setAddMiscModalOpen(false)} style={btnSecondary}>Cancel</button>
+              <button onClick={handleAddMiscSupplier} style={{ ...btnPrimary, background: '#0d9488' }}>Add Supplier</button>
             </div>
           </div>
         </div>

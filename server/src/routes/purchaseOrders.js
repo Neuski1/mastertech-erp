@@ -73,10 +73,10 @@ router.get('/vendors/details', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.put('/vendors/details/:name', async (req, res) => {
   try {
-    const { website, contact_name, contact_email, contact_phone, account_number, notes } = req.body;
+    const { website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO vendor_details (vendor_name, website, contact_name, contact_email, contact_phone, account_number, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO vendor_details (vendor_name, website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (vendor_name) DO UPDATE SET
          website = EXCLUDED.website,
          contact_name = EXCLUDED.contact_name,
@@ -84,13 +84,47 @@ router.put('/vendors/details/:name', async (req, res) => {
          contact_phone = EXCLUDED.contact_phone,
          account_number = EXCLUDED.account_number,
          notes = EXCLUDED.notes,
+         supplier_type = EXCLUDED.supplier_type,
+         subcategory = EXCLUDED.subcategory,
          updated_at = NOW()
        RETURNING *`,
-      [req.params.name, website || null, contact_name || null, contact_email || null, contact_phone || null, account_number || null, notes || null]
+      [req.params.name, website || null, contact_name || null, contact_email || null, contact_phone || null, account_number || null, notes || null, supplier_type || 'inventory', subcategory || null]
     );
     res.json(rows[0]);
   } catch (err) {
     console.error('PUT vendor details error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/purchase-orders/vendors/subcategories — List distinct subcategories
+// ---------------------------------------------------------------------------
+router.get('/vendors/subcategories', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT subcategory FROM vendor_details WHERE subcategory IS NOT NULL AND subcategory != '' ORDER BY subcategory`
+    );
+    res.json(rows.map(r => r.subcategory));
+  } catch (err) {
+    console.error('GET subcategories error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/purchase-orders/vendors/details/:name — Delete a misc supplier
+// ---------------------------------------------------------------------------
+router.delete('/vendors/details/:name', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM vendor_details WHERE vendor_name = $1 AND supplier_type = 'misc'`,
+      [req.params.name]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Misc supplier not found (inventory suppliers cannot be deleted here)' });
+    res.json({ message: 'Misc supplier deleted' });
+  } catch (err) {
+    console.error('DELETE vendor details error:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -339,6 +339,8 @@ export const api = {
   deletePOLineItem: (poId, itemId) => request(`/purchase-orders/${poId}/items/${itemId}`, { method: 'DELETE' }),
   getVendorDetails: () => request('/purchase-orders/vendors/details'),
   updateVendorDetails: (name, data) => request(`/purchase-orders/vendors/details/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteVendorDetails: (name) => request(`/purchase-orders/vendors/details/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getSupplierSubcategories: () => request('/purchase-orders/vendors/subcategories'),
 
   // Online payments (Poynt / GoDaddy Payments)
   createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),

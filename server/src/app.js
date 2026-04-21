@@ -390,6 +390,12 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_number VARCHAR(100)`);
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_tracking VARCHAR(255)`);
 
+    // Migration 049: supplier_type and subcategory on vendor_details
+    await pool.query(`ALTER TABLE vendor_details ADD COLUMN IF NOT EXISTS supplier_type VARCHAR(20) NOT NULL DEFAULT 'inventory'`);
+    await pool.query(`ALTER TABLE vendor_details ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100)`);
+    // Mark the 3 seeded suppliers as inventory type
+    await pool.query(`UPDATE vendor_details SET supplier_type = 'inventory' WHERE vendor_name IN ('NTP/Stag', 'Amazon Business', 'etrailer') AND supplier_type IS NULL`);
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
