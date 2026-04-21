@@ -307,25 +307,31 @@ export default function Suppliers() {
     }
   };
 
-  // Amazon — fetch already-imported Amazon POs from our system
-  const [amazonPOs, setAmazonPOs] = useState([]);
-  const [loadingAmazon, setLoadingAmazon] = useState(false);
+  // Import Orders tab state
+  const importSuppliers = ['Amazon Business', 'NTP', 'IronBear', 'eTrailer', 'Home Depot', 'Lippert', 'Powerwerx', 'Epoch', 'Torklift', 'Airstream'];
+  const [importSupplier, setImportSupplier] = useState('');
+  const [importPOs, setImportPOs] = useState([]);
+  const [loadingImport, setLoadingImport] = useState(false);
+  const [quickPoOpen, setQuickPoOpen] = useState(false);
+  const [quickPo, setQuickPo] = useState({ vendor: '', order_date: new Date().toISOString().split('T')[0], order_number: '', notes: '', line_items: [] });
+  const [quickLineItem, setQuickLineItem] = useState({ description: '', qty: '', cost_each: '' });
 
-  const fetchAmazonPOs = useCallback(async () => {
-    setLoadingAmazon(true);
+  const fetchImportPOs = useCallback(async (supplier) => {
+    if (!supplier) { setImportPOs([]); return; }
+    setLoadingImport(true);
     try {
-      const result = await api.getPurchaseOrders({ vendor: 'Amazon Business', limit: 100 });
-      setAmazonPOs(result.orders || []);
+      const result = await api.getPurchaseOrders({ vendor: supplier, limit: 100 });
+      setImportPOs(result.orders || []);
     } catch (err) {
-      console.error('Error fetching Amazon POs:', err);
+      console.error('Error fetching import POs:', err);
     } finally {
-      setLoadingAmazon(false);
+      setLoadingImport(false);
     }
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'amazon') fetchAmazonPOs();
-  }, [activeTab]);
+    if (activeTab === 'import') fetchImportPOs(importSupplier);
+  }, [activeTab, importSupplier]);
 
   // Styles
   const cardStyle = { background: '#fff', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' };
@@ -405,11 +411,11 @@ export default function Suppliers() {
           Purchase Orders
         </button>
         <button
-          onClick={() => setActiveTab('amazon')}
+          onClick={() => setActiveTab('import')}
           style={{
             padding: '12px 24px',
-            background: activeTab === 'amazon' ? '#ff9900' : '#fff',
-            color: activeTab === 'amazon' ? '#fff' : '#6b7280',
+            background: activeTab === 'import' ? '#1e3a5f' : '#fff',
+            color: activeTab === 'import' ? '#fff' : '#6b7280',
             border: '1px solid #d1d5db',
             borderRadius: '0 6px 6px 0',
             cursor: 'pointer',
@@ -417,7 +423,7 @@ export default function Suppliers() {
             fontSize: '0.95rem'
           }}
         >
-          Amazon Import
+          Import Orders
         </button>
       </div>
 
@@ -681,96 +687,220 @@ export default function Suppliers() {
         </div>
       )}
 
-      {/* AMAZON IMPORT TAB */}
-      {activeTab === 'amazon' && (
+      {/* IMPORT ORDERS TAB */}
+      {activeTab === 'import' && (
         <div>
-          {/* Amazon Header Card */}
-          <div style={{ ...cardStyle, marginBottom: '20px', background: 'linear-gradient(135deg, #ff9900 0%, #ffad33 100%)', color: '#fff' }}>
+          {/* Header */}
+          <div style={{ ...cardStyle, marginBottom: '20px', background: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%)', color: '#fff' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
               <div>
-                <h2 style={{ margin: '0 0 5px 0', fontSize: '1.3rem', fontWeight: 700 }}>Amazon Business Integration</h2>
+                <h2 style={{ margin: '0 0 5px 0', fontSize: '1.3rem', fontWeight: 700 }}>Import Orders</h2>
                 <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.9 }}>
-                  Import Amazon Business orders from Gmail as Purchase Orders with auto-matching to inventory
+                  Track and import supplier orders — auto-scan emails, manually add POs, or both
                 </p>
               </div>
-              <button onClick={fetchAmazonPOs} style={{ padding: '10px 20px', background: '#fff', color: '#ff9900', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
-                Refresh
-              </button>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select
+                  value={importSupplier}
+                  onChange={(e) => setImportSupplier(e.target.value)}
+                  style={{ padding: '10px 14px', borderRadius: '6px', border: 'none', fontSize: '0.9rem', fontWeight: 600, minWidth: '180px' }}
+                >
+                  <option value="">-- Select Supplier --</option>
+                  {importSuppliers.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                {importSupplier && (
+                  <button onClick={() => fetchImportPOs(importSupplier)} style={{ padding: '10px 16px', background: '#fff', color: '#1e3a5f', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem' }}>
+                    Refresh
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* How It Works */}
-          <div style={{ ...cardStyle, marginBottom: '20px', padding: '16px 20px' }}>
-            <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: '8px', fontSize: '0.95rem' }}>How Amazon Import Works</div>
-            <div style={{ fontSize: '0.85rem', color: '#374151', lineHeight: '1.7' }}>
-              Ask me to <strong>"scan and import Amazon orders"</strong> in our chat and I'll scan your Gmail for Amazon Business order confirmations, parse the order details (items, prices, quantities, shipping, tracking), and create Purchase Orders in your system. Items are automatically matched to your existing inventory when possible.
-            </div>
-          </div>
-
-          {/* Summary Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '25px' }}>
-            <div style={cardStyle}>
-              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Amazon POs</div>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ff9900', marginTop: '8px' }}>{amazonPOs.length}</div>
-            </div>
-            <div style={cardStyle}>
-              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Spent</div>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{formatCurrency(amazonPOs.reduce((s, p) => s + parseFloat(p.total || 0), 0))}</div>
-            </div>
-            <div style={cardStyle}>
-              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Pending</div>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706', marginTop: '8px' }}>{amazonPOs.filter(p => p.status === 'pending').length}</div>
-            </div>
-            <div style={cardStyle}>
-              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Received</div>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#059669', marginTop: '8px' }}>{amazonPOs.filter(p => p.status === 'received').length}</div>
-            </div>
-          </div>
-
-          {/* Imported Orders Table */}
-          {loadingAmazon ? (
-            <div style={{ ...cardStyle, textAlign: 'center', color: '#6b7280' }}>Loading Amazon orders...</div>
-          ) : amazonPOs.length === 0 ? (
+          {!importSupplier ? (
+            /* No supplier selected — show overview */
             <div style={{ ...cardStyle, textAlign: 'center', padding: '50px 20px', color: '#9ca3af' }}>
               <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>📦</div>
-              <div style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>No Amazon Orders Imported Yet</div>
-              <div style={{ fontSize: '0.85rem' }}>Ask me to "scan and import Amazon orders" to get started.</div>
+              <div style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Select a Supplier Above</div>
+              <div style={{ fontSize: '0.85rem', lineHeight: '1.7' }}>
+                Choose a supplier from the dropdown to view their imported orders, add new POs manually, or scan emails for order confirmations.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginTop: '20px' }}>
+                {importSuppliers.map(s => (
+                  <button key={s} onClick={() => setImportSupplier(s)} style={{ padding: '6px 14px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '20px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 500 }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
-            <div style={cardStyle}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>PO#</th>
-                    <th style={thStyle}>Amazon Order #</th>
-                    <th style={thStyle}>Order Date</th>
-                    <th style={thStyle}>Items</th>
-                    <th style={thStyle}>Total</th>
-                    <th style={thStyle}>Status</th>
-                    <th style={thStyle}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {amazonPOs.map((po) => (
-                    <tr key={po.id} style={{ cursor: 'pointer' }} onClick={() => handleViewPoDetail(po)}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: '#1e3a5f' }}>{po.id}</td>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.82rem' }}>{po.order_number || '—'}</td>
-                      <td style={tdStyle}>{po.order_date ? new Date(po.order_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
-                      <td style={tdStyle}>{po.item_count || 0}</td>
-                      <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
-                      <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
-                      <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
-                        {po.status === 'pending' && (
-                          <button onClick={() => handleMarkReceived(po.id)} style={{ ...btnSmall, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
-                            Receive
+            /* Supplier selected — show stats, quick-add, and PO table */
+            <>
+              {/* Summary Stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+                <div style={cardStyle}>
+                  <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>{importSupplier} POs</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{importPOs.length}</div>
+                </div>
+                <div style={cardStyle}>
+                  <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Spent</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{formatCurrency(importPOs.reduce((s, p) => s + parseFloat(p.total || 0), 0))}</div>
+                </div>
+                <div style={cardStyle}>
+                  <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Pending</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706', marginTop: '8px' }}>{importPOs.filter(p => p.status === 'pending').length}</div>
+                </div>
+                <div style={cardStyle}>
+                  <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Received</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#059669', marginTop: '8px' }}>{importPOs.filter(p => p.status === 'received').length}</div>
+                </div>
+              </div>
+
+              {/* Quick-Add PO + Tips Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+                {/* Quick-Add PO */}
+                <div style={cardStyle}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ fontWeight: 700, color: '#1f2937', fontSize: '0.95rem' }}>Quick-Add PO</div>
+                    <button onClick={() => { setQuickPoOpen(!quickPoOpen); setQuickPo({ ...quickPo, vendor: importSupplier }); }} style={{ ...btnSmall, background: quickPoOpen ? '#fee2e2' : '#d1fae5', color: quickPoOpen ? '#991b1b' : '#065f46', border: quickPoOpen ? '1px solid #fca5a5' : '1px solid #6ee7b7' }}>
+                      {quickPoOpen ? 'Cancel' : '+ Add Order'}
+                    </button>
+                  </div>
+                  {quickPoOpen && (
+                    <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Order #</label>
+                          <input style={inputStyle} placeholder="e.g. INV-12345" value={quickPo.order_number} onChange={(e) => setQuickPo({ ...quickPo, order_number: e.target.value })} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Order Date</label>
+                          <input type="date" style={inputStyle} value={quickPo.order_date} onChange={(e) => setQuickPo({ ...quickPo, order_date: e.target.value })} />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Notes</label>
+                        <input style={inputStyle} placeholder="Optional notes" value={quickPo.notes} onChange={(e) => setQuickPo({ ...quickPo, notes: e.target.value })} />
+                      </div>
+                      {/* Line items */}
+                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Line Items ({quickPo.line_items.length})</div>
+                      {quickPo.line_items.map((li, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '0.82rem', color: '#374151' }}>
+                          <span style={{ flex: 1 }}>{li.description}</span>
+                          <span>x{li.qty}</span>
+                          <span>{formatCurrency(li.cost_each)}</span>
+                          <span style={{ fontWeight: 600 }}>{formatCurrency(li.qty * li.cost_each)}</span>
+                          <button onClick={() => setQuickPo({ ...quickPo, line_items: quickPo.line_items.filter((_, i) => i !== idx) })} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem' }}>x</button>
+                        </div>
+                      ))}
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '6px', marginTop: '8px' }}>
+                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} placeholder="Item description" value={quickLineItem.description} onChange={(e) => setQuickLineItem({ ...quickLineItem, description: e.target.value })} />
+                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="number" placeholder="Qty" value={quickLineItem.qty} onChange={(e) => setQuickLineItem({ ...quickLineItem, qty: e.target.value })} />
+                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="number" step="0.01" placeholder="Cost" value={quickLineItem.cost_each} onChange={(e) => setQuickLineItem({ ...quickLineItem, cost_each: e.target.value })} />
+                        <button
+                          onClick={() => {
+                            if (!quickLineItem.description || !quickLineItem.qty || !quickLineItem.cost_each) return;
+                            setQuickPo({ ...quickPo, line_items: [...quickPo.line_items, { ...quickLineItem, qty: parseInt(quickLineItem.qty), cost_each: parseFloat(quickLineItem.cost_each) }] });
+                            setQuickLineItem({ description: '', qty: '', cost_each: '' });
+                          }}
+                          style={{ ...btnSmall, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', whiteSpace: 'nowrap' }}
+                        >+</button>
+                      </div>
+                      {quickPo.line_items.length > 0 && (
+                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e3a5f' }}>
+                            Total: {formatCurrency(quickPo.line_items.reduce((s, li) => s + (li.qty * li.cost_each), 0))}
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (quickPo.line_items.length === 0) return;
+                              try {
+                                await api.createPurchaseOrder({ ...quickPo, vendor: importSupplier, shipping_cost: 0 });
+                                setQuickPoOpen(false);
+                                setQuickPo({ vendor: importSupplier, order_date: new Date().toISOString().split('T')[0], order_number: '', notes: '', line_items: [] });
+                                setQuickLineItem({ description: '', qty: '', cost_each: '' });
+                                fetchImportPOs(importSupplier);
+                              } catch (err) {
+                                alert('Error creating PO: ' + (err.message || 'Unknown error'));
+                              }
+                            }}
+                            style={btnPrimary}
+                          >
+                            Save PO
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Tips Card */}
+                <div style={cardStyle}>
+                  <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: '8px', fontSize: '0.95rem' }}>Import Tips</div>
+                  <div style={{ fontSize: '0.85rem', color: '#374151', lineHeight: '1.8' }}>
+                    {importSupplier === 'Amazon Business' ? (
+                      <>
+                        <strong>Auto-scan:</strong> Ask me to <em>"scan and import Amazon orders"</em> in chat — I'll scan your Gmail for order confirmations and create POs automatically with inventory matching.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Manual entry:</strong> Use the Quick-Add form to log orders from {importSupplier}. Enter the order number, date, and line items with costs.
+                      </>
+                    )}
+                    <div style={{ marginTop: '10px', padding: '10px', background: '#f0f9ff', borderRadius: '6px', border: '1px solid #bae6fd' }}>
+                      <strong style={{ color: '#0369a1' }}>Coming soon:</strong> Email auto-scanning for all suppliers. Currently available for Amazon Business.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Orders Table */}
+              {loadingImport ? (
+                <div style={{ ...cardStyle, textAlign: 'center', color: '#6b7280' }}>Loading {importSupplier} orders...</div>
+              ) : importPOs.length === 0 ? (
+                <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 20px', color: '#9ca3af' }}>
+                  <div style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>No Orders for {importSupplier} Yet</div>
+                  <div style={{ fontSize: '0.85rem' }}>Use Quick-Add above to log your first order{importSupplier === 'Amazon Business' ? ', or ask me to scan your Gmail.' : '.'}</div>
+                </div>
+              ) : (
+                <div style={cardStyle}>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>PO#</th>
+                        <th style={thStyle}>Order #</th>
+                        <th style={thStyle}>Order Date</th>
+                        <th style={thStyle}>Items</th>
+                        <th style={thStyle}>Total</th>
+                        <th style={thStyle}>Status</th>
+                        <th style={thStyle}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPOs.map((po) => (
+                        <tr key={po.id} style={{ cursor: 'pointer' }} onClick={() => handleViewPoDetail(po)}>
+                          <td style={{ ...tdStyle, fontWeight: 600, color: '#1e3a5f' }}>{po.id}</td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.82rem' }}>{po.order_number || '—'}</td>
+                          <td style={tdStyle}>{po.order_date ? new Date(po.order_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+                          <td style={tdStyle}>{po.item_count || 0}</td>
+                          <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
+                          <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
+                          <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                            {po.status === 'pending' && (
+                              <button onClick={() => handleMarkReceived(po.id)} style={{ ...btnSmall, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
+                                Receive
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
