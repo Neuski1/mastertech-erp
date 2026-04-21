@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 export default function Suppliers() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('suppliers');
 
   // Suppliers Tab State
@@ -471,7 +473,11 @@ export default function Suppliers() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', padding: '10px', background: '#f0f4f8', borderRadius: '6px', marginBottom: '12px' }}>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ color: '#6b7280', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>Items</div>
-                          <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.item_count || 0}</div>
+                          <div
+                            onClick={(e) => { e.stopPropagation(); navigate(`/inventory?vendor=${encodeURIComponent(vendor.name)}`); }}
+                            style={{ fontSize: '1.2rem', fontWeight: 700, color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+                            title={`View ${vendor.name} inventory`}
+                          >{vendor.item_count || 0}</div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ color: '#6b7280', fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase' }}>Cost Value</div>
