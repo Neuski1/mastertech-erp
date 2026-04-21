@@ -13,6 +13,14 @@ export default function Suppliers() {
   const [editingVendor, setEditingVendor] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
+  const [deleteModal, setDeleteModal] = useState(null); // { vendor, parts }
+  const [deleteReassign, setDeleteReassign] = useState('');
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSelected, setMergeSelected] = useState(new Set());
+  const [mergeInto, setMergeInto] = useState('');
+  const [mergeSaving, setMergeSaving] = useState(false);
+  const [actionMsg, setActionMsg] = useState('');
 
   // Purchase Orders Tab State
   const [purchaseOrders, setPurchaseOrders] = useState([]);
@@ -111,6 +119,67 @@ export default function Suppliers() {
     } catch (error) {
       console.error('Error updating vendor:', error);
     }
+  };
+
+  const handleDeleteVendor = async (vendor) => {
+    try {
+      const parts = await api.getVendorParts(vendor.name);
+      if (parts.length === 0) {
+        if (window.confirm(`Delete supplier "${vendor.name}"? They have no inventory items.`)) {
+          await api.deleteVendor(vendor.name);
+          setActionMsg(`"${vendor.name}" removed`);
+          await fetchVendors();
+        }
+      } else {
+        setDeleteModal({ vendor, parts });
+        setDeleteReassign('');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModal) return;
+    if (!deleteReassign) { alert('Select a vendor to reassign parts to'); return; }
+    setDeleteSaving(true);
+    try {
+      const updates = deleteModal.parts.map(p => ({ id: p.id, vendor: deleteReassign }));
+      await api.bulkUpdateVendor(updates);
+      await api.deleteVendor(deleteModal.vendor.name);
+      setDeleteModal(null);
+      setActionMsg(`"${deleteModal.vendor.name}" deleted. ${updates.length} parts reassigned to "${deleteReassign}".`);
+      await fetchVendors();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
+  const handleMerge = async () => {
+    if (mergeSelected.size < 2) { alert('Select at least 2 vendors to merge'); return; }
+    if (!mergeInto) { alert('Choose which vendor name to keep'); return; }
+    setMergeSaving(true);
+    try {
+      await api.mergeVendors(Array.from(mergeSelected), mergeInto);
+      setMergeMode(false);
+      setMergeSelected(new Set());
+      setMergeInto('');
+      setActionMsg(`Merged ${mergeSelected.size} vendors into "${mergeInto}"`);
+      await fetchVendors();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setMergeSaving(false);
+    }
+  };
+
+  const toggleMergeSelect = (name) => {
+    const next = new Set(mergeSelected);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    setMergeSelected(next);
   };
 
   const addLineItem = () => {
@@ -266,6 +335,32 @@ export default function Suppliers() {
             </div>
           </div>
 
+          {/* Action Bar */}
+          <div style={{ ...cardStyle, marginBottom: '15px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {!mergeMode ? (
+              <button onClick={() => { setMergeMode(true); setMergeSelected(new Set()); setMergeInto(''); }} style={btnSecondary}>
+                Merge Vendors
+              </button>
+            ) : (
+              <>
+                <span style={{ fontWeight: 600, color: '#1f2937' }}>Select vendors to merge:</span>
+                <select value={mergeInto} onChange={(e) => setMergeInto(e.target.value)} style={{ ...inputStyle, width: '200px' }}>
+                  <option value="">Keep which name?</option>
+                  {Array.from(mergeSelected).map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <button onClick={handleMerge} disabled={mergeSaving} style={{ ...btnPrimary, background: '#065f46' }}>
+                  {mergeSaving ? 'Merging...' : `Merge (${mergeSelected.size} selected)`}
+                </button>
+                <button onClick={() => { setMergeMode(false); setMergeSelected(new Set()); }} style={btnSecondary}>Cancel</button>
+              </>
+            )}
+            {actionMsg && (
+              <div style={{ marginLeft: 'auto', padding: '6px 12px', background: '#d1fae5', color: '#065f46', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600 }}>
+                {actionMsg}
+              </div>
+            )}
+          </div>
+
           {/* Suppliers List */}
           {loadingVendors ? (
             <div style={{ ...cardStyle, textAlign: 'center', color: '#6b7280' }}>Loading suppliers...</div>
@@ -276,8 +371,16 @@ export default function Suppliers() {
               {mergedVendors.map((vendor) => (
                 <div key={vendor.name} style={cardStyle}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.name}</h3>
-                    <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {mergeMode && (
+                        <input type="checkbox" checked={mergeSelected.has(vendor.name)} onChange={() => toggleMergeSelect(vendor.name)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                      )}
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.name}</h3>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
+                      <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
+                    </div>
                   </div>
 
                   {vendor.website && (
@@ -608,6 +711,59 @@ export default function Suppliers() {
                   Mark Received
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE VENDOR MODAL (reassign parts first) */}
+      {deleteModal && (
+        <div style={modalOverlayStyle} onClick={() => setDeleteModal(null)}>
+          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 15px 0', color: '#1f2937' }}>Delete "{deleteModal.vendor.name}"</h2>
+            <p style={{ color: '#374151', marginBottom: '15px' }}>
+              This vendor has <strong>{deleteModal.parts.length} inventory item{deleteModal.parts.length !== 1 ? 's' : ''}</strong>.
+              You need to reassign them to another vendor before deleting.
+            </p>
+
+            <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '15px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Part #</th>
+                    <th style={thStyle}>Description</th>
+                    <th style={thStyle}>Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deleteModal.parts.map(p => (
+                    <tr key={p.id}>
+                      <td style={tdStyle}>{p.part_number || '—'}</td>
+                      <td style={tdStyle}>{p.description}</td>
+                      <td style={tdStyle}>{p.qty_on_hand}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>
+                Reassign all parts to:
+              </label>
+              <select value={deleteReassign} onChange={(e) => setDeleteReassign(e.target.value)} style={inputStyle}>
+                <option value="">Select a vendor</option>
+                {vendors.filter(v => v.name !== deleteModal.vendor.name).map(v => (
+                  <option key={v.name} value={v.name}>{v.name} ({v.item_count} items)</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteModal(null)} style={btnSecondary}>Cancel</button>
+              <button onClick={handleConfirmDelete} disabled={deleteSaving} style={{ ...btnPrimary, background: '#991b1b' }}>
+                {deleteSaving ? 'Deleting...' : 'Reassign & Delete'}
+              </button>
             </div>
           </div>
         </div>
