@@ -55,8 +55,10 @@ router.get('/vendors/details', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT vd.*,
-        (SELECT COUNT(*) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.vendor_name)) AS item_count,
-        (SELECT COALESCE(SUM(i.qty_on_hand * i.cost_each), 0) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.vendor_name)) AS total_value,
+        (SELECT COUNT(*) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.vendor_name)
+          AND (i.qty_on_hand > 0 OR COALESCE(i.reorder_level, 0) > 0)) AS item_count,
+        (SELECT COALESCE(SUM(i.qty_on_hand * i.cost_each), 0) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.vendor_name)
+          AND (i.qty_on_hand > 0 OR COALESCE(i.reorder_level, 0) > 0)) AS total_value,
         (SELECT COUNT(*) FROM purchase_orders po WHERE LOWER(po.vendor) = LOWER(vd.vendor_name)) AS po_count
        FROM vendor_details vd
        ORDER BY vd.vendor_name`

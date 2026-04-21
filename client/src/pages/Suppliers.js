@@ -391,7 +391,7 @@ export default function Suppliers() {
               <div style={{ fontSize: '2rem', fontWeight: 700, color: '#0d9488', marginTop: '8px' }}>{miscSuppliers.length}</div>
             </div>
             <div style={cardStyle}>
-              <div style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Inventory Value</div>
+              <div style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase' }}>Inventory Value (Cost)</div>
               <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{formatCurrency(totalInventoryValue)}</div>
             </div>
             <div style={cardStyle}>
@@ -471,7 +471,7 @@ export default function Suppliers() {
                           <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{vendor.item_count || 0}</div>
                         </div>
                         <div>
-                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Value</div>
+                          <div style={{ color: '#6b7280', fontSize: '0.7rem', fontWeight: 600 }}>Cost Value</div>
                           <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1f2937' }}>{formatCurrency(vendor.total_value || 0)}</div>
                         </div>
                         <div>

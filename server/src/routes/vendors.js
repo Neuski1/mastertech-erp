@@ -12,6 +12,7 @@ router.get('/', async (req, res) => {
       `SELECT vendor AS name, COUNT(*) AS item_count
        FROM inventory
        WHERE deleted_at IS NULL AND vendor IS NOT NULL AND vendor != ''
+         AND (qty_on_hand > 0 OR COALESCE(reorder_level, 0) > 0)
        GROUP BY vendor
        ORDER BY vendor`
     );
