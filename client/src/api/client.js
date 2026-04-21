@@ -341,6 +341,8 @@ export const api = {
   updateVendorDetails: (name, data) => request(`/purchase-orders/vendors/details/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteVendorDetails: (name) => request(`/purchase-orders/vendors/details/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   getSupplierSubcategories: () => request('/purchase-orders/vendors/subcategories'),
+  importAmazonOrders: (orders) => request('/purchase-orders/amazon-import', { method: 'POST', body: JSON.stringify({ orders }) }),
+  getAmazonImported: () => request('/purchase-orders/amazon-imported'),
 
   // Online payments (Poynt / GoDaddy Payments)
   createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),

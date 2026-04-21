@@ -100,6 +100,21 @@ router.put('/vendors/details/:name', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/purchase-orders/amazon-imported — List already-imported Amazon order numbers
+// ---------------------------------------------------------------------------
+router.get('/amazon-imported', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT order_number FROM purchase_orders WHERE LOWER(vendor) = 'amazon business' AND order_number IS NOT NULL`
+    );
+    res.json(rows.map(r => r.order_number));
+  } catch (err) {
+    console.error('GET /api/purchase-orders/amazon-imported error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/purchase-orders/vendors/subcategories — List distinct subcategories
 // ---------------------------------------------------------------------------
 router.get('/vendors/subcategories', async (req, res) => {
@@ -386,6 +401,169 @@ router.delete('/:poId/items/:itemId', async (req, res) => {
     res.json({ message: 'Line item removed' });
   } catch (err) {
     console.error('DELETE line item error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/purchase-orders/amazon-import — Import Amazon orders as POs
+// Body: { orders: [{ orderId, po, total, date, items: [{description, quantity, price}], trackingNumber, shippingCost, tax, status }] }
+// ---------------------------------------------------------------------------
+router.post('/amazon-import', async (req, res) => {
+  try {
+    const { orders } = req.body;
+    if (!orders || !Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ error: 'orders array is required' });
+    }
+
+    const client = await pool.connect();
+    const results = { imported: 0, skipped: 0, details: [] };
+
+    try {
+      await client.query('BEGIN');
+
+      for (const order of orders) {
+        // Check if this Amazon order was already imported (by order_number)
+        if (order.orderId) {
+          const { rows: existing } = await client.query(
+            'SELECT id FROM purchase_orders WHERE order_number = $1',
+            [order.orderId]
+          );
+          if (existing.length > 0) {
+            results.skipped++;
+            results.details.push({ orderId: order.orderId, status: 'skipped', reason: 'Already imported', poId: existing[0].id });
+            continue;
+          }
+        }
+
+        // Auto-match line items to inventory by description
+        const matchedLineItems = [];
+        for (const item of (order.items || [])) {
+          let inventoryMatch = null;
+
+          // Try to find inventory match by description keywords
+          if (item.description) {
+            // Extract meaningful keywords (3+ chars) from the description
+            const keywords = item.description
+              .replace(/[^a-zA-Z0-9\s]/g, ' ')
+              .split(/\s+/)
+              .filter(w => w.length >= 3)
+              .slice(0, 4); // Use first 4 keywords
+
+            if (keywords.length > 0) {
+              // Search for each keyword and find best match
+              const searchTerm = keywords.join(' ');
+              const { rows: matches } = await client.query(
+                `SELECT id, part_number, description, vendor, cost_each
+                 FROM inventory
+                 WHERE deleted_at IS NULL AND is_active = TRUE
+                   AND LOWER(vendor) = 'amazon business'
+                   AND (description ILIKE $1 OR description ILIKE $2)
+                 ORDER BY description
+                 LIMIT 1`,
+                [`%${keywords[0]}%`, keywords.length > 1 ? `%${keywords[1]}%` : `%${keywords[0]}%`]
+              );
+
+              if (matches.length > 0) {
+                inventoryMatch = matches[0];
+              } else {
+                // Broader search across all vendors
+                const { rows: broadMatches } = await client.query(
+                  `SELECT id, part_number, description, vendor, cost_each
+                   FROM inventory
+                   WHERE deleted_at IS NULL AND is_active = TRUE
+                     AND (description ILIKE $1)
+                   ORDER BY CASE WHEN LOWER(vendor) = 'amazon business' THEN 0 ELSE 1 END, description
+                   LIMIT 1`,
+                  [`%${keywords[0]}%`]
+                );
+                if (broadMatches.length > 0) {
+                  inventoryMatch = broadMatches[0];
+                }
+              }
+            }
+          }
+
+          matchedLineItems.push({
+            description: item.description || 'Amazon item',
+            qty: item.quantity || 1,
+            cost_each: item.price || 0,
+            inventory_item_id: inventoryMatch ? inventoryMatch.id : null,
+            matched: !!inventoryMatch,
+            match_info: inventoryMatch ? `Matched: ${inventoryMatch.part_number} - ${inventoryMatch.description}` : null
+          });
+        }
+
+        // Calculate totals
+        const subtotal = matchedLineItems.reduce((sum, li) => sum + (li.qty * li.cost_each), 0);
+        const shippingCost = parseFloat(order.shippingCost) || 0;
+        const total = order.total || (subtotal + shippingCost);
+
+        // Create the purchase order
+        const poNotes = [
+          order.po ? `Amazon PO: ${order.po}` : null,
+          order.tax ? `Tax: $${parseFloat(order.tax).toFixed(2)}` : null,
+          order.status ? `Amazon Status: ${order.status}` : null,
+          'Imported from Amazon Business via Gmail'
+        ].filter(Boolean).join(' | ');
+
+        const { rows: poRows } = await client.query(
+          `INSERT INTO purchase_orders (vendor, order_date, order_number, tracking_number, shipping_cost, subtotal, total, notes, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING *`,
+          [
+            'Amazon Business',
+            order.date ? new Date(order.date) : new Date(),
+            order.orderId || null,
+            order.trackingNumber || null,
+            shippingCost,
+            subtotal,
+            total,
+            poNotes,
+            order.status === 'delivered' ? 'received' : 'pending'
+          ]
+        );
+
+        const po = poRows[0];
+
+        // Insert line items
+        for (const li of matchedLineItems) {
+          const lineTotal = li.qty * li.cost_each;
+          await client.query(
+            `INSERT INTO po_line_items (po_id, inventory_item_id, description, qty, cost_each, line_total, matched)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [po.id, li.inventory_item_id, li.description, li.qty, li.cost_each, lineTotal, li.matched]
+          );
+        }
+
+        // If delivered, mark received_at
+        if (order.status === 'delivered') {
+          await client.query(
+            'UPDATE purchase_orders SET received_at = NOW() WHERE id = $1',
+            [po.id]
+          );
+        }
+
+        results.imported++;
+        results.details.push({
+          orderId: order.orderId,
+          status: 'imported',
+          poId: po.id,
+          itemsMatched: matchedLineItems.filter(li => li.matched).length,
+          itemsTotal: matchedLineItems.length
+        });
+      }
+
+      await client.query('COMMIT');
+      res.json(results);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('POST /api/purchase-orders/amazon-import error:', err);
     res.status(500).json({ error: err.message });
   }
 });

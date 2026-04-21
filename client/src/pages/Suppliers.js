@@ -307,6 +307,26 @@ export default function Suppliers() {
     }
   };
 
+  // Amazon — fetch already-imported Amazon POs from our system
+  const [amazonPOs, setAmazonPOs] = useState([]);
+  const [loadingAmazon, setLoadingAmazon] = useState(false);
+
+  const fetchAmazonPOs = useCallback(async () => {
+    setLoadingAmazon(true);
+    try {
+      const result = await api.getPurchaseOrders({ vendor: 'Amazon Business', limit: 100 });
+      setAmazonPOs(result.orders || []);
+    } catch (err) {
+      console.error('Error fetching Amazon POs:', err);
+    } finally {
+      setLoadingAmazon(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'amazon') fetchAmazonPOs();
+  }, [activeTab]);
+
   // Styles
   const cardStyle = { background: '#fff', borderRadius: '8px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' };
   const btnPrimary = { padding: '8px 16px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 };
@@ -376,13 +396,28 @@ export default function Suppliers() {
             background: activeTab === 'purchase_orders' ? '#1e3a5f' : '#fff',
             color: activeTab === 'purchase_orders' ? '#fff' : '#6b7280',
             border: '1px solid #d1d5db',
-            borderRadius: '0 6px 6px 0',
+            borderRight: 'none',
             cursor: 'pointer',
             fontWeight: 600,
             fontSize: '0.95rem'
           }}
         >
           Purchase Orders
+        </button>
+        <button
+          onClick={() => setActiveTab('amazon')}
+          style={{
+            padding: '12px 24px',
+            background: activeTab === 'amazon' ? '#ff9900' : '#fff',
+            color: activeTab === 'amazon' ? '#fff' : '#6b7280',
+            border: '1px solid #d1d5db',
+            borderRadius: '0 6px 6px 0',
+            cursor: 'pointer',
+            fontWeight: 600,
+            fontSize: '0.95rem'
+          }}
+        >
+          Amazon Import
         </button>
       </div>
 
@@ -627,6 +662,100 @@ export default function Suppliers() {
                       <td style={tdStyle}>{po.vendor}</td>
                       <td style={tdStyle}>{po.order_date ? new Date(po.order_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
                       <td style={tdStyle}>{po.order_number || '—'}</td>
+                      <td style={tdStyle}>{po.item_count || 0}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
+                      <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
+                      <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                        {po.status === 'pending' && (
+                          <button onClick={() => handleMarkReceived(po.id)} style={{ ...btnSmall, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
+                            Receive
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AMAZON IMPORT TAB */}
+      {activeTab === 'amazon' && (
+        <div>
+          {/* Amazon Header Card */}
+          <div style={{ ...cardStyle, marginBottom: '20px', background: 'linear-gradient(135deg, #ff9900 0%, #ffad33 100%)', color: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+              <div>
+                <h2 style={{ margin: '0 0 5px 0', fontSize: '1.3rem', fontWeight: 700 }}>Amazon Business Integration</h2>
+                <p style={{ margin: 0, fontSize: '0.85rem', opacity: 0.9 }}>
+                  Import Amazon Business orders from Gmail as Purchase Orders with auto-matching to inventory
+                </p>
+              </div>
+              <button onClick={fetchAmazonPOs} style={{ padding: '10px 20px', background: '#fff', color: '#ff9900', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.95rem' }}>
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* How It Works */}
+          <div style={{ ...cardStyle, marginBottom: '20px', padding: '16px 20px' }}>
+            <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: '8px', fontSize: '0.95rem' }}>How Amazon Import Works</div>
+            <div style={{ fontSize: '0.85rem', color: '#374151', lineHeight: '1.7' }}>
+              Ask me to <strong>"scan and import Amazon orders"</strong> in our chat and I'll scan your Gmail for Amazon Business order confirmations, parse the order details (items, prices, quantities, shipping, tracking), and create Purchase Orders in your system. Items are automatically matched to your existing inventory when possible.
+            </div>
+          </div>
+
+          {/* Summary Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '25px' }}>
+            <div style={cardStyle}>
+              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Amazon POs</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ff9900', marginTop: '8px' }}>{amazonPOs.length}</div>
+            </div>
+            <div style={cardStyle}>
+              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Total Spent</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a5f', marginTop: '8px' }}>{formatCurrency(amazonPOs.reduce((s, p) => s + parseFloat(p.total || 0), 0))}</div>
+            </div>
+            <div style={cardStyle}>
+              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Pending</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706', marginTop: '8px' }}>{amazonPOs.filter(p => p.status === 'pending').length}</div>
+            </div>
+            <div style={cardStyle}>
+              <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Received</div>
+              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#059669', marginTop: '8px' }}>{amazonPOs.filter(p => p.status === 'received').length}</div>
+            </div>
+          </div>
+
+          {/* Imported Orders Table */}
+          {loadingAmazon ? (
+            <div style={{ ...cardStyle, textAlign: 'center', color: '#6b7280' }}>Loading Amazon orders...</div>
+          ) : amazonPOs.length === 0 ? (
+            <div style={{ ...cardStyle, textAlign: 'center', padding: '50px 20px', color: '#9ca3af' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: '15px' }}>📦</div>
+              <div style={{ fontSize: '1rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>No Amazon Orders Imported Yet</div>
+              <div style={{ fontSize: '0.85rem' }}>Ask me to "scan and import Amazon orders" to get started.</div>
+            </div>
+          ) : (
+            <div style={cardStyle}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>PO#</th>
+                    <th style={thStyle}>Amazon Order #</th>
+                    <th style={thStyle}>Order Date</th>
+                    <th style={thStyle}>Items</th>
+                    <th style={thStyle}>Total</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {amazonPOs.map((po) => (
+                    <tr key={po.id} style={{ cursor: 'pointer' }} onClick={() => handleViewPoDetail(po)}>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: '#1e3a5f' }}>{po.id}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.82rem' }}>{po.order_number || '—'}</td>
+                      <td style={tdStyle}>{po.order_date ? new Date(po.order_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
                       <td style={tdStyle}>{po.item_count || 0}</td>
                       <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
                       <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
