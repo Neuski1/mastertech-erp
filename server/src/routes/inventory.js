@@ -132,7 +132,7 @@ router.get('/', async (req, res) => {
     paramIdx++;
   }
   if (vendor) {
-    conditions.push(`LOWER(i.vendor) = LOWER($${paramIdx++})`);
+    conditions.push(`LOWER(TRIM(i.vendor)) = LOWER(TRIM($${paramIdx++}))`);
     params.push(vendor);
   }
   if (category) {

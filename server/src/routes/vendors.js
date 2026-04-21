@@ -9,13 +9,15 @@ const { requireRole } = require('../middleware/auth');
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT vendor AS name, COUNT(*) AS item_count,
-              COALESCE(SUM(qty_on_hand * COALESCE(cost_each, 0)), 0) AS total_value
-       FROM inventory
-       WHERE deleted_at IS NULL AND vendor IS NOT NULL AND vendor != ''
-         AND (qty_on_hand > 0 OR COALESCE(reorder_level, 0) > 0)
-       GROUP BY vendor
-       ORDER BY vendor`
+      `SELECT
+              MAX(TRIM(i.vendor)) AS name,
+              COUNT(*) AS item_count,
+              COALESCE(SUM(i.qty_on_hand * COALESCE(i.cost_each, 0)), 0) AS total_value
+       FROM inventory i
+       WHERE i.deleted_at IS NULL AND i.vendor IS NOT NULL AND TRIM(i.vendor) != ''
+         AND (i.qty_on_hand > 0 OR COALESCE(i.reorder_level, 0) > 0)
+       GROUP BY LOWER(TRIM(i.vendor))
+       ORDER BY name`
     );
     res.json(rows);
   } catch (err) {
@@ -49,7 +51,7 @@ router.get('/:name/parts', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, part_number, description, qty_on_hand
        FROM inventory
-       WHERE deleted_at IS NULL AND vendor = $1
+       WHERE deleted_at IS NULL AND LOWER(TRIM(vendor)) = LOWER(TRIM($1))
        ORDER BY description`,
       [req.params.name]
     );
@@ -70,7 +72,7 @@ router.delete('/:name', requireRole('admin'), async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, part_number, description, qty_on_hand
        FROM inventory
-       WHERE deleted_at IS NULL AND vendor = $1
+       WHERE deleted_at IS NULL AND LOWER(TRIM(vendor)) = LOWER(TRIM($1))
        ORDER BY description`,
       [vendorName]
     );
@@ -133,7 +135,7 @@ router.put('/:name/rename', requireRole('admin'), async (req, res) => {
   }
   try {
     const { rowCount } = await pool.query(
-      'UPDATE inventory SET vendor = $1 WHERE deleted_at IS NULL AND vendor = $2',
+      'UPDATE inventory SET vendor = $1 WHERE deleted_at IS NULL AND LOWER(TRIM(vendor)) = LOWER(TRIM($2))',
       [String(newName).trim(), oldName]
     );
     res.json({ updated: rowCount });

@@ -496,13 +496,11 @@ router.post('/amazon-import', async (req, res) => {
 
         // Calculate totals
         const subtotal = matchedLineItems.reduce((sum, li) => sum + (li.qty * li.cost_each), 0);
-        const shippingCost = parseFloat(order.shippingCost) || 0;
-        const total = order.total || (subtotal + shippingCost);
+        const total = order.total || subtotal;
 
         // Create the purchase order
         const poNotes = [
           order.po ? `Amazon PO: ${order.po}` : null,
-          order.tax ? `Tax: $${parseFloat(order.tax).toFixed(2)}` : null,
           order.status ? `Amazon Status: ${order.status}` : null,
           'Imported from Amazon Business via Gmail'
         ].filter(Boolean).join(' | ');
@@ -516,7 +514,7 @@ router.post('/amazon-import', async (req, res) => {
             order.date ? new Date(order.date) : new Date(),
             order.orderId || null,
             order.trackingNumber || null,
-            shippingCost,
+            0,
             subtotal,
             total,
             poNotes,
