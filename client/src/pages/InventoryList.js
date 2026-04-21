@@ -166,7 +166,7 @@ export default function InventoryList() {
 <hr />
 <table>
   <thead><tr>
-    <th>Part #</th><th>Description</th><th>Category</th><th>Vendor</th>
+    <th>Part #</th><th>Description</th><th>Category</th><th>Supplier</th>
     <th style="text-align:right">On Hand</th><th style="text-align:right">Reorder Level</th>
     <th style="text-align:right">Need to Order</th>
   </tr></thead>
@@ -324,11 +324,11 @@ export default function InventoryList() {
   useEffect(() => { fetchReorderCount(); }, [fetchReorderCount]);
 
   const handleDeleteVendor = async (vendorName) => {
-    if (!window.confirm(`Delete vendor "${vendorName}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete supplier "${vendorName}"? This cannot be undone.`)) return;
     try {
       await api.deleteVendor(vendorName);
       fetchVendors();
-      alert(`Vendor "${vendorName}" deleted.`);
+      alert(`Supplier "${vendorName}" deleted.`);
     } catch (err) {
       if (err.message === 'Vendor in use') {
         try {
@@ -388,7 +388,7 @@ export default function InventoryList() {
       setMergeInto('');
       await fetchVendors();
       await fetchItems();
-      alert(`Merged ${vendors.length} vendors into "${target}" — ${result.updated} items updated.`);
+      alert(`Merged ${vendors.length} suppliers into "${target}" — ${result.updated} items updated.`);
     } catch (err) {
       alert('Merge failed: ' + err.message);
     } finally {
@@ -418,7 +418,7 @@ export default function InventoryList() {
       if (updates.length === vendorDeleteModal.parts.length) {
         try {
           await api.deleteVendor(vendorName);
-          alert(`Vendor "${vendorName}" deleted.`);
+          alert(`Supplier "${vendorName}" deleted.`);
         } catch {
           // Some parts may still reference it
         }
@@ -492,7 +492,7 @@ export default function InventoryList() {
     const datePrinted = `${now.getMonth()+1}/${now.getDate()}/${now.getFullYear()} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
     const activeFilters = [];
     if (search) activeFilters.push(`Search: "${search}"`);
-    if (vendor) activeFilters.push(`Vendor: ${vendor}`);
+    if (vendor) activeFilters.push(`Supplier: ${vendor}`);
     if (category) activeFilters.push(`Category: ${categoryLabels[category] || category}`);
     if (location) activeFilters.push(`Location: ${location}`);
     if (lowStockOnly) activeFilters.push('Low Stock Only');
@@ -546,7 +546,7 @@ export default function InventoryList() {
 <div class="meta">Printed: ${datePrinted}</div>
 <table>
   <thead><tr>
-    <th>Part #</th><th>Description</th><th>Vendor Part #</th><th>Vendor</th><th>Category</th>
+    <th>Part #</th><th>Description</th><th>Supplier Part #</th><th>Supplier</th><th>Category</th>
     <th style="text-align:right">Qty</th><th style="text-align:right">Reorder</th>
     <th style="text-align:right">Cost</th><th style="text-align:right">Sale Price</th><th>Location</th>
   </tr></thead>
@@ -616,7 +616,7 @@ export default function InventoryList() {
             )}
           </div>
           {!isMobile && <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>}
-          {isAdmin && !isMobile && <button onClick={() => setShowVendorPanel(!showVendorPanel)} style={btnSecondary}>Manage Vendors</button>}
+          {isAdmin && !isMobile && <button onClick={() => setShowVendorPanel(!showVendorPanel)} style={btnSecondary}>Manage Suppliers</button>}
           {isAdmin && !isMobile && <button onClick={() => setShowCategoryPanel(!showCategoryPanel)} style={btnSecondary}>Manage Categories</button>}
           {!isMobile && <button onClick={() => navigate('/inventory/new')} style={btnPrimary}>+ New Part</button>}
         </div>
@@ -626,7 +626,7 @@ export default function InventoryList() {
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '8px' : '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="Search by description, part #, vendor..."
+          placeholder="Search by description, part #, supplier..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           style={{ ...inputStyle, flex: 1, minWidth: '200px' }}
@@ -637,7 +637,7 @@ export default function InventoryList() {
             onChange={(e) => { setVendor(e.target.value); setPage(1); }}
             style={{ ...inputStyle, flex: isMobile ? 1 : undefined }}
           >
-            <option value="">All Vendors</option>
+            <option value="">All Suppliers</option>
             {vendorNames.map((v) => (
               <option key={v} value={v}>{v}</option>
             ))}
@@ -667,17 +667,17 @@ export default function InventoryList() {
         </div>
       </div>
 
-      {/* Vendor Management Panel */}
+      {/* Supplier Management Panel */}
       {showVendorPanel && isAdmin && (
         <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h3 style={{ margin: 0, color: '#1e3a5f', fontSize: '1rem' }}>Vendor Management</h3>
+            <h3 style={{ margin: 0, color: '#1e3a5f', fontSize: '1rem' }}>Supplier Management</h3>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
                 onClick={() => { setMergeMode(m => !m); setMergeSelected(new Set()); setMergeInto(''); }}
                 style={{ padding: '4px 12px', backgroundColor: mergeMode ? '#0d9488' : '#f3f4f6', color: mergeMode ? '#fff' : '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}
               >
-                {mergeMode ? 'Cancel Merge' : 'Merge Vendors'}
+                {mergeMode ? 'Cancel Merge' : 'Merge Suppliers'}
               </button>
               <button onClick={() => setShowVendorPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: '#6b7280' }}>&times;</button>
             </div>
@@ -686,7 +686,7 @@ export default function InventoryList() {
           {mergeMode && (
             <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.85rem', color: '#115e59' }}>
-                Select 2+ vendors below, then enter the canonical name:
+                Select 2+ suppliers below, then enter the canonical name:
               </span>
               <input
                 type="text"
@@ -711,7 +711,7 @@ export default function InventoryList() {
               <thead>
                 <tr>
                   {mergeMode && <th style={{ ...thStyle, padding: '8px 12px', width: '32px' }}></th>}
-                  <th style={{ ...thStyle, padding: '8px 12px' }}>Vendor Name</th>
+                  <th style={{ ...thStyle, padding: '8px 12px' }}>Supplier Name</th>
                   <th style={{ ...thStyle, padding: '8px 12px', textAlign: 'right' }}>Items</th>
                   <th style={{ ...thStyle, padding: '8px 12px', width: '140px' }}></th>
                 </tr>
@@ -760,7 +760,7 @@ export default function InventoryList() {
                   );
                 })}
                 {vendorList.length === 0 && (
-                  <tr><td colSpan={mergeMode ? 4 : 3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>No vendors found</td></tr>
+                  <tr><td colSpan={mergeMode ? 4 : 3} style={{ padding: '16px', textAlign: 'center', color: '#9ca3af' }}>No suppliers found</td></tr>
                 )}
               </tbody>
             </table>
@@ -768,21 +768,21 @@ export default function InventoryList() {
         </div>
       )}
 
-      {/* Vendor Reassignment Modal */}
+      {/* Supplier Reassignment Modal */}
       {vendorDeleteModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '700px', width: '90%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <h3 style={{ margin: '0 0 8px', color: '#1e3a5f' }}>Vendor In Use &mdash; {vendorDeleteModal.name}</h3>
+            <h3 style={{ margin: '0 0 8px', color: '#1e3a5f' }}>Supplier In Use &mdash; {vendorDeleteModal.name}</h3>
             <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '16px' }}>
-              This vendor is assigned to {vendorDeleteModal.parts.length} inventory item{vendorDeleteModal.parts.length !== 1 ? 's' : ''}.
-              Reassign them to another vendor before deleting, or update them individually below.
+              This supplier is assigned to {vendorDeleteModal.parts.length} inventory item{vendorDeleteModal.parts.length !== 1 ? 's' : ''}.
+              Reassign them to another supplier before deleting, or update them individually below.
             </p>
 
             {/* Bulk reassign row */}
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', padding: '10px', backgroundColor: '#f9fafb', borderRadius: '6px' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151' }}>Reassign All To:</span>
               <select value={bulkReassignVendor} onChange={(e) => setBulkReassignVendor(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-                <option value="">-- Select Vendor --</option>
+                <option value="">-- Select Supplier --</option>
                 {vendorDeleteModal.allVendors.map(v => <option key={v} value={v}>{v}</option>)}
               </select>
               <button onClick={handleBulkReassign} disabled={!bulkReassignVendor} style={{ ...btnPrimary, padding: '8px 14px', fontSize: '0.8rem', opacity: bulkReassignVendor ? 1 : 0.5 }}>Apply to All</button>
@@ -795,7 +795,7 @@ export default function InventoryList() {
                   <th style={{ ...thStyle, padding: '6px 10px' }}>Part #</th>
                   <th style={{ ...thStyle, padding: '6px 10px' }}>Description</th>
                   <th style={{ ...thStyle, padding: '6px 10px', textAlign: 'right' }}>Qty</th>
-                  <th style={{ ...thStyle, padding: '6px 10px' }}>Vendor</th>
+                  <th style={{ ...thStyle, padding: '6px 10px' }}>Supplier</th>
                 </tr>
               </thead>
               <tbody>
@@ -900,7 +900,7 @@ export default function InventoryList() {
               </div>
               <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '4px' }}>{item.description}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#6b7280' }}>
-                <span>{item.vendor || 'No vendor'}</span>
+                <span>{item.vendor || 'No supplier'}</span>
                 <span style={{ fontWeight: 600, color: '#374151' }}>{formatCurrency(item.sale_price_each)}</span>
               </div>
             </div>
@@ -913,8 +913,8 @@ export default function InventoryList() {
               <tr>
                 <th style={thSortable} onClick={() => handleSort('part_number')}>Part #{sortArrow('part_number')}</th>
                 <th style={thSortable} onClick={() => handleSort('description')}>Description{sortArrow('description')}</th>
-                <th style={thSortable} onClick={() => handleSort('vendor_part_number')}>Vendor Part #{sortArrow('vendor_part_number')}</th>
-                <th style={thSortable} onClick={() => handleSort('vendor')}>Vendor{sortArrow('vendor')}</th>
+                <th style={thSortable} onClick={() => handleSort('vendor_part_number')}>Supplier Part #{sortArrow('vendor_part_number')}</th>
+                <th style={thSortable} onClick={() => handleSort('vendor')}>Supplier{sortArrow('vendor')}</th>
                 <th style={thSortable} onClick={() => handleSort('category')}>Category{sortArrow('category')}</th>
                 <th style={thSortable} onClick={() => handleSort('location')}>Location{sortArrow('location')}</th>
                 <th style={{ ...thSortable, textAlign: 'right' }} onClick={() => handleSort('qty_on_hand')}>Qty{sortArrow('qty_on_hand')}</th>

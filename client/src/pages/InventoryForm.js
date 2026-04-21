@@ -222,24 +222,24 @@ export default function InventoryForm() {
             </div>
           </div>
 
-          {/* Row 3: Vendor Part # */}
+          {/* Row 3: Supplier Part # */}
           <div style={row}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Vendor / Mfr Part #</label>
+              <label style={labelStyle}>Supplier / Mfr Part #</label>
               <input
                 name="vendor_part_number"
                 value={form.vendor_part_number}
                 onChange={handleChange}
-                placeholder="Manufacturer or vendor part number"
+                placeholder="Manufacturer or supplier part number"
                 style={inputStyle}
               />
             </div>
           </div>
 
-          {/* Row 4: Vendor, Location */}
+          {/* Row 4: Supplier, Location */}
           <div style={row}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Vendor</label>
+              <label style={labelStyle}>Supplier</label>
               <VendorSelect value={form.vendor} onChange={(v) => setForm(f => ({ ...f, vendor: v }))} style={inputStyle} />
             </div>
             <div style={{ flex: 1 }}>

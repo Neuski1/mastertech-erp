@@ -283,7 +283,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             <div style={{ marginBottom: '12px', position: 'relative' }}>
               <input
                 type="text"
-                placeholder="Search by description, part #, vendor part #, vendor..."
+                placeholder="Search by description, part #, supplier part #, supplier..."
                 value={searchQuery}
                 onChange={(e) => handleInventorySearch(e.target.value)}
                 style={{ ...inlineInput, width: '100%' }}
@@ -355,7 +355,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   <input
                     value={catalogQuery}
                     onChange={(e) => handleCatalogSearch(e.target.value)}
-                    placeholder="Search by description, part #, vendor part #, vendor..."
+                    placeholder="Search by description, part #, supplier part #, supplier..."
                     style={{ ...inlineInput, width: '100%' }}
                     autoFocus
                   />
@@ -429,14 +429,14 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             <div style={formGrid}>
               <div>
                 <label style={labelStyle}>Part Number</label>
-                <input value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} placeholder="Mfr or vendor part #" style={inlineInput} />
+                <input value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} placeholder="Mfr or supplier part #" style={inlineInput} />
               </div>
               <div style={{ gridColumn: 'span 2' }}>
                 <label style={labelStyle}>Description *</label>
                 <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={inlineInput} autoFocus={!form.description} />
               </div>
               <div>
-                <label style={labelStyle}>Vendor</label>
+                <label style={labelStyle}>Supplier</label>
                 <VendorSelect value={form.vendor} onChange={(v) => setForm({ ...form, vendor: v })} style={inlineInput} />
               </div>
               <div>
@@ -813,11 +813,11 @@ function AddToInventoryModal({ line, onClose }) {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
-                    <label style={modalLabel}>Vendor</label>
+                    <label style={modalLabel}>Supplier</label>
                     <VendorSelect value={form.vendor} onChange={(v) => setForm({ ...form, vendor: v })} style={modalInput} />
                   </div>
                   <div>
-                    <label style={modalLabel}>Vendor / Mfr Part #</label>
+                    <label style={modalLabel}>Supplier / Mfr Part #</label>
                     <input value={form.vendor_part_number} onChange={(e) => setForm({ ...form, vendor_part_number: e.target.value })} style={modalInput} placeholder="Optional" />
                   </div>
                 </div>

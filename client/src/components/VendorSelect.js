@@ -52,7 +52,7 @@ export default function VendorSelect({ value, onChange, style }) {
         value={query}
         onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="Type to search vendors..."
+        placeholder="Type to search suppliers..."
         style={style}
       />
       {open && query.length > 0 && (
@@ -67,14 +67,14 @@ export default function VendorSelect({ value, onChange, style }) {
               </div>
             ))
           ) : (
-            <div style={{ padding: '6px 10px', color: '#9ca3af', fontSize: '0.8rem' }}>No vendors found</div>
+            <div style={{ padding: '6px 10px', color: '#9ca3af', fontSize: '0.8rem' }}>No suppliers found</div>
           )}
           {query.trim() && !exactMatch && (
             <div onClick={handleCreate} style={{ ...itemStyle, borderTop: '1px solid #e5e7eb', color: '#1e3a5f', fontWeight: 600 }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
             >
-              {creating ? 'Creating...' : `+ Add New Vendor: "${query.trim().toUpperCase()}"`}
+              {creating ? 'Creating...' : `+ Add New Supplier: "${query.trim().toUpperCase()}"`}
             </div>
           )}
         </div>

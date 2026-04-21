@@ -142,7 +142,7 @@ export default function Suppliers() {
 
   const handleConfirmDelete = async () => {
     if (!deleteModal) return;
-    if (!deleteReassign) { alert('Select a vendor to reassign parts to'); return; }
+    if (!deleteReassign) { alert('Select a supplier to reassign parts to'); return; }
     setDeleteSaving(true);
     try {
       const updates = deleteModal.parts.map(p => ({ id: p.id, vendor: deleteReassign }));
@@ -159,15 +159,15 @@ export default function Suppliers() {
   };
 
   const handleMerge = async () => {
-    if (mergeSelected.size < 2) { alert('Select at least 2 vendors to merge'); return; }
-    if (!mergeInto) { alert('Choose which vendor name to keep'); return; }
+    if (mergeSelected.size < 2) { alert('Select at least 2 suppliers to merge'); return; }
+    if (!mergeInto) { alert('Choose which supplier name to keep'); return; }
     setMergeSaving(true);
     try {
       await api.mergeVendors(Array.from(mergeSelected), mergeInto);
       setMergeMode(false);
       setMergeSelected(new Set());
       setMergeInto('');
-      setActionMsg(`Merged ${mergeSelected.size} vendors into "${mergeInto}"`);
+      setActionMsg(`Merged ${mergeSelected.size} suppliers into "${mergeInto}"`);
       await fetchVendors();
     } catch (err) {
       alert('Error: ' + err.message);
@@ -208,7 +208,7 @@ export default function Suppliers() {
 
   const handleCreatePo = async () => {
     if (!newPo.vendor || newPo.line_items.length === 0) {
-      alert('Please select a vendor and add at least one line item');
+      alert('Please select a supplier and add at least one line item');
       return;
     }
     try {
@@ -278,7 +278,7 @@ export default function Suppliers() {
         <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#1f2937', margin: '0 0 10px 0' }}>
           Suppliers & Purchase Orders
         </h1>
-        <p style={{ color: '#6b7280', margin: 0 }}>Manage vendor relationships and track incoming orders</p>
+        <p style={{ color: '#6b7280', margin: 0 }}>Manage supplier relationships and track incoming orders</p>
       </div>
 
       {/* Tabs */}
@@ -339,11 +339,11 @@ export default function Suppliers() {
           <div style={{ ...cardStyle, marginBottom: '15px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             {!mergeMode ? (
               <button onClick={() => { setMergeMode(true); setMergeSelected(new Set()); setMergeInto(''); }} style={btnSecondary}>
-                Merge Vendors
+                Merge Suppliers
               </button>
             ) : (
               <>
-                <span style={{ fontWeight: 600, color: '#1f2937' }}>Select vendors to merge:</span>
+                <span style={{ fontWeight: 600, color: '#1f2937' }}>Select suppliers to merge:</span>
                 <select value={mergeInto} onChange={(e) => setMergeInto(e.target.value)} style={{ ...inputStyle, width: '200px' }}>
                   <option value="">Keep which name?</option>
                   {Array.from(mergeSelected).map(n => <option key={n} value={n}>{n}</option>)}
@@ -440,9 +440,9 @@ export default function Suppliers() {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '5px' }}>Vendor</label>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '5px' }}>Supplier</label>
               <select value={poVendorFilter} onChange={(e) => setPoVendorFilter(e.target.value)} style={{ ...inputStyle, width: '200px' }}>
-                <option value="">All Vendors</option>
+                <option value="">All Suppliers</option>
                 {vendors.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
               </select>
             </div>
@@ -464,7 +464,7 @@ export default function Suppliers() {
                 <thead>
                   <tr>
                     <th style={thStyle}>PO#</th>
-                    <th style={thStyle}>Vendor</th>
+                    <th style={thStyle}>Supplier</th>
                     <th style={thStyle}>Order Date</th>
                     <th style={thStyle}>Order #</th>
                     <th style={thStyle}>Items</th>
@@ -544,9 +544,9 @@ export default function Suppliers() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Vendor *</label>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier *</label>
                 <select value={newPo.vendor} onChange={(e) => setNewPo({ ...newPo, vendor: e.target.value })} style={inputStyle}>
-                  <option value="">Select vendor</option>
+                  <option value="">Select supplier</option>
                   {vendors.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
                 </select>
               </div>
@@ -637,7 +637,7 @@ export default function Suppliers() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px', padding: '15px', background: '#f9fafb', borderRadius: '6px' }}>
               <div>
-                <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Vendor</div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Supplier</div>
                 <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1f2937' }}>{selectedPo.vendor}</div>
               </div>
               <div>
@@ -722,8 +722,8 @@ export default function Suppliers() {
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 15px 0', color: '#1f2937' }}>Delete "{deleteModal.vendor.name}"</h2>
             <p style={{ color: '#374151', marginBottom: '15px' }}>
-              This vendor has <strong>{deleteModal.parts.length} inventory item{deleteModal.parts.length !== 1 ? 's' : ''}</strong>.
-              You need to reassign them to another vendor before deleting.
+              This supplier has <strong>{deleteModal.parts.length} inventory item{deleteModal.parts.length !== 1 ? 's' : ''}</strong>.
+              You need to reassign them to another supplier before deleting.
             </p>
 
             <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '15px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
@@ -752,7 +752,7 @@ export default function Suppliers() {
                 Reassign all parts to:
               </label>
               <select value={deleteReassign} onChange={(e) => setDeleteReassign(e.target.value)} style={inputStyle}>
-                <option value="">Select a vendor</option>
+                <option value="">Select a supplier</option>
                 {vendors.filter(v => v.name !== deleteModal.vendor.name).map(v => (
                   <option key={v.name} value={v.name}>{v.name} ({v.item_count} items)</option>
                 ))}
