@@ -252,7 +252,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { description, quantity, sale_price_each, taxable, cost_each } = req.body;
+  const { description, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking } = req.body;
 
   const client = await pool.connect();
   try {
@@ -332,6 +332,13 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       updates.push(`line_total = $${idx++}`);
       values.push(lineTotal);
     }
+
+    // Order tracking fields (customer-specific parts)
+    if (order_status !== undefined) { updates.push(`order_status = $${idx++}`); values.push(order_status); }
+    if (order_eta !== undefined) { updates.push(`order_eta = $${idx++}`); values.push(order_eta || null); }
+    if (order_supplier !== undefined) { updates.push(`order_supplier = $${idx++}`); values.push(order_supplier || null); }
+    if (order_number !== undefined) { updates.push(`order_number = $${idx++}`); values.push(order_number || null); }
+    if (order_tracking !== undefined) { updates.push(`order_tracking = $${idx++}`); values.push(order_tracking || null); }
 
     if (updates.length === 0) {
       await client.query('ROLLBACK');

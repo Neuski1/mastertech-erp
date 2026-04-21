@@ -14,6 +14,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [addToInvLine, setAddToInvLine] = useState(null); // line to add to inventory
+  const [orderEditId, setOrderEditId] = useState(null);
+  const [orderForm, setOrderForm] = useState({ order_status: 'ordered', order_eta: '', order_supplier: '', order_number: '', order_tracking: '' });
   const [allPartsFormVisible, setAllPartsFormVisible] = useState(false);
   const searchTimeout = useRef(null);
 
@@ -30,6 +32,27 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     setCatalogResults([]);
     setAllPartsFormVisible(false);
     setError('');
+  };
+
+  const openOrderEdit = (line) => {
+    setOrderEditId(line.id);
+    setOrderForm({
+      order_status: line.order_status || 'ordered',
+      order_eta: line.order_eta ? line.order_eta.toString().slice(0, 10) : '',
+      order_supplier: line.order_supplier || line.vendor || '',
+      order_number: line.order_number || '',
+      order_tracking: line.order_tracking || ''
+    });
+  };
+
+  const handleSaveOrder = async (lineId) => {
+    try {
+      await api.updatePart(recordId, lineId, orderForm);
+      setOrderEditId(null);
+      onUpdate();
+    } catch (err) {
+      console.error('Save order error:', err);
+    }
   };
 
   const handleInventorySearch = (q) => {
@@ -520,7 +543,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 </td>
               </tr>
             ) : (
-              <tr key={line.id}>
+              <React.Fragment key={line.id}>
+              <tr>
                 <td style={tdStyle}>{line.part_number || '—'}</td>
                 <td style={tdStyle}>
                   {line.description}
@@ -608,6 +632,62 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   </td>
                 )}
               </tr>
+              {/* Order tracking row for non-inventory parts */}
+              {!line.is_inventory_part && (line.order_status === 'ordered' || line.order_status === 'received' || orderEditId === line.id) && (
+                <tr key={`order-${line.id}`} style={{ backgroundColor: line.order_status === 'received' ? '#f0fdf4' : '#fffbeb' }}>
+                  <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                    {orderEditId === line.id ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <select value={orderForm.order_status} onChange={(e) => setOrderForm({ ...orderForm, order_status: e.target.value })}
+                          style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }}>
+                          <option value="not_ordered">Not Ordered</option>
+                          <option value="ordered">Ordered</option>
+                          <option value="received">Received</option>
+                        </select>
+                        <input type="text" value={orderForm.order_supplier} onChange={(e) => setOrderForm({ ...orderForm, order_supplier: e.target.value })}
+                          placeholder="Supplier" style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '120px' }} />
+                        <input type="text" value={orderForm.order_number} onChange={(e) => setOrderForm({ ...orderForm, order_number: e.target.value })}
+                          placeholder="Order #" style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '100px' }} />
+                        <input type="text" value={orderForm.order_tracking} onChange={(e) => setOrderForm({ ...orderForm, order_tracking: e.target.value })}
+                          placeholder="Tracking #" style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '120px' }} />
+                        <label style={{ fontSize: '0.8rem', color: '#374151' }}>ETA:</label>
+                        <input type="date" value={orderForm.order_eta} onChange={(e) => setOrderForm({ ...orderForm, order_eta: e.target.value })}
+                          style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
+                        <button onClick={() => handleSaveOrder(line.id)} style={{ padding: '3px 8px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
+                        <button onClick={() => setOrderEditId(null)} style={{ padding: '3px 8px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '4px', fontWeight: 600, fontSize: '0.75rem',
+                          backgroundColor: line.order_status === 'ordered' ? '#fef3c7' : '#d1fae5',
+                          color: line.order_status === 'ordered' ? '#92400e' : '#065f46'
+                        }}>
+                          {line.order_status === 'ordered' ? 'ORDERED' : 'RECEIVED'}
+                        </span>
+                        {line.order_supplier && <span><strong>From:</strong> {line.order_supplier}</span>}
+                        {line.order_number && <span><strong>Order#:</strong> {line.order_number}</span>}
+                        {line.order_tracking && <span><strong>Tracking:</strong> {line.order_tracking}</span>}
+                        {line.order_eta && <span><strong>ETA:</strong> {new Date(line.order_eta + 'T00:00:00').toLocaleDateString()}</span>}
+                        {isEditable && (
+                          <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              )}
+              {/* "Mark as Ordered" button for non-inventory parts with no order status */}
+              {!line.is_inventory_part && (!line.order_status || line.order_status === 'not_ordered') && isEditable && orderEditId !== line.id && (
+                <tr key={`order-btn-${line.id}`}>
+                  <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
+                    <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 8px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}>
+                      Mark as Ordered
+                    </button>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             )
           )}
 

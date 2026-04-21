@@ -383,6 +383,13 @@ const pool = require('./db/pool');
       ('etrailer', 'https://www.etrailer.com')
       ON CONFLICT (vendor_name) DO NOTHING`);
 
+    // Migration 048: parts-on-order tracking fields for customer-specific parts
+    await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_status VARCHAR(20) DEFAULT 'not_ordered'`);
+    await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_eta DATE`);
+    await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_supplier VARCHAR(255)`);
+    await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_number VARCHAR(100)`);
+    await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_tracking VARCHAR(255)`);
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
