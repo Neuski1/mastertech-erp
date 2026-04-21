@@ -332,6 +332,13 @@ export default function Suppliers() {
     return `$${parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const formatPhone = (value) => {
+    const digits = (value || '').replace(/\D/g, '');
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+  };
+
   return (
     <div style={{ padding: '20px', background: '#f9fafb', minHeight: '100vh' }}>
       {/* Header */}
@@ -658,7 +665,7 @@ export default function Suppliers() {
             </div>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Phone</label>
-              <input type="tel" value={editFormData.contact_phone} onChange={(e) => setEditFormData({ ...editFormData, contact_phone: e.target.value })} style={inputStyle} />
+              <input type="tel" value={editFormData.contact_phone} onChange={(e) => setEditFormData({ ...editFormData, contact_phone: formatPhone(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
             </div>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Account Number</label>
@@ -887,7 +894,7 @@ export default function Suppliers() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Phone</label>
-                <input type="tel" value={miscForm.contact_phone} onChange={(e) => setMiscForm({ ...miscForm, contact_phone: e.target.value })} style={inputStyle} />
+                <input type="tel" value={miscForm.contact_phone} onChange={(e) => setMiscForm({ ...miscForm, contact_phone: formatPhone(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
               </div>
             </div>
             <div style={{ marginBottom: '20px' }}>
