@@ -170,6 +170,32 @@ export default function Suppliers() {
     }
   };
 
+  const handleMoveToMisc = async (vendor) => {
+    if (!window.confirm(`Move "${vendor.name}" to Misc Suppliers? This will keep the supplier record but recategorize it as a misc supplier.`)) return;
+    try {
+      await api.updateVendorDetails(vendor.name, {
+        ...vendor,
+        supplier_type: 'misc',
+        subcategory: vendor.subcategory || 'Uncategorized'
+      });
+      setActionMsg(`"${vendor.name}" moved to Misc Suppliers`);
+      await fetchVendors();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleMoveToInventory = async (name) => {
+    if (!window.confirm(`Move "${name}" back to Inventory Suppliers?`)) return;
+    try {
+      await api.updateVendorDetails(name, { supplier_type: 'inventory' });
+      setActionMsg(`"${name}" moved to Inventory Suppliers`);
+      await fetchVendors();
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  };
+
   const handleSaveVendor = async () => {
     if (!editingVendor) return;
     try {
@@ -531,8 +557,9 @@ export default function Suppliers() {
                           )}
                           <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.name}</h3>
                         </div>
-                        <div style={{ display: 'flex', gap: '4px' }}>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                           <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
+                          <button onClick={() => handleMoveToMisc(vendor)} style={{ ...btnSmall, background: '#f0fdfa', color: '#0d9488', border: '1px solid #99f6e4' }} title="Move to Misc Suppliers">Misc</button>
                           <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
                         </div>
                       </div>
@@ -606,8 +633,9 @@ export default function Suppliers() {
                           <div key={s.name} style={{ padding: '14px 16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafbfc' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                               <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1f2937' }}>{s.name}</div>
-                              <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                              <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap' }}>
                                 <button onClick={() => handleEditVendor(s)} style={btnSmall}>Edit</button>
+                                <button onClick={() => handleMoveToInventory(s.name)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }} title="Move to Inventory Suppliers">Inventory</button>
                                 <button onClick={() => handleDeleteMiscSupplier(s.name)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
                               </div>
                             </div>
