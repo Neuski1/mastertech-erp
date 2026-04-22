@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -32,6 +32,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedLineId, setSavedLineId] = useState(null);
+  const descriptionRef = useRef(null);
 
   useEffect(() => {
     api.getTechnicians().then(setTechnicians).catch(() => {});
@@ -62,9 +63,11 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
         hours: form.hours ? parseFloat(form.hours) : 0,
         no_charge: form.no_charge,
       });
-      setShowAddForm(false);
+      // Keep the form open and reset for the next line entry
       resetForm();
       onUpdate();
+      // Auto-focus description for next entry
+      setTimeout(() => { if (descriptionRef.current) descriptionRef.current.focus(); }, 100);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -278,7 +281,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <tr style={{ backgroundColor: '#f0fdf4' }}>
               <td style={tdStyle}>L</td>
               <td style={tdStyle}>
-                <textarea placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} />
+                <textarea ref={descriptionRef} placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} autoFocus />
               </td>
               <td style={tdStyle}>
                 <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
