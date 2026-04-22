@@ -144,15 +144,33 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     const finalVendor = is_inventory_part ? null : (vendor || null);
 
+    // Auto-flag inventory parts with 0 (or going negative) stock as needing to be ordered
+    let autoOrderStatus = null;
+    let autoOrderSupplier = null;
+    if (isInvPart && finalInventoryId) {
+      const { rows: stockRows } = await client.query(
+        'SELECT qty_on_hand, vendor FROM inventory WHERE id = $1', [finalInventoryId]
+      );
+      if (stockRows.length > 0) {
+        const currentQty = parseFloat(stockRows[0].qty_on_hand) || 0;
+        if (currentQty <= 0) {
+          autoOrderStatus = 'not_ordered';
+          autoOrderSupplier = stockRows[0].vendor || null;
+        }
+      }
+    }
+
     const { rows } = await client.query(
       `INSERT INTO record_parts_lines
          (record_id, inventory_id, is_inventory_part, part_number, description,
-          quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor,
+          order_status, order_supplier)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [recordId, finalInventoryId, isInvPart, finalPartNumber, finalDescription,
        parsedQty, finalCostEach, finalSalePrice, lineTotal,
-       taxable !== undefined ? taxable : true, sortRes.rows[0].next_sort, finalVendor]
+       taxable !== undefined ? taxable : true, sortRes.rows[0].next_sort, finalVendor,
+       autoOrderStatus, autoOrderSupplier]
     );
 
     await recalculateTotals(recordId, client);
