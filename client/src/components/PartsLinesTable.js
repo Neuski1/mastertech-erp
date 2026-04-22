@@ -17,6 +17,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const [orderEditId, setOrderEditId] = useState(null);
   const [orderForm, setOrderForm] = useState({ order_status: 'ordered', order_eta: '', order_supplier: '', order_number: '', order_tracking: '' });
   const [allPartsFormVisible, setAllPartsFormVisible] = useState(false);
+  const [pullFromStock, setPullFromStock] = useState(true);
+  const [selectedItemQty, setSelectedItemQty] = useState(0);
   const searchTimeout = useRef(null);
 
   const formatCurrency = (val) =>
@@ -31,6 +33,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     setCatalogQuery('');
     setCatalogResults([]);
     setAllPartsFormVisible(false);
+    setPullFromStock(true);
+    setSelectedItemQty(0);
     setError('');
   };
 
@@ -120,6 +124,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   };
 
   const selectInventoryItem = (item) => {
+    const qty = parseFloat(item.qty_on_hand) || 0;
     setForm({
       description: item.description,
       part_number: item.part_number || '',
@@ -131,6 +136,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       taxable: true,
       inventory_id: item.id,
     });
+    setSelectedItemQty(qty);
+    setPullFromStock(qty > 0);
     setSearchResults([]);
     setSearchQuery('');
   };
@@ -169,6 +176,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         sale_price_each: parseFloat(form.sale_price_each),
         taxable: form.taxable,
         vendor: !isInventory ? form.vendor : null,
+        skip_deduct: isInventory && !!form.inventory_id && !pullFromStock,
       });
       setShowAddForm(false);
       resetForm();
@@ -343,6 +351,53 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 <input type="checkbox" checked={form.taxable} onChange={(e) => setForm({ ...form, taxable: e.target.checked })} />
                 <label style={{ fontSize: '0.8rem' }}>Taxable</label>
               </div>
+            </div>
+          )}
+
+          {/* Stock choice prompt for inventory items */}
+          {isInventory && form.inventory_id && (
+            <div style={{
+              margin: '8px 0 4px', padding: '10px 14px', borderRadius: '6px',
+              backgroundColor: selectedItemQty > 0 ? '#f0f9ff' : '#fef2f2',
+              border: `1px solid ${selectedItemQty > 0 ? '#bae6fd' : '#fecaca'}`,
+              fontSize: '0.82rem'
+            }}>
+              {selectedItemQty > 0 ? (
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: '6px', color: '#0c4a6e' }}>
+                    {selectedItemQty} in stock — pull from inventory or order new?
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" onClick={() => setPullFromStock(true)}
+                      style={{
+                        padding: '5px 14px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                        border: pullFromStock ? '2px solid #1e3a5f' : '1px solid #d1d5db',
+                        backgroundColor: pullFromStock ? '#1e3a5f' : '#fff',
+                        color: pullFromStock ? '#fff' : '#374151'
+                      }}>
+                      Pull from Stock
+                    </button>
+                    <button type="button" onClick={() => setPullFromStock(false)}
+                      style={{
+                        padding: '5px 14px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                        border: !pullFromStock ? '2px solid #b45309' : '1px solid #d1d5db',
+                        backgroundColor: !pullFromStock ? '#b45309' : '#fff',
+                        color: !pullFromStock ? '#fff' : '#374151'
+                      }}>
+                      Order New
+                    </button>
+                  </div>
+                  {!pullFromStock && (
+                    <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#92400e' }}>
+                      Inventory will not be deducted. Part will be flagged as needing to be ordered.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ color: '#991b1b', fontWeight: 600 }}>
+                  Out of stock — this part will be flagged as needing to be ordered.
+                </div>
+              )}
             </div>
           )}
 

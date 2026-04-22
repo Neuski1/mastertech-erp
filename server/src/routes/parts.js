@@ -65,7 +65,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
   const {
     inventory_id, is_inventory_part,
     part_number, description, quantity,
-    cost_each, sale_price_each, taxable, vendor
+    cost_each, sale_price_each, taxable, vendor,
+    skip_deduct
   } = req.body;
 
   if ((!description && !is_inventory_part) || quantity === undefined) {
@@ -125,8 +126,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
         ? parseFloat(sale_price_each)
         : parseFloat(inv.sale_price_each);
 
-      // Decrement inventory only for non-estimate/filed records
-      if (recRows[0].status !== 'estimate' && recRows[0].status !== 'filed') {
+      // Decrement inventory only for non-estimate/filed records (skip if user chose "Order New")
+      if (!skip_deduct && recRows[0].status !== 'estimate' && recRows[0].status !== 'filed') {
         await client.query(
           'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
           [parsedQty, inv.id]
@@ -144,7 +145,9 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     const finalVendor = is_inventory_part ? null : (vendor || null);
 
-    // Auto-flag inventory parts with 0 (or going negative) stock as needing to be ordered
+    // Auto-flag inventory parts as needing order when:
+    // 1. Stock is 0 or negative after deduction, OR
+    // 2. User explicitly chose "Order New" (skip_deduct)
     let autoOrderStatus = null;
     let autoOrderSupplier = null;
     if (isInvPart && finalInventoryId) {
@@ -153,7 +156,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       );
       if (stockRows.length > 0) {
         const currentQty = parseFloat(stockRows[0].qty_on_hand) || 0;
-        if (currentQty <= 0) {
+        if (skip_deduct || currentQty <= 0) {
           autoOrderStatus = 'not_ordered';
           autoOrderSupplier = stockRows[0].vendor || null;
         }
