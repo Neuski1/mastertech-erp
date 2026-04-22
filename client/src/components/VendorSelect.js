@@ -2,14 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 
 export default function VendorSelect({ value, onChange, style }) {
-  const [vendors, setVendors] = useState([]);
+  const [inventoryVendors, setInventoryVendors] = useState([]);
+  const [miscVendors, setMiscVendors] = useState([]);
   const [query, setQuery] = useState(value || '');
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const ref = useRef();
 
   useEffect(() => {
-    api.getVendors().then(setVendors).catch(() => {});
+    api.getVendors().then(v => setInventoryVendors(v || [])).catch(() => {});
+    api.getVendorDetails().then(details => {
+      const misc = (details || []).filter(d => d.supplier_type === 'misc');
+      setMiscVendors(misc);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { setQuery(value || ''); }, [value]);
@@ -21,10 +26,26 @@ export default function VendorSelect({ value, onChange, style }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filtered = vendors.filter(v =>
-    v.name.toLowerCase().includes(query.toLowerCase())
-  );
-  const exactMatch = vendors.some(v => v.name.toLowerCase() === query.trim().toLowerCase());
+  // Merge inventory vendors and misc suppliers into one list, deduped
+  const allVendors = (() => {
+    const nameSet = new Set();
+    const merged = [];
+    inventoryVendors.forEach(v => {
+      const key = v.name.toLowerCase().trim();
+      if (!nameSet.has(key)) { nameSet.add(key); merged.push({ name: v.name, type: 'inventory' }); }
+    });
+    miscVendors.forEach(v => {
+      const key = (v.vendor_name || '').toLowerCase().trim();
+      if (!nameSet.has(key)) { nameSet.add(key); merged.push({ name: v.vendor_name, type: 'misc' }); }
+    });
+    return merged.sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const lowerQuery = query.toLowerCase();
+  const filteredInventory = allVendors.filter(v => v.type === 'inventory' && v.name.toLowerCase().includes(lowerQuery));
+  const filteredMisc = allVendors.filter(v => v.type === 'misc' && v.name.toLowerCase().includes(lowerQuery));
+  const hasResults = filteredInventory.length > 0 || filteredMisc.length > 0;
+  const exactMatch = allVendors.some(v => v.name.toLowerCase() === query.trim().toLowerCase());
 
   const handleSelect = (name) => {
     onChange(name);
@@ -32,15 +53,16 @@ export default function VendorSelect({ value, onChange, style }) {
     setOpen(false);
   };
 
-  const handleCreate = async () => {
+  const handleCreateMisc = async () => {
     if (!query.trim() || creating) return;
     setCreating(true);
     try {
-      const vendor = await api.createVendor(query.trim());
-      setVendors(prev => [...prev, vendor].sort((a, b) => a.name.localeCompare(b.name)));
-      handleSelect(vendor.name);
+      await api.updateVendorDetails(query.trim(), { supplier_type: 'misc' });
+      const newMisc = { vendor_name: query.trim(), supplier_type: 'misc' };
+      setMiscVendors(prev => [...prev, newMisc]);
+      handleSelect(query.trim());
     } catch (err) {
-      console.error('Create vendor error:', err);
+      console.error('Create misc supplier error:', err);
     } finally {
       setCreating(false);
     }
@@ -57,24 +79,48 @@ export default function VendorSelect({ value, onChange, style }) {
       />
       {open && query.length > 0 && (
         <div style={dropdownStyle}>
-          {filtered.length > 0 ? (
-            filtered.slice(0, 10).map(v => (
-              <div key={v.id} onClick={() => handleSelect(v.name)} style={itemStyle}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
-              >
-                {v.name}
-              </div>
-            ))
-          ) : (
+          {/* Inventory suppliers */}
+          {filteredInventory.length > 0 && (
+            <>
+              <div style={sectionHeader}>Parts Suppliers</div>
+              {filteredInventory.slice(0, 8).map(v => (
+                <div key={v.name} onClick={() => handleSelect(v.name)} style={itemStyle}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                >
+                  {v.name}
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Misc suppliers */}
+          {filteredMisc.length > 0 && (
+            <>
+              <div style={sectionHeader}>Misc Suppliers</div>
+              {filteredMisc.slice(0, 8).map(v => (
+                <div key={v.name} onClick={() => handleSelect(v.name)} style={itemStyle}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                >
+                  <span>{v.name}</span>
+                  <span style={miscBadge}>misc</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {!hasResults && (
             <div style={{ padding: '6px 10px', color: '#9ca3af', fontSize: '0.8rem' }}>No suppliers found</div>
           )}
+
+          {/* Add new misc supplier option */}
           {query.trim() && !exactMatch && (
-            <div onClick={handleCreate} style={{ ...itemStyle, borderTop: '1px solid #e5e7eb', color: '#1e3a5f', fontWeight: 600 }}
+            <div onClick={handleCreateMisc} style={{ ...itemStyle, borderTop: '1px solid #e5e7eb', color: '#1e3a5f', fontWeight: 600 }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
             >
-              {creating ? 'Creating...' : `+ Add New Supplier: "${query.trim().toUpperCase()}"`}
+              {creating ? 'Creating...' : `+ Add New Misc Supplier: "${query.trim()}"`}
             </div>
           )}
         </div>
@@ -86,9 +132,19 @@ export default function VendorSelect({ value, onChange, style }) {
 const dropdownStyle = {
   position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
   backgroundColor: '#fff', border: '1px solid #d1d5db', borderTop: 'none',
-  borderRadius: '0 0 4px 4px', maxHeight: '200px', overflowY: 'auto',
+  borderRadius: '0 0 4px 4px', maxHeight: '280px', overflowY: 'auto',
   boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
 };
 const itemStyle = {
   padding: '6px 10px', cursor: 'pointer', fontSize: '0.8rem',
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+};
+const sectionHeader = {
+  padding: '4px 10px', fontSize: '0.68rem', fontWeight: 700, color: '#6b7280',
+  textTransform: 'uppercase', backgroundColor: '#f9fafb', borderTop: '1px solid #e5e7eb',
+  letterSpacing: '0.05em',
+};
+const miscBadge = {
+  fontSize: '0.6rem', fontWeight: 600, color: '#6366f1', backgroundColor: '#eef2ff',
+  padding: '1px 6px', borderRadius: '3px',
 };
