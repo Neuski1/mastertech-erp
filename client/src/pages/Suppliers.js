@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -315,6 +315,33 @@ export default function Suppliers() {
   const [quickPoOpen, setQuickPoOpen] = useState(false);
   const [quickPo, setQuickPo] = useState({ vendor: '', order_date: new Date().toISOString().split('T')[0], order_number: '', notes: '', line_items: [] });
   const [quickLineItem, setQuickLineItem] = useState({ description: '', qty: '', cost_each: '' });
+  const [quickSearchResults, setQuickSearchResults] = useState([]);
+  const quickSearchTimeout = useRef(null);
+
+  const handleQuickSearch = (q) => {
+    setQuickLineItem({ ...quickLineItem, description: q, inventory_id: null });
+    if (quickSearchTimeout.current) clearTimeout(quickSearchTimeout.current);
+    if (q.length < 2) { setQuickSearchResults([]); return; }
+    quickSearchTimeout.current = setTimeout(async () => {
+      try {
+        const results = await api.searchInventory(q);
+        setQuickSearchResults(results);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 300);
+  };
+
+  const selectQuickItem = (item) => {
+    setQuickLineItem({
+      description: item.description,
+      qty: '1',
+      cost_each: item.cost_each ? parseFloat(item.cost_each).toFixed(2) : '',
+      inventory_id: item.id,
+      part_number: item.part_number || ''
+    });
+    setQuickSearchResults([]);
+  };
 
   const fetchImportPOs = useCallback(async (supplier) => {
     if (!supplier) { setImportPOs([]); return; }
@@ -795,8 +822,24 @@ export default function Suppliers() {
                           <button onClick={() => setQuickPo({ ...quickPo, line_items: quickPo.line_items.filter((_, i) => i !== idx) })} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem' }}>x</button>
                         </div>
                       ))}
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '6px', marginTop: '8px' }}>
-                        <input style={{ ...inputStyle, fontSize: '0.82rem' }} placeholder="Item description" value={quickLineItem.description} onChange={(e) => setQuickLineItem({ ...quickLineItem, description: e.target.value })} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '6px', marginTop: '8px', position: 'relative' }}>
+                        <div style={{ position: 'relative' }}>
+                          <input style={{ ...inputStyle, fontSize: '0.82rem' }} placeholder="Search inventory..." value={quickLineItem.description} onChange={(e) => handleQuickSearch(e.target.value)} autoComplete="off" />
+                          {quickSearchResults.length > 0 && (
+                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: '0 0 6px 6px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 50, maxHeight: '200px', overflowY: 'auto' }}>
+                              {quickSearchResults.map(item => (
+                                <div key={item.id} onClick={() => selectQuickItem(item)} style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.82rem' }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = '#f0f9ff'}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                                  <div style={{ fontWeight: 600, color: '#1f2937' }}>{item.description}</div>
+                                  <div style={{ color: '#6b7280', fontSize: '0.75rem' }}>
+                                    {item.part_number || 'No PN'} | {item.vendor || 'No vendor'} | Qty: {item.qty_on_hand} | Cost: {item.cost_each ? '$' + parseFloat(item.cost_each).toFixed(2) : '—'}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="number" placeholder="Qty" value={quickLineItem.qty} onChange={(e) => setQuickLineItem({ ...quickLineItem, qty: e.target.value })} />
                         <input style={{ ...inputStyle, fontSize: '0.82rem' }} type="number" step="0.01" placeholder="Cost" value={quickLineItem.cost_each} onChange={(e) => setQuickLineItem({ ...quickLineItem, cost_each: e.target.value })} />
                         <button
@@ -804,6 +847,7 @@ export default function Suppliers() {
                             if (!quickLineItem.description || !quickLineItem.qty || !quickLineItem.cost_each) return;
                             setQuickPo({ ...quickPo, line_items: [...quickPo.line_items, { ...quickLineItem, qty: parseInt(quickLineItem.qty), cost_each: parseFloat(quickLineItem.cost_each) }] });
                             setQuickLineItem({ description: '', qty: '', cost_each: '' });
+                            setQuickSearchResults([]);
                           }}
                           style={{ ...btnSmall, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', whiteSpace: 'nowrap' }}
                         >+</button>
@@ -849,7 +893,10 @@ export default function Suppliers() {
                         <strong>Manual entry:</strong> Use the Quick-Add form to log orders from {importSupplier}. Enter the order number, date, and line items with costs.
                       </>
                     )}
-                    <div style={{ marginTop: '10px', padding: '10px', background: '#f0f9ff', borderRadius: '6px', border: '1px solid #bae6fd' }}>
+                    <div style={{ marginTop: '10px', padding: '10px', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
+                      <strong style={{ color: '#92400e' }}>Inventory only:</strong> Quick-Add is for restocking inventory items only. Parts ordered specifically for an open work order should be added directly on that work order's parts tab.
+                    </div>
+                    <div style={{ marginTop: '8px', padding: '10px', background: '#f0f9ff', borderRadius: '6px', border: '1px solid #bae6fd' }}>
                       <strong style={{ color: '#0369a1' }}>Coming soon:</strong> Email auto-scanning for all suppliers. Currently available for Amazon Business.
                     </div>
                   </div>
