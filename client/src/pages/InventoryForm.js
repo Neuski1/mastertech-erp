@@ -130,7 +130,7 @@ export default function InventoryForm() {
         await api.createInventoryItem(payload);
       }
 
-      navigate('/inventory');
+      navigate(-1);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -141,7 +141,7 @@ export default function InventoryForm() {
   const handleDelete = async () => {
     try {
       await api.deleteInventoryItem(id);
-      navigate('/inventory');
+      navigate(-1);
     } catch (err) {
       setError(err.message);
     }
