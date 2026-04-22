@@ -115,6 +115,24 @@ router.get('/amazon-imported', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/purchase-orders/supplier-imported?vendor=X — List already-imported order numbers for any supplier
+// ---------------------------------------------------------------------------
+router.get('/supplier-imported', async (req, res) => {
+  const { vendor } = req.query;
+  if (!vendor) return res.status(400).json({ error: 'vendor query parameter required' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT order_number FROM purchase_orders WHERE LOWER(TRIM(vendor)) = LOWER(TRIM($1)) AND order_number IS NOT NULL`,
+      [vendor]
+    );
+    res.json(rows.map(r => r.order_number));
+  } catch (err) {
+    console.error('GET /api/purchase-orders/supplier-imported error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/purchase-orders/vendors/subcategories — List distinct subcategories
 // ---------------------------------------------------------------------------
 router.get('/vendors/subcategories', async (req, res) => {
@@ -562,6 +580,162 @@ router.post('/amazon-import', async (req, res) => {
     }
   } catch (err) {
     console.error('POST /api/purchase-orders/amazon-import error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/purchase-orders/supplier-import — Import orders from ANY supplier as POs
+// Body: { vendor: string, orders: [{ orderId, date, items: [{description, quantity, price}], trackingNumber, status, notes }] }
+// ---------------------------------------------------------------------------
+router.post('/supplier-import', async (req, res) => {
+  try {
+    const { vendor, orders } = req.body;
+    if (!vendor || !vendor.trim()) {
+      return res.status(400).json({ error: 'vendor is required' });
+    }
+    if (!orders || !Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ error: 'orders array is required' });
+    }
+
+    const client = await pool.connect();
+    const results = { imported: 0, skipped: 0, details: [] };
+
+    try {
+      await client.query('BEGIN');
+
+      for (const order of orders) {
+        // Check for duplicates by order_number
+        if (order.orderId) {
+          const { rows: existing } = await client.query(
+            'SELECT id FROM purchase_orders WHERE order_number = $1',
+            [order.orderId]
+          );
+          if (existing.length > 0) {
+            results.skipped++;
+            results.details.push({ orderId: order.orderId, status: 'skipped', reason: 'Already imported', poId: existing[0].id });
+            continue;
+          }
+        }
+
+        // Auto-match line items to inventory
+        const matchedLineItems = [];
+        for (const item of (order.items || [])) {
+          let inventoryMatch = null;
+
+          if (item.description) {
+            const keywords = item.description
+              .replace(/[^a-zA-Z0-9\s]/g, ' ')
+              .split(/\s+/)
+              .filter(w => w.length >= 3)
+              .slice(0, 4);
+
+            if (keywords.length > 0) {
+              // Search vendor-specific inventory first
+              const { rows: matches } = await client.query(
+                `SELECT id, part_number, description, vendor, cost_each
+                 FROM inventory
+                 WHERE deleted_at IS NULL AND is_active = TRUE
+                   AND LOWER(TRIM(vendor)) = LOWER(TRIM($1))
+                   AND (description ILIKE $2 OR description ILIKE $3)
+                 ORDER BY description
+                 LIMIT 1`,
+                [vendor.trim(), `%${keywords[0]}%`, keywords.length > 1 ? `%${keywords[1]}%` : `%${keywords[0]}%`]
+              );
+
+              if (matches.length > 0) {
+                inventoryMatch = matches[0];
+              } else {
+                // Broader search across all vendors
+                const { rows: broadMatches } = await client.query(
+                  `SELECT id, part_number, description, vendor, cost_each
+                   FROM inventory
+                   WHERE deleted_at IS NULL AND is_active = TRUE
+                     AND (description ILIKE $1)
+                   ORDER BY CASE WHEN LOWER(TRIM(vendor)) = LOWER(TRIM($2)) THEN 0 ELSE 1 END, description
+                   LIMIT 1`,
+                  [`%${keywords[0]}%`, vendor.trim()]
+                );
+                if (broadMatches.length > 0) {
+                  inventoryMatch = broadMatches[0];
+                }
+              }
+            }
+          }
+
+          matchedLineItems.push({
+            description: item.description || `${vendor} item`,
+            qty: item.quantity || 1,
+            cost_each: item.price || 0,
+            inventory_item_id: inventoryMatch ? inventoryMatch.id : null,
+            matched: !!inventoryMatch,
+            match_info: inventoryMatch ? `Matched: ${inventoryMatch.part_number} - ${inventoryMatch.description}` : null
+          });
+        }
+
+        const subtotal = matchedLineItems.reduce((sum, li) => sum + (li.qty * li.cost_each), 0);
+        const total = order.total || subtotal;
+
+        const poNotes = [
+          order.notes || null,
+          `Imported from ${vendor.trim()} via email scan`
+        ].filter(Boolean).join(' | ');
+
+        const { rows: poRows } = await client.query(
+          `INSERT INTO purchase_orders (vendor, order_date, order_number, tracking_number, shipping_cost, subtotal, total, notes, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING *`,
+          [
+            vendor.trim(),
+            order.date ? new Date(order.date) : new Date(),
+            order.orderId || null,
+            order.trackingNumber || null,
+            0,
+            subtotal,
+            total,
+            poNotes,
+            (order.status === 'delivered' || order.status === 'shipped') ? 'received' : 'pending'
+          ]
+        );
+
+        const po = poRows[0];
+
+        for (const li of matchedLineItems) {
+          const lineTotal = li.qty * li.cost_each;
+          await client.query(
+            `INSERT INTO po_line_items (po_id, inventory_item_id, description, qty, cost_each, line_total, matched)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [po.id, li.inventory_item_id, li.description, li.qty, li.cost_each, lineTotal, li.matched]
+          );
+        }
+
+        if (order.status === 'delivered' || order.status === 'shipped') {
+          await client.query(
+            'UPDATE purchase_orders SET received_at = NOW() WHERE id = $1',
+            [po.id]
+          );
+        }
+
+        results.imported++;
+        results.details.push({
+          orderId: order.orderId,
+          status: 'imported',
+          poId: po.id,
+          itemsMatched: matchedLineItems.filter(li => li.matched).length,
+          itemsTotal: matchedLineItems.length
+        });
+      }
+
+      await client.query('COMMIT');
+      res.json(results);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('POST /api/purchase-orders/supplier-import error:', err);
     res.status(500).json({ error: err.message });
   }
 });

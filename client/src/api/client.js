@@ -343,6 +343,8 @@ export const api = {
   getSupplierSubcategories: () => request('/purchase-orders/vendors/subcategories'),
   importAmazonOrders: (orders) => request('/purchase-orders/amazon-import', { method: 'POST', body: JSON.stringify({ orders }) }),
   getAmazonImported: () => request('/purchase-orders/amazon-imported'),
+  importSupplierOrders: (vendor, orders) => request('/purchase-orders/supplier-import', { method: 'POST', body: JSON.stringify({ vendor, orders }) }),
+  getSupplierImported: (vendor) => request(`/purchase-orders/supplier-imported?vendor=${encodeURIComponent(vendor)}`),
 
   // Online payments (Poynt / GoDaddy Payments)
   createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),
