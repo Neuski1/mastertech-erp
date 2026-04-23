@@ -27,6 +27,9 @@ export default function InventoryList() {
   const [showCategoryPanel, setShowCategoryPanel] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [newCatPrefix, setNewCatPrefix] = useState('');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const reportsRef = useRef(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -330,6 +333,41 @@ export default function InventoryList() {
     return sortDirection === 'asc' ? ' \u2191' : ' \u2193';
   };
 
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === items.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(items.map(i => i.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const count = selected.size;
+    if (count === 0) return;
+    if (!window.confirm(`Delete ${count} selected item${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const result = await api.bulkDeleteInventory(Array.from(selected));
+      alert(`${result.deleted} item${result.deleted > 1 ? 's' : ''} deleted.`);
+      setSelected(new Set());
+      setSelectMode(false);
+      fetchItems();
+      fetchReorderCount();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const handlePrintInventory = async () => {
     // Fetch ALL items matching current filters (not just current page)
     const params = { page: 1, limit: 99999 };
@@ -498,6 +536,19 @@ export default function InventoryList() {
               </div>
             )}
           </div>
+          {isAdmin && !isMobile && (
+            <button
+              onClick={() => { setSelectMode(!selectMode); setSelected(new Set()); }}
+              style={{
+                ...btnSecondary,
+                backgroundColor: selectMode ? '#fee2e2' : '#f3f4f6',
+                color: selectMode ? '#dc2626' : '#374151',
+                borderColor: selectMode ? '#fca5a5' : '#d1d5db',
+              }}
+            >
+              {selectMode ? 'Cancel Select' : 'Select & Delete'}
+            </button>
+          )}
           {!isMobile && <button onClick={handlePrintInventory} style={btnSecondary}>Print Inventory</button>}
           {isAdmin && !isMobile && <button onClick={() => navigate('/suppliers')} style={btnSecondary}>Manage Suppliers</button>}
           {isAdmin && !isMobile && <button onClick={() => setShowCategoryPanel(!showCategoryPanel)} style={btnSecondary}>Manage Categories</button>}
@@ -588,6 +639,34 @@ export default function InventoryList() {
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {selectMode && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px',
+          padding: '10px 16px', backgroundColor: '#fef2f2', borderRadius: '8px',
+          border: '1px solid #fecaca',
+        }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#991b1b' }}>
+            {selected.size} selected
+          </span>
+          <button
+            onClick={toggleSelectAll}
+            style={{ padding: '4px 12px', fontSize: '0.8rem', backgroundColor: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            {selected.size === items.length ? 'Deselect All' : 'Select All on Page'}
+          </button>
+          {selected.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              style={{ padding: '4px 14px', fontSize: '0.8rem', fontWeight: 600, backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              {bulkDeleting ? 'Deleting...' : `Delete ${selected.size} Item${selected.size > 1 ? 's' : ''}`}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Table */}
       {/* Top Pagination */}
       {total > 50 && (
@@ -631,6 +710,11 @@ export default function InventoryList() {
           <table style={tableStyle}>
             <thead>
               <tr>
+                {selectMode && (
+                  <th style={{ ...thStyle, width: '40px', textAlign: 'center' }}>
+                    <input type="checkbox" checked={items.length > 0 && selected.size === items.length} onChange={toggleSelectAll} />
+                  </th>
+                )}
                 <th style={thSortable} onClick={() => handleSort('part_number')}>Part #{sortArrow('part_number')}</th>
                 <th style={thSortable} onClick={() => handleSort('description')}>Description{sortArrow('description')}</th>
                 <th style={thSortable} onClick={() => handleSort('vendor_part_number')}>Supplier Part #{sortArrow('vendor_part_number')}</th>
@@ -646,9 +730,17 @@ export default function InventoryList() {
               {items.map((item) => (
                 <tr
                   key={item.id}
-                  onClick={() => navigate(`/inventory/${item.id}`)}
-                  style={{ cursor: 'pointer' }}
+                  onClick={() => selectMode ? toggleSelect(item.id) : navigate(`/inventory/${item.id}`)}
+                  style={{
+                    cursor: 'pointer',
+                    backgroundColor: selected.has(item.id) ? '#fef2f2' : undefined,
+                  }}
                 >
+                  {selectMode && (
+                    <td style={{ ...tdStyle, textAlign: 'center', width: '40px' }} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} />
+                    </td>
+                  )}
                   <td style={tdStyle}>
                     <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
                       {item.part_number || '—'}

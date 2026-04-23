@@ -309,6 +309,28 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/inventory/bulk-delete — Soft delete multiple items
+// ---------------------------------------------------------------------------
+router.post('/bulk-delete', requireRole('admin'), async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+  try {
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    const { rowCount } = await pool.query(
+      `UPDATE inventory SET deleted_at = NOW(), is_active = FALSE
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      ids
+    );
+    res.json({ message: `${rowCount} item(s) deleted`, deleted: rowCount });
+  } catch (err) {
+    console.error('POST /api/inventory/bulk-delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /api/inventory/:id — Soft delete
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {

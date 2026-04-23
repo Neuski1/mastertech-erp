@@ -122,6 +122,7 @@ export const api = {
   createInventoryItem: (data) => request('/inventory', { method: 'POST', body: JSON.stringify(data) }),
   updateInventoryItem: (id, data) => request(`/inventory/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteInventoryItem: (id) => request(`/inventory/${id}`, { method: 'DELETE' }),
+  bulkDeleteInventory: (ids) => request('/inventory/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   getReorderAlerts: () => request('/inventory/reorder-alerts'),
   getLowStockReport: () => request('/inventory/reports/low-stock'),
   getInStockReport: () => request('/inventory/reports/in-stock'),
