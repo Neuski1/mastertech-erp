@@ -396,6 +396,11 @@ const pool = require('./db/pool');
     // Mark the 3 seeded suppliers as inventory type
     await pool.query(`UPDATE vendor_details SET supplier_type = 'inventory' WHERE vendor_name IN ('NTP/Stag', 'Amazon Business', 'etrailer') AND supplier_type IS NULL`);
 
+    // Migration 050: reorder tracking on inventory
+    await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_status VARCHAR(20) DEFAULT NULL`);
+    await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_date DATE DEFAULT NULL`);
+    await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_note TEXT DEFAULT NULL`);
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
