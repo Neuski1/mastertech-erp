@@ -169,6 +169,7 @@ router.get('/', async (req, res) => {
       `SELECT i.id, i.part_number, i.description, i.vendor, i.vendor_part_number, i.category, i.location,
               i.qty_on_hand, i.reorder_level, i.cost_each, i.sale_price_each,
               i.is_active, i.created_at,
+              i.reorder_status, i.reorder_date, i.reorder_note,
               CASE WHEN i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level
                    THEN TRUE ELSE FALSE END AS low_stock
        FROM inventory i
@@ -263,6 +264,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   const allowedFields = [
     'part_number', 'description', 'vendor', 'vendor_part_number', 'category', 'location',
     'qty_on_hand', 'reorder_level', 'cost_each', 'sale_price_each', 'is_active',
+    'reorder_status', 'reorder_date', 'reorder_note',
   ];
 
   const updates = [];
@@ -273,7 +275,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     if (req.body[field] !== undefined) {
       updates.push(`${field} = $${idx++}`);
       // Handle nullable numeric fields
-      if (['reorder_level', 'cost_each'].includes(field) && req.body[field] === '') {
+      if (['reorder_level', 'cost_each', 'reorder_status', 'reorder_date', 'reorder_note'].includes(field) && (req.body[field] === '' || req.body[field] === null)) {
         values.push(null);
       } else if (['qty_on_hand', 'reorder_level', 'cost_each', 'sale_price_each'].includes(field)) {
         values.push(req.body[field] !== null && req.body[field] !== '' ? parseFloat(req.body[field]) : null);

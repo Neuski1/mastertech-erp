@@ -30,6 +30,8 @@ export default function InventoryList() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [reorderEditId, setReorderEditId] = useState(null);
+  const [reorderForm, setReorderForm] = useState({ reorder_status: '', reorder_date: '', reorder_note: '' });
   const reportsRef = useRef(null);
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -365,6 +367,45 @@ export default function InventoryList() {
       alert('Delete failed: ' + err.message);
     } finally {
       setBulkDeleting(false);
+    }
+  };
+
+  const openReorderEdit = (item, e) => {
+    e.stopPropagation();
+    setReorderEditId(item.id);
+    setReorderForm({
+      reorder_status: item.reorder_status || '',
+      reorder_date: item.reorder_date ? item.reorder_date.toString().slice(0, 10) : '',
+      reorder_note: item.reorder_note || '',
+    });
+  };
+
+  const handleSaveReorder = async (itemId, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await api.updateInventoryItem(itemId, {
+        reorder_status: reorderForm.reorder_status || null,
+        reorder_date: reorderForm.reorder_date || null,
+        reorder_note: reorderForm.reorder_note || null,
+      });
+      setReorderEditId(null);
+      fetchItems();
+    } catch (err) {
+      alert('Save failed: ' + err.message);
+    }
+  };
+
+  const handleQuickOrder = async (item, e) => {
+    e.stopPropagation();
+    try {
+      await api.updateInventoryItem(item.id, {
+        reorder_status: 'ordered',
+        reorder_date: new Date().toISOString().slice(0, 10),
+        reorder_note: item.reorder_note || '',
+      });
+      fetchItems();
+    } catch (err) {
+      alert('Save failed: ' + err.message);
     }
   };
 
@@ -728,8 +769,8 @@ export default function InventoryList() {
             </thead>
             <tbody>
               {items.map((item) => (
+                <React.Fragment key={item.id}>
                 <tr
-                  key={item.id}
                   onClick={() => selectMode ? toggleSelect(item.id) : navigate(`/inventory/${item.id}`)}
                   style={{
                     cursor: 'pointer',
@@ -772,6 +813,61 @@ export default function InventoryList() {
                   <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(item.cost_each)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{formatCurrency(item.sale_price_each)}</td>
                 </tr>
+
+                {/* Reorder tracking row for low stock items */}
+                {item.low_stock && (
+                  <tr style={{ backgroundColor: item.reorder_status === 'ordered' ? '#fffbeb' : '#fef2f2' }}>
+                    <td colSpan={selectMode ? 11 : 10} style={{ padding: '4px 16px 8px', borderBottom: '2px solid #fecaca' }} onClick={(e) => e.stopPropagation()}>
+                      {reorderEditId === item.id ? (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <select value={reorderForm.reorder_status} onChange={(e) => setReorderForm({ ...reorderForm, reorder_status: e.target.value })}
+                            style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }}>
+                            <option value="">Not Ordered</option>
+                            <option value="ordered">Ordered</option>
+                            <option value="received">Received</option>
+                          </select>
+                          <label style={{ fontSize: '0.78rem', color: '#374151' }}>Date:</label>
+                          <input type="date" value={reorderForm.reorder_date} onChange={(e) => setReorderForm({ ...reorderForm, reorder_date: e.target.value })}
+                            style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
+                          <input type="text" value={reorderForm.reorder_note} onChange={(e) => setReorderForm({ ...reorderForm, reorder_note: e.target.value })}
+                            placeholder="Notes..." style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', flex: 1, minWidth: '150px' }} />
+                          <button onClick={(e) => handleSaveReorder(item.id, e)}
+                            style={{ padding: '3px 10px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}>Save</button>
+                          <button onClick={(e) => { e.stopPropagation(); setReorderEditId(null); }}
+                            style={{ padding: '3px 8px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
+                        </div>
+                      ) : item.reorder_status === 'ordered' ? (
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.78rem' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', fontWeight: 600, fontSize: '0.72rem', backgroundColor: '#fef3c7', color: '#92400e' }}>ORDERED</span>
+                          {item.reorder_date && <span><strong>Date:</strong> {new Date(item.reorder_date + 'T00:00:00').toLocaleDateString()}</span>}
+                          {item.reorder_note && <span style={{ color: '#6b7280' }}>{item.reorder_note}</span>}
+                          <button onClick={(e) => openReorderEdit(item, e)}
+                            style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>
+                        </div>
+                      ) : item.reorder_status === 'received' ? (
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.78rem' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', fontWeight: 600, fontSize: '0.72rem', backgroundColor: '#d1fae5', color: '#065f46' }}>RECEIVED</span>
+                          {item.reorder_date && <span><strong>Date:</strong> {new Date(item.reorder_date + 'T00:00:00').toLocaleDateString()}</span>}
+                          {item.reorder_note && <span style={{ color: '#6b7280' }}>{item.reorder_note}</span>}
+                          <button onClick={(e) => openReorderEdit(item, e)}
+                            style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button onClick={(e) => handleQuickOrder(item, e)}
+                            style={{ padding: '2px 10px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: '3px', fontSize: '0.72rem', cursor: 'pointer', fontWeight: 600 }}>
+                            Mark as Ordered
+                          </button>
+                          <button onClick={(e) => openReorderEdit(item, e)}
+                            style={{ padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer' }}>
+                            Add Note
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
