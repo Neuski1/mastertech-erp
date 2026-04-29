@@ -87,6 +87,8 @@ export default function RecordDetail() {
   const [emailMsg, setEmailMsg] = useState(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailPersonalMsg, setEmailPersonalMsg] = useState('');
+  const [emailTo, setEmailTo] = useState('');
+  const [emailCc, setEmailCc] = useState('');
   const [emailIncludePayLink, setEmailIncludePayLink] = useState(false);
   const [emailPayLinkType, setEmailPayLinkType] = useState('parts_deposit');
   const [emailPayLinkAmount, setEmailPayLinkAmount] = useState('');
@@ -350,6 +352,9 @@ export default function RecordDetail() {
     setEmailPayLinkType(defaultType);
     setEmailPayLinkAmount(defaultAmount > 0 ? defaultAmount.toFixed(2) : '');
     setEmailIncludePayLink(defaultAmount > 0);
+    setEmailTo(record.email_primary || '');
+    setEmailCc('');
+    setEmailPersonalMsg('');
     setShowEmailModal(true);
   };
 
@@ -358,7 +363,11 @@ export default function RecordDetail() {
     setEmailMsg(null);
     setShowEmailModal(false);
     try {
-      const payload = { personalMessage: emailPersonalMsg || null };
+      const payload = {
+        personalMessage: emailPersonalMsg || null,
+        toEmail: emailTo.trim() || null,
+        ccEmails: emailCc.trim() || null,
+      };
       if (emailIncludePayLink && parseFloat(emailPayLinkAmount) > 0) {
         payload.includePaymentLink = true;
         payload.paymentLinkType = emailPayLinkType;
@@ -1234,10 +1243,26 @@ ${paymentDetailHtml}
         return (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
             <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-              <h2 style={{ margin: '0 0 16px', color: '#1e3a5f', fontSize: '1.1rem' }}>Email {docType} to Customer</h2>
-              <div style={{ marginBottom: '16px', fontSize: '0.85rem' }}>
-                <span style={{ color: '#6b7280' }}>Sending to:</span>{' '}
-                <strong>{record.email_primary}</strong>
+              <h2 style={{ margin: '0 0 16px', color: '#1e3a5f', fontSize: '1.1rem' }}>Email {docType}</h2>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>To</label>
+                <input
+                  type="email"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  placeholder="Recipient email address"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>CC <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — separate multiple with commas)</span></label>
+                <input
+                  type="text"
+                  value={emailCc}
+                  onChange={(e) => setEmailCc(e.target.value)}
+                  placeholder="e.g. insurance@company.com, manager@fleet.com"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                />
               </div>
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>Personal message (optional)</label>

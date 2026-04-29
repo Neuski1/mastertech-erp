@@ -743,7 +743,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 // POST /api/records/:id/email-document — Email document to customer
 // ---------------------------------------------------------------------------
 router.post('/:id/email-document', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const { personalMessage, includePaymentLink, paymentLinkType, paymentLinkAmountDollars } = req.body || {};
+  const { personalMessage, includePaymentLink, paymentLinkType, paymentLinkAmountDollars, toEmail, ccEmails } = req.body || {};
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
@@ -759,8 +759,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     if (rows.length === 0) return res.status(404).json({ error: 'Record not found' });
 
     const r = rows[0];
-    const email = r.email_primary;
-    if (!email) return res.status(400).json({ error: 'No email address on file for this customer.' });
+    // Use custom recipient if provided, otherwise fall back to customer email
+    const email = (toEmail && toEmail.trim()) ? toEmail.trim() : r.email_primary;
+    if (!email) return res.status(400).json({ error: 'No email address provided and no email on file for this customer.' });
 
     // Determine document type
     let docType = 'Work Order';
@@ -1029,9 +1030,16 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
 </div></body></html>`;
 
     const subject = `${docType} #${r.record_number} — Master Tech RV Repair & Storage`;
+    // Build CC list: always include shop email, plus any extra CC addresses
+    const ccList = ['service@mastertechrvrepair.com'];
+    if (ccEmails && ccEmails.trim()) {
+      ccEmails.split(',').map(e => e.trim()).filter(e => e).forEach(e => {
+        if (!ccList.map(c => c.toLowerCase()).includes(e.toLowerCase())) ccList.push(e);
+      });
+    }
     const result = await sendEmail({
       to: email,
-      cc: 'service@mastertechrvrepair.com',
+      cc: ccList,
       subject,
       html,
       text: `${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\n${r.job_description ? 'Job Description: ' + r.job_description + '\n' : ''}Amount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022\n(303) 557-2214`,
@@ -1044,7 +1052,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
           `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
            VALUES ($1, $2, 'email', 'document_emailed', $3)
            RETURNING id`,
-          [r.customer_id, r.id, `${docType} #${r.record_number} emailed to ${email}`]
+          [r.customer_id, r.id, `${docType} #${r.record_number} emailed to ${email}${ccList.length > 1 ? ' (CC: ' + ccList.slice(1).join(', ') + ')' : ''}`]
         );
         console.log(`[Record ${r.record_number}] Comm log entry created: #${logResult.rows[0].id}`);
       } catch (logErr) {
