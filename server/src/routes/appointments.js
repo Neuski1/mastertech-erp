@@ -22,11 +22,14 @@ function toMountainTimestamp(date, time) {
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   const {
-    date_from, date_to, status, technician_id, customer_id,
-    page = 1, limit = 100, sort = 'scheduled_at', order = 'asc'
+    date_from, date_to, status, technician_id, customer_id, search,
+    include_cancelled, page = 1, limit = 100, sort = 'scheduled_at', order = 'asc'
   } = req.query;
 
-  const conditions = ['a.deleted_at IS NULL'];
+  // include_cancelled=true shows soft-deleted (cancelled) appointments instead
+  const conditions = include_cancelled === 'true'
+    ? ['a.deleted_at IS NOT NULL']
+    : ['a.deleted_at IS NULL'];
   const params = [];
   let idx = 1;
 
@@ -49,6 +52,11 @@ router.get('/', async (req, res) => {
   if (customer_id) {
     conditions.push(`a.customer_id = $${idx++}`);
     params.push(customer_id);
+  }
+  if (search && search.trim().length >= 2) {
+    conditions.push(`(c.last_name ILIKE $${idx} OR c.first_name ILIKE $${idx} OR c.company_name ILIKE $${idx} OR c.phone_primary ILIKE $${idx})`);
+    params.push(`%${search.trim()}%`);
+    idx++;
   }
 
   const allowedSorts = ['scheduled_at', 'appointment_type', 'status'];

@@ -97,8 +97,12 @@ export default function Schedule() {
   const [technicians, setTechnicians] = useState([]);
   const [filterType, setFilterType] = useState('all');
   const [filterTech, setFilterTech] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [cancelledAppts, setCancelledAppts] = useState([]);
+  const [cancelledLoading, setCancelledLoading] = useState(false);
   const [mobileDayOffset, setMobileDayOffset] = useState(new Date().getDay()); // 0-6, start on today
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -154,6 +158,28 @@ export default function Schedule() {
   }, [view, weekStart, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+
+  // Fetch cancelled appointments
+  const fetchCancelled = async () => {
+    setCancelledLoading(true);
+    try {
+      const data = await api.getAppointments({
+        include_cancelled: 'true',
+        limit: 500,
+        sort: 'scheduled_at',
+        order: 'desc',
+      });
+      setCancelledAppts(data.appointments);
+    } catch (err) {
+      console.error('Failed to load cancelled appointments:', err);
+    } finally {
+      setCancelledLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showCancelled) fetchCancelled();
+  }, [showCancelled]);
 
   // Week navigation
   const prevWeek = () => {
@@ -240,6 +266,12 @@ export default function Schedule() {
   const filteredListAppts = appointments
     .filter(appt => filterType === 'all' || appt.appointment_type === filterType)
     .filter(appt => filterTech === 'all' || String(appt.technician_id) === filterTech)
+    .filter(appt => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      const name = `${appt.first_name || ''} ${appt.last_name || ''} ${appt.company_name || ''}`.toLowerCase();
+      return name.includes(q);
+    })
     .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
 
   const listGrouped = {};
@@ -353,7 +385,14 @@ export default function Schedule() {
 
       {/* List view filter bar */}
       {view === 'list' && (
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search by name..."
+            style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', width: '200px' }}
+          />
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
@@ -374,6 +413,18 @@ export default function Schedule() {
               <option key={t.id} value={String(t.id)}>{t.name}</option>
             ))}
           </select>
+          <button
+            onClick={() => setShowCancelled(!showCancelled)}
+            style={{
+              padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+              border: showCancelled ? '2px solid #dc2626' : '1px solid #d1d5db',
+              backgroundColor: showCancelled ? '#fef2f2' : '#fff',
+              color: showCancelled ? '#dc2626' : '#6b7280',
+              marginLeft: 'auto',
+            }}
+          >
+            {showCancelled ? 'Hide Cancelled' : 'Show Cancelled'}
+          </button>
         </div>
       )}
 
@@ -629,6 +680,64 @@ export default function Schedule() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Cancelled Appointments Archive */}
+      {view === 'list' && showCancelled && (
+        <div style={{ marginTop: '32px', borderTop: '2px solid #fecaca', paddingTop: '20px' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#dc2626', marginBottom: '12px' }}>
+            Cancelled Appointments ({cancelledAppts.length})
+          </h2>
+          {cancelledLoading ? (
+            <div style={{ textAlign: 'center', padding: '30px', color: '#999' }}>Loading cancelled...</div>
+          ) : cancelledAppts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px', color: '#999' }}>No cancelled appointments</div>
+          ) : (() => {
+            // Group by customer to show repeat cancellers
+            const byCust = {};
+            cancelledAppts.forEach(appt => {
+              const key = appt.customer_id;
+              if (!byCust[key]) byCust[key] = { name: `${appt.last_name || ''}${appt.first_name ? ', ' + appt.first_name : ''}`, company: appt.company_name, appts: [] };
+              byCust[key].appts.push(appt);
+            });
+            const sorted = Object.entries(byCust).sort((a, b) => b[1].appts.length - a[1].appts.length);
+            return (
+              <div>
+                {sorted.map(([custId, data]) => (
+                  <div key={custId} style={{
+                    marginBottom: '12px', padding: '12px 16px', backgroundColor: data.appts.length >= 3 ? '#fef2f2' : '#fff',
+                    border: `1px solid ${data.appts.length >= 3 ? '#fca5a5' : '#e5e7eb'}`, borderRadius: '8px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontWeight: 700, color: '#374151' }}>
+                        {data.name}{data.company ? ` (${data.company})` : ''}
+                      </span>
+                      <span style={{
+                        padding: '2px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700,
+                        backgroundColor: data.appts.length >= 3 ? '#dc2626' : data.appts.length >= 2 ? '#f59e0b' : '#9ca3af',
+                        color: '#fff',
+                      }}>
+                        {data.appts.length} cancellation{data.appts.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    {data.appts.map(appt => {
+                      const d = new Date(appt.scheduled_at);
+                      return (
+                        <div key={appt.id} style={{ fontSize: '0.8rem', color: '#6b7280', padding: '2px 0', display: 'flex', gap: '12px' }}>
+                          <span>{d.toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          <span>{formatTime(appt.scheduled_at)}</span>
+                          <span style={{ padding: '0 6px', borderRadius: '3px', fontSize: '0.7rem', backgroundColor: getTypeColor(appt.appointment_type).bg, color: '#fff' }}>
+                            {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 
