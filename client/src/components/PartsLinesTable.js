@@ -742,8 +742,18 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   </td>
                 </tr>
               )}
-              {/* "Mark as Ordered" button for parts with no order status */}
-              {(!line.order_status || line.order_status === 'not_ordered') && isEditable && orderEditId !== line.id && (
+              {/* "Pulled from Stock" label for inventory parts that were deducted (no order_status) */}
+              {!line.order_status && line.is_inventory_part && orderEditId !== line.id && (
+                <tr key={`stock-${line.id}`}>
+                  <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
+                    <span style={{ padding: '2px 8px', background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7', borderRadius: '3px', fontSize: '0.7rem', fontWeight: 600 }}>
+                      Pulled from Stock
+                    </span>
+                  </td>
+                </tr>
+              )}
+              {/* "Mark as Ordered" button for parts that need ordering */}
+              {(line.order_status === 'not_ordered' || (!line.order_status && !line.is_inventory_part)) && isEditable && orderEditId !== line.id && (
                 <tr key={`order-btn-${line.id}`}>
                   <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
                     <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 8px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}>
