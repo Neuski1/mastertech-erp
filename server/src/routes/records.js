@@ -789,14 +789,16 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     const poyntReady = !!(process.env.POYNT_APPLICATION_ID && process.env.POYNT_PRIVATE_KEY
       && process.env.POYNT_BUSINESS_ID && process.env.POYNT_STORE_ID);
 
-    // Fetch line items + payments + photos
-    const [laborRes, partsRes, freightRes, payRes, photosRes] = await Promise.all([
+    // Fetch line items + payments + photos + latest appointment
+    const [laborRes, partsRes, freightRes, payRes, photosRes, apptRes] = await Promise.all([
       pool.query('SELECT * FROM record_labor_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
       pool.query('SELECT * FROM record_parts_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order, id', [r.id]),
       pool.query('SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY id', [r.id]),
       pool.query('SELECT * FROM payments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY payment_date, id', [r.id]),
       pool.query('SELECT * FROM record_photos WHERE record_id = $1 ORDER BY category, created_at', [r.id]),
+      pool.query('SELECT dropoff_notes, pickup_notes FROM appointments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY scheduled_at DESC LIMIT 1', [r.id]),
     ]);
+    const appt = apptRes.rows[0] || {};
 
     const fmtCur = (v) => {
       const n = parseFloat(v) || 0;
@@ -939,10 +941,22 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <strong>Insurance:</strong> ${r.insurance_company}${r.claim_number ? ' &nbsp; <strong>Claim #:</strong> ' + r.claim_number : ''}${r.policy_number ? ' &nbsp; <strong>Policy #:</strong> ' + r.policy_number : ''}
     </div>` : ''}
 
-    ${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `
+    ${r.job_description ? `
     <div style="margin:0 0 16px;padding:12px 16px;background:#f8f9fa;border-left:4px solid #1e3a5f;border-radius:0 4px 4px 0;">
       <div style="font-size:10px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Job Description</div>
       <div style="font-size:13px;color:#1e3a5f;white-space:pre-wrap;">${r.job_description}</div>
+    </div>` : ''}
+
+    ${appt.dropoff_notes ? `
+    <div style="margin:0 0 16px;padding:12px 16px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 4px 4px 0;">
+      <div style="font-size:10px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Drop Off Notes</div>
+      <div style="font-size:13px;color:#374151;white-space:pre-wrap;">${appt.dropoff_notes}</div>
+    </div>` : ''}
+
+    ${appt.pickup_notes ? `
+    <div style="margin:0 0 16px;padding:12px 16px;background:#faf5ff;border-left:4px solid #a855f7;border-radius:0 4px 4px 0;">
+      <div style="font-size:10px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Pick Up Notes</div>
+      <div style="font-size:13px;color:#374151;white-space:pre-wrap;">${appt.pickup_notes}</div>
     </div>` : ''}
 
     ${r.customer_notes ? `
