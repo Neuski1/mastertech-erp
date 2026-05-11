@@ -157,13 +157,14 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     setForm({ ...form, markup: newMarkup, sale_price_each: salePrice ? salePrice.toFixed(2) : '' });
   };
 
-  const handleAdd = async () => {
+  const handleAdd = async (pullOverride) => {
     if (!form.description || !form.quantity || !form.sale_price_each) {
       setError('Description, quantity, and sale price are required');
       return;
     }
     setSaving(true);
     setError('');
+    const shouldPull = pullOverride !== undefined ? pullOverride : pullFromStock;
     try {
       await api.addPart(recordId, {
         inventory_id: isInventory ? form.inventory_id : null,
@@ -176,7 +177,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         sale_price_each: parseFloat(form.sale_price_each),
         taxable: form.taxable,
         vendor: !isInventory ? form.vendor : null,
-        skip_deduct: isInventory && !!form.inventory_id && !pullFromStock,
+        skip_deduct: isInventory && !!form.inventory_id && !shouldPull,
       });
       setShowAddForm(false);
       resetForm();
@@ -368,34 +369,43 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     {selectedItemQty} in stock — pull from inventory or order new?
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button type="button" onClick={() => setPullFromStock(true)}
+                    <button type="button" onClick={() => handleAdd(true)} disabled={saving}
                       style={{
-                        padding: '5px 14px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
-                        border: pullFromStock ? '2px solid #1e3a5f' : '1px solid #d1d5db',
-                        backgroundColor: pullFromStock ? '#1e3a5f' : '#fff',
-                        color: pullFromStock ? '#fff' : '#374151'
+                        padding: '8px 18px', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
+                        border: '2px solid #1e3a5f',
+                        backgroundColor: '#1e3a5f',
+                        color: '#fff',
+                        opacity: saving ? 0.6 : 1
                       }}>
-                      Pull from Stock
+                      {saving ? 'Adding...' : 'Pull from Stock'}
                     </button>
-                    <button type="button" onClick={() => setPullFromStock(false)}
+                    <button type="button" onClick={() => handleAdd(false)} disabled={saving}
                       style={{
-                        padding: '5px 14px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
-                        border: !pullFromStock ? '2px solid #b45309' : '1px solid #d1d5db',
-                        backgroundColor: !pullFromStock ? '#b45309' : '#fff',
-                        color: !pullFromStock ? '#fff' : '#374151'
+                        padding: '8px 18px', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
+                        border: '2px solid #b45309',
+                        backgroundColor: '#b45309',
+                        color: '#fff',
+                        opacity: saving ? 0.6 : 1
                       }}>
-                      Order New
+                      {saving ? 'Adding...' : 'Order New'}
                     </button>
                   </div>
-                  {!pullFromStock && (
-                    <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#92400e' }}>
-                      Inventory will not be deducted. Part will be flagged as needing to be ordered.
-                    </div>
-                  )}
+                  <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#6b7280' }}>
+                    <strong>Pull from Stock</strong> deducts from inventory. <strong>Order New</strong> flags it as needing to be ordered.
+                  </div>
                 </div>
               ) : (
-                <div style={{ color: '#991b1b', fontWeight: 600 }}>
-                  Out of stock — this part will be flagged as needing to be ordered.
+                <div>
+                  <div style={{ color: '#991b1b', fontWeight: 600, marginBottom: '8px' }}>
+                    Out of stock — this part will be flagged as needing to be ordered.
+                  </div>
+                  <button type="button" onClick={() => handleAdd(false)} disabled={saving}
+                    style={{
+                      padding: '8px 18px', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
+                      border: '2px solid #b45309', backgroundColor: '#b45309', color: '#fff', opacity: saving ? 0.6 : 1
+                    }}>
+                    {saving ? 'Adding...' : 'Add & Flag for Order'}
+                  </button>
                 </div>
               )}
             </div>
