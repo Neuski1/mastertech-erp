@@ -13,7 +13,7 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config({ quiet: true });
 
-const { requireAuth, requireRole } = require('./middleware/auth');
+const { requireAuth, requireAuthOrApiKey, requireRole } = require('./middleware/auth');
 
 const app = express();
 
@@ -85,7 +85,7 @@ app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/partners', requireAuth, require('./routes/partners'));
-app.use('/api/purchase-orders', requireAuth, require('./routes/purchaseOrders'));
+app.use('/api/purchase-orders', requireAuthOrApiKey, require('./routes/purchaseOrders'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 app.use('/api/twilio', require('./routes/twilioWebhook')); // No auth — Twilio calls directly
 

@@ -39,4 +39,19 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireAuth, requireRole, JWT_SECRET, JWT_EXPIRY };
+// ---------------------------------------------------------------------------
+// requireAuthOrApiKey — Allow either a valid JWT (browser users) OR a valid
+// IMPORT_API_KEY header (X-API-Key) for automated jobs like the daily Gmail
+// order import. Falls through to JWT if no API key header is present.
+// ---------------------------------------------------------------------------
+function requireAuthOrApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+  const expected = process.env.IMPORT_API_KEY;
+  if (apiKey && expected && apiKey === expected) {
+    req.user = { id: 0, email: 'import-bot@mastertechrvrepair.com', name: 'Import Bot', role: 'admin' };
+    return next();
+  }
+  return requireAuth(req, res, next);
+}
+
+module.exports = { requireAuth, requireAuthOrApiKey, requireRole, JWT_SECRET, JWT_EXPIRY };
