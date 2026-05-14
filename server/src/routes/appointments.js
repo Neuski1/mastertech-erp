@@ -288,7 +288,8 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   const {
     customer_id, unit_id, record_id, appointment_type,
     scheduled_date, scheduled_time, duration_minutes,
-    technician_id, status, dropoff_notes, pickup_notes, internal_notes, job_description
+    technician_id, status, dropoff_notes, pickup_notes, internal_notes, job_description,
+    customer_email, customer_phone, notify_customer
   } = req.body;
 
   const updates = [];
@@ -317,6 +318,9 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   if (pickup_notes !== undefined) { updates.push(`pickup_notes = $${idx++}`); values.push(pickup_notes || null); }
   if (internal_notes !== undefined) { updates.push(`internal_notes = $${idx++}`); values.push(internal_notes || null); }
   if (job_description !== undefined) { updates.push(`job_description = $${idx++}`); values.push(job_description || null); }
+  if (customer_email !== undefined) { updates.push(`customer_email = $${idx++}`); values.push(customer_email || null); }
+  if (customer_phone !== undefined) { updates.push(`customer_phone = $${idx++}`); values.push(customer_phone || null); }
+  if (notify_customer !== undefined) { updates.push(`notify_customer = $${idx++}`); values.push(notify_customer); }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });
