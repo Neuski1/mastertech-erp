@@ -340,6 +340,15 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
+    // Sync edited email/phone back to the customer record so corrections carry forward
+    const apptRow = rows[0];
+    if (customer_email !== undefined && apptRow.customer_id) {
+      await pool.query('UPDATE customers SET email_primary = $1 WHERE id = $2', [customer_email || null, apptRow.customer_id]);
+    }
+    if (customer_phone !== undefined && apptRow.customer_id) {
+      await pool.query('UPDATE customers SET phone_primary = $1 WHERE id = $2', [customer_phone || null, apptRow.customer_id]);
+    }
+
     // Re-fetch with joined data so the calendar sync has the full context
     const { rows: full } = await pool.query(
       `SELECT a.*,
