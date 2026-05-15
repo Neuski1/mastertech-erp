@@ -93,20 +93,24 @@ export default function CustomerList() {
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
+  const buildFilterParams = () => {
+    const params = { page: 1, limit: 10000 };
+    if (searchTerm) params.search = searchTerm;
+    if (isStorage) params.is_storage = isStorage;
+    if (hasOpenRecords) params.has_open_records = 'true';
+    if (hasOpenEstimate) params.has_open_estimate = 'true';
+    if (lastServiceFrom) params.last_service_from = lastServiceFrom;
+    if (lastServiceTo) params.last_service_to = lastServiceTo;
+    if (unitMake) params.unit_make = unitMake;
+    if (unitModel) params.unit_model = unitModel;
+    if (city) params.city = city;
+    if (zip) params.zip = zip;
+    return params;
+  };
+
   const handleExportCSV = async () => {
     try {
-      const params = { page: 1, limit: 10000 };
-      if (searchTerm) params.search = searchTerm;
-      if (isStorage) params.is_storage = isStorage;
-      if (hasOpenRecords) params.has_open_records = 'true';
-      if (hasOpenEstimate) params.has_open_estimate = 'true';
-      if (lastServiceFrom) params.last_service_from = lastServiceFrom;
-      if (lastServiceTo) params.last_service_to = lastServiceTo;
-      if (unitMake) params.unit_make = unitMake;
-      if (unitModel) params.unit_model = unitModel;
-      if (city) params.city = city;
-      if (zip) params.zip = zip;
-      const data = await api.getCustomers(params);
+      const data = await api.getCustomers(buildFilterParams());
       const rows = (data.customers || []).filter(c => c.email_primary);
       if (rows.length === 0) { alert('No customers with email in current filter'); return; }
       const csv = 'Name,Email\n' + rows.map(c =>
@@ -119,6 +123,69 @@ export default function CustomerList() {
       a.download = `customer_emails_${new Date().toISOString().split('T')[0]}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+    } catch (err) { alert(err.message); }
+  };
+
+  const handlePrintList = async () => {
+    try {
+      const data = await api.getCustomers(buildFilterParams());
+      const rows = data.customers || [];
+      if (rows.length === 0) { alert('No customers to print'); return; }
+
+      // Build filter description
+      const filters = [];
+      if (searchTerm) filters.push(`Search: "${searchTerm}"`);
+      if (isStorage === 'true') filters.push('Storage Customers');
+      if (isStorage === 'false') filters.push('Non-Storage');
+      if (lastServiceFrom) filters.push(`Last Service After: ${lastServiceFrom}`);
+      if (lastServiceTo) filters.push(`Last Service Before: ${lastServiceTo}`);
+      if (unitMake) filters.push(`Make: ${unitMake}`);
+      if (unitModel) filters.push(`Model: ${unitModel}`);
+      if (city) filters.push(`City: ${city}`);
+      if (zip) filters.push(`ZIP: ${zip}`);
+      if (hasOpenRecords) filters.push('Has Open Records');
+      if (hasOpenEstimate) filters.push('Has Open Estimate');
+
+      const formatDate = (d) => {
+        if (!d) return '—';
+        return new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+      };
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`<!DOCTYPE html><html><head><title>Customer List - MasterTech RV</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+          h1 { font-size: 18px; margin: 0 0 4px; }
+          .subtitle { font-size: 12px; color: #666; margin-bottom: 4px; }
+          .filters { font-size: 11px; color: #888; margin-bottom: 12px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th { text-align: left; padding: 6px 8px; border-bottom: 2px solid #333; font-weight: 700; text-transform: uppercase; font-size: 10px; color: #555; }
+          td { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+          tr:nth-child(even) { background: #f9f9f9; }
+          .count { font-size: 11px; color: #666; margin-bottom: 16px; }
+          @media print { body { margin: 10px; } }
+        </style>
+      </head><body>
+        <h1>MasterTech RV Repair — Customer List</h1>
+        <div class="subtitle">Printed ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+        ${filters.length ? `<div class="filters">Filters: ${filters.join(' | ')}</div>` : ''}
+        <div class="count">${rows.length} customers</div>
+        <table>
+          <thead><tr>
+            <th>#</th><th>Name</th><th>Phone</th><th>Email</th><th>Last Service</th>
+          </tr></thead>
+          <tbody>${rows.map((c, i) => `<tr>
+            <td>${i + 1}</td>
+            <td><strong>${c.last_name || ''}${c.first_name ? ', ' + c.first_name : ''}</strong>${c.company_name ? '<br><span style="color:#888;font-size:11px">' + c.company_name + '</span>' : ''}</td>
+            <td>${c.phone_primary || '—'}</td>
+            <td>${c.email_primary || '—'}</td>
+            <td>${formatDate(c.last_service_date)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </body></html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => printWindow.print(), 400);
     } catch (err) { alert(err.message); }
   };
 
@@ -200,6 +267,9 @@ export default function CustomerList() {
           <button onClick={() => setShowMarketing(!showMarketing)} style={{ ...btnSecondary, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
             {showMarketing ? 'Hide Filters' : 'Marketing Filters'}
           </button>
+          <button onClick={handlePrintList} style={{ ...btnSecondary, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+            Print List
+          </button>
         </div>
       </div>
 
@@ -246,7 +316,8 @@ export default function CustomerList() {
           {hasAnyFilter && (
             <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span style={{ fontSize: '0.85rem', color: '#0369a1', fontWeight: 600 }}>{total} matches</span>
-              <button onClick={handleExportCSV} style={{ ...btnPrimary, fontSize: '0.8rem', padding: '6px 12px' }}>Export Email List</button>
+              <button onClick={handlePrintList} style={{ ...btnPrimary, fontSize: '0.8rem', padding: '6px 12px' }}>Print List</button>
+              <button onClick={handleExportCSV} style={{ ...btnSecondary, fontSize: '0.8rem', padding: '6px 12px' }}>Export Email List</button>
               <button onClick={() => setShowCampaignModal(true)} style={{ ...btnSecondary, fontSize: '0.8rem', padding: '6px 12px' }}>Log Campaign</button>
             </div>
           )}
@@ -292,6 +363,7 @@ export default function CustomerList() {
                 <th style={thStyle}>Email</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>Units</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>Records</th>
+                <th style={thStyle}>Last Service</th>
               </tr>
             </thead>
             <tbody>
@@ -313,6 +385,9 @@ export default function CustomerList() {
                         ({c.open_record_count} open)
                       </span>
                     )}
+                  </td>
+                  <td style={{ ...tdStyle, fontSize: '0.8rem', color: '#6b7280' }}>
+                    {c.last_service_date ? new Date(c.last_service_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—'}
                   </td>
                 </tr>
               ))}
