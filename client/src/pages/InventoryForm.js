@@ -37,6 +37,9 @@ export default function InventoryForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [showDelete, setShowDelete] = useState(false);
+  const [showRestock, setShowRestock] = useState(false);
+  const [restockQty, setRestockQty] = useState('');
+  const [restockCost, setRestockCost] = useState('');
   const [fetchingPartNum, setFetchingPartNum] = useState(false);
   const [categories, setCategories] = useState([]);
   useEffect(() => {
@@ -87,6 +90,36 @@ export default function InventoryForm() {
     const markup = parseFloat(newMarkup) || 0;
     const salePrice = cost > 0 ? (cost * (1 + markup / 100)).toFixed(2) : '';
     setForm({ ...form, markup: newMarkup, sale_price_each: salePrice || form.sale_price_each });
+  };
+
+  const handleRestock = () => {
+    const addQty = parseFloat(restockQty) || 0;
+    const addCost = parseFloat(restockCost) || 0;
+    if (addQty <= 0) return;
+
+    const currentQty = parseFloat(form.qty_on_hand) || 0;
+    const currentCost = parseFloat(form.cost_each) || 0;
+    const totalQty = currentQty + addQty;
+
+    // Weighted average cost
+    let newCost = currentCost;
+    if (totalQty > 0 && addCost > 0) {
+      newCost = ((currentQty * currentCost) + (addQty * addCost)) / totalQty;
+      newCost = Math.round(newCost * 100) / 100;
+    }
+
+    // Update qty and cost, recalculate sale price from markup
+    const markup = parseFloat(form.markup) || 0;
+    const salePrice = newCost > 0 ? (newCost * (1 + markup / 100)).toFixed(2) : form.sale_price_each;
+    setForm({
+      ...form,
+      qty_on_hand: String(totalQty),
+      cost_each: String(newCost),
+      sale_price_each: salePrice,
+    });
+    setRestockQty('');
+    setRestockCost('');
+    setShowRestock(false);
   };
 
   const handleCategoryChange = async (e) => {
@@ -288,6 +321,56 @@ export default function InventoryForm() {
               </span>
             </div>
           </div>
+
+          {/* Restock panel — add stock at a different cost and auto-average */}
+          {isEdit && (
+            <div style={{ marginBottom: '20px' }}>
+              {!showRestock ? (
+                <button type="button" onClick={() => { setShowRestock(true); setRestockCost(form.cost_each); }} style={{ padding: '6px 14px', backgroundColor: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                  + Restock at Different Cost
+                </button>
+              ) : (
+                <div style={{ padding: '16px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e3a5f', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Restock &amp; Average Cost
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '0 0 120px' }}>
+                      <label style={labelStyle}>Qty to Add</label>
+                      <input type="number" step="1" min="1" value={restockQty} onChange={(e) => setRestockQty(e.target.value)} placeholder="0" style={inputStyle} autoFocus />
+                    </div>
+                    <div style={{ flex: '0 0 140px' }}>
+                      <label style={labelStyle}>Cost Each ($)</label>
+                      <input type="number" step="0.01" min="0" value={restockCost} onChange={(e) => setRestockCost(e.target.value)} placeholder="0.00" style={inputStyle} />
+                    </div>
+                    <div style={{ flex: 1, fontSize: '0.8rem', color: '#374151', minWidth: '180px' }}>
+                      {restockQty && parseFloat(restockQty) > 0 && restockCost && parseFloat(restockCost) > 0 && (
+                        <div style={{ padding: '8px 12px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid #d1d5db' }}>
+                          <div>Current: <strong>{form.qty_on_hand}</strong> @ <strong>${parseFloat(form.cost_each || 0).toFixed(2)}</strong></div>
+                          <div>Adding: <strong>{restockQty}</strong> @ <strong>${parseFloat(restockCost).toFixed(2)}</strong></div>
+                          <div style={{ marginTop: '4px', fontWeight: 700, color: '#1e3a5f' }}>
+                            New Avg Cost: ${(((parseFloat(form.qty_on_hand || 0) * parseFloat(form.cost_each || 0)) + (parseFloat(restockQty) * parseFloat(restockCost))) / (parseFloat(form.qty_on_hand || 0) + parseFloat(restockQty))).toFixed(2)}
+                            {' '}({parseFloat(form.qty_on_hand || 0) + parseFloat(restockQty)} total)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button type="button" onClick={handleRestock} disabled={!restockQty || parseFloat(restockQty) <= 0} style={{ padding: '6px 16px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, opacity: (!restockQty || parseFloat(restockQty) <= 0) ? 0.5 : 1 }}>
+                      Apply Restock
+                    </button>
+                    <button type="button" onClick={() => { setShowRestock(false); setRestockQty(''); setRestockCost(''); }} style={{ padding: '6px 16px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}>
+                      Cancel
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '8px' }}>
+                    This calculates a weighted average cost, then click Save to commit the changes.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Row 6: Cost, Markup, Sale Price */}
           <div style={row}>
