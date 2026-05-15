@@ -2259,6 +2259,7 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
             <th style={{ padding: '4px 8px' }}>Type</th>
             <th style={{ padding: '4px 8px', textAlign: 'right' }}>Amount</th>
             <th style={{ padding: '4px 8px' }}>Status</th>
+            <th style={{ padding: '4px 8px' }}>Paid</th>
             <th style={{ padding: '4px 8px' }}>Actions</th>
           </tr>
         </thead>
@@ -2277,6 +2278,9 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
                   <span style={{ background: statusStyle.bg, color: statusStyle.c, padding: '2px 8px', borderRadius: 9999, fontSize: '0.7rem', fontWeight: 600, textTransform: 'capitalize' }}>
                     {l.status}
                   </span>
+                </td>
+                <td style={{ padding: '6px 8px', color: '#374151' }}>
+                  {l.paid_at ? new Date(l.paid_at).toLocaleDateString() : '—'}
                 </td>
                 <td style={{ padding: '6px 8px' }}>
                   {isPending && (
