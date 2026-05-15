@@ -163,28 +163,88 @@ function getBusiness() {
 }
 
 /**
- * Convenience: flatten the business → stores → storeDevices structure into a
- * single array of { storeId, storeName, deviceId, serialNumber, name, type, status }
- * objects so the UI can render a picker and we can map serial → deviceId.
+ * Make a raw Poynt API call through the SDK's authenticated request method.
+ * The SDK only wraps a subset of endpoints; this lets us hit any REST endpoint
+ * (like /stores/{storeId}/devices) using the existing JWT/refresh plumbing.
+ */
+function rawRequest(opts) {
+  return new Promise((resolve, reject) => {
+    let c;
+    try { c = getClient(); } catch (err) { return reject(err); }
+    c.request(opts, (err, result) => err ? reject(err) : resolve(result));
+  });
+}
+
+/**
+ * Hit the Poynt REST endpoint that lists devices for a store. The SDK's
+ * getBusiness() response sometimes omits storeDevices, so call the devices
+ * endpoint directly. Falls back to the getBusiness shape if the dedicated
+ * endpoint isn't accessible for some reason.
+ *
+ * Returns: { devices: [...], raw: { business, storeDevicesByStore } } so the
+ * UI shows everything Poynt actually returned, making it easy to diagnose
+ * empty results.
  */
 async function listDevices() {
-  const business = await getBusiness();
+  const businessId = process.env.POYNT_BUSINESS_ID;
+  const storeId = process.env.POYNT_STORE_ID;
   const out = [];
-  for (const store of business?.stores || []) {
-    for (const dev of store?.storeDevices || []) {
-      out.push({
-        storeId: store.id,
-        storeName: store.displayName || store.name || null,
-        deviceId: dev.id,
-        serialNumber: dev.serialNumber || dev.serialNum || null,
-        name: dev.name || dev.deviceName || null,
-        type: dev.type || dev.deviceType || null,
-        status: dev.status || null,
-        tid: dev.terminalId || null,
+  const raw = { business: null, storeDevicesByStore: {} };
+
+  // 1) Try the business object first — it may include nested stores+devices.
+  try {
+    const business = await getBusiness();
+    raw.business = business;
+    for (const store of business?.stores || []) {
+      for (const dev of store?.storeDevices || []) {
+        out.push({
+          source: 'business.stores.storeDevices',
+          storeId: store.id,
+          storeName: store.displayName || store.name || null,
+          deviceId: dev.id,
+          serialNumber: dev.serialNumber || dev.serialNum || null,
+          name: dev.name || dev.deviceName || null,
+          type: dev.type || dev.deviceType || null,
+          status: dev.status || null,
+          tid: dev.terminalId || null,
+        });
+      }
+    }
+  } catch (err) {
+    raw.businessError = err?.developerMessage || err?.message || String(err);
+  }
+
+  // 2) Hit the dedicated /stores/{storeId}/devices endpoint as well — this is
+  //    what Poynt HQ uses to render the device list and is more reliable.
+  if (storeId) {
+    try {
+      const devicesResp = await rawRequest({
+        url: '/businesses/' + encodeURIComponent(businessId)
+          + '/stores/' + encodeURIComponent(storeId) + '/devices',
+        method: 'GET',
       });
+      raw.storeDevicesByStore[storeId] = devicesResp;
+      const arr = Array.isArray(devicesResp) ? devicesResp
+        : (devicesResp?.devices || devicesResp?.items || []);
+      for (const dev of arr) {
+        out.push({
+          source: 'stores/' + storeId + '/devices',
+          storeId,
+          storeName: null,
+          deviceId: dev.id || dev.storeDeviceId,
+          serialNumber: dev.serialNumber || dev.serialNum || null,
+          name: dev.name || dev.deviceName || null,
+          type: dev.type || dev.deviceType || null,
+          status: dev.status || null,
+          tid: dev.terminalId || null,
+        });
+      }
+    } catch (err) {
+      raw.storeDevicesError = err?.developerMessage || err?.message || String(err);
     }
   }
-  return out;
+
+  return { devices: out, raw };
 }
 
 /**

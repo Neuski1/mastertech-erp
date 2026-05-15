@@ -263,8 +263,14 @@ router.get('/devices', requireAuth, requireRole('admin'), async (_req, res) => {
     return res.status(503).json({ error: 'Poynt not configured' });
   }
   try {
-    const devices = await listDevices();
-    res.json({ devices, configuredTerminalDeviceId: process.env.POYNT_TERMINAL_DEVICE_ID || null });
+    const result = await listDevices();
+    res.json({
+      configuredTerminalDeviceId: process.env.POYNT_TERMINAL_DEVICE_ID || null,
+      businessId: process.env.POYNT_BUSINESS_ID || null,
+      storeId: process.env.POYNT_STORE_ID || null,
+      devices: result.devices,
+      raw: result.raw, // diagnostic — actual Poynt responses to help map serial → deviceId
+    });
   } catch (err) {
     let dump; try { dump = JSON.stringify(err, null, 2); } catch { dump = String(err); }
     console.error('[poynt] GET /devices failed:\n' + dump);
