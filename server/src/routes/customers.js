@@ -69,13 +69,13 @@ router.get('/', async (req, res) => {
   }
 
   if (last_service_from) {
-    havingClauses.push(`MAX(r.created_at) >= $${idx}`);
+    havingClauses.push(`MAX(r.created_at) FILTER (WHERE r.deleted_at IS NULL) >= $${idx}`);
     params.push(last_service_from);
     idx++;
   }
 
   if (last_service_to) {
-    havingClauses.push(`(MAX(r.created_at) IS NULL OR MAX(r.created_at) <= $${idx})`);
+    havingClauses.push(`(MAX(r.created_at) FILTER (WHERE r.deleted_at IS NULL) IS NULL OR MAX(r.created_at) FILTER (WHERE r.deleted_at IS NULL) <= $${idx})`);
     params.push(last_service_to);
     idx++;
   }
