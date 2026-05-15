@@ -30,7 +30,7 @@ async function hasNoChargeColumn() {
 // ---------------------------------------------------------------------------
 router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId } = req.params;
-  const { technician_id, description, hours, no_charge, contractor_cost } = req.body;
+  const { technician_id, description, hours, no_charge, contractor_cost, is_estimate_line } = req.body;
 
   if (!description) {
     return res.status(400).json({ error: 'description is required' });
@@ -43,6 +43,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
   const hasNcCol = await hasNoChargeColumn();
   const isNoCharge = hasNcCol && !!no_charge;
+  const isEstimate = !!is_estimate_line;
 
   const client = await pool.connect();
   try {
@@ -79,18 +80,18 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
     if (hasNcCol) {
       ({ rows } = await client.query(
         `INSERT INTO record_labor_lines
-           (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, no_charge, contractor_cost)
-         VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8, $9)
+           (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, no_charge, contractor_cost, is_estimate_line)
+         VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING *`,
-        [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, isNoCharge, parsedCost]
+        [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, isNoCharge, parsedCost, isEstimate]
       ));
     } else {
       ({ rows } = await client.query(
         `INSERT INTO record_labor_lines
-           (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, contractor_cost)
-         VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8)
+           (record_id, technician_id, line_type, description, hours, rate, line_total, sort_order, contractor_cost, is_estimate_line)
+         VALUES ($1, $2, 'L', $3, $4, $5, $6, $7, $8, $9)
          RETURNING *`,
-        [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, parsedCost]
+        [recordId, technician_id || null, description, parsedHours, rate, lineTotal, sortRes.rows[0].next_sort, parsedCost, isEstimate]
       ));
     }
 
@@ -123,7 +124,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { technician_id, description, hours, no_charge, contractor_cost } = req.body;
+  const { technician_id, description, hours, no_charge, contractor_cost, is_estimate_line, customer_approved } = req.body;
 
   console.log(`PATCH labor/${recordId}/${lineId} body:`, JSON.stringify(req.body));
 
@@ -160,6 +161,17 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (contractor_cost !== undefined) {
       updates.push(`contractor_cost = $${idx++}`);
       values.push(contractor_cost !== null && contractor_cost !== '' ? parseFloat(contractor_cost) : null);
+    }
+    if (is_estimate_line !== undefined) {
+      updates.push(`is_estimate_line = $${idx++}`);
+      values.push(!!is_estimate_line);
+    }
+    if (customer_approved !== undefined) {
+      updates.push(`customer_approved = $${idx++}`);
+      values.push(!!customer_approved);
+      if (customer_approved) {
+        updates.push(`customer_approved_at = NOW()`);
+      }
     }
 
     // Determine effective no_charge state for line_total calculation

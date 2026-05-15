@@ -14,7 +14,15 @@ const router = express.Router();
 const crypto = require('crypto');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { chargeNonce, isPoyntConfigured, healthCheck, extractSdkAppId } = require('../services/poynt');
+const {
+  chargeNonce,
+  isPoyntConfigured,
+  healthCheck,
+  extractSdkAppId,
+  listDevices,
+  pushToTerminal,
+  findTransactionByReference,
+} = require('../services/poynt');
 
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

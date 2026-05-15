@@ -19,11 +19,14 @@ async function getSettingString(key) {
 async function recalculateTotals(recordId, client) {
   const db = client || pool;
 
+  // Only sum lines that are approved work OR customer-approved estimate lines
+  const approvedFilter = 'AND (is_estimate_line = FALSE OR customer_approved = TRUE)';
+
   const laborRes = await db.query(
     `SELECT COALESCE(SUM(line_total), 0) AS labor_subtotal,
             COALESCE(SUM(hours), 0) AS total_hours
      FROM record_labor_lines
-     WHERE record_id = $1 AND deleted_at IS NULL`,
+     WHERE record_id = $1 AND deleted_at IS NULL ${approvedFilter}`,
     [recordId]
   );
   const laborSubtotal = parseFloat(laborRes.rows[0].labor_subtotal);
@@ -32,7 +35,7 @@ async function recalculateTotals(recordId, client) {
   const partsRes = await db.query(
     `SELECT COALESCE(SUM(line_total), 0) AS parts_subtotal
      FROM record_parts_lines
-     WHERE record_id = $1 AND deleted_at IS NULL`,
+     WHERE record_id = $1 AND deleted_at IS NULL ${approvedFilter}`,
     [recordId]
   );
   const partsSubtotal = parseFloat(partsRes.rows[0].parts_subtotal);
@@ -77,7 +80,8 @@ async function recalculateTotals(recordId, client) {
     const taxRes = await db.query(
       `SELECT COALESCE(SUM(line_total), 0) AS taxable_total
        FROM record_parts_lines
-       WHERE record_id = $1 AND deleted_at IS NULL AND taxable = TRUE`,
+       WHERE record_id = $1 AND deleted_at IS NULL AND taxable = TRUE
+         AND (is_estimate_line = FALSE OR customer_approved = TRUE)`,
       [recordId]
     );
     const taxableTotal = parseFloat(taxRes.rows[0].taxable_total);

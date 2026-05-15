@@ -24,7 +24,7 @@ async function sendLaborUpdate(recordId, lineId, data) {
   return res.json();
 }
 
-export default function LaborLinesTable({ recordId, laborLines, isEditable, onUpdate }) {
+export default function LaborLinesTable({ recordId, laborLines, isEditable, onUpdate, isEstimate = false, showApproval = false }) {
   const { canSeeFinancials, isTechnician } = useAuth();
   const [technicians, setTechnicians] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -62,6 +62,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
         description: form.description,
         hours: form.hours ? parseFloat(form.hours) : 0,
         no_charge: form.no_charge,
+        is_estimate_line: isEstimate,
       });
       // Keep the form open and reset for the next line entry
       resetForm();
@@ -95,6 +96,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     if (field === 'hours') data.hours = parseFloat(value || 0);
     if (field === 'no_charge') data.no_charge = value;
     if (field === 'contractor_cost') data.contractor_cost = value;
+    if (field === 'customer_approved') data.customer_approved = value;
 
     // Fire the save — this fetch runs to completion regardless of component unmount
     sendLaborUpdate(recordId, lineId, data)
@@ -116,10 +118,10 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   return (
     <div style={sectionStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={sectionTitle}>Labor Lines</h2>
+        <h2 style={sectionTitle}>{isEstimate ? 'Estimate — Labor' : 'Labor Lines'}</h2>
         {canEdit && !showAddForm && (
           <button onClick={() => { setShowAddForm(true); resetForm(); }} style={btnSmallPrimary}>
-            + Add Labor
+            + Add {isEstimate ? 'Estimate ' : ''}Labor
           </button>
         )}
       </div>
@@ -129,6 +131,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            {showApproval && <th style={{ ...thStyle, textAlign: 'center', width: '50px' }}>Approved</th>}
             <th style={thStyle}>Type</th>
             <th style={thStyle}>Description</th>
             <th style={thStyle}>Technician</th>
@@ -143,10 +146,23 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
         <tbody>
           {(laborLines || []).map((line) => (
             <tr key={line.id} style={
-              line.no_charge
-                ? { backgroundColor: '#f0f9ff' }
-                : hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined
+              isEstimate && !line.customer_approved
+                ? { backgroundColor: '#f9fafb', opacity: 0.7 }
+                : line.no_charge
+                  ? { backgroundColor: '#f0f9ff' }
+                  : hoursNeedAttention(line) ? { backgroundColor: '#fff3cd' } : undefined
             }>
+              {showApproval && (
+                <td style={{ ...tdStyle, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!line.customer_approved}
+                    onChange={(e) => handleInlineSave(line.id, 'customer_approved', e.target.checked)}
+                    style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#059669' }}
+                    title={line.customer_approved ? `Approved ${line.customer_approved_at ? new Date(line.customer_approved_at).toLocaleDateString() : ''}` : 'Not yet approved'}
+                  />
+                </td>
+              )}
               <td style={tdStyle}>L</td>
 
               {/* Description — always editable, auto-expands */}
@@ -278,7 +294,8 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
 
           {/* Add form row */}
           {showAddForm && (
-            <tr style={{ backgroundColor: '#f0fdf4' }}>
+            <tr style={{ backgroundColor: isEstimate ? '#fffbeb' : '#f0fdf4' }}>
+              {showApproval && <td style={tdStyle}></td>}
               <td style={tdStyle}>L</td>
               <td style={tdStyle}>
                 <textarea ref={descriptionRef} placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} autoFocus />
@@ -314,12 +331,12 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
 
           {/* No rows message */}
           {(!laborLines || laborLines.length === 0) && !showAddForm && (
-            <tr><td colSpan={99} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No labor lines yet</td></tr>
+            <tr><td colSpan={99} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>{isEstimate ? 'No estimate labor lines yet' : 'No labor lines yet'}</td></tr>
           )}
         </tbody>
         <tfoot>
           <tr style={{ backgroundColor: '#f9fafb', fontWeight: 600 }}>
-            <td colSpan={3} style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>TOTAL HOURS: {totalHours.toFixed(2)}</td>
+            <td colSpan={showApproval ? 4 : 3} style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>TOTAL HOURS: {totalHours.toFixed(2)}</td>
             <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{totalHours.toFixed(2)}</td>
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}></td>}
             {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{formatCurrency(laborSubtotal)}</td>}

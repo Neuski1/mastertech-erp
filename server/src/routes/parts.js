@@ -66,7 +66,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
     inventory_id, is_inventory_part,
     part_number, description, quantity,
     cost_each, sale_price_each, taxable, vendor,
-    skip_deduct
+    skip_deduct, is_estimate_line
   } = req.body;
 
   if ((!description && !is_inventory_part) || quantity === undefined) {
@@ -163,17 +163,19 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       }
     }
 
+    const isEstimate = !!is_estimate_line;
+
     const { rows } = await client.query(
       `INSERT INTO record_parts_lines
          (record_id, inventory_id, is_inventory_part, part_number, description,
           quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor,
-          order_status, order_supplier)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          order_status, order_supplier, is_estimate_line)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [recordId, finalInventoryId, isInvPart, finalPartNumber, finalDescription,
        parsedQty, finalCostEach, finalSalePrice, lineTotal,
        taxable !== undefined ? taxable : true, sortRes.rows[0].next_sort, finalVendor,
-       autoOrderStatus, autoOrderSupplier]
+       autoOrderStatus, autoOrderSupplier, isEstimate]
     );
 
     await recalculateTotals(recordId, client);
@@ -273,7 +275,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { description, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking } = req.body;
+  const { description, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
 
   const client = await pool.connect();
   try {
@@ -360,6 +362,19 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (order_supplier !== undefined) { updates.push(`order_supplier = $${idx++}`); values.push(order_supplier || null); }
     if (order_number !== undefined) { updates.push(`order_number = $${idx++}`); values.push(order_number || null); }
     if (order_tracking !== undefined) { updates.push(`order_tracking = $${idx++}`); values.push(order_tracking || null); }
+
+    // Estimate line fields
+    if (is_estimate_line !== undefined) {
+      updates.push(`is_estimate_line = $${idx++}`);
+      values.push(!!is_estimate_line);
+    }
+    if (customer_approved !== undefined) {
+      updates.push(`customer_approved = $${idx++}`);
+      values.push(!!customer_approved);
+      if (customer_approved) {
+        updates.push(`customer_approved_at = NOW()`);
+      }
+    }
 
     if (updates.length === 0) {
       await client.query('ROLLBACK');

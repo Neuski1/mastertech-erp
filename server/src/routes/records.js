@@ -1082,4 +1082,167 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/records/:id/approve-estimate-lines — Batch approve/unapprove lines
+// ---------------------------------------------------------------------------
+router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer'), async (req, res) => {
+  const { id } = req.params;
+  const { labor_line_ids, parts_line_ids, approved } = req.body;
+  // approved: true = approve, false = unapprove
+
+  const isApproved = approved !== false; // default true
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (labor_line_ids && labor_line_ids.length > 0) {
+      const approvedAtClause = isApproved ? ', customer_approved_at = NOW()' : ', customer_approved_at = NULL';
+      await client.query(
+        `UPDATE record_labor_lines
+         SET customer_approved = $1${approvedAtClause}, updated_at = NOW()
+         WHERE record_id = $2 AND id = ANY($3) AND is_estimate_line = TRUE AND deleted_at IS NULL`,
+        [isApproved, id, labor_line_ids]
+      );
+    }
+
+    if (parts_line_ids && parts_line_ids.length > 0) {
+      const approvedAtClause = isApproved ? ', customer_approved_at = NOW()' : ', customer_approved_at = NULL';
+      await client.query(
+        `UPDATE record_parts_lines
+         SET customer_approved = $1${approvedAtClause}, updated_at = NOW()
+         WHERE record_id = $2 AND id = ANY($3) AND is_estimate_line = TRUE AND deleted_at IS NULL`,
+        [isApproved, id, parts_line_ids]
+      );
+    }
+
+    await recalculateTotals(id, client);
+    await client.query('COMMIT');
+
+    res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST approve-estimate-lines error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/records/:id/send-estimate-approval — Email estimate to customer
+// ---------------------------------------------------------------------------
+router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Get record + customer info
+    const { rows: recRows } = await pool.query(
+      `SELECT r.*, c.name AS customer_name, c.email_primary AS customer_email
+       FROM records r
+       JOIN customers c ON c.id = r.customer_id
+       WHERE r.id = $1`,
+      [id]
+    );
+    if (recRows.length === 0) return res.status(404).json({ error: 'Record not found' });
+
+    const record = recRows[0];
+    if (!record.customer_email) {
+      return res.status(400).json({ error: 'Customer has no email on file' });
+    }
+
+    // Create approval token
+    const { rows: tokenRows } = await pool.query(
+      `INSERT INTO estimate_line_approvals (record_id)
+       VALUES ($1) RETURNING approval_token`,
+      [id]
+    );
+    const token = tokenRows[0].approval_token;
+
+    // Get estimate lines
+    const { rows: laborLines } = await pool.query(
+      `SELECT description, hours, rate, line_total FROM record_labor_lines
+       WHERE record_id = $1 AND is_estimate_line = TRUE AND deleted_at IS NULL
+       ORDER BY sort_order`,
+      [id]
+    );
+    const { rows: partsLines } = await pool.query(
+      `SELECT description, quantity, sale_price_each, line_total FROM record_parts_lines
+       WHERE record_id = $1 AND is_estimate_line = TRUE AND deleted_at IS NULL
+       ORDER BY sort_order`,
+      [id]
+    );
+
+    // Build estimate total
+    let estimateTotal = 0;
+    laborLines.forEach(l => estimateTotal += parseFloat(l.line_total));
+    partsLines.forEach(p => estimateTotal += parseFloat(p.line_total));
+
+    // Build email body — approval URL points to the API server
+    const backendUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app');
+    const approvalUrl = `${backendUrl}/api/estimate-lines/approve/${token}`;
+
+    let laborHtml = '';
+    if (laborLines.length > 0) {
+      laborHtml = `<h3>Labor</h3><table style="border-collapse:collapse;width:100%">
+        <tr style="background:#f3f4f6"><th style="text-align:left;padding:6px;border:1px solid #ddd">Description</th>
+        <th style="text-align:right;padding:6px;border:1px solid #ddd">Hours</th>
+        <th style="text-align:right;padding:6px;border:1px solid #ddd">Rate</th>
+        <th style="text-align:right;padding:6px;border:1px solid #ddd">Total</th></tr>`;
+      laborLines.forEach(l => {
+        laborHtml += `<tr><td style="padding:6px;border:1px solid #ddd">${l.description}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ddd">${parseFloat(l.hours).toFixed(1)}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ddd">$${parseFloat(l.rate).toFixed(2)}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ddd">$${parseFloat(l.line_total).toFixed(2)}</td></tr>`;
+      });
+      laborHtml += '</table>';
+    }
+
+    let partsHtml = '';
+    if (partsLines.length > 0) {
+      partsHtml = `<h3>Parts</h3><table style="border-collapse:collapse;width:100%">
+        <tr style="background:#f3f4f6"><th style="text-align:left;padding:6px;border:1px solid #ddd">Description</th>
+        <th style="text-align:right;padding:6px;border:1px solid #ddd">Qty</th>
+        <th style="text-align:right;padding:6px;border:1px solid #ddd">Price</th>
+        <th style="text-align:right;padding:6px;border:1px solid #ddd">Total</th></tr>`;
+      partsLines.forEach(p => {
+        partsHtml += `<tr><td style="padding:6px;border:1px solid #ddd">${p.description}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ddd">${parseFloat(p.quantity)}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ddd">$${parseFloat(p.sale_price_each).toFixed(2)}</td>
+          <td style="text-align:right;padding:6px;border:1px solid #ddd">$${parseFloat(p.line_total).toFixed(2)}</td></tr>`;
+      });
+      partsHtml += '</table>';
+    }
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+        <h2>Estimate for Review — ${record.record_number || `Record #${id}`}</h2>
+        <p>Hi ${record.customer_name},</p>
+        <p>We've completed our inspection and found the following additional items that need attention:</p>
+        ${laborHtml}
+        ${partsHtml}
+        <p style="font-size:18px;font-weight:bold;margin-top:16px">Estimate Total: $${estimateTotal.toFixed(2)}</p>
+        <p>Please click the link below to review and approve the work you'd like us to proceed with:</p>
+        <p><a href="${approvalUrl}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Review & Approve Estimate</a></p>
+        <p style="color:#6b7280;font-size:13px">This link expires in 30 days. If you have questions, please call us.</p>
+        <p>Thank you,<br>Master Tech RV Repair</p>
+      </div>
+    `;
+
+    const result = await sendEmail({
+      to: record.customer_email,
+      subject: `Estimate for Review — ${record.record_number || `Record #${id}`}`,
+      html
+    });
+
+    if (result.success) {
+      res.json({ success: true, sentTo: record.customer_email });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (err) {
+    console.error('POST send-estimate-approval error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

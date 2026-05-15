@@ -59,6 +59,8 @@ export const api = {
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
   sendReminder: (recordId) => request(`/records/${recordId}/send-reminder`, { method: 'POST' }),
   copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),
+  approveEstimateLines: (recordId, data) => request(`/records/${recordId}/approve-estimate-lines`, { method: 'POST', body: JSON.stringify(data) }),
+  sendEstimateApproval: (recordId) => request(`/records/${recordId}/send-estimate-approval`, { method: 'POST' }),
 
   // Customers
   getCustomers: (params = {}) => {

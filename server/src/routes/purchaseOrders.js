@@ -319,11 +319,29 @@ router.post('/:id/receive', async (req, res) => {
         [req.params.id]
       );
 
-      // Update inventory quantities for matched items
+      // Update inventory quantities and weighted average cost for matched items
       for (const item of lineItems) {
+        // Fetch current inventory to calculate weighted average cost
+        const { rows: invRows } = await client.query(
+          'SELECT qty_on_hand, cost_each FROM inventory WHERE id = $1',
+          [item.inventory_item_id]
+        );
+        const currentQty = parseFloat(invRows[0]?.qty_on_hand || 0);
+        const currentCost = parseFloat(invRows[0]?.cost_each || 0);
+        const incomingQty = parseFloat(item.qty);
+        const incomingCost = parseFloat(item.cost_each || 0);
+
+        // Weighted average: (existing_value + incoming_value) / total_qty
+        const totalQty = currentQty + incomingQty;
+        let newCost = currentCost;
+        if (totalQty > 0 && incomingCost > 0) {
+          newCost = ((currentQty * currentCost) + (incomingQty * incomingCost)) / totalQty;
+          newCost = Math.round(newCost * 100) / 100; // round to cents
+        }
+
         await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-          [item.qty, item.inventory_item_id]
+          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1, cost_each = $2 WHERE id = $3',
+          [incomingQty, newCost, item.inventory_item_id]
         );
       }
 

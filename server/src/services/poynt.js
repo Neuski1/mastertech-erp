@@ -145,4 +145,141 @@ function healthCheck() {
   return result;
 }
 
-module.exports = { chargeNonce, isPoyntConfigured, healthCheck, extractSdkAppId };
+/**
+ * Fetch the business object from Poynt Cloud. Includes nested stores +
+ * storeDevices arrays — used to look up a deviceId (UUID) from a terminal's
+ * serial number, since Payment Bridge needs the cloud deviceId, not the serial
+ * or the merchant-facing TID printed on the terminal.
+ */
+function getBusiness() {
+  return new Promise((resolve, reject) => {
+    let c;
+    try { c = getClient(); } catch (err) { return reject(err); }
+    c.getBusiness(
+      { businessId: process.env.POYNT_BUSINESS_ID },
+      (err, result) => err ? reject(err) : resolve(result)
+    );
+  });
+}
+
+/**
+ * Convenience: flatten the business → stores → storeDevices structure into a
+ * single array of { storeId, storeName, deviceId, serialNumber, name, type, status }
+ * objects so the UI can render a picker and we can map serial → deviceId.
+ */
+async function listDevices() {
+  const business = await getBusiness();
+  const out = [];
+  for (const store of business?.stores || []) {
+    for (const dev of store?.storeDevices || []) {
+      out.push({
+        storeId: store.id,
+        storeName: store.displayName || store.name || null,
+        deviceId: dev.id,
+        serialNumber: dev.serialNumber || dev.serialNum || null,
+        name: dev.name || dev.deviceName || null,
+        type: dev.type || dev.deviceType || null,
+        status: dev.status || null,
+        tid: dev.terminalId || null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Push a sale to a Poynt Smart Terminal via Payment Bridge.
+ *
+ * Sends a cloud message that wakes up the terminal's Payment Bridge listener
+ * and prompts the customer to tap/insert/swipe. The terminal posts the result
+ * back to Poynt Cloud; we reconcile by polling getTransactions filtered by
+ * the referenceId we send here.
+ *
+ * @param {Object} opts
+ * @param {number} opts.amountCents - integer cents
+ * @param {string} opts.referenceId - our online_payments.payment_token (UUID)
+ * @param {string} [opts.deviceId]   - terminal cloud UUID (defaults to env)
+ * @param {string} [opts.serialNumber] - terminal serial (optional disambiguator)
+ */
+function pushToTerminal({ amountCents, referenceId, deviceId, serialNumber }) {
+  return new Promise((resolve, reject) => {
+    let c;
+    try { c = getClient(); } catch (err) { return reject(err); }
+    const targetDeviceId = deviceId || process.env.POYNT_TERMINAL_DEVICE_ID;
+    const targetSerial = serialNumber || process.env.POYNT_TERMINAL_SERIAL || undefined;
+    if (!targetDeviceId) {
+      return reject(new Error('Missing terminal deviceId — set POYNT_TERMINAL_DEVICE_ID or pass deviceId.'));
+    }
+    // Payment Bridge payload — kept minimal. action SALE = run a card sale,
+    // amount in cents, autoCapture=true so funds settle on the merchant batch.
+    const data = JSON.stringify({
+      action: 'SALE',
+      amount: amountCents,
+      currency: 'USD',
+      referenceId,
+      autoCapture: true,
+      skipReceiptScreen: false,
+    });
+    console.log('[poynt] payment bridge → device=%s, amount=%d cents, ref=%s',
+      targetDeviceId, amountCents, referenceId);
+    c.sendPaymentBridgeMessage(
+      {
+        businessId: process.env.POYNT_BUSINESS_ID,
+        storeId: process.env.POYNT_STORE_ID,
+        deviceId: targetDeviceId,
+        serialNumber: targetSerial,
+        data,
+        ttl: 600, // 10 min — terminal stops listening after this
+      },
+      (err, result) => err ? reject(err) : resolve(result)
+    );
+  });
+}
+
+/**
+ * Look up a transaction in Poynt by our referenceId. Used to reconcile
+ * Payment Bridge sales — we don't get a synchronous response from the
+ * terminal, so we poll Poynt for the matching transaction after the customer
+ * runs the card.
+ */
+function findTransactionByReference({ referenceId, minutesBack = 30 } = {}) {
+  return new Promise((resolve, reject) => {
+    let c;
+    try { c = getClient(); } catch (err) { return reject(err); }
+    const startAt = new Date(Date.now() - minutesBack * 60 * 1000).toISOString();
+    c.getTransactions(
+      {
+        businessId: process.env.POYNT_BUSINESS_ID,
+        storeId: process.env.POYNT_STORE_ID,
+        searchKey: referenceId,
+        startAt,
+        limit: 25,
+      },
+      (err, result) => {
+        if (err) return reject(err);
+        const txns = result?.transactions || result?.items || [];
+        // Some Poynt deploys return the referenceId in different fields —
+        // check each one. Match status CAPTURED or AUTHORIZED.
+        const hit = txns.find((t) => {
+          const ref = t.referenceId
+            || t.context?.referenceId
+            || t.references?.[0]?.id
+            || null;
+          return ref && String(ref) === String(referenceId);
+        });
+        resolve(hit || null);
+      }
+    );
+  });
+}
+
+module.exports = {
+  chargeNonce,
+  isPoyntConfigured,
+  healthCheck,
+  extractSdkAppId,
+  getBusiness,
+  listDevices,
+  pushToTerminal,
+  findTransactionByReference,
+};

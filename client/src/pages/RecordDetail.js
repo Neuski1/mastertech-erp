@@ -1043,21 +1043,94 @@ ${paymentDetailHtml}
         )}
       </div>
 
-      {/* Labor Lines */}
+      {/* Approved Work — Labor Lines (non-estimate only) */}
       <LaborLinesTable
         recordId={record.id}
-        laborLines={record.labor_lines}
+        laborLines={(record.labor_lines || []).filter(l => !l.is_estimate_line)}
         isEditable={isEditable}
         onUpdate={fetchRecord}
       />
 
-      {/* Parts Lines */}
+      {/* Approved Work — Parts Lines (non-estimate only) */}
       <PartsLinesTable
         recordId={record.id}
-        partsLines={record.parts_lines}
+        partsLines={(record.parts_lines || []).filter(l => !l.is_estimate_line)}
         isEditable={isEditable}
         onUpdate={fetchRecord}
       />
+
+      {/* ─── Inspection Findings / Estimate Section ─── */}
+      {(() => {
+        const estLabor = (record.labor_lines || []).filter(l => l.is_estimate_line);
+        const estParts = (record.parts_lines || []).filter(l => l.is_estimate_line);
+        const hasEstimateLines = estLabor.length > 0 || estParts.length > 0;
+        const estimateTotal = estLabor.reduce((s, l) => s + parseFloat(l.line_total || 0), 0)
+          + estParts.reduce((s, l) => s + parseFloat(l.line_total || 0), 0);
+        const approvedTotal = estLabor.filter(l => l.customer_approved).reduce((s, l) => s + parseFloat(l.line_total || 0), 0)
+          + estParts.filter(l => l.customer_approved).reduce((s, l) => s + parseFloat(l.line_total || 0), 0);
+        const allApproved = hasEstimateLines && estLabor.every(l => l.customer_approved) && estParts.every(l => l.customer_approved);
+
+        // Always show the section if there are estimate lines OR if the record is editable
+        if (!hasEstimateLines && !isEditable) return null;
+
+        return (
+          <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#fffbeb', borderRadius: '8px', border: '2px solid #f59e0b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#92400e', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.2rem' }}>&#128269;</span>
+                Inspection Findings / Estimate
+              </h2>
+              {isEditable && hasEstimateLines && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {allApproved && <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>All Approved</span>}
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api.sendEstimateApproval(record.id);
+                        alert('Estimate approval email sent to customer!');
+                      } catch (err) {
+                        alert('Error sending email: ' + err.message);
+                      }
+                    }}
+                    style={{ padding: '6px 14px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
+                  >
+                    Email Estimate to Customer
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {hasEstimateLines && (
+              <div style={{ marginBottom: '12px', padding: '10px 14px', backgroundColor: '#fef3c7', borderRadius: '6px', fontSize: '0.8rem', color: '#92400e' }}>
+                Estimate Total: <strong>${estimateTotal.toFixed(2)}</strong>
+                {approvedTotal > 0 && approvedTotal < estimateTotal && (
+                  <span> &mdash; Customer Approved: <strong>${approvedTotal.toFixed(2)}</strong></span>
+                )}
+              </div>
+            )}
+
+            {/* Estimate Labor */}
+            <LaborLinesTable
+              recordId={record.id}
+              laborLines={estLabor}
+              isEditable={isEditable}
+              onUpdate={fetchRecord}
+              isEstimate={true}
+              showApproval={true}
+            />
+
+            {/* Estimate Parts */}
+            <PartsLinesTable
+              recordId={record.id}
+              partsLines={estParts}
+              isEditable={isEditable}
+              onUpdate={fetchRecord}
+              isEstimate={true}
+              showApproval={true}
+            />
+          </div>
+        );
+      })()}
 
       {/* Freight Lines */}
       {(() => {

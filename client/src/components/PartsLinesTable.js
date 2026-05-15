@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import VendorSelect from './VendorSelect';
 
-export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate }) {
+export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate, isEstimate = false, showApproval = false }) {
   const { canSeeFinancials } = useAuth();
   const [showAddForm, setShowAddForm] = useState(false);
   const [isInventory, setIsInventory] = useState(false);
@@ -178,6 +178,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         taxable: form.taxable,
         vendor: !isInventory ? form.vendor : null,
         skip_deduct: isInventory && !!form.inventory_id && !shouldPull,
+        is_estimate_line: isEstimate,
       });
       setShowAddForm(false);
       resetForm();
@@ -231,13 +232,17 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
 
   // Inline save for qty/price without entering full edit mode
   const handleInlineSave = async (lineId, field, value) => {
-    const numVal = parseFloat(value);
-    if (isNaN(numVal) || numVal < 0) return;
     try {
       const data = {};
-      if (field === 'quantity') data.quantity = numVal;
-      if (field === 'sale_price_each') data.sale_price_each = numVal;
-      if (field === 'cost_each') data.cost_each = numVal;
+      if (field === 'customer_approved') {
+        data.customer_approved = value;
+      } else {
+        const numVal = parseFloat(value);
+        if (isNaN(numVal) || numVal < 0) return;
+        if (field === 'quantity') data.quantity = numVal;
+        if (field === 'sale_price_each') data.sale_price_each = numVal;
+        if (field === 'cost_each') data.cost_each = numVal;
+      }
       await api.updatePart(recordId, lineId, data);
       onUpdate();
     } catch (err) {
@@ -258,7 +263,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   return (
     <div style={sectionStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={sectionTitle}>Parts</h2>
+        <h2 style={sectionTitle}>{isEstimate ? 'Estimate — Parts' : 'Parts'}</h2>
         {isEditable && !showAddForm && (
           <button onClick={() => { setShowAddForm(true); resetForm(); setIsInventory(false); }} style={btnSmallPrimary}>
             + Add Part
@@ -561,6 +566,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            {showApproval && <th style={{ ...thStyle, textAlign: 'center', width: '50px' }}>Approved</th>}
             <th style={thStyle}>Part #</th>
             <th style={thStyle}>Description</th>
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'center' }}>Tax</th>}
@@ -576,6 +582,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
           {(partsLines || []).map((line) =>
             editingId === line.id ? (
               <tr key={line.id} style={{ backgroundColor: '#fffbeb' }}>
+                {showApproval && <td style={tdStyle}></td>}
                 <td style={tdStyle}>{line.part_number || '—'}</td>
                 <td style={tdStyle}>
                   <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -609,7 +616,18 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               </tr>
             ) : (
               <React.Fragment key={line.id}>
-              <tr>
+              <tr style={isEstimate && !line.customer_approved ? { opacity: 0.7, backgroundColor: '#f9fafb' } : undefined}>
+                {showApproval && (
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!line.customer_approved}
+                      onChange={(e) => handleInlineSave(line.id, 'customer_approved', e.target.checked)}
+                      style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#059669' }}
+                      title={line.customer_approved ? `Approved ${line.customer_approved_at ? new Date(line.customer_approved_at).toLocaleDateString() : ''}` : 'Not yet approved'}
+                    />
+                  </td>
+                )}
                 <td style={tdStyle}>{line.part_number || '—'}</td>
                 <td style={tdStyle}>
                   {line.description}
