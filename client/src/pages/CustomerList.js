@@ -172,13 +172,14 @@ export default function CustomerList() {
         <div class="count">${rows.length} customers</div>
         <table>
           <thead><tr>
-            <th>#</th><th>Name</th><th>Phone</th><th>Email</th><th>Last Service</th>
+            <th>#</th><th>Name</th><th>Phone</th><th>Email</th><th>Unit(s)</th><th>Last Service</th>
           </tr></thead>
           <tbody>${rows.map((c, i) => `<tr>
             <td>${i + 1}</td>
             <td><strong>${c.last_name || ''}${c.first_name ? ', ' + c.first_name : ''}</strong>${c.company_name ? '<br><span style="color:#888;font-size:11px">' + c.company_name + '</span>' : ''}</td>
             <td>${c.phone_primary || '—'}</td>
             <td>${c.email_primary || '—'}</td>
+            <td>${c.unit_descriptions || '—'}</td>
             <td>${formatDate(c.last_service_date)}</td>
           </tr>`).join('')}</tbody>
         </table>
@@ -342,7 +343,7 @@ export default function CustomerList() {
               </div>
               {c.email_primary && <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>{c.email_primary}</div>}
               <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', color: '#9ca3af' }}>
-                <span>{c.unit_count || 0} units</span>
+                <span>{c.unit_descriptions || 'No units'}</span>
                 <span>{c.record_count || 0} records</span>
                 {parseInt(c.open_record_count) > 0 && (
                   <span style={{ color: '#dc2626', fontWeight: 600 }}>{c.open_record_count} open</span>
@@ -361,7 +362,7 @@ export default function CustomerList() {
                 <th style={thStyle}>Phone 1</th>
                 <th style={thStyle}>Phone 2</th>
                 <th style={thStyle}>Email</th>
-                <th style={{ ...thStyle, textAlign: 'center' }}>Units</th>
+                <th style={thStyle}>Unit(s)</th>
                 <th style={{ ...thStyle, textAlign: 'center' }}>Records</th>
                 <th style={thStyle}>Last Service</th>
               </tr>
@@ -377,7 +378,7 @@ export default function CustomerList() {
                   <td style={tdStyle}>{formatPhone(c.phone_primary) || '—'}</td>
                   <td style={tdStyle}>{formatPhone(c.phone_secondary) || '—'}</td>
                   <td style={{ ...tdStyle, fontSize: '0.8rem' }}>{c.email_primary || '—'}</td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>{c.unit_count || 0}</td>
+                  <td style={{ ...tdStyle, fontSize: '0.8rem' }}>{c.unit_descriptions || '—'}</td>
                   <td style={{ ...tdStyle, textAlign: 'center' }}>
                     {c.record_count || 0}
                     {parseInt(c.open_record_count) > 0 && (

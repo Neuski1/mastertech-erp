@@ -118,6 +118,7 @@ router.get('/', async (req, res) => {
              c.phone_primary, c.phone_secondary, c.email_primary, c.address_city, c.address_state,
              c.address_zip, c.is_storage_customer, c.lead_source,
              COUNT(DISTINCT u.id) FILTER (WHERE u.deleted_at IS NULL) AS unit_count,
+             STRING_AGG(DISTINCT TRIM(CONCAT_WS(' ', u.year::text, u.make, u.model)), ', ') FILTER (WHERE u.deleted_at IS NULL) AS unit_descriptions,
              COUNT(DISTINCT r.id) FILTER (WHERE r.deleted_at IS NULL) AS record_count,
              MAX(r.created_at) FILTER (WHERE r.deleted_at IS NULL) AS last_service_date,
              COUNT(CASE WHEN r.status NOT IN ('paid','void','complete','filed') AND r.deleted_at IS NULL THEN 1 END) AS open_record_count
