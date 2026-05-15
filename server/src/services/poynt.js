@@ -214,33 +214,76 @@ async function listDevices() {
     raw.businessError = err?.developerMessage || err?.message || String(err);
   }
 
-  // 2) Hit the dedicated /stores/{storeId}/devices endpoint as well — this is
-  //    what Poynt HQ uses to render the device list and is more reliable.
-  if (storeId) {
+  // Helper to dump the full Poynt error so the UI shows httpStatus + dev message.
+  const dumpErr = (err) => {
     try {
-      const devicesResp = await rawRequest({
-        url: '/businesses/' + encodeURIComponent(businessId)
-          + '/stores/' + encodeURIComponent(storeId) + '/devices',
-        method: 'GET',
-      });
-      raw.storeDevicesByStore[storeId] = devicesResp;
-      const arr = Array.isArray(devicesResp) ? devicesResp
-        : (devicesResp?.devices || devicesResp?.items || []);
+      return {
+        message: err?.message || null,
+        developerMessage: err?.developerMessage || null,
+        httpStatus: err?.httpStatus || err?.statusCode || null,
+        code: err?.code || null,
+        requestId: err?.requestId || null,
+        body: err?.body || null,
+        keys: err ? Object.keys(err) : [],
+      };
+    } catch { return String(err); }
+  };
+
+  // 2) Try a list of plausible REST endpoints. Different Poynt environments
+  //    expose devices via different URL shapes — we want to know which (if
+  //    any) works so we can pin it down.
+  const candidates = [
+    { label: 'stores/{storeId}/devices', url: '/businesses/' + encodeURIComponent(businessId) + '/stores/' + encodeURIComponent(storeId) + '/devices' },
+    { label: 'businesses/{businessId}/devices', url: '/businesses/' + encodeURIComponent(businessId) + '/devices' },
+    { label: 'businesses/{businessId}/stores', url: '/businesses/' + encodeURIComponent(businessId) + '/stores' },
+    { label: 'businesses/{businessId}/storeDevices', url: '/businesses/' + encodeURIComponent(businessId) + '/storeDevices' },
+  ];
+  raw.endpointAttempts = {};
+  for (const c of candidates) {
+    try {
+      const resp = await rawRequest({ url: c.url, method: 'GET' });
+      raw.endpointAttempts[c.label] = { ok: true, sampleKeys: resp ? Object.keys(resp).slice(0, 20) : [], data: resp };
+      // Try to extract devices out of any successful response.
+      const arr = Array.isArray(resp) ? resp
+        : (resp?.devices || resp?.storeDevices || resp?.items || []);
       for (const dev of arr) {
+        // Nested stores response — stores can contain storeDevices.
+        if (dev?.storeDevices) {
+          for (const d2 of dev.storeDevices) {
+            out.push({
+              source: c.label, storeId: dev.id, storeName: dev.displayName || dev.name || null,
+              deviceId: d2.id || d2.storeDeviceId, serialNumber: d2.serialNumber || d2.serialNum || null,
+              name: d2.name || d2.deviceName || null, type: d2.type || d2.deviceType || null,
+              status: d2.status || null, tid: d2.terminalId || null,
+            });
+          }
+          continue;
+        }
         out.push({
-          source: 'stores/' + storeId + '/devices',
-          storeId,
-          storeName: null,
-          deviceId: dev.id || dev.storeDeviceId,
-          serialNumber: dev.serialNumber || dev.serialNum || null,
-          name: dev.name || dev.deviceName || null,
-          type: dev.type || dev.deviceType || null,
-          status: dev.status || null,
-          tid: dev.terminalId || null,
+          source: c.label, storeId,
+          deviceId: dev.id || dev.storeDeviceId, serialNumber: dev.serialNumber || dev.serialNum || null,
+          name: dev.name || dev.deviceName || null, type: dev.type || dev.deviceType || null,
+          status: dev.status || null, tid: dev.terminalId || null,
         });
       }
     } catch (err) {
-      raw.storeDevicesError = err?.developerMessage || err?.message || String(err);
+      raw.endpointAttempts[c.label] = { ok: false, error: dumpErr(err) };
+    }
+  }
+
+  // 3) Reverse lookup: if we know the serial, try the SDK's
+  //    getBusinessByDeviceId variants. Some Poynt envs treat the serial as
+  //    the device "id" in the query.
+  const serial = process.env.POYNT_TERMINAL_SERIAL;
+  if (serial) {
+    try {
+      const resp = await rawRequest({
+        url: '/businesses?storeDeviceId=' + encodeURIComponent(serial),
+        method: 'GET',
+      });
+      raw.reverseLookupBySerial = resp;
+    } catch (err) {
+      raw.reverseLookupBySerialError = dumpErr(err);
     }
   }
 
