@@ -249,6 +249,161 @@ router.get('/history', requireAuth, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// ADMIN: GET /devices — list Poynt Smart Terminals in the business so we can
+// map a terminal's serial number (printed on the device) to its cloud
+// deviceId UUID (which is what Payment Bridge needs).
+//
+// One-time use: after the right terminal is identified, set its deviceId in
+// the POYNT_TERMINAL_DEVICE_ID env var on Railway so the Charge Terminal
+// button picks it up automatically.
+// ---------------------------------------------------------------------------
+router.get('/devices', requireAuth, requireRole('admin'), async (_req, res) => {
+  if (!isPoyntConfigured()) {
+    return res.status(503).json({ error: 'Poynt not configured' });
+  }
+  try {
+    const devices = await listDevices();
+    res.json({ devices, configuredTerminalDeviceId: process.env.POYNT_TERMINAL_DEVICE_ID || null });
+  } catch (err) {
+    let dump; try { dump = JSON.stringify(err, null, 2); } catch { dump = String(err); }
+    console.error('[poynt] GET /devices failed:\n' + dump);
+    res.status(500).json({ error: err?.developerMessage || err?.message || 'Device lookup failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: POST /links/:id/push-to-terminal — push a payment link's amount to
+// the Smart Terminal Duo. Customer taps card on the terminal; result is
+// reconciled by GET /links/:id/terminal-status (or auto-polled by the UI).
+// ---------------------------------------------------------------------------
+router.post('/links/:id/push-to-terminal', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  if (!isPoyntConfigured()) {
+    return res.status(503).json({ error: 'Poynt not configured' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT op.*, r.record_number
+         FROM online_payments op
+         JOIN records r ON r.id = op.record_id
+        WHERE op.id = $1`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Payment link not found' });
+    const link = rows[0];
+    if (link.status === 'paid') return res.status(409).json({ error: 'This link has already been paid.' });
+
+    const result = await pushToTerminal({
+      amountCents: parseInt(link.amount_cents),
+      referenceId: link.payment_token,
+      deviceId: req.body?.deviceId || undefined,
+      serialNumber: req.body?.serialNumber || undefined,
+    });
+
+    // Flag the link as "pushed to terminal" so the UI can show the right state
+    // (waiting for tap) and the reconciliation poll knows to look for it.
+    await pool.query(
+      `UPDATE online_payments
+         SET status = CASE WHEN status = 'pending' THEN 'terminal_pending' ELSE status END,
+             updated_at = NOW()
+       WHERE id = $1`,
+      [link.id]
+    );
+
+    res.json({ success: true, pushed: true, cloudMessage: result, recordNumber: link.record_number });
+  } catch (err) {
+    let dump; try { dump = JSON.stringify(err, null, 2); } catch { dump = String(err); }
+    console.error('[poynt] push-to-terminal failed:\n' + dump);
+    res.status(500).json({
+      error: err?.developerMessage || err?.message || 'Push to terminal failed',
+      httpStatus: err?.httpStatus || null,
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /links/:id/terminal-status — poll Poynt for the transaction
+// that matches this link's referenceId. If found and captured, mark the link
+// paid and mirror to the payments table (same as the paylink flow).
+// ---------------------------------------------------------------------------
+router.get('/links/:id/terminal-status', requireAuth, async (req, res) => {
+  if (!isPoyntConfigured()) {
+    return res.status(503).json({ error: 'Poynt not configured' });
+  }
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT op.*, r.record_number FROM online_payments op
+         JOIN records r ON r.id = op.record_id
+        WHERE op.id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    if (rows.length === 0) { client.release(); return res.status(404).json({ error: 'Payment link not found' }); }
+    const link = rows[0];
+
+    // Already settled — short-circuit, nothing to do.
+    if (link.status === 'paid') {
+      client.release();
+      return res.json({ status: 'paid', transactionId: link.transaction_id, settled: true });
+    }
+
+    const txn = await findTransactionByReference({ referenceId: link.payment_token, minutesBack: 60 });
+    if (!txn) {
+      await client.query('COMMIT').catch(() => {});
+      client.release();
+      return res.json({ status: link.status, settled: false, message: 'No matching transaction yet — customer may still be tapping.' });
+    }
+
+    const captured = txn.status === 'CAPTURED' || txn.status === 'AUTHORIZED' || txn.action === 'SALE';
+    if (!captured) {
+      client.release();
+      return res.json({ status: link.status, settled: false, txnStatus: txn.status, message: 'Transaction found but not captured yet.' });
+    }
+
+    await client.query('BEGIN');
+    const txnId = txn.id || txn.transactionId;
+    await client.query(
+      `UPDATE online_payments
+         SET status = 'paid', transaction_id = $2, paid_at = NOW(),
+             updated_at = NOW(), error_message = NULL
+       WHERE id = $1`,
+      [link.id, txnId]
+    );
+    await client.query(
+      `INSERT INTO payments
+         (record_id, payment_type, payment_method, amount, payment_date,
+          square_transaction_id, notes, posted_by_user_id)
+       VALUES ($1, $2, 'credit_card', $3, NOW(), $4, $5, NULL)`,
+      [
+        link.record_id,
+        dbPaymentType(link.payment_type),
+        (parseInt(link.amount_cents) / 100).toFixed(2),
+        txnId || null,
+        `Terminal payment (GoDaddy/Poynt Smart Terminal) — ${typeLabel(link.payment_type)}`,
+      ]
+    );
+    const { recalculateTotals } = require('../db/calculations');
+    await recalculateTotals(link.record_id, client);
+    if (link.payment_type === 'final_payment') {
+      await client.query(
+        `UPDATE records SET status = 'paid', payment_pending_since = NULL,
+                            reminder_count = 0, last_reminder_sent_at = NULL
+           WHERE id = $1`,
+        [link.record_id]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ status: 'paid', settled: true, transactionId: txnId, recordNumber: link.record_number });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    let dump; try { dump = JSON.stringify(err, null, 2); } catch { dump = String(err); }
+    console.error('[poynt] terminal-status reconcile failed:\n' + dump);
+    res.status(500).json({ error: err?.developerMessage || err?.message || 'Reconcile failed' });
+  } finally {
+    try { client.release(); } catch {}
+  }
+});
+
 // =============================================================================
 // Wildcard token routes — declared LAST so they don't swallow /config, /links, etc.
 // The UUID regex guard is defense-in-depth in case a new static route is added

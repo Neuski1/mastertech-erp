@@ -357,4 +357,13 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/payments/online/history${qs ? `?${qs}` : ''}`);
   },
+
+  // Poynt Smart Terminal (Payment Bridge) — push a payment link's charge to
+  // the physical terminal so the customer taps in person. Result reconciles
+  // back into online_payments via getTerminalPaymentStatus polling.
+  listPoyntDevices: () => request('/payments/online/devices'),
+  pushPaymentToTerminal: (linkId, body = {}) =>
+    request(`/payments/online/links/${linkId}/push-to-terminal`, { method: 'POST', body: JSON.stringify(body) }),
+  getTerminalPaymentStatus: (linkId) =>
+    request(`/payments/online/links/${linkId}/terminal-status`),
 };

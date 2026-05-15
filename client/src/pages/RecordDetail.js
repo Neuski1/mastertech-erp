@@ -2276,6 +2276,7 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sendingId, setSendingId] = useState(null);
+  const [pushingId, setPushingId] = useState(null);
   const [sentMsg, setSentMsg] = useState('');
 
   const load = useCallback(async () => {
@@ -2290,10 +2291,29 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
+  // Auto-poll Poynt every 5s for any links that were pushed to the terminal
+  // and are waiting for the customer to tap their card. Stops polling as soon
+  // as nothing is in terminal_pending state anymore.
+  useEffect(() => {
+    const waiting = (links || []).filter(l => l.status === 'terminal_pending');
+    if (waiting.length === 0) return undefined;
+    const t = setInterval(async () => {
+      let anyChange = false;
+      for (const l of waiting) {
+        try {
+          const r = await api.getTerminalPaymentStatus(l.id);
+          if (r.settled) anyChange = true;
+        } catch { /* keep polling */ }
+      }
+      if (anyChange) load();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [links, load]);
+
   if (loading) return null;
   if (!links || links.length === 0) return null;
 
-  const pending = links.filter(l => l.status === 'pending');
+  const pending = links.filter(l => l.status === 'pending' || l.status === 'terminal_pending');
   if (pending.length === 0 && !links.some(l => l.status === 'paid')) return null;
 
   const handleResend = async (id) => {
@@ -2308,6 +2328,22 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
       setError(err.message);
     } finally {
       setSendingId(null);
+    }
+  };
+
+  const handlePushTerminal = async (id) => {
+    setPushingId(id);
+    setError('');
+    setSentMsg('');
+    try {
+      await api.pushPaymentToTerminal(id);
+      setSentMsg('Sent to terminal — have the customer tap their card.');
+      setTimeout(() => setSentMsg(''), 6000);
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPushingId(null);
     }
   };
 
@@ -2339,9 +2375,12 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
         <tbody>
           {links.map(l => {
             const isPending = l.status === 'pending';
+            const isTerminalPending = l.status === 'terminal_pending';
             const statusStyle = l.status === 'paid' ? { bg: '#d1fae5', c: '#065f46' }
               : l.status === 'failed' ? { bg: '#fee2e2', c: '#991b1b' }
+              : isTerminalPending ? { bg: '#dbeafe', c: '#1e40af' }
               : { bg: '#fef3c7', c: '#92400e' };
+            const statusLabel = isTerminalPending ? 'Waiting on terminal' : l.status;
             return (
               <tr key={l.id} style={{ borderTop: '1px solid #e5e7eb' }}>
                 <td style={{ padding: '6px 8px', color: '#374151' }}>{new Date(l.created_at).toLocaleDateString()}</td>
@@ -2349,7 +2388,7 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
                 <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500 }}>${(parseInt(l.amount_cents) / 100).toFixed(2)}</td>
                 <td style={{ padding: '6px 8px' }}>
                   <span style={{ background: statusStyle.bg, color: statusStyle.c, padding: '2px 8px', borderRadius: 9999, fontSize: '0.7rem', fontWeight: 600, textTransform: 'capitalize' }}>
-                    {l.status}
+                    {statusLabel}
                   </span>
                 </td>
                 <td style={{ padding: '6px 8px', color: '#374151' }}>
@@ -2363,10 +2402,17 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
                         Copy Link
                       </button>
                       <button onClick={() => handleResend(l.id)} disabled={sendingId === l.id}
-                        style={{ padding: '3px 10px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
-                        {sendingId === l.id ? 'Sending...' : 'Send Payment Reminder'}
+                        style={{ marginRight: 6, padding: '3px 10px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+                        {sendingId === l.id ? 'Sending...' : 'Send Reminder'}
+                      </button>
+                      <button onClick={() => handlePushTerminal(l.id)} disabled={pushingId === l.id}
+                        style={{ padding: '3px 10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+                        {pushingId === l.id ? 'Pushing...' : 'Charge Terminal'}
                       </button>
                     </>
+                  )}
+                  {isTerminalPending && (
+                    <span style={{ fontSize: '0.7rem', color: '#1e40af' }}>Sent to terminal — waiting for tap...</span>
                   )}
                   {l.status === 'paid' && l.transaction_id && (
                     <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#6b7280' }}>Txn: {l.transaction_id}</span>
