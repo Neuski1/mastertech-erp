@@ -17,6 +17,22 @@ export default function OnlinePaymentsHistory() {
   const [dateTo, setDateTo] = useState('');
   const [paymentType, setPaymentType] = useState('');
   const [status, setStatus] = useState('');
+  const [devices, setDevices] = useState(null);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [devicesError, setDevicesError] = useState('');
+
+  const loadDevices = async () => {
+    setDevicesLoading(true);
+    setDevicesError('');
+    try {
+      const d = await api.listPoyntDevices();
+      setDevices(d);
+    } catch (err) {
+      setDevicesError(err.message);
+    } finally {
+      setDevicesLoading(false);
+    }
+  };
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
@@ -45,6 +61,23 @@ export default function OnlinePaymentsHistory() {
   return (
     <div style={{ padding: '20px' }}>
       <h1 style={{ color: '#1e3a5f', margin: '0 0 16px' }}>Online Payments</h1>
+
+      {/* Poynt terminal admin panel — used once to grab the Smart Terminal's
+          cloud deviceId so we can set POYNT_TERMINAL_DEVICE_ID on Railway. */}
+      <div style={{ marginBottom: 16, padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={loadDevices} disabled={devicesLoading}
+            style={{ padding: '6px 14px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+            {devicesLoading ? 'Loading...' : 'List Poynt Terminals'}
+          </button>
+          {devicesError && <span style={{ color: '#dc2626', fontSize: '0.8rem' }}>{devicesError}</span>}
+        </div>
+        {devices && (
+          <pre style={{ marginTop: 10, padding: 10, background: '#0f172a', color: '#e2e8f0', borderRadius: 4, fontSize: '0.75rem', overflow: 'auto', maxHeight: 360 }}>
+{JSON.stringify(devices, null, 2)}
+          </pre>
+        )}
+      </div>
 
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'flex-end' }}>
         <div>
