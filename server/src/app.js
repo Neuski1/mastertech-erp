@@ -463,6 +463,26 @@ require('./db/pool').query(`
 }).catch(err => console.error('storage_waitlist migration error:', err.message));
 
 
+// Migration 043: Estimate line support
+require('./db/pool').query(`
+  ALTER TABLE record_labor_lines ADD COLUMN IF NOT EXISTS is_estimate_line BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE record_labor_lines ADD COLUMN IF NOT EXISTS customer_approved BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE record_labor_lines ADD COLUMN IF NOT EXISTS customer_approved_at TIMESTAMPTZ;
+  ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS is_estimate_line BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS customer_approved BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS customer_approved_at TIMESTAMPTZ;
+  CREATE TABLE IF NOT EXISTS estimate_line_approvals (
+    id SERIAL PRIMARY KEY,
+    record_id INTEGER NOT NULL REFERENCES records(id),
+    approval_token UUID NOT NULL DEFAULT gen_random_uuid(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_ela_token ON estimate_line_approvals(approval_token);
+  CREATE INDEX IF NOT EXISTS idx_ela_record ON estimate_line_approvals(record_id);
+`).then(() => console.log('Migration 043 (estimate lines) ready'))
+  .catch(err => console.error('Migration 043 error:', err.message));
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Master Tech ERP API running on port ${PORT}`);
