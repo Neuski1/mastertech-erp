@@ -371,6 +371,35 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
       syncAppointmentToCalendar(appt, 'update').catch(err => console.error('Google Calendar update error:', err.message));
     }
 
+    // Send revised confirmation email to customer + BCC to service@
+    // Only send if date/time/type changed (meaningful schedule changes)
+    const scheduleChanged = scheduled_date !== undefined || scheduled_time !== undefined || appointment_type !== undefined;
+    if (scheduleChanged && appt.notify_customer) {
+      const emailAddr = appt.customer_email || appt.email_primary;
+      if (emailAddr) {
+        const scheduledAt = new Date(appt.scheduled_at);
+        // Convert to Mountain Time for display
+        const mtDate = scheduledAt.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+        const mtTime = scheduledAt.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour12: false, hour: '2-digit', minute: '2-digit' });
+        const customerName = `${appt.first_name || ''} ${appt.last_name || ''}`.trim();
+
+        sendAppointmentConfirmation({
+          customerName,
+          customerEmail: emailAddr,
+          appointmentDate: mtDate,
+          appointmentTime: mtTime,
+          appointmentType: appt.appointment_type,
+          durationMinutes: appt.duration_minutes || 60,
+          notes: appt.job_description || appt.dropoff_notes || '',
+          revised: true,
+        }).then(result => {
+          console.log(`[Appt ${appt.id}] Revised confirmation sent to ${emailAddr}:`, result.success);
+        }).catch(err => {
+          console.error(`[Appt ${appt.id}] Revised confirmation error:`, err.message);
+        });
+      }
+    }
+
     res.json(appt);
   } catch (err) {
     console.error('PATCH /api/appointments/:id error:', err);

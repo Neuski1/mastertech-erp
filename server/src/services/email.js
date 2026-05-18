@@ -143,6 +143,8 @@ async function sendAppointmentConfirmation({
   appointmentType,
   durationMinutes,
   notes,
+  revised = false,
+  bcc = null,
 }) {
   if (!useResend && !transporter) {
     console.error('No email transport configured');
@@ -227,7 +229,7 @@ async function sendAppointmentConfirmation({
 
     <!-- Body -->
     <div style="padding:32px;">
-      <h2 style="color:#1e3a5f;margin:0 0 8px;font-size:22px;">Your appointment has been confirmed!</h2>
+      <h2 style="color:#1e3a5f;margin:0 0 8px;font-size:22px;">${revised ? 'Your appointment has been updated!' : 'Your appointment has been confirmed!'}</h2>
       <p style="color:#374151;font-size:15px;margin:0 0 24px;">Hello ${customerName || 'valued customer'},</p>
 
       <!-- Appointment Details Table -->
@@ -292,7 +294,7 @@ async function sendAppointmentConfirmation({
 </body>
 </html>`;
 
-  const textBody = `Your appointment has been confirmed!
+  const textBody = `${revised ? 'Your appointment has been updated!' : 'Your appointment has been confirmed!'}
 
 Hello ${customerName || 'valued customer'},
 
@@ -319,8 +321,8 @@ Our Service Makes Happy Campers!`;
     from: fromAddr,
     to: customerEmail,
     cc: 'service@mastertechrvrepair.com',
-    bcc: process.env.EMAIL_USER !== 'service@mastertechrvrepair.com' ? process.env.EMAIL_USER : undefined,
-    subject: 'Appointment Confirmed — Master Tech RV Repair & Storage',
+    bcc: bcc || (process.env.EMAIL_USER !== 'service@mastertechrvrepair.com' ? process.env.EMAIL_USER : undefined),
+    subject: revised ? 'Appointment Updated — Master Tech RV Repair & Storage' : 'Appointment Confirmed — Master Tech RV Repair & Storage',
     html: htmlBody,
     text: textBody,
     attachments: [],
