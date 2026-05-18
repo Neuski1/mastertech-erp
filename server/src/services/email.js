@@ -246,7 +246,11 @@ async function sendAppointmentConfirmation({
           <td style="padding:12px 16px;font-weight:bold;color:#374151;border-bottom:1px solid #e5e7eb;">Type</td>
           <td style="padding:12px 16px;color:#111827;border-bottom:1px solid #e5e7eb;font-size:15px;">${typeLabel}</td>
         </tr>
-        <tr>
+        ${notes ? `<tr>
+          <td style="padding:12px 16px;font-weight:bold;color:#374151;border-bottom:1px solid #e5e7eb;">Details</td>
+          <td style="padding:12px 16px;color:#111827;border-bottom:1px solid #e5e7eb;font-size:15px;">${notes.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>')}</td>
+        </tr>` : ''}
+        <tr style="${notes ? 'background-color:#f9fafb;' : ''}">
           <td style="padding:12px 16px;font-weight:bold;color:#374151;">Location</td>
           <td style="padding:12px 16px;color:#111827;font-size:15px;">
             6590 East 49th Avenue<br/>Commerce City, CO 80022
@@ -302,7 +306,7 @@ Appointment Details:
   Date: ${dateFormatted}
   Time: ${timeFormatted}
   Type: ${typeLabel}
-  Location: 6590 East 49th Avenue, Commerce City, CO 80022
+${notes ? '  Details: ' + notes + '\n' : ''}  Location: 6590 East 49th Avenue, Commerce City, CO 80022
 
 Add to Your Calendar:
   Google Calendar: ${googleCalUrl}

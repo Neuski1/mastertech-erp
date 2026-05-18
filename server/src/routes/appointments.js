@@ -219,7 +219,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
         appointmentTime: scheduled_time,
         appointmentType: appointment_type,
         durationMinutes: duration_minutes,
-        notes: dropoff_notes,
+        notes: job_description || dropoff_notes,
       };
 
       console.log(`[Appt ${apptId}] Sending email to: ${emailAddr}`);
