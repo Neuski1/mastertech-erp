@@ -510,6 +510,7 @@ export default function AppointmentForm() {
       </div>
       {showNewCustomer && (
         <NewCustomerModal
+          initialName={customerSearch}
           onClose={() => setShowNewCustomer(false)}
           onCreated={(created) => {
             setShowNewCustomer(false);

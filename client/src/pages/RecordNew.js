@@ -321,6 +321,7 @@ export default function RecordNew() {
       {/* ─── New Customer Modal ─── */}
       {showNewCustomer && (
         <NewCustomerModal
+          initialName={customerSearch}
           onClose={() => setShowNewCustomer(false)}
           onCreated={(created) => {
             setShowNewCustomer(false);

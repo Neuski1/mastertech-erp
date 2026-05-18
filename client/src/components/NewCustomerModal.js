@@ -2,9 +2,23 @@ import React, { useState } from 'react';
 import { api } from '../api/client';
 import { handlePhoneInput } from '../utils/formatPhone';
 
-export default function NewCustomerModal({ onClose, onCreated }) {
+export default function NewCustomerModal({ onClose, onCreated, initialName = '' }) {
+  // Parse initialName into first/last — supports "First Last" or "Last, First"
+  const parseName = (name) => {
+    if (!name) return { first_name: '', last_name: '' };
+    const trimmed = name.trim();
+    if (trimmed.includes(',')) {
+      const [last, first] = trimmed.split(',').map(s => s.trim());
+      return { first_name: first || '', last_name: last || '' };
+    }
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 1) return { first_name: '', last_name: parts[0] };
+    return { first_name: parts.slice(0, -1).join(' '), last_name: parts[parts.length - 1] };
+  };
+  const parsed = parseName(initialName);
+
   const [form, setForm] = useState({
-    first_name: '', last_name: '', company_name: '',
+    first_name: parsed.first_name, last_name: parsed.last_name, company_name: '',
     phone_primary: '', phone_secondary: '', email_primary: '',
     address_street: '', address_city: '', address_state: '', address_zip: '',
   });
