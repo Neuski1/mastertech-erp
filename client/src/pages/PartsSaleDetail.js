@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import NewCustomerModal from '../components/NewCustomerModal';
 
 export default function PartsSaleDetail() {
   const { id } = useParams();
@@ -13,7 +14,9 @@ export default function PartsSaleDetail() {
   const [customerMode, setCustomerMode] = useState('walkin'); // 'search' or 'walkin'
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
+  const [customerSearchDone, setCustomerSearchDone] = useState(false);
   const [walkinName, setWalkinName] = useState('');
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
   const searchTimeout = useRef(null);
 
   // Add line form
@@ -57,23 +60,29 @@ export default function PartsSaleDetail() {
   };
 
   // ── Customer search ───────────────────────────────────────────────
-  const handleCustomerSearch = (q) => {
-    setCustomerSearch(q);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (q.length < 2) { setCustomerResults([]); return; }
-    searchTimeout.current = setTimeout(async () => {
+  useEffect(() => {
+    if (customerSearch.length < 2) { setCustomerResults([]); setCustomerSearchDone(false); return; }
+    const timer = setTimeout(async () => {
       try {
-        const data = await api.getCustomers({ search: q, limit: 10 });
-        setCustomerResults(data.customers || data);
-      } catch (err) { console.error(err); }
+        const data = await api.getCustomers({ search: customerSearch, limit: 10 });
+        setCustomerResults(data.customers || []);
+        setCustomerSearchDone(true);
+      } catch (err) {
+        console.error('Customer search error:', err);
+        setCustomerResults([]);
+        setCustomerSearchDone(true);
+        setError('Customer search failed — please try again');
+      }
     }, 300);
-  };
+    return () => clearTimeout(timer);
+  }, [customerSearch]);
 
   const selectCustomer = async (customer) => {
     try {
       await api.updatePartsSale(id, { customer_id: customer.id, customer_name: null });
       setCustomerResults([]);
       setCustomerSearch('');
+      setCustomerSearchDone(false);
       fetchSale();
     } catch (err) { setError(err.message); }
   };
@@ -324,17 +333,26 @@ export default function PartsSaleDetail() {
             )}
             {customerMode === 'search' && isOpen && (
               <div style={{ position: 'relative' }}>
-                <input type="text" placeholder="Search by name, phone, email..." value={customerSearch} onChange={(e) => handleCustomerSearch(e.target.value)} style={{ ...inputStyle, width: '100%' }} autoComplete="off" />
+                <input type="text" placeholder="Search by name, phone, email..." value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} style={{ ...inputStyle, width: '100%' }} autoFocus autoComplete="off" />
                 {customerResults.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '4px', maxHeight: '200px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '0 0 6px 6px', maxHeight: '200px', overflowY: 'auto', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
                     {customerResults.map(c => (
-                      <div key={c.id} onClick={() => selectCustomer(c)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>
+                      <div key={c.id} onClick={() => selectCustomer(c)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}>
                         <strong>{c.last_name}{c.first_name ? ', ' + c.first_name : ''}</strong>
-                        <span style={{ color: '#6b7280', marginLeft: '8px' }}>{c.phone_primary || ''}</span>
+                        {c.company_name && <span style={{ color: '#6b7280', marginLeft: '4px' }}>({c.company_name})</span>}
+                        <span style={{ color: '#9ca3af', marginLeft: '8px', fontSize: '0.8rem' }}>{c.phone_primary || c.email_primary || ''}</span>
                       </div>
                     ))}
                   </div>
                 )}
+                {customerSearchDone && customerResults.length === 0 && customerSearch.length >= 2 && (
+                  <div style={{ padding: '8px 0', fontSize: '0.85rem', color: '#6b7280' }}>No customers found for "{customerSearch}"</div>
+                )}
+                <div style={{ marginTop: '8px' }}>
+                  <button type="button" onClick={() => setShowNewCustomer(true)} style={{ ...btnSmall, color: '#1e3a5f' }}>+ Add New Customer</button>
+                </div>
               </div>
             )}
             {customerMode === 'walkin' && isOpen && (
@@ -530,6 +548,18 @@ export default function PartsSaleDetail() {
         <button onClick={handlePrint} style={btnSecondary}>Print Receipt</button>
         {isOpen && <button onClick={handleVoid} style={{ ...btnSecondary, color: '#dc2626', borderColor: '#fca5a5' }}>Void Sale</button>}
       </div>
+
+      {/* New Customer Modal */}
+      {showNewCustomer && (
+        <NewCustomerModal
+          onClose={() => setShowNewCustomer(false)}
+          onCreated={(created) => {
+            setShowNewCustomer(false);
+            selectCustomer(created);
+          }}
+          initialName={customerSearch}
+        />
+      )}
     </div>
   );
 }
