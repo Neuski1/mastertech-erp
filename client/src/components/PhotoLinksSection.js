@@ -46,7 +46,8 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
     if (files.length === 0) return;
 
     setUploading(true);
-    setUploadProgress(`Uploading ${files.length} photo${files.length > 1 ? 's' : ''}...`);
+    const totalMB = files.reduce((s, f) => s + f.size, 0) / (1024 * 1024);
+    setUploadProgress(`Uploading ${files.length} photo${files.length > 1 ? 's' : ''} (${totalMB.toFixed(1)} MB)...`);
     setError('');
 
     try {
@@ -55,7 +56,8 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
       fetchPhotos();
       setTimeout(() => setUploadProgress(''), 3000);
     } catch (err) {
-      setError(err.message);
+      console.error('Photo upload error:', err);
+      setError(`Upload error: ${err.message || err.toString()}`);
       setUploadProgress('');
     } finally {
       setUploading(false);
