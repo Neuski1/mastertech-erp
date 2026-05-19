@@ -88,7 +88,8 @@ app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is pub
 app.use('/api/partners', requireAuth, require('./routes/partners'));
 app.use('/api/purchase-orders', requireAuthOrApiKey, require('./routes/purchaseOrders'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
-app.use('/api/twilio', require('./routes/twilioWebhook')); // No auth — Twilio calls directly
+app.use('/api/twilio', require('./routes/twilioWebhook')); // Legacy — kept for transition; remove after Dialpad webhook is live
+app.use('/api/dialpad', require('./routes/dialpadWebhook')); // No auth — Dialpad calls directly
 
 // Test email endpoint — quick debug, no auth required
 app.get('/api/test-email', async (req, res) => {
@@ -413,9 +414,11 @@ const pool = require('./db/pool');
 
     // Migration 052: review request tracking (Day-3-after-paid Google review automation)
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_sent_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_sms_sent_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS review_opt_out BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_review_request_at TIMESTAMPTZ');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_records_review_pending ON records (status, paid_at) WHERE review_request_sent_at IS NULL');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_records_review_sms_pending ON records (review_request_sent_at) WHERE review_request_sms_sent_at IS NULL AND review_request_sent_at IS NOT NULL');
 
     console.log('Migration check: all pending migrations applied');
   } catch (err) {

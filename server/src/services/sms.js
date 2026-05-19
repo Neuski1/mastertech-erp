@@ -1,12 +1,19 @@
 /**
- * Twilio SMS service — central sender with customer opt-out awareness.
- * Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER in env.
+ * SMS service — central sender with customer opt-out awareness.
+ * Provider: Dialpad (https://developers.dialpad.com/reference/smssend)
+ * Requires DIALPAD_API_KEY and DIALPAD_FROM_NUMBER in env.
+ *
+ * Function signatures preserved from the prior Twilio implementation so
+ * callers (appointmentReminderCron, appointments.js, paymentReminders.js,
+ * reviewRequestCron) don't need to change.
  */
 
 const pool = require('../db/pool');
+const { sendDialpadSMS, isDialpadConfigured } = require('./dialpad');
 
+// Back-compat alias — older callers may still import isTwilioConfigured.
 function isTwilioConfigured() {
-  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+  return isDialpadConfigured();
 }
 
 // Normalize US phone number to E.164
@@ -47,8 +54,8 @@ async function isPhoneOptedOut(phone) {
  * Returns { success, skipped?, error? }
  */
 async function sendSMS(rawPhone, body) {
-  if (!isTwilioConfigured()) {
-    console.log('[sms] Twilio not configured — skipping');
+  if (!isDialpadConfigured()) {
+    console.log('[sms] Dialpad not configured — skipping');
     return { success: false, skipped: 'not_configured' };
   }
   const to = normalizePhone(rawPhone);
@@ -61,20 +68,12 @@ async function sendSMS(rawPhone, body) {
     return { success: false, skipped: 'opted_out' };
   }
 
-  try {
-    const twilio = require('twilio');
-    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-    const msg = await client.messages.create({
-      body,
-      from: process.env.TWILIO_FROM_NUMBER,
-      to,
-    });
-    console.log(`[sms] sent to ${to} (sid=${msg.sid})`);
-    return { success: true, sid: msg.sid };
-  } catch (err) {
-    console.error(`[sms] send to ${to} failed:`, err.message);
-    return { success: false, error: err.message };
+  const result = await sendDialpadSMS(to, body);
+  if (result.success) {
+    console.log(`[sms] sent to ${to} (id=${result.id || 'n/a'})`);
+    return { success: true, sid: result.id };
   }
+  return { success: false, error: result.error };
 }
 
 // Format date/time helpers
@@ -118,7 +117,9 @@ module.exports = {
   sendAppointmentSMS,
   sendAppointmentReminderSMS,
   sendPaymentReminderSMS,
+  // Both names exported so legacy and new callers work
   isTwilioConfigured,
+  isSmsConfigured: isDialpadConfigured,
   isPhoneOptedOut,
   normalizePhone,
 };

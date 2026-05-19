@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const pool = require('../db/pool');
 const { sendEmail } = require('../services/email');
+const { sendSMS } = require('../services/sms');
 
 const REVIEW_URL = 'https://g.page/r/CcdbSyhGUgf6EBM/review';
 const QR_URL = 'https://quickchart.io/qr?text=https%3A%2F%2Fg.page%2Fr%2FCcdbSyhGUgf6EBM%2Freview&size=160&margin=2&dark=1e3a5f';
@@ -118,18 +119,94 @@ async function processReviewRequests() {
   return { sent, failed, total: rows.length };
 }
 
+/**
+ * Day-10 SMS follow-up: customers who got the email but haven't been reminded by SMS yet.
+ * Stops at Day 21 (no third nag).
+ */
+async function processSmsFollowUps() {
+  const { rows } = await pool.query(`
+    SELECT r.id          AS record_id,
+           r.record_number,
+           r.customer_id,
+           c.first_name,
+           c.phone_primary,
+           c.phone_secondary,
+           u.year         AS unit_year,
+           u.make         AS unit_make,
+           u.model        AS unit_model
+    FROM records r
+    JOIN customers c ON c.id = r.customer_id
+    LEFT JOIN units u ON u.id = r.unit_id
+    WHERE r.status = 'paid'
+      AND r.deleted_at IS NULL
+      AND r.review_request_sent_at IS NOT NULL
+      AND r.review_request_sent_at <= NOW() - INTERVAL '7 days'
+      AND r.review_request_sent_at >= NOW() - INTERVAL '18 days'
+      AND r.review_request_sms_sent_at IS NULL
+      AND COALESCE(c.sms_opt_out, FALSE) = FALSE
+      AND COALESCE(c.review_opt_out, FALSE) = FALSE
+      AND COALESCE(c.phone_primary, c.phone_secondary, '') <> ''
+    ORDER BY r.review_request_sent_at ASC
+    LIMIT 50
+  `);
+
+  if (rows.length === 0) {
+    console.log('[reviewRequestCron] No records eligible for SMS follow-up.');
+    return { sent: 0, failed: 0, skipped: 0 };
+  }
+
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const firstName = row.first_name || 'there';
+    const rvShort = [row.unit_year, row.unit_make].filter(Boolean).join(' ') || 'RV';
+    const body = `Hi ${firstName}, Carol at Master Tech RV. Thanks again for bringing in your ${rvShort}. If we did right by you, a quick Google review would mean a lot: ${REVIEW_URL} If not, just text back. Reply STOP to opt out.`;
+
+    const phone = row.phone_primary || row.phone_secondary;
+    try {
+      const result = await sendSMS(phone, body);
+
+      if (result.success) {
+        await pool.query('UPDATE records SET review_request_sms_sent_at = NOW() WHERE id = $1', [row.record_id]);
+        await pool.query(
+          `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
+           VALUES ($1, $2, 'sms', 'review_request_sent', $3)`,
+          [row.customer_id, row.record_id, `Review request SMS to ${phone} for invoice #${row.record_number}`]
+        );
+        sent++;
+      } else if (result.skipped) {
+        // Opt-out or invalid phone — mark sent so we don't keep trying
+        await pool.query('UPDATE records SET review_request_sms_sent_at = NOW() WHERE id = $1', [row.record_id]);
+        skipped++;
+      } else {
+        failed++;
+        console.error('[reviewRequestCron] SMS failed for record', row.record_number, result.error);
+      }
+    } catch (err) {
+      failed++;
+      console.error('[reviewRequestCron] SMS error for record', row.record_number, err.message);
+    }
+  }
+
+  console.log(`[reviewRequestCron] SMS follow-ups: sent ${sent}, skipped ${skipped}, failed ${failed}, candidates ${rows.length}`);
+  return { sent, failed, skipped, total: rows.length };
+}
+
 function startReviewRequestCron() {
-  // Daily at 10:00 AM America/Denver
+  // Daily at 10:00 AM America/Denver — runs both Day-3 email and Day-10 SMS passes
   cron.schedule('0 10 * * *', async () => {
     console.log('[reviewRequestCron] Starting daily review request run...');
     try {
-      const result = await processReviewRequests();
-      console.log('[reviewRequestCron] Complete:', result);
+      const emailResult = await processReviewRequests();
+      const smsResult = await processSmsFollowUps();
+      console.log('[reviewRequestCron] Complete:', { email: emailResult, sms: smsResult });
     } catch (err) {
       console.error('[reviewRequestCron] Fatal error:', err);
     }
   }, { timezone: 'America/Denver' });
-  console.log('[reviewRequestCron] Review request cron scheduled (daily 10 AM Mountain)');
+  console.log('[reviewRequestCron] Review request cron scheduled (daily 10 AM Mountain, email + SMS follow-up)');
 }
 
-module.exports = { startReviewRequestCron, processReviewRequests };
+module.exports = { startReviewRequestCron, processReviewRequests, processSmsFollowUps };
