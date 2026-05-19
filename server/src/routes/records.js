@@ -1036,6 +1036,23 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <p style="margin:8px 0 0;font-size:11px;color:#6b7280;">Questions? Call (303) 557-2214 or reply to this email.</p>
     </div>` : ''}
     ${payButtonHtml}
+    ${docType === 'Invoice' ? `
+    <div style="margin:28px 0 8px;padding:20px;background:#f0f7ff;border:2px solid #1e3a5f;border-radius:8px;">
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="vertical-align:middle;padding-right:16px;">
+            <p style="margin:0 0 6px;font-size:16px;font-weight:bold;color:#1e3a5f;">Loved your service? Leave us a review.</p>
+            <p style="margin:0 0 12px;font-size:13px;color:#374151;line-height:1.5;">Mark and Carol here. If we earned it, would you take 60 seconds to leave us a Google review? It genuinely helps our small family shop stay visible to other RV owners in Denver.</p>
+            <a href="https://g.page/r/CcdbSyhGUgf6EBM/review" target="_blank" style="display:inline-block;padding:10px 22px;background:#1e3a5f;color:#fff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;">Leave a Google Review</a>
+            <p style="margin:10px 0 0;font-size:11px;color:#6b7280;">Or scan the QR code &rarr;</p>
+          </td>
+          <td style="vertical-align:middle;text-align:right;width:140px;">
+            <img src="https://quickchart.io/qr?text=https%3A%2F%2Fg.page%2Fr%2FCcdbSyhGUgf6EBM%2Freview&size=140&margin=2&dark=1e3a5f" alt="Scan to leave a Google review for Master Tech RV" width="140" height="140" style="display:block;border:1px solid #e5e7eb;border-radius:4px;background:#fff;"/>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:14px 0 0;font-size:11px;color:#6b7280;text-align:center;">If something didn't go right, hit reply and tell us directly &mdash; we'd rather fix it than read about it online.</p>
+    </div>` : ''}
   </div>
   <div style="background-color:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:12px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
