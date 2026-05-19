@@ -64,83 +64,84 @@ router.post('/:recordId/photos', requireRole('admin', 'service_writer', 'technic
     next();
   });
 }, async (req, res) => {
-  const recordId = req.params.recordId;
+  try {
+    const recordId = req.params.recordId;
 
-  // If no files, fall back to old OneDrive link behavior
-  if (!req.files || req.files.length === 0) {
-    const { category, label, onedrive_url } = req.body;
-    if (!onedrive_url) return res.status(400).json({ error: 'No photos uploaded and no onedrive_url provided' });
-    try {
+    // If no files, fall back to old OneDrive link behavior
+    if (!req.files || req.files.length === 0) {
+      const { category, label, onedrive_url } = req.body;
+      if (!onedrive_url) return res.status(400).json({ error: 'No photos uploaded and no onedrive_url provided' });
       const { rows } = await pool.query(
         `INSERT INTO record_photos (record_id, category, label, onedrive_url, created_by)
          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [recordId, category || 'other', label || null, onedrive_url, req.user?.id || null]
       );
       return res.status(201).json(rows[0]);
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
     }
-  }
 
-  // Direct upload flow
-  const { rows: rec } = await pool.query('SELECT id FROM records WHERE id = $1', [recordId]);
-  if (rec.length === 0) return res.status(404).json({ error: 'Record not found' });
+    // Direct upload flow
+    const { rows: rec } = await pool.query('SELECT id FROM records WHERE id = $1', [recordId]);
+    if (rec.length === 0) return res.status(404).json({ error: 'Record not found' });
 
-  const sharp = getSharp();
-  const category = req.body.category || 'upload';
-  const results = [];
+    const sharp = getSharp();
+    const category = req.body.category || 'upload';
+    const results = [];
 
-  for (const file of req.files) {
-    try {
-      let photoBuffer = file.buffer;
-      let thumbBuffer = null;
-      let contentType = 'image/jpeg';
-      let fileSize = file.size;
-
-      if (sharp) {
-        // Resize main photo: max 1600px on longest side, JPEG 80% quality
-        photoBuffer = await sharp(file.buffer)
-          .rotate() // auto-rotate based on EXIF orientation
-          .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 80, mozjpeg: true })
-          .toBuffer();
-        fileSize = photoBuffer.length;
-
-        // Generate thumbnail: 300px max
-        thumbBuffer = await sharp(file.buffer)
-          .rotate()
-          .resize(300, 300, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 70 })
-          .toBuffer();
-      } else {
-        contentType = file.mimetype;
-      }
-
-      const { rows } = await pool.query(
-        `INSERT INTO record_photos (record_id, category, label, filename, content_type, file_size, photo_data, thumbnail_data, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id, record_id, category, label, filename, content_type, file_size, created_by, created_at`,
-        [recordId, category, file.originalname, file.originalname, contentType, fileSize, photoBuffer, thumbBuffer, req.user.id]
-      );
-      results.push(rows[0]);
-    } catch (err) {
-      console.error(`Photo processing error for ${file.originalname}:`, err.message);
-      // Fallback: store original without processing
+    for (const file of req.files) {
       try {
+        let photoBuffer = file.buffer;
+        let thumbBuffer = null;
+        let contentType = 'image/jpeg';
+        let fileSize = file.size;
+
+        if (sharp) {
+          // Resize main photo: max 1600px on longest side, JPEG 80% quality
+          photoBuffer = await sharp(file.buffer)
+            .rotate() // auto-rotate based on EXIF orientation
+            .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 80, mozjpeg: true })
+            .toBuffer();
+          fileSize = photoBuffer.length;
+
+          // Generate thumbnail: 300px max
+          thumbBuffer = await sharp(file.buffer)
+            .rotate()
+            .resize(300, 300, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 70 })
+            .toBuffer();
+        } else {
+          contentType = file.mimetype;
+        }
+
         const { rows } = await pool.query(
-          `INSERT INTO record_photos (record_id, category, label, filename, content_type, file_size, photo_data, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `INSERT INTO record_photos (record_id, category, label, filename, content_type, file_size, photo_data, thumbnail_data, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id, record_id, category, label, filename, content_type, file_size, created_by, created_at`,
-          [recordId, category, file.originalname, file.originalname, file.mimetype, file.size, file.buffer, req.user.id]
+          [recordId, category, file.originalname, file.originalname, contentType, fileSize, photoBuffer, thumbBuffer, req.user.id]
         );
         results.push(rows[0]);
-      } catch (dbErr) {
-        console.error(`DB insert error for ${file.originalname}:`, dbErr.message);
+      } catch (err) {
+        console.error(`Photo processing error for ${file.originalname}:`, err.message);
+        // Fallback: store original without processing
+        try {
+          const { rows } = await pool.query(
+            `INSERT INTO record_photos (record_id, category, label, filename, content_type, file_size, photo_data, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id, record_id, category, label, filename, content_type, file_size, created_by, created_at`,
+            [recordId, category, file.originalname, file.originalname, file.mimetype, file.size, file.buffer, req.user.id]
+          );
+          results.push(rows[0]);
+        } catch (dbErr) {
+          console.error(`DB insert error for ${file.originalname}:`, dbErr.message);
+        }
       }
     }
-  }
 
-  res.status(201).json({ uploaded: results.length, photos: results });
+    res.status(201).json({ uploaded: results.length, photos: results });
+  } catch (err) {
+    console.error('Photo upload handler error:', err);
+    res.status(500).json({ error: err.message || 'Photo upload failed' });
+  }
 });
 
 // ---------------------------------------------------------------------------
