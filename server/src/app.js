@@ -402,6 +402,15 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_date DATE DEFAULT NULL`);
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_note TEXT DEFAULT NULL`);
 
+    // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
+    await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
+    await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
+    await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS content_type VARCHAR(100) DEFAULT \'image/jpeg\'');
+    await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS file_size INTEGER DEFAULT 0');
+    await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS photo_data BYTEA');
+    await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS thumbnail_data BYTEA');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_record_photos_record ON record_photos (record_id)');
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);

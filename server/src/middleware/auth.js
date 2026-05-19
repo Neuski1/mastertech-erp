@@ -9,11 +9,18 @@ const JWT_EXPIRY = '7d';
 // ---------------------------------------------------------------------------
 function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authentication required' });
+  let token;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.query && req.query.token) {
+    // Allow ?token= query param for <img> tags that can't send headers
+    token = req.query.token;
   }
 
-  const token = authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded; // { id, email, name, role }

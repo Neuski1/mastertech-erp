@@ -62,6 +62,26 @@ export const api = {
   approveEstimateLines: (recordId, data) => request(`/records/${recordId}/approve-estimate-lines`, { method: 'POST', body: JSON.stringify(data) }),
   sendEstimateApproval: (recordId) => request(`/records/${recordId}/send-estimate-approval`, { method: 'POST' }),
 
+  // Record Photos
+  getRecordPhotos: (recordId) => request(`/records/${recordId}/photos`),
+  uploadRecordPhotos: async (recordId, files) => {
+    const formData = new FormData();
+    for (const file of files) formData.append('photos', file);
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/records/${recordId}/photos`, {
+      method: 'POST', headers, body: formData,
+    });
+    if (res.status === 401) { localStorage.removeItem('erp_token'); authToken = null; window.location.href = '/login'; throw new Error('Session expired'); }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    return data;
+  },
+  addRecordPhoto: (recordId, data) => request(`/records/${recordId}/photos`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteRecordPhoto: (recordId, photoId) => request(`/records/${recordId}/photos/${photoId}`, { method: 'DELETE' }),
+  updateRecordPhoto: (recordId, photoId, data) => request(`/records/${recordId}/photos/${photoId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  emailRecordPhotos: (recordId, data = {}) => request(`/records/${recordId}/photos/email`, { method: 'POST', body: JSON.stringify(data) }),
+
   // Customers
   getCustomers: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -93,12 +113,6 @@ export const api = {
   addPart: (recordId, data) => request(`/parts/${recordId}`, { method: 'POST', body: JSON.stringify(data) }),
   updatePart: (recordId, lineId, data) => request(`/parts/${recordId}/${lineId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePart: (recordId, lineId) => request(`/parts/${recordId}/${lineId}`, { method: 'DELETE' }),
-
-  // Record photos
-  getRecordPhotos: (recordId) => request(`/records/${recordId}/photos`),
-  addRecordPhoto: (recordId, data) => request(`/records/${recordId}/photos`, { method: 'POST', body: JSON.stringify(data) }),
-  updateRecordPhoto: (recordId, photoId, data) => request(`/records/${recordId}/photos/${photoId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteRecordPhoto: (recordId, photoId) => request(`/records/${recordId}/photos/${photoId}`, { method: 'DELETE' }),
 
   // Freight lines
   getFreightLines: (recordId) => request(`/records/${recordId}/freight`),
