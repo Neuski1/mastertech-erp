@@ -69,10 +69,20 @@ export const api = {
     for (const file of files) formData.append('photos', file);
     const headers = {};
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-    const res = await fetch(`${API_BASE}/records/${recordId}/photos`, {
-      method: 'POST', headers, body: formData,
-    });
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/records/${recordId}/photos`, {
+        method: 'POST', headers, body: formData,
+      });
+    } catch (networkErr) {
+      throw new Error('Network error — check your connection and try again');
+    }
     if (res.status === 401) { localStorage.removeItem('erp_token'); authToken = null; window.location.href = '/login'; throw new Error('Session expired'); }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Upload failed (${res.status}) — ${text.substring(0, 120) || 'server did not return JSON'}`);
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     return data;

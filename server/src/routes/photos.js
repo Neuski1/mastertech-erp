@@ -53,7 +53,17 @@ router.get('/:recordId/photos', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/records/:recordId/photos — Upload photos directly from phone/browser
 // ---------------------------------------------------------------------------
-router.post('/:recordId/photos', requireRole('admin', 'service_writer', 'technician'), upload.array('photos', 20), async (req, res) => {
+router.post('/:recordId/photos', requireRole('admin', 'service_writer', 'technician'), (req, res, next) => {
+  upload.array('photos', 20)(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'File too large — max 25MB per photo'
+        : err.code === 'LIMIT_FILE_COUNT' ? 'Too many files — max 20 at once'
+        : err.message || 'Upload error';
+      return res.status(400).json({ error: msg });
+    }
+    next();
+  });
+}, async (req, res) => {
   const recordId = req.params.recordId;
 
   // If no files, fall back to old OneDrive link behavior
