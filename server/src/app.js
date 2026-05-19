@@ -411,6 +411,12 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS thumbnail_data BYTEA');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_record_photos_record ON record_photos (record_id)');
 
+    // Migration 052: review request tracking (Day-3-after-paid Google review automation)
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_sent_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS review_opt_out BOOLEAN DEFAULT FALSE');
+    await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_review_request_at TIMESTAMPTZ');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_records_review_pending ON records (status, paid_at) WHERE review_request_sent_at IS NULL');
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
@@ -426,6 +432,9 @@ startReminderCron();
 
 const { startAppointmentReminderCron } = require('./jobs/appointmentReminderCron');
 startAppointmentReminderCron();
+
+const { startReviewRequestCron } = require('./jobs/reviewRequestCron');
+startReviewRequestCron();
 
 // Auto-migrate: create storage_waitlist if missing
 require('./db/pool').query(`
