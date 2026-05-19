@@ -64,28 +64,33 @@ export const api = {
 
   // Record Photos
   getRecordPhotos: (recordId) => request(`/records/${recordId}/photos`),
-  uploadRecordPhotos: async (recordId, files) => {
-    const formData = new FormData();
-    for (const file of files) formData.append('photos', file);
-    const headers = {};
-    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-    let res;
-    try {
-      res = await fetch(`${API_BASE}/records/${recordId}/photos`, {
-        method: 'POST', headers, body: formData,
-      });
-    } catch (networkErr) {
-      throw new Error('Network error — check your connection and try again');
-    }
-    if (res.status === 401) { localStorage.removeItem('erp_token'); authToken = null; window.location.href = '/login'; throw new Error('Session expired'); }
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Upload failed (${res.status}) — ${text.substring(0, 120) || 'server did not return JSON'}`);
-    }
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Upload failed');
-    return data;
+  uploadRecordPhotos: (recordId, files) => {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      for (const file of files) {
+        // Re-wrap file to work around iOS Safari FormData/fetch bug
+        const blob = new Blob([file], { type: file.type || 'image/jpeg' });
+        formData.append('photos', blob, file.name || `photo-${Date.now()}.jpg`);
+      }
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/records/${recordId}/photos`);
+      if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      xhr.onload = () => {
+        if (xhr.status === 401) {
+          localStorage.removeItem('erp_token'); authToken = null; window.location.href = '/login';
+          return reject(new Error('Session expired'));
+        }
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) { resolve(data); }
+          else { reject(new Error(data.error || `Upload failed (${xhr.status})`)); }
+        } catch (e) {
+          reject(new Error(`Upload failed (${xhr.status}) — server returned unexpected response`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error — check your connection and try again'));
+      xhr.send(formData);
+    });
   },
   addRecordPhoto: (recordId, data) => request(`/records/${recordId}/photos`, { method: 'POST', body: JSON.stringify(data) }),
   deleteRecordPhoto: (recordId, photoId) => request(`/records/${recordId}/photos/${photoId}`, { method: 'DELETE' }),
