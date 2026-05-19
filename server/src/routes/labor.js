@@ -171,6 +171,10 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       values.push(!!customer_approved);
       if (customer_approved) {
         updates.push(`customer_approved_at = NOW()`);
+        // Promote approved estimate lines into the main work order
+        if (is_estimate_line === undefined) {
+          updates.push(`is_estimate_line = FALSE`);
+        }
       }
     }
 

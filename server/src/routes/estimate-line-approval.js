@@ -209,17 +209,18 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
         [recordId]
       );
 
-      // Approve the selected ones
+      // Approve the selected ones AND promote them into the main work order
+      // (is_estimate_line = FALSE moves them out of the Estimate section)
       if (approvedLaborIds.length > 0) {
         await client.query(
-          `UPDATE record_labor_lines SET customer_approved = TRUE, customer_approved_at = NOW()
+          `UPDATE record_labor_lines SET customer_approved = TRUE, customer_approved_at = NOW(), is_estimate_line = FALSE
            WHERE record_id = $1 AND id = ANY($2) AND is_estimate_line = TRUE AND deleted_at IS NULL`,
           [recordId, approvedLaborIds]
         );
       }
       if (approvedPartsIds.length > 0) {
         await client.query(
-          `UPDATE record_parts_lines SET customer_approved = TRUE, customer_approved_at = NOW()
+          `UPDATE record_parts_lines SET customer_approved = TRUE, customer_approved_at = NOW(), is_estimate_line = FALSE
            WHERE record_id = $1 AND id = ANY($2) AND is_estimate_line = TRUE AND deleted_at IS NULL`,
           [recordId, approvedPartsIds]
         );
