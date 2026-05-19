@@ -1075,15 +1075,29 @@ ${paymentDetailHtml}
         // Always show the section if there are estimate lines OR if the record is editable
         if (!hasEstimateLines && !isEditable) return null;
 
+        const estExpanded = expandedSections.estimate !== undefined ? expandedSections.estimate : hasEstimateLines;
+        const toggleEst = () => setExpandedSections(s => ({ ...s, estimate: !estExpanded }));
+
         return (
           <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#fffbeb', borderRadius: '8px', border: '2px solid #f59e0b' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#92400e', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.2rem' }}>&#128269;</span>
-                Inspection Findings / Estimate
-              </h2>
-              {isEditable && hasEstimateLines && (
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: estExpanded ? '16px' : 0, cursor: 'pointer' }} onClick={toggleEst}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#92400e', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.7rem', marginRight: '2px' }}>{estExpanded ? '▼' : '▶'}</span>
+                  Inspection Findings / Estimate
+                </h2>
+                {!estExpanded && hasEstimateLines && (
+                  <span style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 500 }}>
+                    ({estLabor.length + estParts.length} item{estLabor.length + estParts.length !== 1 ? 's' : ''} &mdash; ${estimateTotal.toFixed(2)})
+                  </span>
+                )}
+                {!estExpanded && allApproved && <span style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 600 }}>All Approved</span>}
+                {!estExpanded && !hasEstimateLines && (
+                  <span style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 500 }}>+ Add Estimate Lines</span>
+                )}
+              </div>
+              {estExpanded && isEditable && hasEstimateLines && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                   {allApproved && <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>All Approved</span>}
                   <button
                     onClick={async () => {
@@ -1102,34 +1116,36 @@ ${paymentDetailHtml}
               )}
             </div>
 
-            {hasEstimateLines && (
-              <div style={{ marginBottom: '12px', padding: '10px 14px', backgroundColor: '#fef3c7', borderRadius: '6px', fontSize: '0.8rem', color: '#92400e' }}>
-                Estimate Total: <strong>${estimateTotal.toFixed(2)}</strong>
-                {approvedTotal > 0 && approvedTotal < estimateTotal && (
-                  <span> &mdash; Customer Approved: <strong>${approvedTotal.toFixed(2)}</strong></span>
-                )}
-              </div>
-            )}
+            {estExpanded && (<>
+              {hasEstimateLines && (
+                <div style={{ marginBottom: '12px', padding: '10px 14px', backgroundColor: '#fef3c7', borderRadius: '6px', fontSize: '0.8rem', color: '#92400e' }}>
+                  Estimate Total: <strong>${estimateTotal.toFixed(2)}</strong>
+                  {approvedTotal > 0 && approvedTotal < estimateTotal && (
+                    <span> &mdash; Customer Approved: <strong>${approvedTotal.toFixed(2)}</strong></span>
+                  )}
+                </div>
+              )}
 
-            {/* Estimate Labor */}
-            <LaborLinesTable
-              recordId={record.id}
-              laborLines={estLabor}
-              isEditable={isEditable}
-              onUpdate={fetchRecord}
-              isEstimate={true}
-              showApproval={true}
-            />
+              {/* Estimate Labor */}
+              <LaborLinesTable
+                recordId={record.id}
+                laborLines={estLabor}
+                isEditable={isEditable}
+                onUpdate={fetchRecord}
+                isEstimate={true}
+                showApproval={true}
+              />
 
-            {/* Estimate Parts */}
-            <PartsLinesTable
-              recordId={record.id}
-              partsLines={estParts}
-              isEditable={isEditable}
-              onUpdate={fetchRecord}
-              isEstimate={true}
-              showApproval={true}
-            />
+              {/* Estimate Parts */}
+              <PartsLinesTable
+                recordId={record.id}
+                partsLines={estParts}
+                isEditable={isEditable}
+                onUpdate={fetchRecord}
+                isEstimate={true}
+                showApproval={true}
+              />
+            </>)}
           </div>
         );
       })()}
