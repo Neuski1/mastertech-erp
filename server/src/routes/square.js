@@ -104,7 +104,7 @@ router.post('/create-payment', requireRole('admin', 'service_writer', 'bookkeepe
         note: `WO #${recRows[0].record_number}${notes ? ' - ' + notes : ''}`,
       });
 
-      squarePayment = response.data.payment;
+      squarePayment = response.payment;
     } catch (squareErr) {
       await dbClient.query('ROLLBACK');
       console.error('Square API error:', squareErr);
@@ -195,7 +195,7 @@ router.post('/create-customer', requireRole('admin', 'service_writer', 'technici
       } : undefined,
     });
 
-    const squareCustomer = response.data.customer;
+    const squareCustomer = response.customer;
 
     res.status(201).json({
       square_customer_id: squareCustomer.id,
@@ -218,7 +218,7 @@ router.post('/create-customer', requireRole('admin', 'service_writer', 'technici
 router.get('/payment/:id', async (req, res) => {
   try {
     const response = await squareClient.payments.get(req.params.id);
-    const payment = response.data.payment;
+    const payment = response.payment;
 
     res.json({
       id: payment.id,

@@ -56,7 +56,7 @@ router.post('/pair', requireRole('admin', 'service_writer'), async (req, res) =>
         locationId: locationId,
       },
     });
-    const dc = response.data.deviceCode;
+    const dc = response.deviceCode;
     res.status(201).json({
       codeId: dc.id,
       code: dc.code,
@@ -78,7 +78,7 @@ router.post('/pair', requireRole('admin', 'service_writer'), async (req, res) =>
 router.get('/pair/:codeId', requireRole('admin', 'service_writer'), async (req, res) => {
   try {
     const response = await squareClient.devices.codes.get({ id: req.params.codeId });
-    const dc = response.data.deviceCode;
+    const dc = response.deviceCode;
     res.json({
       status: dc.status,
       deviceId: dc.deviceId || null,
@@ -153,7 +153,7 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
       },
     });
 
-    const checkout = response.data.checkout;
+    const checkout = response.checkout;
 
     res.status(201).json({
       checkoutId: checkout.id,
@@ -175,7 +175,7 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
 router.get('/checkout/:checkoutId/status', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
     const response = await squareClient.terminal.checkouts.get(req.params.checkoutId);
-    const checkout = response.data.checkout;
+    const checkout = response.checkout;
 
     res.json({
       status: checkout.status,
@@ -236,7 +236,7 @@ router.post('/complete-payment', requireRole('admin', 'service_writer', 'bookkee
 
     // Get checkout details from Square
     const response = await squareClient.terminal.checkouts.get(checkoutId);
-    const checkout = response.data.checkout;
+    const checkout = response.checkout;
 
     if (checkout.status !== 'COMPLETED') {
       await dbClient.query('ROLLBACK');
