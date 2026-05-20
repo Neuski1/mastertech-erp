@@ -102,7 +102,7 @@ router.get('/:token', async (req, res) => {
       laborHtml = `<h3 style="margin:20px 0 8px;color:#1e3a5f;">Labor</h3>
         <table><tr><th class="cb-cell">Approve</th><th>Description</th><th class="right">Hours</th><th class="right">Rate</th><th class="right">Total</th></tr>`;
       laborLines.forEach(l => {
-        const checked = l.customer_approved ? 'checked' : '';
+        const checked = 'checked'; // pre-selected by default; customer unchecks to decline
         laborHtml += `<tr>
           <td class="cb-cell"><input type="checkbox" name="labor_${l.id}" value="${l.id}" ${checked}></td>
           <td>${l.description}</td>
@@ -119,7 +119,7 @@ router.get('/:token', async (req, res) => {
       partsHtml = `<h3 style="margin:20px 0 8px;color:#1e3a5f;">Parts</h3>
         <table><tr><th class="cb-cell">Approve</th><th>Description</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr>`;
       partsLines.forEach(p => {
-        const checked = p.customer_approved ? 'checked' : '';
+        const checked = 'checked'; // pre-selected by default; customer unchecks to decline
         partsHtml += `<tr>
           <td class="cb-cell"><input type="checkbox" name="parts_${p.id}" value="${p.id}" ${checked}></td>
           <td>${p.description}</td>
@@ -139,12 +139,12 @@ router.get('/:token', async (req, res) => {
     const body = `
       <h2 style="color:#1e3a5f;margin:0 0 8px;">Estimate Review</h2>
       <p style="color:#374151;margin:0 0 4px;">Work Order: <strong>#${token.record_number}</strong></p>
-      <p style="color:#6b7280;margin:0 0 20px;">Hi${token.first_name ? ' ' + token.first_name : ''}, please review the inspection findings below and check the items you'd like us to proceed with.</p>
+      <p style="color:#6b7280;margin:0 0 20px;">Hi${token.first_name ? ' ' + token.first_name : ''}, please review the inspection findings below. Every item is checked by default. Uncheck anything you would like us to skip, then click Approve.</p>
       <form method="POST" action="/api/estimate-lines/approve/${req.params.token}">
         ${laborHtml}
         ${partsHtml}
         <p style="font-size:16px;margin:20px 0 8px;"><strong>Total Estimate: $${totalEstimate.toFixed(2)}</strong></p>
-        <p style="color:#6b7280;font-size:13px;margin:0 0 20px;">Only checked items will be added to your work order.</p>
+        <p style="color:#6b7280;font-size:13px;margin:0 0 20px;">Only checked items will be added to your work order. Uncheck any you would like to decline.</p>
         <button type="submit" class="btn">Approve Selected Items</button>
       </form>
     `;
@@ -227,6 +227,20 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
       }
 
       await recalculateTotals(recordId, client);
+
+      // If the customer approved at least one line, move an estimate record
+      // to "approved" status (leaves in-progress/further records unchanged).
+      if (approvedLaborIds.length + approvedPartsIds.length > 0) {
+        await client.query(
+          `UPDATE records
+             SET status = 'approved',
+                 approved_by_customer_at = NOW(),
+                 intake_date = COALESCE(intake_date, CURRENT_DATE)
+           WHERE id = $1 AND status = 'estimate'`,
+          [recordId]
+        );
+      }
+
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
