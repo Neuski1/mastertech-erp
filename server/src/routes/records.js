@@ -1154,7 +1154,7 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
   try {
     // Get record + customer info
     const { rows: recRows } = await pool.query(
-      `SELECT r.*, c.name AS customer_name, c.email_primary AS customer_email
+      `SELECT r.*, c.first_name, c.last_name, c.company_name, c.email_primary AS customer_email
        FROM records r
        JOIN customers c ON c.id = r.customer_id
        WHERE r.id = $1`,
@@ -1163,6 +1163,8 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
     if (recRows.length === 0) return res.status(404).json({ error: 'Record not found' });
 
     const record = recRows[0];
+    record.customer_name = `${record.first_name || ''} ${record.last_name || ''}`.trim()
+      || record.company_name || 'Valued Customer';
     if (!record.customer_email) {
       return res.status(400).json({ error: 'Customer has no email on file' });
     }

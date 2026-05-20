@@ -317,16 +317,10 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
       contentType: p.content_type || 'image/jpeg',
     }));
 
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.EMAIL_PORT) || 587,
-      secure: false,
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-    });
-
-    await transporter.sendMail({
-      from: fromAddr,
+    // Use the shared Resend-based email service. Railway blocks outbound SMTP
+    // ports, so a raw nodemailer SMTP transporter hangs until timeout here.
+    const { sendEmail } = require('../services/email');
+    const emailResult = await sendEmail({
       to: customerEmail,
       cc: 'service@mastertechrvrepair.com',
       subject,
@@ -334,6 +328,9 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
       text: textBody,
       attachments,
     });
+    if (!emailResult.success) {
+      return res.status(502).json({ error: 'Email failed to send: ' + (emailResult.error || 'unknown error') });
+    }
 
     // Log to communication_log
     try {
