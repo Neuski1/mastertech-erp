@@ -438,6 +438,10 @@ function SquareDevicesSection({ onMessage }) {
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [pairCode, setPairCode] = useState(null);
+  const [pairCodeId, setPairCodeId] = useState(null);
+  const [pairedDeviceId, setPairedDeviceId] = useState(null);
+  const [pairBusy, setPairBusy] = useState(false);
 
   const fetchDevices = async () => {
     setLoading(true);
@@ -460,6 +464,38 @@ function SquareDevicesSection({ onMessage }) {
     setCopiedId(deviceId);
     onMessage({ type: 'success', text: `Device ID copied to clipboard` });
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const startPairing = async () => {
+    setPairBusy(true);
+    setPairedDeviceId(null);
+    try {
+      const data = await api.squareTerminalPair();
+      setPairCode(data.code);
+      setPairCodeId(data.codeId);
+      onMessage({ type: 'success', text: 'Pairing code created. Enter it on your Square Terminal.' });
+    } catch (err) {
+      onMessage({ type: 'error', text: err.message });
+    } finally {
+      setPairBusy(false);
+    }
+  };
+
+  const checkPairing = async () => {
+    setPairBusy(true);
+    try {
+      const data = await api.squareTerminalPairStatus(pairCodeId);
+      if (data.status === 'PAIRED' && data.deviceId) {
+        setPairedDeviceId(data.deviceId);
+        onMessage({ type: 'success', text: 'Terminal paired. Copy the Device ID below into Railway.' });
+      } else {
+        onMessage({ type: 'error', text: `Not paired yet (status: ${data.status}). Enter the code on the Terminal, then check again.` });
+      }
+    } catch (err) {
+      onMessage({ type: 'error', text: err.message });
+    } finally {
+      setPairBusy(false);
+    }
   };
 
   return (
@@ -517,12 +553,64 @@ function SquareDevicesSection({ onMessage }) {
 
       {fetched && devices.length === 0 && (
         <div style={{ padding: '16px', backgroundColor: '#fef3c7', borderRadius: '6px', fontSize: '0.85rem', color: '#92400e' }}>
-          No devices found. Pair a Terminal device in your Square Dashboard first.
+          No devices found. Use the Terminal API pairing below to connect your Square Terminal.
           <button onClick={fetchDevices} disabled={loading} style={{ ...btnRefresh, marginLeft: '12px' }}>
             {loading ? 'Refreshing...' : 'Try Again'}
           </button>
         </div>
       )}
+
+      <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e3a5f', margin: '0 0 6px' }}>
+          Pair a Terminal for API Use
+        </h3>
+        <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: '0 0 12px' }}>
+          A Square Terminal must be paired through the API before the ERP can push charges to it.
+          This is a one-time setup. A device ID copied from the Square Dashboard will not work.
+        </p>
+
+        {!pairCode && (
+          <button onClick={startPairing} disabled={pairBusy} style={btnListDevices}>
+            {pairBusy ? 'Working...' : 'Start Terminal Pairing'}
+          </button>
+        )}
+
+        {pairCode && !pairedDeviceId && (
+          <div style={{ padding: '16px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px' }}>
+            <p style={{ margin: '0 0 8px', fontSize: '0.85rem', color: '#374151' }}>
+              On your Square Terminal, open the sign-in screen, choose to sign in with a device code, and enter:
+            </p>
+            <div style={{ fontSize: '2rem', fontWeight: 700, letterSpacing: '0.3em', color: '#1e3a5f', textAlign: 'center', margin: '12px 0' }}>
+              {pairCode}
+            </div>
+            <p style={{ margin: '0 0 12px', fontSize: '0.8rem', color: '#6b7280' }}>
+              The code expires in a few minutes. After the Terminal shows it is connected, click below.
+            </p>
+            <button onClick={checkPairing} disabled={pairBusy} style={btnListDevices}>
+              {pairBusy ? 'Checking...' : 'I entered the code, check pairing'}
+            </button>
+            <button onClick={startPairing} disabled={pairBusy} style={{ ...btnRefresh, marginLeft: '8px' }}>
+              New code
+            </button>
+          </div>
+        )}
+
+        {pairedDeviceId && (
+          <div style={{ padding: '16px', backgroundColor: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: '8px' }}>
+            <p style={{ margin: '0 0 8px', fontSize: '0.9rem', fontWeight: 600, color: '#065f46' }}>
+              Terminal paired. Set this as SQUARE_TERMINAL_DEVICE_ID in Railway:
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <code style={{ fontFamily: 'monospace', fontSize: '0.85rem', background: '#fff', padding: '8px 12px', borderRadius: '6px', border: '1px solid #6ee7b7', flex: 1, wordBreak: 'break-all' }}>
+                {pairedDeviceId}
+              </code>
+              <button onClick={() => copyDeviceId(pairedDeviceId)} style={copiedId === pairedDeviceId ? btnCopied : btnCopy}>
+                {copiedId === pairedDeviceId ? 'Copied!' : 'Copy ID'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

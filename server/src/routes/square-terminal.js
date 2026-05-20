@@ -41,6 +41,59 @@ router.get('/config', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/square/terminal/pair — Create a Terminal API device code for pairing
+// ---------------------------------------------------------------------------
+router.post('/pair', requireRole('admin', 'service_writer'), async (req, res) => {
+  if (!locationId) {
+    return res.status(400).json({ error: 'SQUARE_LOCATION_ID is not configured.' });
+  }
+  try {
+    const response = await squareClient.devices.codes.create({
+      idempotencyKey: crypto.randomUUID(),
+      deviceCode: {
+        name: 'Master Tech ERP',
+        productType: 'TERMINAL_API',
+        locationId: locationId,
+      },
+    });
+    const dc = response.data.deviceCode;
+    res.status(201).json({
+      codeId: dc.id,
+      code: dc.code,
+      status: dc.status,
+      pairBy: dc.pairBy || null,
+    });
+  } catch (err) {
+    console.error('POST /api/square/terminal/pair error:', err);
+    const detail = err.errors
+      ? err.errors.map(e => e.detail).join('; ')
+      : err.message || 'Failed to create device code';
+    res.status(502).json({ error: `Square: ${detail}` });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/square/terminal/pair/:codeId — Poll device code pairing status
+// ---------------------------------------------------------------------------
+router.get('/pair/:codeId', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const response = await squareClient.devices.codes.get({ id: req.params.codeId });
+    const dc = response.data.deviceCode;
+    res.json({
+      status: dc.status,
+      deviceId: dc.deviceId || null,
+      code: dc.code,
+    });
+  } catch (err) {
+    console.error('GET /api/square/terminal/pair status error:', err);
+    const detail = err.errors
+      ? err.errors.map(e => e.detail).join('; ')
+      : err.message || 'Failed to check pairing status';
+    res.status(502).json({ error: `Square: ${detail}` });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/square/terminal/checkout — Create Terminal checkout
 // Body: { recordId, amount, paymentType, notes }
 // ---------------------------------------------------------------------------
