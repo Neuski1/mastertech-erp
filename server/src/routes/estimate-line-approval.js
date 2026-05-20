@@ -44,8 +44,7 @@ router.get('/:token', async (req, res) => {
   try {
     // Validate token
     const { rows: tokenRows } = await pool.query(
-      `SELECT ela.*, r.record_number, r.id AS record_id,
-              c.name AS customer_name, c.first_name
+      `SELECT ela.*, r.record_number, r.id AS record_id, c.first_name
        FROM estimate_line_approvals ela
        JOIN records r ON r.id = ela.record_id
        JOIN customers c ON c.id = r.customer_id
@@ -165,7 +164,7 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
     // Validate token
     const { rows: tokenRows } = await pool.query(
       `SELECT ela.*, r.record_number, r.id AS record_id,
-              c.name AS customer_name, c.first_name, c.email_primary,
+              c.first_name, c.last_name, c.email_primary,
               c.id AS customer_id
        FROM estimate_line_approvals ela
        JOIN records r ON r.id = ela.record_id
@@ -183,6 +182,7 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
     }
 
     const tokenData = tokenRows[0];
+    tokenData.customer_name = `${tokenData.first_name || ''} ${tokenData.last_name || ''}`.trim() || 'the customer';
     const recordId = tokenData.record_id;
 
     // Parse checked items from form body
