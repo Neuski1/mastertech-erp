@@ -3,32 +3,11 @@
  * Sends payment reminders via email and/or SMS based on customer communication preferences.
  */
 
-const nodemailer = require('nodemailer');
 const pool = require('../db/pool');
 const { getSettingString } = require('../db/calculations');
+const { sendEmail } = require('../services/email');
 
-// ── Nodemailer transporter (same pattern as services/email.js) ──
-
-let transporter = null;
-let useResend = false;
-
-if (process.env.RESEND_API_KEY) {
-  useResend = true;
-} else if (process.env.EMAIL_PASS) {
-  transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    family: 4,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-  });
-}
+// Email is sent via the shared services/email.js (Resend HTTP API — Railway-safe).
 
 // ── SMS sender (shared service, handles opt-out + Twilio config) ──
 const { sendPaymentReminderSMS, isTwilioConfigured } = require('./sms');
@@ -36,20 +15,13 @@ const { sendPaymentReminderSMS, isTwilioConfigured } = require('./sms');
 // ── Email sending helper ──
 
 async function sendReminderEmail(to, subject, html) {
-  if (useResend) {
-    const { Resend } = require('resend');
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    const from = process.env.EMAIL_FROM || 'Master Tech RV <service@mastertechrvrepair.com>';
-    const result = await resend.emails.send({ from, to, subject, html });
-    return result;
-  } else if (transporter) {
-    const from = process.env.EMAIL_FROM || 'Master Tech RV <service@mastertechrvrepair.com>';
-    const result = await transporter.sendMail({ from, to, subject, html });
-    return result;
-  } else {
-    console.log('[paymentReminders] No email transport configured — skipping email');
-    return null;
+  // Use the shared Resend-based email service (HTTP API). Avoids the standalone
+  // 'resend' package (not installed) and Railway's blocked SMTP ports.
+  const result = await sendEmail({ to, subject, html });
+  if (!result.success) {
+    throw new Error(result.error || 'Email send failed');
   }
+  return result;
 }
 
 // ── Build branded HTML email ──
