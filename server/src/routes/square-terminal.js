@@ -98,15 +98,17 @@ router.get('/pair/:codeId', requireRole('admin', 'service_writer'), async (req, 
 // Body: { recordId, amount, paymentType, notes }
 // ---------------------------------------------------------------------------
 router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
-  const { recordId, amount, paymentType, notes } = req.body;
+  const { recordId, saleType, saleId, amount, paymentType, notes } = req.body;
   const deviceId = process.env.SQUARE_TERMINAL_DEVICE_ID;
+  const isPartsSale = saleType === 'parts_sale';
+  const entityId = isPartsSale ? saleId : recordId;
 
   if (!deviceId) {
     return res.status(400).json({ error: 'Square Terminal device not configured. Add SQUARE_TERMINAL_DEVICE_ID to .env.' });
   }
 
-  if (!recordId || !amount) {
-    return res.status(400).json({ error: 'recordId and amount are required' });
+  if (!entityId || !amount) {
+    return res.status(400).json({ error: 'A record/sale id and amount are required' });
   }
 
   const parsedAmount = parseFloat(amount);
@@ -115,23 +117,46 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
   }
 
   try {
-    // Verify record exists
-    const { rows: recRows } = await pool.query(
-      'SELECT id, record_number, customer_id FROM records WHERE id = $1 AND deleted_at IS NULL',
-      [recordId]
-    );
-    if (recRows.length === 0) {
-      return res.status(404).json({ error: 'Record not found' });
+    // Verify the record or parts sale exists, and build the Terminal note
+    let referenceId, note;
+    if (isPartsSale) {
+      const { rows: psRows } = await pool.query(
+        'SELECT id, sale_number, customer_id, customer_name FROM parts_sales WHERE id = $1',
+        [entityId]
+      );
+      if (psRows.length === 0) {
+        return res.status(404).json({ error: 'Parts sale not found' });
+      }
+      let custName = psRows[0].customer_name || 'Customer';
+      if (psRows[0].customer_id) {
+        const { rows: cr } = await pool.query(
+          'SELECT first_name, last_name FROM customers WHERE id = $1',
+          [psRows[0].customer_id]
+        );
+        if (cr.length > 0) {
+          custName = `${cr[0].first_name || ''} ${cr[0].last_name || ''}`.trim() || custName;
+        }
+      }
+      referenceId = `ps:${entityId}`;
+      note = `Parts Sale ${psRows[0].sale_number} - ${custName}${notes ? ' - ' + notes : ''}`;
+    } else {
+      const { rows: recRows } = await pool.query(
+        'SELECT id, record_number, customer_id FROM records WHERE id = $1 AND deleted_at IS NULL',
+        [entityId]
+      );
+      if (recRows.length === 0) {
+        return res.status(404).json({ error: 'Record not found' });
+      }
+      const { rows: custRows } = await pool.query(
+        'SELECT first_name, last_name FROM customers WHERE id = $1',
+        [recRows[0].customer_id]
+      );
+      const customerName = custRows.length > 0
+        ? `${custRows[0].first_name || ''} ${custRows[0].last_name || ''}`.trim()
+        : 'Customer';
+      referenceId = String(entityId);
+      note = `WO #${recRows[0].record_number} - ${customerName}${notes ? ' - ' + notes : ''}`;
     }
-
-    // Get customer name for the note
-    const { rows: custRows } = await pool.query(
-      'SELECT first_name, last_name FROM customers WHERE id = $1',
-      [recRows[0].customer_id]
-    );
-    const customerName = custRows.length > 0
-      ? `${custRows[0].first_name || ''} ${custRows[0].last_name || ''}`.trim()
-      : 'Customer';
 
     const amountCents = Math.round(parsedAmount * 100);
 
@@ -147,8 +172,8 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
           skipReceiptScreen: false,
           tipSettings: { allowTipping: true, separateTipScreen: true },
         },
-        referenceId: String(recordId),
-        note: `WO #${recRows[0].record_number} — ${customerName}${notes ? ' — ' + notes : ''}`,
+        referenceId: referenceId,
+        note: note,
         paymentType: 'CARD_PRESENT',
       },
     });

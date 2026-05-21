@@ -32,6 +32,13 @@ export default function PartsSaleDetail() {
   const [showPayment, setShowPayment] = useState(false);
   const [payForm, setPayForm] = useState({ payment_method: 'cash', payment_reference: '', amount: '' });
 
+  // Square Terminal payment
+  const [termStep, setTermStep] = useState(null); // null | 'waiting'
+  const [termBusy, setTermBusy] = useState(false);
+  const [termCheckoutId, setTermCheckoutId] = useState(null);
+  const termPollRef = useRef(null);
+  useEffect(() => () => { if (termPollRef.current) clearInterval(termPollRef.current); }, []);
+
   // Discount
   const [editingDiscount, setEditingDiscount] = useState(false);
   const [discountForm, setDiscountForm] = useState({ amount: '', description: '' });
@@ -214,6 +221,50 @@ export default function PartsSaleDetail() {
       fetchSale();
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
+  };
+
+  // ── Square Terminal payment ───────────────────────────────────────
+  const pollTerminal = (checkoutId) => {
+    termPollRef.current = setInterval(async () => {
+      try {
+        const st = await api.squareTerminalStatus(checkoutId);
+        if (st.status === 'COMPLETED') {
+          clearInterval(termPollRef.current); termPollRef.current = null;
+          const paidAmt = st.amountMoney ? Number(st.amountMoney.amount) / 100 : parseFloat(sale.amount_due);
+          const payId = (st.paymentIds && st.paymentIds[0]) || checkoutId;
+          try {
+            await api.recordPartsSalePayment(id, { payment_method: 'credit_card', payment_reference: payId, amount: paidAmt });
+          } catch (e) { setError('Card was charged on Square but recording it failed: ' + e.message); }
+          setTermStep(null); setTermCheckoutId(null);
+          fetchSale();
+        } else if (st.status === 'CANCELED' || st.status === 'CANCEL_REQUESTED') {
+          clearInterval(termPollRef.current); termPollRef.current = null;
+          setTermStep(null); setTermCheckoutId(null);
+          setError('Terminal payment was cancelled.');
+        }
+      } catch (e) { /* transient poll error - keep polling */ }
+    }, 3000);
+  };
+
+  const startTerminalCharge = async () => {
+    setTermBusy(true); setError('');
+    try {
+      const r = await api.squareTerminalCheckout({
+        saleType: 'parts_sale', saleId: id,
+        amount: parseFloat(sale.amount_due), paymentType: 'final_payment',
+      });
+      setTermCheckoutId(r.checkoutId);
+      setTermStep('waiting');
+      pollTerminal(r.checkoutId);
+    } catch (e) {
+      setError('Could not start the Terminal charge: ' + e.message);
+    } finally { setTermBusy(false); }
+  };
+
+  const cancelTerminalCharge = async () => {
+    if (termPollRef.current) { clearInterval(termPollRef.current); termPollRef.current = null; }
+    if (termCheckoutId) { try { await api.squareTerminalCancel(termCheckoutId); } catch (e) { /* ignore */ } }
+    setTermStep(null); setTermCheckoutId(null);
   };
 
   // ── Void ──────────────────────────────────────────────────────────
@@ -513,10 +564,23 @@ export default function PartsSaleDetail() {
         <div style={sectionStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ ...sectionTitle, marginBottom: 0 }}>Payment</h3>
-            {!showPayment && (
-              <button onClick={() => { setShowPayment(true); setPayForm({ ...payForm, amount: parseFloat(sale.amount_due).toFixed(2) }); }} style={btnSmallPrimary}>Record Payment</button>
+            {!showPayment && termStep !== 'waiting' && (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={startTerminalCharge} disabled={termBusy} style={btnSmallPrimary}>
+                  {termBusy ? 'Sending...' : 'Charge Square Terminal'}
+                </button>
+                <button onClick={() => { setShowPayment(true); setPayForm({ ...payForm, amount: parseFloat(sale.amount_due).toFixed(2) }); }} style={btnSmall}>Record Payment Manually</button>
+              </div>
             )}
           </div>
+          {termStep === 'waiting' && (
+            <div style={{ marginTop: '12px', padding: '14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px' }}>
+              <div style={{ fontWeight: 600, color: '#1e3a5f' }}>Waiting for customer to tap card...</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e3a5f', margin: '6px 0' }}>${parseFloat(sale.amount_due).toFixed(2)}</div>
+              <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '10px' }}>The amount is on your Square Terminal. This screen updates automatically once the card is tapped.</div>
+              <button onClick={cancelTerminalCharge} style={{ ...btnSmall, color: '#dc2626', borderColor: '#fca5a5' }}>Cancel</button>
+            </div>
+          )}
           {showPayment && (
             <div style={{ marginTop: '12px', display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div>
