@@ -13,6 +13,10 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config({ quiet: true });
 
+// The Square SDK returns monetary amounts as BigInt, which JSON.stringify
+// cannot serialize by default. Make BigInt serialize as a Number app-wide.
+BigInt.prototype.toJSON = function () { return Number(this); };
+
 const { requireAuth, requireAuthOrApiKey, requireRole } = require('./middleware/auth');
 
 const app = express();
