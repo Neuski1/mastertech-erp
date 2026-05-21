@@ -145,7 +145,7 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
         deviceOptions: {
           deviceId: deviceId,
           skipReceiptScreen: false,
-          tipSettings: { allowTipping: false },
+          tipSettings: { allowTipping: true, separateTipScreen: true },
         },
         referenceId: String(recordId),
         note: `WO #${recRows[0].record_number} — ${customerName}${notes ? ' — ' + notes : ''}`,
@@ -174,7 +174,7 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
 // ---------------------------------------------------------------------------
 router.get('/checkout/:checkoutId/status', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
-    const response = await squareClient.terminal.checkouts.get(req.params.checkoutId);
+    const response = await squareClient.terminal.checkouts.get({ checkoutId: req.params.checkoutId });
     const checkout = response.checkout;
 
     res.json({
@@ -197,7 +197,7 @@ router.get('/checkout/:checkoutId/status', requireRole('admin', 'service_writer'
 // ---------------------------------------------------------------------------
 router.post('/checkout/:checkoutId/cancel', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
-    await squareClient.terminal.checkouts.cancel(req.params.checkoutId);
+    await squareClient.terminal.checkouts.cancel({ checkoutId: req.params.checkoutId });
     res.json({ status: 'CANCELED' });
   } catch (err) {
     console.error('Cancel terminal checkout error:', err);
@@ -235,7 +235,7 @@ router.post('/complete-payment', requireRole('admin', 'service_writer', 'bookkee
     }
 
     // Get checkout details from Square
-    const response = await squareClient.terminal.checkouts.get(checkoutId);
+    const response = await squareClient.terminal.checkouts.get({ checkoutId });
     const checkout = response.checkout;
 
     if (checkout.status !== 'COMPLETED') {
