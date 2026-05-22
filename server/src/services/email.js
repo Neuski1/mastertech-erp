@@ -337,7 +337,7 @@ Our Service Makes Happy Campers!`;
     mailOptions.attachments.push({
       filename: 'appointment.ics',
       content: icsContent,
-      contentType: 'text/calendar; method=REQUEST',
+      contentType: 'text/calendar; method=PUBLISH',
     });
   }
 
