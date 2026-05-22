@@ -1169,6 +1169,16 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
       return res.status(400).json({ error: 'Customer has no email on file' });
     }
 
+    // Self-healing: the estimate_line_approvals table has intermittently gone
+    // missing in production, so make sure it exists before we use it.
+    await pool.query(`CREATE TABLE IF NOT EXISTS estimate_line_approvals (
+      id SERIAL PRIMARY KEY,
+      record_id INTEGER NOT NULL REFERENCES records(id),
+      approval_token UUID NOT NULL DEFAULT gen_random_uuid(),
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days'),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+
     // Create approval token
     const { rows: tokenRows } = await pool.query(
       `INSERT INTO estimate_line_approvals (record_id)
