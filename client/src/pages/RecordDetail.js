@@ -488,33 +488,35 @@ export default function RecordDetail() {
 <style>
   html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
   @media print { @page { margin: 0.5in; } html, body, * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 20px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 3px solid #1a2a4a; padding-bottom: 12px; }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 8px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; border-bottom: 3px solid #1a2a4a; padding-bottom: 8px; }
   .header-left { display: flex; align-items: flex-start; gap: 12px; }
-  .header-left img { height: 120px; max-width: 280px; object-fit: contain; }
+  .header-left img { height: 90px; max-width: 220px; object-fit: contain; }
   .header-left h1 { color: #1a2a4a; margin: 0; font-size: 16px; font-weight: bold; }
-  .header-left p { margin: 2px 0; font-size: 10px; color: #333; }
+  .header-left p { margin: 1px 0; font-size: 10px; color: #333; }
   .header-right { text-align: right; }
   .header-right h2 { color: #fff !important; background: ${docColor} !important; margin: 0; font-size: 18px; font-weight: bold; padding: 6px 14px; border-radius: 4px; display: inline-block; }
   .header-right p { color: #333; font-size: 10px; margin: 3px 0; }
-  .info-block { display: flex; gap: 20px; margin-bottom: 16px; padding: 10px; background: #f9fafb !important; border: 1px solid #ccc; border-radius: 4px; }
+  .info-block { display: flex; gap: 20px; margin-bottom: 8px; padding: 5px 10px; background: #f9fafb !important; border: 1px solid #ccc; border-radius: 4px; }
   .info-block div { flex: 1; }
   .info-block label { font-weight: bold; font-size: 9px; text-transform: uppercase; color: #1a2a4a; display: block; }
   .info-block span { font-size: 11px; color: #111; }
-  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  table.lines th { background: #1a2a4a !important; color: #fff !important; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #1a2a4a; letter-spacing: 0.02em; }
-  table.lines td { padding: 4px 8px; border-bottom: 1px solid #ddd; font-size: 11px; color: #111; }
-  .totals-block { margin-top: 16px; display: flex; justify-content: flex-end; }
-  .auth-section { margin-top: 20px; }
-  .auth-text { font-size: 9px; color: #333; line-height: 1.5; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+  table.lines th { background: #1a2a4a !important; color: #fff !important; padding: 4px 8px; text-align: left; font-size: 11px; font-weight: bold; text-transform: uppercase; border-bottom: 2px solid #1a2a4a; letter-spacing: 0.02em; }
+  table.lines td { padding: 3px 8px; border-bottom: 1px solid #ddd; font-size: 11px; color: #111; }
+  .totals-block { margin-top: 5px; display: flex; justify-content: flex-end; }
+  .auth-section { margin-top: 6px; }
+  .auth-text { font-size: 8.5px; color: #333; line-height: 1.25; }
+  .auth-text p { margin: 3px 0; }
+  .sig-row { page-break-inside: avoid; }
   .totals { width: 280px; }
-  .totals .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 10px; color: #000; }
+  .totals .row { display: flex; justify-content: space-between; padding: 1px 0; font-size: 10px; color: #000; }
   .totals .row.bold { font-weight: bold; font-size: 12px; color: #1a2a4a !important; }
   .totals .row.divider { border-top: 2px solid #1a2a4a !important; margin-top: 4px; padding-top: 4px; }
 </style></head><body>
 <div class="header">
   <div class="header-left">
-    <img src="${window.location.origin}/master-rvtech-logo-dark.jpg" alt="Master Tech RV" style="height:120px;max-width:280px;object-fit:contain" />
+    <img src="${window.location.origin}/master-rvtech-logo-dark.jpg" alt="Master Tech RV" style="height:90px;max-width:220px;object-fit:contain" />
     <div>
     <h1>MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p>6590 EAST 49TH AVENUE</p>
@@ -522,8 +524,7 @@ export default function RecordDetail() {
     <p>(303) 557-2214</p>
     <p>https://mastertechrvrepair.com/</p>
     <p>service@mastertechrvrepair.com</p>
-    <br/>
-    <p><em>Our Service Makes Happy Campers!</em></p>
+    <p style="margin-top:4px"><em>Our Service Makes Happy Campers!</em></p>
     </div>
   </div>
   <div class="header-right">
@@ -556,7 +557,7 @@ export default function RecordDetail() {
 </div>
 ${r.insurance_company ? `<div class="info-block"><div><label>Insurance</label><span>${r.insurance_company}</span>${r.claim_number ? ' &nbsp; <label style="display:inline">Claim #</label> <span>' + r.claim_number + '</span>' : ''}</div></div>` : ''}
 
-${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:6px 0 0;padding-left:20px;font-size:13px;line-height:1.6">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:3px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
+${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:3px 0 0;padding-left:20px;font-size:11px;line-height:1.35">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:1px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
 ${r.customer_notes ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Customer Notes:</strong><p style="margin:4px 0 0;font-size:11px;white-space:pre-wrap">${r.customer_notes}</p></div>` : ''}
 
 ${(r.labor_lines || []).length > 0 ? `
@@ -600,7 +601,7 @@ ${paymentDetailHtml}
 <div class="auth-section">
   <div class="auth-text">
     ${r.status === 'estimate' ? `
-    <p style="font-size:12px;font-weight:bold;color:#1a2a4a;margin:0 0 8px">Authorization Agreement:</p>
+    <p style="font-size:12px;font-weight:bold;color:#1a2a4a;margin:0 0 4px">Authorization Agreement:</p>
     <p>By signing below, I authorize Master Tech RV Repair &amp; Storage to perform the services and repairs described in this estimate on my RV/unit. I understand that the final charges may vary from this estimate due to unforeseen conditions discovered during the repair process. Any additional work or costs beyond this estimate will be communicated to me for approval before proceeding.</p>
     <p>I agree to pay the full balance for all authorized services upon completion of work.</p>
     <p>I understand that Master Tech RV Repair &amp; Storage takes reasonable care of all units in our possession; however, we are not responsible for loss or damage to the RV or personal belongings left inside in the event of fire, theft, weather events, or other circumstances beyond our control. We recommend removing valuables prior to drop-off.</p>
@@ -614,7 +615,7 @@ ${paymentDetailHtml}
     <p>If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
     `}
     ${r.authorization_signature ? `
-      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:flex-end">
+      <div class="sig-row" style="margin-top:10px;display:flex;justify-content:space-between;align-items:flex-end">
         <div>
           <div style="font-size:12px;font-weight:bold;margin-bottom:4px">Signature:</div>
           <img src="${r.authorization_signature}" style="height:60px; display:block; margin-bottom:4px" />
@@ -626,7 +627,7 @@ ${paymentDetailHtml}
         </div>
       </div>
     ` : `
-      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:flex-end">
+      <div class="sig-row" style="margin-top:10px;display:flex;justify-content:space-between;align-items:flex-end">
         <div>
           <div style="margin-bottom:6px"><span style="font-size:12px;font-weight:bold">Signature:</span></div>
           <div style="border-bottom:2px solid #333;width:320px"></div>
