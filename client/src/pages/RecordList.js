@@ -155,12 +155,13 @@ export default function RecordList() {
   };
 
   const sortGroupRecords = (recs, groupKey) => {
-    const sort = groupSort[groupKey];
+    // Closed records default to most-recently-paid first (nulls last)
+    const sort = groupSort[groupKey] || (groupKey === 'closed' ? { field: 'last_payment_date', dir: 'desc' } : null);
     if (!sort) return recs;
     const { field, dir } = sort;
     return [...recs].sort((a, b) => {
       let va = a[field], vb = b[field];
-      if (field === 'expected_completion_date' || field === 'created_at') {
+      if (field === 'expected_completion_date' || field === 'created_at' || field === 'last_payment_date') {
         va = va ? new Date(va).getTime() : (dir === 'asc' ? Infinity : -Infinity);
         vb = vb ? new Date(vb).getTime() : (dir === 'asc' ? Infinity : -Infinity);
       } else if (field === 'record_number' || field === 'amount_due') {
