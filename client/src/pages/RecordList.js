@@ -120,7 +120,7 @@ export default function RecordList() {
     return due < today;
   };
 
-  const renderRow = (r, showDueDate = false) => (
+  const renderRow = (r, showDueDate = false, showPaidDate = false) => (
     <tr key={r.id} onClick={() => navigate(`/records/${r.id}`)} style={{ cursor: 'pointer' }}>
       <td style={tdStyle}><strong>{r.record_number}</strong></td>
       <td style={tdStyle}>
@@ -135,6 +135,9 @@ export default function RecordList() {
         <td style={{ ...tdStyle, color: isPastDue(r) ? '#dc2626' : undefined, fontWeight: isPastDue(r) ? 600 : undefined }}>
           {formatDate(r.expected_completion_date)}
         </td>
+      )}
+      {showPaidDate && (
+        <td style={tdStyle}>{formatDate(r.last_payment_date)}</td>
       )}
       {canSeeFinancials && (
         <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>
@@ -154,9 +157,12 @@ export default function RecordList() {
     });
   };
 
+  // Closed records default to most-recently-paid first (nulls last)
+  const effectiveSort = (groupKey) =>
+    groupSort[groupKey] || (groupKey === 'closed' ? { field: 'last_payment_date', dir: 'desc' } : null);
+
   const sortGroupRecords = (recs, groupKey) => {
-    // Closed records default to most-recently-paid first (nulls last)
-    const sort = groupSort[groupKey] || (groupKey === 'closed' ? { field: 'last_payment_date', dir: 'desc' } : null);
+    const sort = effectiveSort(groupKey);
     if (!sort) return recs;
     const { field, dir } = sort;
     return [...recs].sort((a, b) => {
@@ -178,12 +184,12 @@ export default function RecordList() {
   };
 
   const sortArrow = (groupKey, field) => {
-    const sort = groupSort[groupKey];
+    const sort = effectiveSort(groupKey);
     if (!sort || sort.field !== field) return '';
     return sort.dir === 'asc' ? ' \u25B2' : ' \u25BC';
   };
 
-  const renderMobileCard = (r) => (
+  const renderMobileCard = (r, showPaidDate = false) => (
     <div key={r.id} className="mobile-record-card" onClick={() => navigate(`/records/${r.id}`)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
         <strong style={{ fontSize: '0.9rem', color: '#1e3a5f' }}>WO #{r.record_number}</strong>
@@ -197,13 +203,13 @@ export default function RecordList() {
         {[r.year, r.make, r.model].filter(Boolean).join(' ') || 'No unit'}
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: '#9ca3af' }}>
-        <span>{formatDate(r.intake_date || r.created_at)}</span>
+        <span>{showPaidDate ? `Paid ${formatDate(r.last_payment_date)}` : formatDate(r.intake_date || r.created_at)}</span>
         {canSeeFinancials && <span style={{ fontWeight: 600, color: '#374151' }}>{formatCurrency(r.amount_due)}</span>}
       </div>
     </div>
   );
 
-  const renderTableHead = (showDueDate = false, groupKey = null) => {
+  const renderTableHead = (showDueDate = false, groupKey = null, showPaidDate = false) => {
     const sortable = groupKey ? { cursor: 'pointer', userSelect: 'none' } : {};
     const onClick = (field) => groupKey ? () => handleGroupSort(groupKey, field) : undefined;
     return (
@@ -214,6 +220,7 @@ export default function RecordList() {
           <th style={thStyle}>Unit</th>
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('status')}>Status{sortArrow(groupKey, 'status')}</th>
           {showDueDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('expected_completion_date')}>Due Date{sortArrow(groupKey, 'expected_completion_date')}</th>}
+          {showPaidDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_payment_date')}>Paid Date{sortArrow(groupKey, 'last_payment_date')}</th>}
           {canSeeFinancials && <th style={{ ...thStyle, ...sortable, textAlign: 'right' }} onClick={onClick('amount_due')}>Amount Due{sortArrow(groupKey, 'amount_due')}</th>}
         </tr>
       </thead>
@@ -309,12 +316,12 @@ export default function RecordList() {
                 {!isCollapsed && (
                   <div style={{ backgroundColor: group.bg, padding: isMobile ? '8px' : 0 }}>
                     {isMobile ? (
-                      sortGroupRecords(groupRecords, group.key).map(r => renderMobileCard(r))
+                      sortGroupRecords(groupRecords, group.key).map(r => renderMobileCard(r, group.key === 'closed'))
                     ) : (
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        {renderTableHead(!['closed', 'filed'].includes(group.key), group.key)}
+                        {renderTableHead(!['closed', 'filed'].includes(group.key), group.key, group.key === 'closed')}
                         <tbody>
-                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, !['closed', 'filed'].includes(group.key)))}
+                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, !['closed', 'filed'].includes(group.key), group.key === 'closed'))}
                         </tbody>
                       </table>
                     )}
