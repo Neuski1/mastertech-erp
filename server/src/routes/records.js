@@ -269,6 +269,8 @@ router.get('/', async (req, res) => {
       `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales,
               r.created_at, r.is_insurance_job, r.job_description,
               r.expected_completion_date,
+              (SELECT MAX(p.payment_date) FROM payments p
+                 WHERE p.record_id = r.id AND p.deleted_at IS NULL) AS last_payment_date,
               c.id AS customer_id, c.last_name, c.first_name, c.company_name,
               u.year, u.make, u.model, u.vin, u.license_plate
        FROM records r
