@@ -1183,9 +1183,9 @@ ${paymentDetailHtml}
             )}
 
             {/* Shop Supplies toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '24px', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.8rem' }}>
               <span style={{ color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                &mdash; Shop Supplies
+                Shop Supplies
                 {isEditable && (
                   <ToggleSwitch
                     checked={!record.shop_supplies_exempt}
@@ -1198,9 +1198,9 @@ ${paymentDetailHtml}
             </div>
 
             {/* CC Fee toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', paddingLeft: '24px', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.8rem' }}>
               <span style={{ color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                &mdash; CC Fee (3%)
+                CC Fee (3%)
                 {isEditable && (
                   <ToggleSwitch
                     checked={!!record.cc_fee_applied}
@@ -2141,7 +2141,7 @@ const sectionTitle = {
   marginTop: 0, marginBottom: '16px', paddingBottom: '8px',
   borderBottom: '1px solid #e5e7eb',
 };
-const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' };
+const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' };
 const labelStyle = { display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em' };
 const inputStyle = { padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.875rem', width: '100%', boxSizing: 'border-box' };
 const thStyle = { textAlign: 'left', padding: '8px 12px', backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' };
