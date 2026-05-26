@@ -266,7 +266,7 @@ router.get('/', async (req, res) => {
     );
 
     const { rows } = await pool.query(
-      `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales,
+      `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales, r.total_collected,
               r.created_at, r.is_insurance_job, r.job_description,
               r.expected_completion_date,
               (SELECT MAX(p.payment_date) FROM payments p

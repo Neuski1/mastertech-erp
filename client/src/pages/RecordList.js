@@ -141,7 +141,7 @@ export default function RecordList() {
       )}
       {canSeeFinancials && (
         <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>
-          {formatCurrency(r.amount_due)}
+          {formatCurrency(['paid', 'void'].includes(r.status) ? r.total_collected : r.amount_due)}
         </td>
       )}
     </tr>
@@ -170,7 +170,7 @@ export default function RecordList() {
       if (field === 'expected_completion_date' || field === 'created_at' || field === 'last_payment_date') {
         va = va ? new Date(va).getTime() : (dir === 'asc' ? Infinity : -Infinity);
         vb = vb ? new Date(vb).getTime() : (dir === 'asc' ? Infinity : -Infinity);
-      } else if (field === 'record_number' || field === 'amount_due') {
+      } else if (field === 'record_number' || field === 'amount_due' || field === 'total_collected') {
         va = parseFloat(va) || 0;
         vb = parseFloat(vb) || 0;
       } else {
@@ -204,7 +204,7 @@ export default function RecordList() {
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: '#9ca3af' }}>
         <span>{showPaidDate ? `Paid ${formatDate(r.last_payment_date)}` : formatDate(r.intake_date || r.created_at)}</span>
-        {canSeeFinancials && <span style={{ fontWeight: 600, color: '#374151' }}>{formatCurrency(r.amount_due)}</span>}
+        {canSeeFinancials && <span style={{ fontWeight: 600, color: '#374151' }}>{formatCurrency(['paid', 'void'].includes(r.status) ? r.total_collected : r.amount_due)}</span>}
       </div>
     </div>
   );
@@ -221,7 +221,11 @@ export default function RecordList() {
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('status')}>Status{sortArrow(groupKey, 'status')}</th>
           {showDueDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('expected_completion_date')}>Due Date{sortArrow(groupKey, 'expected_completion_date')}</th>}
           {showPaidDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_payment_date')}>Paid Date{sortArrow(groupKey, 'last_payment_date')}</th>}
-          {canSeeFinancials && <th style={{ ...thStyle, ...sortable, textAlign: 'right' }} onClick={onClick('amount_due')}>Amount Due{sortArrow(groupKey, 'amount_due')}</th>}
+          {canSeeFinancials && (
+            showPaidDate
+              ? <th style={{ ...thStyle, ...sortable, textAlign: 'right' }} onClick={onClick('total_collected')}>Amount Paid{sortArrow(groupKey, 'total_collected')}</th>
+              : <th style={{ ...thStyle, ...sortable, textAlign: 'right' }} onClick={onClick('amount_due')}>Amount Due{sortArrow(groupKey, 'amount_due')}</th>
+          )}
         </tr>
       </thead>
     );
