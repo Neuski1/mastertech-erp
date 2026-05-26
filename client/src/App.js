@@ -80,7 +80,6 @@ function AppLayout() {
     { to: '/partners', label: 'Partners' },
     ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
     ...(canManageSettings ? [{ to: '/reports', label: 'Reports' }] : []),
-    ...(canManageSettings ? [{ to: '/payments/online', label: 'Payments' }] : []),
     ...(canManageSettings ? [{ to: '/settings', label: 'Settings' }] : []),
     ...(canManageUsers ? [{ to: '/users', label: 'Users' }] : []),
   ];
