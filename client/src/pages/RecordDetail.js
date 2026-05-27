@@ -94,6 +94,8 @@ export default function RecordDetail() {
   const [emailPayLinkAmount, setEmailPayLinkAmount] = useState('');
 
   // Section-level inline editing
+  const [editingHeader, setEditingHeader] = useState(false);
+  const [editingUnit, setEditingUnit] = useState(false);
   const [editingDates, setEditingDates] = useState(false);
   const [editingInsurance, setEditingInsurance] = useState(false);
   const [sectionForm, setSectionForm] = useState({});
@@ -105,11 +107,15 @@ export default function RecordDetail() {
 
   const startSectionEdit = (section) => {
     setSectionForm({ ...record });
+    if (section === 'header') setEditingHeader(true);
+    if (section === 'unit') setEditingUnit(true);
     if (section === 'dates') setEditingDates(true);
     if (section === 'insurance') setEditingInsurance(true);
   };
 
   const cancelSectionEdit = (section) => {
+    if (section === 'header') setEditingHeader(false);
+    if (section === 'unit') setEditingUnit(false);
     if (section === 'dates') setEditingDates(false);
     if (section === 'insurance') setEditingInsurance(false);
   };
@@ -117,15 +123,34 @@ export default function RecordDetail() {
   const handleSectionSave = async (section, fields) => {
     setSectionSaving(true);
     try {
-      const updates = {};
-      fields.forEach(f => {
-        if (sectionForm[f] !== record[f]) updates[f] = sectionForm[f] ?? null;
-      });
-      if (Object.keys(updates).length > 0) {
-        await api.updateRecord(id, updates);
+      if (section === 'header') {
+        const recordFields = ['key_number'];
+        const custFields = ['company_name', 'phone_primary', 'email_primary',
+          'address_street', 'address_city', 'address_state', 'address_zip'];
+        const recordUpdates = {};
+        const custUpdates = {};
+        recordFields.forEach(f => { if (sectionForm[f] !== record[f]) recordUpdates[f] = sectionForm[f] ?? null; });
+        custFields.forEach(f => { if (sectionForm[f] !== record[f]) custUpdates[f] = sectionForm[f] ?? null; });
+        if (Object.keys(recordUpdates).length) await api.updateRecord(id, recordUpdates);
+        if (Object.keys(custUpdates).length && record.customer_id) await api.updateCustomer(record.customer_id, custUpdates);
+        setEditingHeader(false);
+      } else if (section === 'unit') {
+        const unitFields = ['year', 'make', 'model', 'vin', 'license_plate'];
+        const unitUpdates = {};
+        unitFields.forEach(f => { if (sectionForm[f] !== record[f]) unitUpdates[f] = sectionForm[f] ?? null; });
+        if (Object.keys(unitUpdates).length && record.unit_id) await api.updateUnit(record.unit_id, unitUpdates);
+        setEditingUnit(false);
+      } else {
+        const updates = {};
+        fields.forEach(f => {
+          if (sectionForm[f] !== record[f]) updates[f] = sectionForm[f] ?? null;
+        });
+        if (Object.keys(updates).length > 0) {
+          await api.updateRecord(id, updates);
+        }
+        if (section === 'dates') setEditingDates(false);
+        if (section === 'insurance') setEditingInsurance(false);
       }
-      if (section === 'dates') setEditingDates(false);
-      if (section === 'insurance') setEditingInsurance(false);
       await fetchRecord();
     } catch (err) {
       setError(err.message);
@@ -719,17 +744,6 @@ ${paymentDetailHtml}
           &larr; {fromCustomer ? 'Back to Customer' : 'Back to Records'}
         </button>
         <div className={isMobile ? 'detail-actions' : ''} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {isEditable && !editing && (
-            <button onClick={() => setEditing(true)} style={btnEditYellow}>Edit</button>
-          )}
-          {editing && (
-            <>
-              <button onClick={() => { setEditing(false); setFormData(record); }} style={btnSecondary}>Cancel</button>
-              <button onClick={handleSave} disabled={saving} style={btnPrimary}>
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-            </>
-          )}
           {!editing && (
             <>
               <button onClick={handlePrint} style={btnPrint}>Print</button>
@@ -781,19 +795,6 @@ ${paymentDetailHtml}
           color: emailMsg.type === 'success' ? '#065f46' : '#dc2626',
           border: `1px solid ${emailMsg.type === 'success' ? '#bbf7d0' : '#fca5a5'}`,
         }}>{emailMsg.text}</div>
-      )}
-
-      {/* Edit mode banner */}
-      {editing && (
-        <div style={{ padding: '10px 16px', marginBottom: '16px', backgroundColor: '#dbeafe', border: '1px solid #93c5fd', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: '#1e40af', fontWeight: 600, fontSize: '0.875rem' }}>Editing Record #{record.record_number} — make changes below then click Save</span>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => { setEditing(false); setFormData(record); }} style={btnSecondary}>Cancel</button>
-            <button onClick={handleSave} disabled={saving} style={btnPrimary}>
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
       )}
 
       {error && <div style={{ color: 'red', marginBottom: '12px', padding: '8px', backgroundColor: '#fee2e2', borderRadius: '4px', whiteSpace: 'pre-line' }}>{error}</div>}
@@ -886,48 +887,84 @@ ${paymentDetailHtml}
       )}
 
       {/* ─── Record Header ─── */}
-      <div style={editSectionStyle}>
-        <h2 style={sectionTitle}>Record Header</h2>
-        <div style={gridStyle}>
-          <Field label="Record Number" value={record.record_number} />
-          <Field label="Record Date" value={formatDate(record.intake_date || record.created_at)} />
-          <Field label="Account #" value={record.account_number} />
-          <EditableField label="Key #" field="key_number" value={formData.key_number || ''} editing={editing} onChange={handleFieldChange} />
-          <div>
-            <label style={labelStyle}>Customer</label>
-            <div style={{ fontSize: '0.875rem' }}>
-              <Link to={`/customers/${record.customer_id}`} style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 500 }}>
-                {record.last_name || ''}{record.first_name ? ', ' + record.first_name : ''}
-              </Link>
-            </div>
+      {(() => {
+        const hdrEditing = editing || editingHeader;
+        const hdrForm = editingHeader ? sectionForm : formData;
+        const hdrChange = editingHeader ? handleSectionField : handleFieldChange;
+        return (
+        <div style={editSectionStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Record Header</h2>
+            {canEditRecords && !editing && !editingHeader && statusEditable && (
+              <button onClick={() => startSectionEdit('header')} style={btnSectionEdit}>Edit</button>
+            )}
           </div>
-          <EditableField label="Company" field="company_name" value={formData.company_name || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="Phone" field="phone_primary" value={formData.phone_primary || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="Email" field="email_primary" value={formData.email_primary || ''} editing={editing} onChange={handleFieldChange} />
-          {editing ? (
-            <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr 80px 120px', gap: '8px' }}>
-              <EditableField label="Street" field="address_street" value={formData.address_street || ''} editing={editing} onChange={handleFieldChange} />
-              <EditableField label="City" field="address_city" value={formData.address_city || ''} editing={editing} onChange={handleFieldChange} />
-              <EditableField label="State" field="address_state" value={formData.address_state || ''} editing={editing} onChange={handleFieldChange} />
-              <EditableField label="ZIP" field="address_zip" value={formData.address_zip || ''} editing={editing} onChange={handleFieldChange} />
+          <div style={gridStyle}>
+            <Field label="Record Number" value={record.record_number} />
+            <Field label="Record Date" value={formatDate(record.intake_date || record.created_at)} />
+            <Field label="Account #" value={record.account_number} />
+            <EditableField label="Key #" field="key_number" value={hdrForm.key_number || ''} editing={hdrEditing} onChange={hdrChange} />
+            <div>
+              <label style={labelStyle}>Customer</label>
+              <div style={{ fontSize: '0.875rem' }}>
+                <Link to={`/customers/${record.customer_id}`} style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 500 }}>
+                  {record.last_name || ''}{record.first_name ? ', ' + record.first_name : ''}
+                </Link>
+              </div>
             </div>
-          ) : (
-            <FieldFull label="Address" value={[record.address_street, record.address_city, record.address_state, record.address_zip].filter(Boolean).join(', ') || '—'} />
+            <EditableField label="Company" field="company_name" value={hdrForm.company_name || ''} editing={hdrEditing} onChange={hdrChange} />
+            <EditableField label="Phone" field="phone_primary" value={hdrForm.phone_primary || ''} editing={hdrEditing} onChange={hdrChange} />
+            <EditableField label="Email" field="email_primary" value={hdrForm.email_primary || ''} editing={hdrEditing} onChange={hdrChange} />
+            {hdrEditing ? (
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr 80px 120px', gap: '8px' }}>
+                <EditableField label="Street" field="address_street" value={hdrForm.address_street || ''} editing={hdrEditing} onChange={hdrChange} />
+                <EditableField label="City" field="address_city" value={hdrForm.address_city || ''} editing={hdrEditing} onChange={hdrChange} />
+                <EditableField label="State" field="address_state" value={hdrForm.address_state || ''} editing={hdrEditing} onChange={hdrChange} />
+                <EditableField label="ZIP" field="address_zip" value={hdrForm.address_zip || ''} editing={hdrEditing} onChange={hdrChange} />
+              </div>
+            ) : (
+              <FieldFull label="Address" value={[record.address_street, record.address_city, record.address_state, record.address_zip].filter(Boolean).join(', ') || '—'} />
+            )}
+          </div>
+          {editingHeader && !editing && (
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button onClick={() => handleSectionSave('header', [])} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
+              <button onClick={() => cancelSectionEdit('header')} style={btnSecondary}>Cancel</button>
+            </div>
           )}
         </div>
-      </div>
+        );
+      })()}
 
       {/* ─── Unit Information ─── */}
-      <div style={editSectionStyle}>
-        <h2 style={sectionTitle}>Unit Information</h2>
-        <div style={gridStyle}>
-          <EditableField label="Year" field="year" value={formData.year || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="Make" field="make" value={formData.make || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="Model" field="model" value={formData.model || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="VIN" field="vin" value={formData.vin || ''} editing={editing} onChange={handleFieldChange} />
-          <EditableField label="License Plate" field="license_plate" value={formData.license_plate || ''} editing={editing} onChange={handleFieldChange} />
+      {(() => {
+        const unitEditingMode = editing || editingUnit;
+        const unitForm = editingUnit ? sectionForm : formData;
+        const unitChange = editingUnit ? handleSectionField : handleFieldChange;
+        return (
+        <div style={editSectionStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Unit Information</h2>
+            {canEditRecords && !editing && !editingUnit && statusEditable && (
+              <button onClick={() => startSectionEdit('unit')} style={btnSectionEdit}>Edit</button>
+            )}
+          </div>
+          <div style={gridStyle}>
+            <EditableField label="Year" field="year" value={unitForm.year || ''} editing={unitEditingMode} onChange={unitChange} />
+            <EditableField label="Make" field="make" value={unitForm.make || ''} editing={unitEditingMode} onChange={unitChange} />
+            <EditableField label="Model" field="model" value={unitForm.model || ''} editing={unitEditingMode} onChange={unitChange} />
+            <EditableField label="VIN" field="vin" value={unitForm.vin || ''} editing={unitEditingMode} onChange={unitChange} />
+            <EditableField label="License Plate" field="license_plate" value={unitForm.license_plate || ''} editing={unitEditingMode} onChange={unitChange} />
+          </div>
+          {editingUnit && !editing && (
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button onClick={() => handleSectionSave('unit', [])} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
+              <button onClick={() => cancelSectionEdit('unit')} style={btnSecondary}>Cancel</button>
+            </div>
+          )}
         </div>
-      </div>
+        );
+      })()}
 
       {/* ─── Insurance / Warranty ─── */}
       {(() => {
