@@ -724,7 +724,7 @@ ${paymentDetailHtml}
   };
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
       {/* Top nav — sticky below fixed header */}
       <div style={{
         position: 'sticky',
