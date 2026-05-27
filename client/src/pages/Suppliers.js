@@ -99,17 +99,30 @@ export default function Suppliers() {
     }
   }, [poStatusFilter, poVendorFilter]);
 
-  // Merge inventory vendors (from inventory table) with their detail records
-  const mergedVendors = vendors.map(vendor => {
-    const details = vendorDetails.find(d => d.vendor_name && d.vendor_name.toLowerCase() === vendor.name.toLowerCase());
-    return { ...details, name: vendor.name, item_count: vendor.item_count || 0, total_value: vendor.total_value || 0, supplier_type: 'inventory' };
-  });
+  // Map of vendor_details by lowercased name for quick lookup
+  const detailsByName = new Map(
+    vendorDetails.map(d => [(d.vendor_name || '').toLowerCase(), d])
+  );
 
-  // Misc suppliers: vendor_details rows where supplier_type = 'misc' and NOT already in inventory vendors
-  const inventoryNames = new Set(vendors.map(v => v.name.toLowerCase()));
+  // Merge inventory vendors with their detail records, but EXCLUDE any
+  // vendor explicitly marked supplier_type='misc' in vendor_details — those
+  // belong in the Misc section regardless of whether they still have items.
+  const mergedVendors = vendors
+    .filter(vendor => detailsByName.get(vendor.name.toLowerCase())?.supplier_type !== 'misc')
+    .map(vendor => {
+      const details = detailsByName.get(vendor.name.toLowerCase()) || {};
+      return { ...details, name: vendor.name, item_count: vendor.item_count || 0, total_value: vendor.total_value || 0, supplier_type: 'inventory' };
+    });
+
+  // Misc suppliers: every vendor_details row with supplier_type='misc'.
+  // Carry the inventory item count through if the supplier also has parts.
+  const inventoryByName = new Map(vendors.map(v => [v.name.toLowerCase(), v]));
   const miscSuppliers = vendorDetails
-    .filter(d => d.supplier_type === 'misc' && !inventoryNames.has((d.vendor_name || '').toLowerCase()))
-    .map(d => ({ name: d.vendor_name, item_count: 0, ...d }));
+    .filter(d => d.supplier_type === 'misc')
+    .map(d => {
+      const inv = inventoryByName.get((d.vendor_name || '').toLowerCase());
+      return { ...d, name: d.vendor_name, item_count: inv?.item_count || 0, total_value: inv?.total_value || 0 };
+    });
 
   // Group misc suppliers by subcategory
   const miscBySubcategory = {};
