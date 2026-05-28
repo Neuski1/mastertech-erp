@@ -398,6 +398,20 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
           console.error(`[Appt ${appt.id}] Revised confirmation error:`, err.message);
         });
       }
+
+      // Send revised confirmation SMS — fire and forget
+      const smsPhone = appt.customer_phone || appt.phone_primary;
+      if (smsPhone) {
+        const scheduledAt = new Date(appt.scheduled_at);
+        const mtDate = scheduledAt.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+        const mtTime = scheduledAt.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour12: false, hour: '2-digit', minute: '2-digit' });
+        sendAppointmentSMS(smsPhone, {
+          customerFirstName: appt.first_name || '',
+          appointmentDate: mtDate,
+          appointmentTime: mtTime,
+          appointmentType: appt.appointment_type,
+        }).catch(err => console.error(`[Appt ${appt.id}] Revised SMS error:`, err.message));
+      }
     }
 
     res.json(appt);
