@@ -246,7 +246,12 @@ router.get('/', async (req, res) => {
       c.last_name ILIKE $${paramIdx} OR
       c.first_name ILIKE $${paramIdx} OR
       c.company_name ILIKE $${paramIdx} OR
-      r.job_description ILIKE $${paramIdx}
+      r.job_description ILIKE $${paramIdx} OR
+      r.internal_notes ILIKE $${paramIdx} OR
+      r.customer_notes ILIKE $${paramIdx} OR
+      EXISTS (SELECT 1 FROM labor_lines ll WHERE ll.record_id = r.id AND ll.description ILIKE $${paramIdx}) OR
+      EXISTS (SELECT 1 FROM parts_lines pl WHERE pl.record_id = r.id AND pl.description ILIKE $${paramIdx}) OR
+      EXISTS (SELECT 1 FROM freight_lines fl WHERE fl.record_id = r.id AND fl.description ILIKE $${paramIdx})
     )`);
     params.push(`%${search}%`);
     paramIdx++;
