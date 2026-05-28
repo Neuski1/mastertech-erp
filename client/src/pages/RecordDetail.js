@@ -413,11 +413,19 @@ export default function RecordDetail() {
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) { alert('Please allow pop-ups to print'); return; }
 
-    const r = record;
+    // If the user is mid-typing in the Job Description textarea, blur it so
+    // the auto-save fires before we re-fetch — otherwise the print uses
+    // the stale Job Description that was on the record at page load.
+    if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') {
+      document.activeElement.blur();
+      await new Promise(res => setTimeout(res, 500));
+    }
+    let r;
+    try { r = await api.getRecord(id); } catch { r = record; }
     const customerName = `${r.last_name || ''}${r.first_name ? ', ' + r.first_name : ''}`;
     const address = [r.address_street, r.address_city, r.address_state, r.address_zip].filter(Boolean).join(', ');
 
@@ -1986,6 +1994,14 @@ function AutoSaveBulletTextarea({ value, recordId, onSaved }) {
   const [saved, setSaved] = React.useState(false);
   const ref = React.useRef(null);
   React.useEffect(() => { setText(value); }, [value]);
+  // Auto-grow: any time the text changes, resize the textarea to fit content
+  // so a 10-line job description shows all 10 lines instead of scrolling.
+  React.useEffect(() => {
+    if (ref.current) {
+      ref.current.style.height = 'auto';
+      ref.current.style.height = (ref.current.scrollHeight + 2) + 'px';
+    }
+  }, [text]);
 
   const toBullets = (t) => {
     if (!t) return '';
