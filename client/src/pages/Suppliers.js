@@ -611,9 +611,14 @@ export default function Suppliers() {
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Phone</span>
                           <span>{vendor.contact_phone ? <a href={`tel:${vendor.contact_phone.replace(/\D/g, '')}`} style={{ color: '#374151', textDecoration: 'none' }}>{vendor.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                         </div>
-                        {vendor.notes && (
-                          <div style={{ marginTop: '8px', padding: '8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.78rem', color: '#92400e', fontStyle: 'italic' }}>
-                            {vendor.notes}
+                        {vendor.notes ? (
+                          <div style={{ marginTop: '8px', padding: '8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.78rem', color: '#92400e' }}>
+                            <div style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.05em', marginBottom: '3px' }}>Supplier Notes</div>
+                            <div style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{vendor.notes}</div>
+                          </div>
+                        ) : (
+                          <div onClick={() => handleEditVendor(vendor)} style={{ marginTop: '8px', padding: '8px', background: '#f9fafb', borderRadius: '4px', fontSize: '0.72rem', color: '#9ca3af', cursor: 'pointer', textAlign: 'center', border: '1px dashed #d1d5db' }} title="Click to add pricing notes for this supplier">
+                            + Add supplier notes (lead time, payment terms, contact preferences...)
                           </div>
                         )}
                       </div>
@@ -664,9 +669,14 @@ export default function Suppliers() {
                               <span style={{ color: '#6b7280', fontWeight: 600 }}>Account</span>
                               <span>{s.account_number || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                             </div>
-                            {s.notes && (
-                              <div style={{ marginTop: '6px', padding: '6px 8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.75rem', color: '#92400e', fontStyle: 'italic' }}>
-                                {s.notes}
+                            {s.notes ? (
+                              <div style={{ marginTop: '6px', padding: '6px 8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.75rem', color: '#92400e' }}>
+                                <div style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.6rem', letterSpacing: '0.05em', marginBottom: '2px' }}>Supplier Notes</div>
+                                <div style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }}>{s.notes}</div>
+                              </div>
+                            ) : (
+                              <div onClick={() => handleEditVendor(s)} style={{ marginTop: '6px', padding: '6px 8px', background: '#f9fafb', borderRadius: '4px', fontSize: '0.7rem', color: '#9ca3af', cursor: 'pointer', textAlign: 'center', border: '1px dashed #d1d5db' }} title="Click to add pricing notes">
+                                + Add supplier notes
                               </div>
                             )}
                           </div>
@@ -702,9 +712,7 @@ export default function Suppliers() {
                 {vendors.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
               </select>
             </div>
-            <button onClick={() => setCreatePoModalOpen(true)} style={{ ...btnPrimary, marginLeft: 'auto' }}>
-              + New Purchase Order
-            </button>
+            {/* Manual + New Purchase Order button intentionally hidden — POs come in through the Import Orders flow. */}
           </div>
 
           {/* POs Table */}

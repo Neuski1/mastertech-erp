@@ -25,6 +25,7 @@ const emptyForm = {
   cost_each: '',
   markup: '50',
   sale_price_each: '',
+  pricing_notes: '',
 };
 
 export default function InventoryForm() {
@@ -42,9 +43,21 @@ export default function InventoryForm() {
   const [restockCost, setRestockCost] = useState('');
   const [fetchingPartNum, setFetchingPartNum] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [vendorWebsites, setVendorWebsites] = useState({});
   useEffect(() => {
     api.getInventoryCategories().then(setCategories).catch(() => {});
+    // Pull supplier websites so the Edit Part form can surface a clickable
+    // link the moment a supplier is selected.
+    api.getVendorDetails().then((rows) => {
+      const map = {};
+      (rows || []).forEach((r) => {
+        if (r.vendor_name && r.website) map[r.vendor_name.toLowerCase()] = r.website;
+      });
+      setVendorWebsites(map);
+    }).catch(() => {});
   }, []);
+
+  const currentVendorWebsite = form.vendor ? vendorWebsites[form.vendor.toLowerCase()] : null;
 
   useEffect(() => {
     if (!isEdit) return;
@@ -65,6 +78,7 @@ export default function InventoryForm() {
             ? String(Math.round(((parseFloat(item.sale_price_each) - parseFloat(item.cost_each)) / parseFloat(item.cost_each)) * 100))
             : '50',
           sale_price_each: item.sale_price_each != null ? String(item.sale_price_each) : '',
+          pricing_notes: item.pricing_notes || '',
         });
       } catch (err) {
         setError(err.message);
@@ -274,6 +288,11 @@ export default function InventoryForm() {
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Supplier</label>
               <VendorSelect value={form.vendor} onChange={(v) => setForm(f => ({ ...f, vendor: v }))} style={inputStyle} />
+              {currentVendorWebsite && (
+                <a href={currentVendorWebsite.startsWith('http') ? currentVendorWebsite : 'https://' + currentVendorWebsite} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', marginTop: '4px', fontSize: '0.75rem', color: '#2563eb', textDecoration: 'none' }} title={`Open ${form.vendor} website to reorder`}>
+                  &#8599; {currentVendorWebsite.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                </a>
+              )}
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Location</label>
@@ -422,6 +441,19 @@ export default function InventoryForm() {
               {' '}({((1 - parseFloat(form.cost_each) / parseFloat(form.sale_price_each)) * 100).toFixed(1)}%)
             </div>
           )}
+
+          {/* Pricing Notes — supplier comparison, best price, MOQ, discount terms */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={labelStyle}>Pricing Notes</label>
+            <textarea
+              name="pricing_notes"
+              value={form.pricing_notes}
+              onChange={handleChange}
+              placeholder="Best price right now, alternate suppliers, MOQ, bulk discounts, etc."
+              rows={3}
+              style={{ ...inputStyle, fontFamily: 'inherit', resize: 'vertical', minHeight: '60px' }}
+            />
+          </div>
 
           {/* Actions */}
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>

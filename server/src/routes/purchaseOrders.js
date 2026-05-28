@@ -3,6 +3,38 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
 
+// Helper: when a PO is marked as received, increment qty_on_hand and update
+// weighted-average cost on every matched inventory item. Used by both the
+// manual /:id/receive endpoint and the auto-receive path inside the importers
+// (so an "already delivered" import actually moves stock).
+async function applyInventoryReceiving(client, poId) {
+  const { rows: lineItems } = await client.query(
+    'SELECT * FROM po_line_items WHERE po_id = $1 AND matched = true AND inventory_item_id IS NOT NULL',
+    [poId]
+  );
+  for (const item of lineItems) {
+    const { rows: invRows } = await client.query(
+      'SELECT qty_on_hand, cost_each FROM inventory WHERE id = $1',
+      [item.inventory_item_id]
+    );
+    const currentQty = parseFloat(invRows[0]?.qty_on_hand || 0);
+    const currentCost = parseFloat(invRows[0]?.cost_each || 0);
+    const incomingQty = parseFloat(item.qty);
+    const incomingCost = parseFloat(item.cost_each || 0);
+    const totalQty = currentQty + incomingQty;
+    let newCost = currentCost;
+    if (totalQty > 0 && incomingCost > 0) {
+      newCost = ((currentQty * currentCost) + (incomingQty * incomingCost)) / totalQty;
+      newCost = Math.round(newCost * 100) / 100;
+    }
+    await client.query(
+      'UPDATE inventory SET qty_on_hand = qty_on_hand + $1, cost_each = $2 WHERE id = $3',
+      [incomingQty, newCost, item.inventory_item_id]
+    );
+  }
+  return lineItems.length;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/purchase-orders — List all purchase orders (optional filters)
 // ---------------------------------------------------------------------------
@@ -570,12 +602,13 @@ router.post('/amazon-import', async (req, res) => {
           );
         }
 
-        // If delivered, mark received_at
+        // If delivered, mark received_at AND push the matched items into inventory
         if (order.status === 'delivered') {
           await client.query(
             'UPDATE purchase_orders SET received_at = NOW() WHERE id = $1',
             [po.id]
           );
+          await applyInventoryReceiving(client, po.id);
         }
 
         results.imported++;
@@ -732,6 +765,7 @@ router.post('/supplier-import', async (req, res) => {
             'UPDATE purchase_orders SET received_at = NOW() WHERE id = $1',
             [po.id]
           );
+          await applyInventoryReceiving(client, po.id);
         }
 
         results.imported++;

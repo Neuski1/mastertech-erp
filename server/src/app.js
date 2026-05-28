@@ -94,7 +94,6 @@ app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is pub
 app.use('/api/partners', requireAuth, require('./routes/partners'));
 app.use('/api/purchase-orders', requireAuthOrApiKey, require('./routes/purchaseOrders'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
-app.use('/api/twilio', require('./routes/twilioWebhook')); // Legacy — kept for transition; remove after Dialpad webhook is live
 app.use('/api/dialpad', require('./routes/dialpadWebhook')); // No auth — Dialpad calls directly
 
 // Test email endpoint — quick debug, no auth required
@@ -408,6 +407,8 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_status VARCHAR(20) DEFAULT NULL`);
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_date DATE DEFAULT NULL`);
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_note TEXT DEFAULT NULL`);
+    // Migration 052: per-part pricing notes (used on the Edit Part form to compare supplier prices)
+    await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS pricing_notes TEXT DEFAULT NULL`);
 
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');

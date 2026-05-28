@@ -222,7 +222,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     part_number, description, vendor, vendor_part_number, category, location,
-    qty_on_hand, reorder_level, cost_each, sale_price_each
+    qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes
   } = req.body;
 
   if (!description || sale_price_each === undefined) {
@@ -233,8 +233,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     const { rows } = await pool.query(
       `INSERT INTO inventory
          (part_number, description, vendor, vendor_part_number, category, location,
-          qty_on_hand, reorder_level, cost_each, sale_price_each)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         part_number || null,
@@ -247,6 +247,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
         reorder_level !== undefined && reorder_level !== '' ? parseFloat(reorder_level) : null,
         cost_each !== undefined && cost_each !== '' ? parseFloat(cost_each) : null,
         parseFloat(sale_price_each),
+        pricing_notes || null,
       ]
     );
 
@@ -264,7 +265,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   const allowedFields = [
     'part_number', 'description', 'vendor', 'vendor_part_number', 'category', 'location',
     'qty_on_hand', 'reorder_level', 'cost_each', 'sale_price_each', 'is_active',
-    'reorder_status', 'reorder_date', 'reorder_note',
+    'reorder_status', 'reorder_date', 'reorder_note', 'pricing_notes',
   ];
 
   const updates = [];
