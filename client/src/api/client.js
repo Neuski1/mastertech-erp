@@ -397,4 +397,15 @@ export const api = {
     request(`/payments/online/links/${linkId}/push-to-terminal`, { method: 'POST', body: JSON.stringify(body) }),
   getTerminalPaymentStatus: (linkId) =>
     request(`/payments/online/links/${linkId}/terminal-status`),
+  // Bookkeeping / Plaid
+  getPlaidLinkToken: () => request('/plaid/link-token', { method: 'POST', body: JSON.stringify({}) }),
+  exchangePlaidToken: (public_token, institution_name) =>
+    request('/plaid/exchange-token', { method: 'POST', body: JSON.stringify({ public_token, institution_name }) }),
+  getPlaidItems: () => request('/plaid/items'),
+  getPlaidAccounts: () => request('/plaid/accounts'),
+  syncPlaid: (itemId) => request(itemId ? `/plaid/sync/${itemId}` : '/plaid/sync', { method: 'POST' }),
+  setPlaidGlMapping: (plaidAccountId, gl_account_number) =>
+    request(`/plaid/accounts/${plaidAccountId}/gl-mapping`, { method: 'PUT', body: JSON.stringify({ gl_account_number }) }),
+  getGlAccounts: () => request('/plaid/gl-accounts'),
+
 };
