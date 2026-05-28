@@ -734,7 +734,7 @@ export default function Suppliers() {
                     <tr key={po.id} style={{ cursor: 'pointer' }} onClick={() => handleViewPoDetail(po)}>
                       <td style={{ ...tdStyle, fontWeight: 600, color: '#1e3a5f' }}>{po.id}</td>
                       <td style={tdStyle}>{po.vendor}</td>
-                      <td style={tdStyle}>{po.order_date ? new Date(po.order_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+                      <td style={tdStyle}>{(() => { if (!po.order_date) return '—'; const d = new Date(po.order_date); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</td>
                       <td style={tdStyle}>{po.order_number || '—'}</td>
                       <td style={tdStyle}>{po.item_count || 0}</td>
                       <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
@@ -971,7 +971,7 @@ export default function Suppliers() {
                         <tr key={po.id} style={{ cursor: 'pointer' }} onClick={() => handleViewPoDetail(po)}>
                           <td style={{ ...tdStyle, fontWeight: 600, color: '#1e3a5f' }}>{po.id}</td>
                           <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '0.82rem' }}>{po.order_number || '—'}</td>
-                          <td style={tdStyle}>{po.order_date ? new Date(po.order_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+                          <td style={tdStyle}>{(() => { if (!po.order_date) return '—'; const d = new Date(po.order_date); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</td>
                           <td style={tdStyle}>{po.item_count || 0}</td>
                           <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
                           <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
