@@ -95,14 +95,14 @@ async function sendAppointmentSMS(phone, { customerFirstName, appointmentDate, a
   const firstName = customerFirstName || 'there';
   const dateFormatted = formatApptDate(appointmentDate);
   const timeFormatted = formatApptTime(appointmentTime);
-  const body = `Hi ${firstName}, your RV service appt at Master Tech is confirmed for ${dateFormatted} at ${timeFormatted}. Questions? Call (303) 557-2214. Reply STOP to opt out.`;
+  const body = `Hi ${firstName}, your RV service appt at Master Tech is confirmed for ${dateFormatted} at ${timeFormatted}. Directions: https://maps.google.com/?q=6590+E+49th+Ave+Commerce+City+CO+80022 Questions? Call (303) 557-2214. Reply STOP to opt out.`;
   return sendSMS(phone, body);
 }
 
 async function sendAppointmentReminderSMS(phone, { customerFirstName, appointmentTime }) {
   const firstName = customerFirstName || 'there';
   const timeFormatted = formatApptTime(appointmentTime);
-  const body = `Hi ${firstName}, reminder: your RV service appt at Master Tech is tomorrow at ${timeFormatted}. Questions? Call (303) 557-2214. Reply STOP to opt out.`;
+  const body = `Hi ${firstName}, reminder: your RV service appt at Master Tech is tomorrow at ${timeFormatted}. Directions: https://maps.google.com/?q=6590+E+49th+Ave+Commerce+City+CO+80022 Questions? Call (303) 557-2214. Reply STOP to opt out.`;
   return sendSMS(phone, body);
 }
 
