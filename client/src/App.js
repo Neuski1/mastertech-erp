@@ -10,6 +10,7 @@ import InventoryForm from './pages/InventoryForm';
 import Schedule from './pages/Schedule';
 import AppointmentForm from './pages/AppointmentForm';
 import Settings from './pages/Settings';
+import Bookkeeping from './pages/Bookkeeping';
 import UserManagement from './pages/UserManagement';
 import Storage from './pages/Storage';
 import Partners from './pages/Partners';
@@ -80,6 +81,7 @@ function AppLayout() {
     { to: '/partners', label: 'Partners' },
     ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
     ...(canManageSettings ? [{ to: '/reports', label: 'Reports' }] : []),
+    ...(canManageSettings ? [{ to: '/bookkeeping', label: 'Bookkeeping' }] : []),
     ...(canManageSettings ? [{ to: '/settings', label: 'Settings' }] : []),
     ...(canManageUsers ? [{ to: '/users', label: 'Users' }] : []),
   ];
@@ -206,6 +208,7 @@ function AppLayout() {
           <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />
           <Route path="/reports/active-workorders" element={<ActiveWorkOrdersReport />} />
           <Route path="/payments/online" element={canManageSettings ? <OnlinePaymentsHistory /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping" element={canManageSettings ? <Bookkeeping /> : <Navigate to="/records" />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>

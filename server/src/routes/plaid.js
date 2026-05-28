@@ -270,4 +270,21 @@ router.put('/accounts/:id/gl-mapping', async (req, res) => {
   }
 });
 
+
+// ---------------------------------------------------------------------------
+// GET /api/plaid/gl-accounts - list chart of accounts for mapping UI
+// ---------------------------------------------------------------------------
+router.get('/gl-accounts', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT account_number, name, statement, account_type, normal_balance
+        FROM accounts
+       WHERE is_active = TRUE
+       ORDER BY account_number`);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
