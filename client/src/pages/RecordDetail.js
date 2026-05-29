@@ -1483,34 +1483,6 @@ ${paymentDetailHtml}
         />
       )}
 
-      {/* QuickBooks Sync */}
-      {canSeeFinancials && record.status === 'paid' && (
-        <div style={{ ...sectionStyle, backgroundColor: record.quickbooks_synced_at ? '#f0fdf4' : '#fffbeb' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h2 style={{ ...sectionTitle, borderBottom: 'none', marginBottom: '4px', paddingBottom: 0 }}>QuickBooks</h2>
-              {record.quickbooks_synced_at ? (
-                <div style={{ fontSize: '0.85rem', color: '#065f46' }}>
-                  Synced {new Date(record.quickbooks_synced_at).toLocaleString()}
-                  {record.quickbooks_invoice_id && (
-                    <span style={{ color: '#6b7280', marginLeft: '8px' }}>
-                      Invoice ID: {record.quickbooks_invoice_id}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <div style={{ fontSize: '0.85rem', color: '#92400e' }}>Not synced</div>
-              )}
-            </div>
-            {!record.quickbooks_synced_at && (
-              <button onClick={handleQbSync} disabled={qbSyncing} style={btnQbSync}>
-                {qbSyncing ? 'Syncing...' : 'Sync to QuickBooks'}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Notes — always editable */}
       <div style={editSectionStyle}>
         <h2 style={sectionTitle}>Notes</h2>
