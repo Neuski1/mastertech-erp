@@ -539,6 +539,31 @@ router.post('/:token/charge', async (req, res) => {
     const txnId = charge && (charge.id || charge.transactionId);
     const txnStatus = charge && charge.status;
 
+    // CRITICAL: chargeToken can resolve successfully even when Poynt returns
+    // a DECLINED/FAILED/VOIDED response body. Only mark the link paid when
+    // the returned status is one of the real success states. Otherwise we'd
+    // be telling the books a customer paid when their card was actually
+    // declined and no money moved.
+    const SUCCESS_STATUSES = new Set(['CAPTURED', 'AUTHORIZED', 'COMPLETED']);
+    if (!txnStatus || !SUCCESS_STATUSES.has(String(txnStatus).toUpperCase())) {
+      let chargeDump;
+      try { chargeDump = JSON.stringify(charge, null, 2); } catch { chargeDump = String(charge); }
+      console.error('[poynt] charge resolved but status is NOT a success — treating as failed:\n' + chargeDump);
+      await client.query(
+        `UPDATE online_payments
+            SET status = 'failed', error_message = $2, updated_at = NOW()
+          WHERE id = $1`,
+        [link.id, `Poynt returned status "${txnStatus || 'unknown'}" — charge was NOT completed; no money was taken.`]
+      );
+      await client.query('COMMIT');
+      return res.status(402).json({
+        error: `Payment did not complete (status: ${txnStatus || 'unknown'}). Your card was not charged. Please try again or use a different payment method.`,
+        step: 'verify',
+        txnStatus,
+        poyntId: txnId || null,
+      });
+    }
+
     // Mark link paid
     await client.query(
       `UPDATE online_payments
