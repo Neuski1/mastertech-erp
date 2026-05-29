@@ -107,12 +107,14 @@ export default function RecordList() {
 
   const formatDate = (val) => {
     if (!val) return '—';
-    // If the value is a plain YYYY-MM-DD (Postgres DATE), JS parses it as UTC
-    // midnight and Mountain Time then displays the day before. Anchor it to
-    // local noon so the displayed day matches what was actually stored.
     const s = String(val);
-    const safe = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00' : s;
-    const d = new Date(safe);
+    // Pull the YYYY-MM-DD prefix directly so a DATE column serialized to JSON
+    // as "2026-05-29T00:00:00.000Z" still displays as 5/29 instead of 5/28
+    // (which is what JS gives you when it parses that as UTC and renders in
+    // Mountain Time).
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${parseInt(m[2])}/${parseInt(m[3])}/${m[1]}`;
+    const d = new Date(s);
     return isNaN(d.getTime()) ? '—' : `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
   };
 
