@@ -605,7 +605,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 
         const result = await sendEmail({
           to: appt.email_primary,
-          cc: 'service@mastertechrvrepair.com',
+          // No CC — From address already routes the copy to the service inbox.
           subject: 'Appointment Cancelled — Master Tech RV Repair & Storage',
           html,
           text: `Hello ${firstName},\n\nYour appointment has been cancelled.\n\nDate: ${scheduledDate}${scheduledTime ? ' at ' + scheduledTime : ''}\nType: ${typeLabel}\nLocation: 6590 East 49th Avenue, Commerce City, CO 80022\n${cancellation_reason ? 'Reason: ' + cancellation_reason + '\n' : ''}\nPlease contact us to reschedule at your convenience.\n\nPhone: (303) 557-2214\nEmail: service@mastertechrvrepair.com\n\nMaster Tech RV Repair & Storage`,

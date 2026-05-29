@@ -324,7 +324,8 @@ Our Service Makes Happy Campers!`;
   const mailOptions = {
     from: fromAddr,
     to: customerEmail,
-    cc: 'service@mastertechrvrepair.com',
+    // No longer CC service@ — the From address already lands a copy in the
+    // service inbox via Resend and we were getting duplicates per appointment.
     bcc: bcc || (process.env.EMAIL_USER !== 'service@mastertechrvrepair.com' ? process.env.EMAIL_USER : undefined),
     subject: revised ? 'Appointment Updated — Master Tech RV Repair & Storage' : 'Appointment Confirmed — Master Tech RV Repair & Storage',
     html: htmlBody,
