@@ -751,7 +751,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                         {line.order_supplier && <span><strong>From:</strong> {line.order_supplier}</span>}
                         {line.order_number && <span><strong>Order#:</strong> {line.order_number}</span>}
                         {line.order_tracking && <span><strong>Tracking:</strong> {line.order_tracking}</span>}
-                        {line.order_eta && <span><strong>ETA:</strong> {new Date(line.order_eta + 'T00:00:00').toLocaleDateString()}</span>}
+                        {line.order_eta && <span><strong>ETA:</strong> {(() => { const s = String(line.order_eta); const safe = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00' : s; const d = new Date(safe); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</span>}
                         {isEditable && (
                           <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>
                         )}
