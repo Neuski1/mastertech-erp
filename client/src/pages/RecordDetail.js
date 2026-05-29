@@ -1322,7 +1322,16 @@ ${paymentDetailHtml}
                     <td style={tdStyle}>{formatDate(p.payment_date)}</td>
                     <td style={tdStyle}>
                       {METHOD_LABELS[p.payment_method] || p.payment_method.replace(/_/g, ' ')}
-                      {p.square_transaction_id && <span style={{ color: '#9ca3af', fontSize: '0.75rem', marginLeft: '4px' }}>(Square)</span>}
+                      {p.square_transaction_id && (() => {
+                        // The DB column is named square_transaction_id for historical reasons
+                        // but the GoDaddy/Poynt online and terminal flows also write to it.
+                        // Detect the real processor from the payment's notes string.
+                        const notes = (p.notes || '').toLowerCase();
+                        const isGoDaddy = notes.includes('godaddy') || notes.includes('poynt');
+                        const isSquare = !isGoDaddy && (notes.includes('square') || !notes.length);
+                        const label = isGoDaddy ? 'GoDaddy' : isSquare ? 'Square' : 'Online';
+                        return <span style={{ color: '#9ca3af', fontSize: '0.75rem', marginLeft: '4px' }}>({label})</span>;
+                      })()}
                     </td>
                     <td style={tdStyle}>{p.check_number || p.square_transaction_id || p.notes || '—'}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(p.amount)}</td>
