@@ -2400,6 +2400,20 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
     }
   };
 
+  const handleRemoveLink = async (id, isPaid) => {
+    const msg = isPaid
+      ? 'Remove this paid link from the list? The actual payment in your Payment Ledger is NOT affected — this only clears the link row.'
+      : 'Remove this payment link?';
+    if (!window.confirm(msg)) return;
+    setError('');
+    try {
+      await api.cancelOnlinePaymentLink(id);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleCopy = async (token) => {
     const base = window.location.origin;
     try { await navigator.clipboard.writeText(`${base}/pay/${token}`); } catch {}
@@ -2468,7 +2482,14 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
                     <span style={{ fontSize: '0.7rem', color: '#1e40af' }}>Sent to terminal — waiting for tap...</span>
                   )}
                   {l.status === 'paid' && l.transaction_id && (
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#6b7280' }}>Txn: {l.transaction_id}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#6b7280', marginRight: 8 }}>Txn: {l.transaction_id}</span>
+                  )}
+                  {l.status !== 'cancelled' && (
+                    <button onClick={() => handleRemoveLink(l.id, l.status === 'paid')}
+                      style={{ padding: '3px 8px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600 }}
+                      title={l.status === 'paid' ? 'Remove this link from the list (does not affect the actual payment)' : 'Cancel this payment link'}>
+                      Remove
+                    </button>
                   )}
                 </td>
               </tr>

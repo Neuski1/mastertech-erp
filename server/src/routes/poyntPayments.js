@@ -214,6 +214,31 @@ router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_wr
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: POST /links/:id/cancel — remove a payment link from the record's
+// Online Payment Links display. Works on pending, terminal_pending, failed,
+// or paid links. Marking a 'paid' link cancelled is purely cosmetic — actual
+// payment rows live in the separate payments table and are untouched.
+// ---------------------------------------------------------------------------
+router.post('/links/:id/cancel', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE online_payments
+          SET status = 'cancelled', updated_at = NOW()
+        WHERE id = $1 AND status IN ('pending', 'terminal_pending', 'failed', 'paid')
+        RETURNING *`,
+      [req.params.id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Payment link not found or already cancelled.' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/payments/online/links/:id/cancel error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // ADMIN: GET /history — full payment history for admin view
 // Query: date_from, date_to, payment_type, status
 // ---------------------------------------------------------------------------
