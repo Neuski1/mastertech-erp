@@ -12,11 +12,17 @@ const path = require('path');
 // Accepts drawn signature, generates PDF, saves to OneDrive, auto-approves
 // ---------------------------------------------------------------------------
 router.post('/:id/sign', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const { signature_data } = req.body;
+  const { signature_data, approved_labor_ids, approved_parts_ids } = req.body;
 
   if (!signature_data) {
     return res.status(400).json({ error: 'signature_data is required' });
   }
+
+  // When the client sends per-line approval arrays, only those IDs get
+  // marked customer_approved. Empty/missing arrays default to "approve all
+  // estimate lines" for backward compatibility with older clients.
+  const approvedLabor = Array.isArray(approved_labor_ids) ? approved_labor_ids.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n)) : null;
+  const approvedParts = Array.isArray(approved_parts_ids) ? approved_parts_ids.map(n => parseInt(n, 10)).filter(n => Number.isFinite(n)) : null;
 
   const client = await pool.connect();
   try {
@@ -94,6 +100,37 @@ router.post('/:id/sign', requireRole('admin', 'service_writer', 'technician'), a
       `UPDATE records SET ${extraUpdates.join(', ')} WHERE id = $1`,
       extraValues
     );
+
+    // Apply line-level approvals if the client sent any. Approved lines are
+    // promoted out of the estimate (is_estimate_line=FALSE) so they land in
+    // the main work order; unchecked lines stay marked customer_approved=FALSE
+    // and remain in the estimate section as a record of what was declined.
+    if (approvedLabor !== null || approvedParts !== null) {
+      await client.query(
+        `UPDATE record_labor_lines SET customer_approved = FALSE, customer_approved_at = NULL
+         WHERE record_id = $1 AND is_estimate_line = TRUE AND deleted_at IS NULL`,
+        [req.params.id]
+      );
+      await client.query(
+        `UPDATE record_parts_lines SET customer_approved = FALSE, customer_approved_at = NULL
+         WHERE record_id = $1 AND is_estimate_line = TRUE AND deleted_at IS NULL`,
+        [req.params.id]
+      );
+      if (approvedLabor && approvedLabor.length > 0) {
+        await client.query(
+          `UPDATE record_labor_lines SET customer_approved = TRUE, customer_approved_at = NOW(), is_estimate_line = FALSE
+           WHERE record_id = $1 AND id = ANY($2) AND deleted_at IS NULL`,
+          [req.params.id, approvedLabor]
+        );
+      }
+      if (approvedParts && approvedParts.length > 0) {
+        await client.query(
+          `UPDATE record_parts_lines SET customer_approved = TRUE, customer_approved_at = NOW(), is_estimate_line = FALSE
+           WHERE record_id = $1 AND id = ANY($2) AND deleted_at IS NULL`,
+          [req.params.id, approvedParts]
+        );
+      }
+    }
 
     // Recalculate totals
     await recalculateTotals(req.params.id, client);

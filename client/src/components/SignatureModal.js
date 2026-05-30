@@ -13,6 +13,27 @@ export default function SignatureModal({ record, onSign, onClose }) {
   const [hasSignature, setHasSignature] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Estimate line items the customer can selectively approve/decline.
+  const estLabor = (record.labor_lines || []).filter(l => l.is_estimate_line);
+  const estParts = (record.parts_lines || []).filter(p => p.is_estimate_line);
+  const [approvedLaborIds, setApprovedLaborIds] = useState(() => new Set(estLabor.map(l => l.id)));
+  const [approvedPartsIds, setApprovedPartsIds] = useState(() => new Set(estParts.map(p => p.id)));
+
+  const toggleLabor = (id) => setApprovedLaborIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const togglePart = (id) => setApprovedPartsIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const selectedTotal =
+    estLabor.filter(l => approvedLaborIds.has(l.id)).reduce((s, l) => s + (parseFloat(l.line_total) || 0), 0) +
+    estParts.filter(p => approvedPartsIds.has(p.id)).reduce((s, p) => s + (parseFloat(p.line_total) || 0), 0);
+
   const getPos = useCallback((e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -69,10 +90,14 @@ export default function SignatureModal({ record, onSign, onClose }) {
 
   const handleSign = async () => {
     if (!hasSignature) return;
+    if (estLabor.length + estParts.length > 0 && approvedLaborIds.size + approvedPartsIds.size === 0) {
+      alert('At least one line item must be checked to approve.');
+      return;
+    }
     setSubmitting(true);
     try {
       const signatureData = canvasRef.current.toDataURL('image/png');
-      await onSign(signatureData);
+      await onSign(signatureData, Array.from(approvedLaborIds), Array.from(approvedPartsIds));
     } catch (err) {
       alert('Error signing estimate: ' + err.message);
     } finally {
@@ -100,6 +125,43 @@ export default function SignatureModal({ record, onSign, onClose }) {
             <div><strong>Estimated Total:</strong> <span style={{ fontWeight: 700, color: '#1e3a5f' }}>${(parseFloat(record.total_sales) || 0).toFixed(2)}</span></div>
           </div>
         </div>
+
+        {/* Line items the customer can selectively approve */}
+        {(estLabor.length > 0 || estParts.length > 0) && (
+          <div style={{ marginBottom: '16px', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '12px', maxHeight: '260px', overflowY: 'auto' }}>
+            <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: '#6b7280' }}>
+              All items are checked by default. Uncheck anything you want to decline, then sign and approve below.
+            </p>
+            {estLabor.length > 0 && (
+              <>
+                <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#1e3a5f', margin: '8px 0 4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Labor</div>
+                {estLabor.map(l => (
+                  <label key={'l_' + l.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '4px 0', fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={approvedLaborIds.has(l.id)} onChange={() => toggleLabor(l.id)} style={{ marginTop: '3px', width: '16px', height: '16px', cursor: 'pointer' }} />
+                    <span style={{ flex: 1 }}>{l.description}</span>
+                    <span style={{ color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>${(parseFloat(l.line_total) || 0).toFixed(2)}</span>
+                  </label>
+                ))}
+              </>
+            )}
+            {estParts.length > 0 && (
+              <>
+                <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#1e3a5f', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Parts</div>
+                {estParts.map(p => (
+                  <label key={'p_' + p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '4px 0', fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={approvedPartsIds.has(p.id)} onChange={() => togglePart(p.id)} style={{ marginTop: '3px', width: '16px', height: '16px', cursor: 'pointer' }} />
+                    <span style={{ flex: 1 }}>{p.description}</span>
+                    <span style={{ color: '#374151', fontWeight: 500, whiteSpace: 'nowrap' }}>${(parseFloat(p.line_total) || 0).toFixed(2)}</span>
+                  </label>
+                ))}
+              </>
+            )}
+            <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '6px', display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#1e3a5f' }}>
+              <span>Selected Total</span>
+              <span>${selectedTotal.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
 
         {/* Legal text */}
         <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '12px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', marginBottom: '16px', fontSize: '0.8rem', lineHeight: '1.5', color: '#92400e' }}>

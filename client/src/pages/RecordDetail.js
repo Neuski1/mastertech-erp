@@ -317,9 +317,9 @@ export default function RecordDetail() {
     }
   };
 
-  const handleSignEstimate = async (signatureData) => {
+  const handleSignEstimate = async (signatureData, approvedLaborIds = [], approvedPartsIds = []) => {
     try {
-      const result = await api.signEstimate(id, signatureData);
+      const result = await api.signEstimate(id, signatureData, approvedLaborIds, approvedPartsIds);
       setShowSignModal(false);
       await fetchRecord();
       alert(`Estimate signed and approved!\nPDF saved to:\n${result.pdf_path}`);

@@ -207,7 +207,7 @@ export const api = {
   getSquareDevices: () => request('/square/devices'),
 
   // Estimates
-  signEstimate: (recordId, signatureData) => request(`/estimates/${recordId}/sign`, { method: 'POST', body: JSON.stringify({ signature_data: signatureData }) }),
+  signEstimate: (recordId, signatureData, approvedLaborIds = [], approvedPartsIds = []) => request(`/estimates/${recordId}/sign`, { method: 'POST', body: JSON.stringify({ signature_data: signatureData, approved_labor_ids: approvedLaborIds, approved_parts_ids: approvedPartsIds }) }),
 
   // QuickBooks
   getReminderSettings: () => request('/admin/reminder-settings'),
