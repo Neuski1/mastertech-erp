@@ -3,8 +3,10 @@ const pool = require('../db/pool');
 const { sendAppointmentReminderSMS } = require('../services/sms');
 
 async function processAppointmentReminders() {
-  // Find upcoming appointments scheduled between 24 and 25 hours from now
-  // that haven't been reminded yet and have a phone number.
+  // Find appointments that fall on tomorrow's Mountain Time calendar date
+  // (the message says "tomorrow"), that haven't been reminded yet and have a
+  // phone number. scheduled_at is TIMESTAMPTZ, so `AT TIME ZONE 'America/Denver'`
+  // yields the Mountain wall-clock date regardless of the DB session timezone.
   const { rows } = await pool.query(`
     SELECT a.id, a.scheduled_at, a.customer_phone,
            c.first_name, c.phone_primary
@@ -13,8 +15,8 @@ async function processAppointmentReminders() {
     WHERE a.deleted_at IS NULL
       AND a.sms_reminder_sent = false
       AND a.status NOT IN ('cancelled', 'complete', 'no_show')
-      AND a.scheduled_at >= NOW() + INTERVAL '24 hours'
-      AND a.scheduled_at <  NOW() + INTERVAL '25 hours'
+      AND (a.scheduled_at AT TIME ZONE 'America/Denver')::date
+            = ((NOW() AT TIME ZONE 'America/Denver')::date + 1)
   `);
 
   let sent = 0;
@@ -58,8 +60,11 @@ async function processAppointmentReminders() {
 }
 
 function startAppointmentReminderCron() {
-  // Run hourly at :15
-  cron.schedule('15 * * * *', async () => {
+  // Run at :15 each hour from 8 AM through 11 PM Mountain. The 8:15 AM run sends
+  // the bulk of next-day reminders; later hourly runs catch appointments booked
+  // for tomorrow during the day (sms_reminder_sent dedups, so each is sent once).
+  // Nothing fires overnight, so we never text customers in the middle of the night.
+  cron.schedule('15 8-23 * * *', async () => {
     console.log('[apptReminderCron] running...');
     try {
       const result = await processAppointmentReminders();
@@ -68,7 +73,7 @@ function startAppointmentReminderCron() {
       console.error('[apptReminderCron] fatal:', err);
     }
   }, { timezone: 'America/Denver' });
-  console.log('[apptReminderCron] scheduled (hourly at :15 Mountain)');
+  console.log('[apptReminderCron] scheduled (:15, 8 AM–11 PM Mountain)');
 }
 
 module.exports = { startAppointmentReminderCron, processAppointmentReminders };
