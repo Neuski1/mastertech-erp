@@ -75,6 +75,64 @@ export default function Storage() {
 
   useEffect(() => { fetchSpaces(); }, [fetchSpaces]);
 
+  // --- Payment grid (12-month Paid/Unpaid/Partial per box) ---
+  const [grid, setGrid] = useState({ months: [], byBilling: {} });
+  const [gridSyncing, setGridSyncing] = useState(false);
+
+  const fetchGrid = useCallback(async () => {
+    try {
+      const data = await api.getStoragePaymentGrid();
+      const byBilling = {};
+      (data.boxes || []).forEach(b => { byBilling[b.billing_id] = b; });
+      setGrid({ months: data.months || [], byBilling });
+    } catch (err) {
+      // Non-fatal — the grid simply won't render.
+      console.error('Payment grid load failed:', err.message);
+    }
+  }, []);
+
+  useEffect(() => { fetchGrid(); }, [fetchGrid]);
+
+  const handleSyncSquare = async () => {
+    setGridSyncing(true);
+    try {
+      const data = await api.syncStoragePaymentGrid();
+      const byBilling = {};
+      (data.boxes || []).forEach(b => { byBilling[b.billing_id] = b; });
+      setGrid({ months: data.months || [], byBilling });
+      const s = data.sync || {};
+      setActionMsg(`Square sync: ${s.synced || 0} customer(s), ${s.invoices || 0} invoice(s)${s.skipped ? `, ${s.skipped} skipped` : ''}.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGridSyncing(false);
+    }
+  };
+
+  // Click cycles the manual override: auto → paid → partial → unpaid → auto
+  const nextManualStatus = (cell) => {
+    if (cell.source !== 'manual') return 'paid';
+    if (cell.status === 'paid') return 'partial';
+    if (cell.status === 'partial') return 'unpaid';
+    return 'auto'; // manual unpaid → clear back to auto
+  };
+
+  const handleCellToggle = async (billingId, cell) => {
+    if (!canEditRecords) return;
+    const status = nextManualStatus(cell);
+    try {
+      await api.setStoragePaymentOverride({
+        storage_billing_id: billingId,
+        year: cell.year,
+        month: cell.month,
+        status,
+      });
+      await fetchGrid();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleSpaceClick = (space) => {
     setSelectedSpace(space);
     if (space.billing_id) {
@@ -131,6 +189,11 @@ export default function Storage() {
               {showReport ? 'Hide Report' : 'Billing Report'}
             </button>
           )}
+          {activeTab === 'spaces' && canEditRecords && (
+            <button onClick={handleSyncSquare} disabled={gridSyncing} style={{ ...btnSecondary, opacity: gridSyncing ? 0.6 : 1 }}>
+              {gridSyncing ? 'Syncing…' : '⟳ Sync from Square'}
+            </button>
+          )}
           {activeTab === 'spaces' && isAdmin && (
             <button onClick={() => setShowAddSpace(true)} style={btnSecondary}>+ Add Space</button>
           )}
@@ -185,12 +248,17 @@ export default function Storage() {
         </div>
       )}
 
+      {/* Payment grid legend */}
+      <PaymentLegend />
+
       {/* Outdoor Grid */}
       <div style={sectionStyle}>
         <h2 style={sectionTitle}>Outdoor Spaces ({outdoor.filter(s => s.billing_id).length}/{outdoor.length} occupied)</h2>
         <div style={gridStyle}>
           {outdoor.map(space => (
-            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials} />
+            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
+              gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
+              canEdit={canEditRecords} onCellToggle={handleCellToggle} />
           ))}
         </div>
       </div>
@@ -200,7 +268,9 @@ export default function Storage() {
         <h2 style={sectionTitle}>Indoor Spaces ({indoor.filter(s => s.billing_id).length}/{indoor.length} occupied)</h2>
         <div style={gridStyle}>
           {indoor.map(space => (
-            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials} />
+            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
+              gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
+              canEdit={canEditRecords} onCellToggle={handleCellToggle} />
           ))}
         </div>
       </div>
@@ -530,7 +600,74 @@ export default function Storage() {
 // ---------------------------------------------------------------------------
 // SpaceCard component
 // ---------------------------------------------------------------------------
-function SpaceCard({ space, onClick, canSeeFinancials }) {
+// ---------------------------------------------------------------------------
+// Payment grid colors / labels
+// ---------------------------------------------------------------------------
+const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const STATUS_COLORS = {
+  paid:    { bg: '#16a34a', text: '#fff' }, // green
+  unpaid:  { bg: '#dc2626', text: '#fff' }, // red
+  partial: { bg: '#eab308', text: '#422006' }, // yellow
+};
+const SOURCE_LABELS = { square: 'Square', erp: 'ERP', manual: 'Manual' };
+
+function PaymentLegend() {
+  const Item = ({ color, label }) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: '#374151' }}>
+      <span style={{ width: '12px', height: '12px', borderRadius: '3px', backgroundColor: color, display: 'inline-block' }} />
+      {label}
+    </span>
+  );
+  return (
+    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', margin: '0 0 16px', padding: '8px 12px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Payment grid</span>
+      <Item color={STATUS_COLORS.paid.bg} label="Paid" />
+      <Item color={STATUS_COLORS.unpaid.bg} label="Unpaid" />
+      <Item color={STATUS_COLORS.partial.bg} label="Partial" />
+      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Hover a cell for source · click to set a manual override (cycles paid → partial → unpaid → auto)</span>
+    </div>
+  );
+}
+
+function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
+  if (!box || !months || months.length === 0) return null;
+  const cellsByKey = {};
+  (box.cells || []).forEach(c => { cellsByKey[`${c.year}-${c.month}`] = c; });
+
+  return (
+    <div style={{ marginTop: '8px', borderTop: '1px dashed #e5e7eb', paddingTop: '6px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
+        {months.map(({ year, month }) => {
+          const cell = cellsByKey[`${year}-${month}`] || { year, month, status: 'unpaid', source: null };
+          const colors = STATUS_COLORS[cell.status] || STATUS_COLORS.unpaid;
+          const srcLabel = cell.source ? SOURCE_LABELS[cell.source] : 'No data';
+          const title = `${MONTH_ABBR[month]} ${year} — ${cell.status.charAt(0).toUpperCase() + cell.status.slice(1)} (${srcLabel})`;
+          return (
+            <div
+              key={`${year}-${month}`}
+              title={title}
+              onClick={(e) => { e.stopPropagation(); onToggle(box.billing_id, cell); }}
+              style={{
+                width: '20px', height: '20px', borderRadius: '3px',
+                backgroundColor: colors.bg, color: colors.text,
+                fontSize: '0.55rem', fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: canEdit ? 'pointer' : 'default',
+                // Manual overrides get a dark ring so they stand out.
+                outline: cell.source === 'manual' ? '2px solid #1e3a5f' : 'none',
+                outlineOffset: '-2px',
+              }}
+            >
+              {month}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canEdit, onCellToggle }) {
   const occupied = !!space.billing_id;
   const label = space.label.replace(/^(Outdoor|Indoor)\s*/, '');
   const linearFt = space.space_linear_feet || space.unit_linear_feet;
@@ -557,6 +694,7 @@ function SpaceCard({ space, onClick, canSeeFinancials }) {
             <div>{[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ')}</div>
           )}
           {canSeeFinancials && <div style={{ color: '#059669' }}>${parseFloat(space.monthly_rate).toFixed(0)}/mo</div>}
+          <PaymentMonthGrid box={gridBox} months={gridMonths} canEdit={canEdit} onToggle={onCellToggle} />
         </div>
       ) : (
         <div style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 500 }}>Available</div>
