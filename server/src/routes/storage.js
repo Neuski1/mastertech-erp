@@ -35,8 +35,8 @@ function mapSquareStatus(squareStatus) {
 const cellKey = (year, month) => `${year}-${month}`;
 
 // Build the 12-month grid for every active storage box from persisted status
-// (manual overrides + cached Square results) plus ERP-recorded paid charges.
-// Precedence per cell: manual > erp > square > unpaid.
+// (manual overrides + cached Square results). Square is the single source of
+// truth. Precedence per cell: manual > square > unpaid.
 async function buildPaymentGrid() {
   const months = lastTwelveMonths();
   const windowStart = `${months[0].year}-${String(months[0].month).padStart(2, '0')}`; // YYYY-MM
@@ -75,27 +75,12 @@ async function buildPaymentGrid() {
     statusMap.set(`${r.storage_billing_id}|${cellKey(r.year, r.month)}`, r);
   }
 
-  // ERP-recorded paid charges within the window
-  const { rows: erpRows } = await pool.query(
-    `SELECT billing_id, charge_month, amount, payment_method, paid_date
-       FROM storage_charges
-      WHERE billing_id = ANY($1) AND paid = TRUE AND charge_month >= $2`,
-    [billingIds, windowStart]
-  );
-  const erpMap = new Map(); // `${billingId}|${year}-${month}` -> row
-  for (const r of erpRows) {
-    const y = parseInt(r.charge_month.slice(0, 4), 10);
-    const m = parseInt(r.charge_month.slice(5, 7), 10);
-    erpMap.set(`${r.billing_id}|${cellKey(y, m)}`, r);
-  }
-
   const result = boxes.map(box => {
     const cells = months.map(({ year, month }) => {
       const key = `${box.billing_id}|${cellKey(year, month)}`;
       const persisted = statusMap.get(key);
-      const erp = erpMap.get(key);
 
-      // manual override wins over everything
+      // manual override wins; otherwise the cached Square status; otherwise unpaid.
       if (persisted && persisted.source === 'manual') {
         return {
           year, month, status: persisted.status, source: 'manual',
@@ -103,15 +88,6 @@ async function buildPaymentGrid() {
           amount: persisted.amount != null ? parseFloat(persisted.amount) : null,
         };
       }
-      // ERP-recorded payment beats the Square cache
-      if (erp) {
-        return {
-          year, month, status: 'paid', source: 'erp',
-          square_invoice_id: null,
-          amount: erp.amount != null ? parseFloat(erp.amount) : null,
-        };
-      }
-      // cached Square result
       if (persisted && persisted.source === 'square') {
         return {
           year, month, status: persisted.status, source: 'square',
