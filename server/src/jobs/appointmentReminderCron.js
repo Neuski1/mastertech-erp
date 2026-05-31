@@ -22,7 +22,15 @@ async function processAppointmentReminders() {
     const phone = appt.customer_phone || appt.phone_primary;
     if (!phone) continue;
     const dt = new Date(appt.scheduled_at);
-    // Format time in Mountain Time
+    // Convert to Mountain Time before passing to the SMS helper (same as the
+    // booking confirmation in routes/appointments.js). formatApptTime expects
+    // an "HH:MM" 24-hour string.
+    const mtTime = dt.toLocaleTimeString('en-US', {
+      timeZone: 'America/Denver',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
     const timeStr = dt.toLocaleTimeString('en-US', {
       timeZone: 'America/Denver',
       hour: 'numeric',
@@ -32,8 +40,7 @@ async function processAppointmentReminders() {
     try {
       const result = await sendAppointmentReminderSMS(phone, {
         customerFirstName: appt.first_name,
-        // pass already-formatted string via the time slot: keep original helper compatibility
-        appointmentTime: dt.toTimeString().slice(0, 5),
+        appointmentTime: mtTime,
       });
       if (result.success) {
         await pool.query('UPDATE appointments SET sms_reminder_sent = true WHERE id = $1', [appt.id]);
