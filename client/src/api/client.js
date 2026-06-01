@@ -267,6 +267,11 @@ export const api = {
   },
   getStorageByCustomer: (customerId) => request(`/storage/customer/${customerId}`),
 
+  // Storage Payment Grid
+  getStoragePaymentGrid: () => request('/storage/payment-grid'),
+  syncStoragePaymentGrid: () => request('/storage/payment-grid/sync', { method: 'POST' }),
+  setStoragePaymentOverride: (data) => request('/storage/payment-grid', { method: 'POST', body: JSON.stringify(data) }),
+
   // Storage Waitlist
   getStorageWaitlist: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

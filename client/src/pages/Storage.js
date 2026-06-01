@@ -18,6 +18,9 @@ export default function Storage() {
   const [showAssign, setShowAssign] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
 
+  // Inline per-box editor: id of the occupied space expanded in place (no modal).
+  const [expandedId, setExpandedId] = useState(null);
+
   // Billing report
   const [showReport, setShowReport] = useState(false);
   const [report, setReport] = useState(null);
@@ -75,13 +78,78 @@ export default function Storage() {
 
   useEffect(() => { fetchSpaces(); }, [fetchSpaces]);
 
+  // --- Payment grid (12-month Paid/Unpaid/Partial per box) ---
+  const [grid, setGrid] = useState({ months: [], byBilling: {} });
+  const [gridSyncing, setGridSyncing] = useState(false);
+
+  const fetchGrid = useCallback(async () => {
+    try {
+      const data = await api.getStoragePaymentGrid();
+      const byBilling = {};
+      (data.boxes || []).forEach(b => { byBilling[b.billing_id] = b; });
+      setGrid({ months: data.months || [], byBilling });
+    } catch (err) {
+      // Non-fatal — the grid simply won't render.
+      console.error('Payment grid load failed:', err.message);
+    }
+  }, []);
+
+  useEffect(() => { fetchGrid(); }, [fetchGrid]);
+
+  const handleSyncSquare = async () => {
+    setGridSyncing(true);
+    try {
+      const data = await api.syncStoragePaymentGrid();
+      const byBilling = {};
+      (data.boxes || []).forEach(b => { byBilling[b.billing_id] = b; });
+      setGrid({ months: data.months || [], byBilling });
+      const s = data.sync || {};
+      setActionMsg(`Square sync: ${s.synced || 0} customer(s), ${s.invoices || 0} invoice(s)${s.skipped ? `, ${s.skipped} skipped` : ''}.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGridSyncing(false);
+    }
+  };
+
+  // Click cycles the manual override: auto → paid → partial → unpaid → auto
+  const nextManualStatus = (cell) => {
+    if (cell.source !== 'manual') return 'paid';
+    if (cell.status === 'paid') return 'partial';
+    if (cell.status === 'partial') return 'unpaid';
+    return 'auto'; // manual unpaid → clear back to auto
+  };
+
+  const handleCellToggle = async (billingId, cell) => {
+    if (!canEditRecords) return;
+    const status = nextManualStatus(cell);
+    try {
+      await api.setStoragePaymentOverride({
+        storage_billing_id: billingId,
+        year: cell.year,
+        month: cell.month,
+        status,
+      });
+      await fetchGrid();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleSpaceClick = (space) => {
-    setSelectedSpace(space);
     if (space.billing_id) {
-      setShowDetail(true);
+      // Occupied: toggle the inline editor in place (no modal).
+      setExpandedId((prev) => (prev === space.id ? null : space.id));
     } else if (canEditRecords) {
+      setSelectedSpace(space);
       setShowAssign(true);
     }
+  };
+
+  // Open the full DetailModal (End storage, contract, Square IDs) from the inline editor.
+  const handleOpenFull = (space) => {
+    setSelectedSpace(space);
+    setShowDetail(true);
   };
 
   const handleOpenBilling = async () => {
@@ -129,6 +197,11 @@ export default function Storage() {
           {activeTab === 'spaces' && canSeeFinancials && (
             <button onClick={() => { setShowReport(!showReport); if (!showReport) fetchReport(); }} style={btnSecondary}>
               {showReport ? 'Hide Report' : 'Billing Report'}
+            </button>
+          )}
+          {activeTab === 'spaces' && canEditRecords && (
+            <button onClick={handleSyncSquare} disabled={gridSyncing} style={{ ...btnSecondary, opacity: gridSyncing ? 0.6 : 1 }}>
+              {gridSyncing ? 'Syncing…' : '⟳ Sync from Square'}
             </button>
           )}
           {activeTab === 'spaces' && isAdmin && (
@@ -185,12 +258,18 @@ export default function Storage() {
         </div>
       )}
 
+      {/* Payment grid legend */}
+      <PaymentLegend />
+
       {/* Outdoor Grid */}
       <div style={sectionStyle}>
         <h2 style={sectionTitle}>Outdoor Spaces ({outdoor.filter(s => s.billing_id).length}/{outdoor.length} occupied)</h2>
         <div style={gridStyle}>
           {outdoor.map(space => (
-            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials} />
+            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
+              gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
+              canEdit={canEditRecords} onCellToggle={handleCellToggle}
+              isExpanded={expandedId === space.id} onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
           ))}
         </div>
       </div>
@@ -200,7 +279,10 @@ export default function Storage() {
         <h2 style={sectionTitle}>Indoor Spaces ({indoor.filter(s => s.billing_id).length}/{indoor.length} occupied)</h2>
         <div style={gridStyle}>
           {indoor.map(space => (
-            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials} />
+            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
+              gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
+              canEdit={canEditRecords} onCellToggle={handleCellToggle}
+              isExpanded={expandedId === space.id} onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
           ))}
         </div>
       </div>
@@ -530,7 +612,74 @@ export default function Storage() {
 // ---------------------------------------------------------------------------
 // SpaceCard component
 // ---------------------------------------------------------------------------
-function SpaceCard({ space, onClick, canSeeFinancials }) {
+// ---------------------------------------------------------------------------
+// Payment grid colors / labels
+// ---------------------------------------------------------------------------
+const MONTH_ABBR = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const STATUS_COLORS = {
+  paid:    { bg: '#16a34a', text: '#fff' }, // green
+  unpaid:  { bg: '#dc2626', text: '#fff' }, // red
+  partial: { bg: '#eab308', text: '#422006' }, // yellow
+};
+const SOURCE_LABELS = { square: 'Square', manual: 'Manual' };
+
+function PaymentLegend() {
+  const Item = ({ color, label }) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.72rem', color: '#374151' }}>
+      <span style={{ width: '12px', height: '12px', borderRadius: '3px', backgroundColor: color, display: 'inline-block' }} />
+      {label}
+    </span>
+  );
+  return (
+    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', margin: '0 0 16px', padding: '8px 12px', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Payment grid</span>
+      <Item color={STATUS_COLORS.paid.bg} label="Paid" />
+      <Item color={STATUS_COLORS.unpaid.bg} label="Unpaid" />
+      <Item color={STATUS_COLORS.partial.bg} label="Partial" />
+      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Hover a cell for source · click to set a manual override (cycles paid → partial → unpaid → auto)</span>
+    </div>
+  );
+}
+
+function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
+  if (!box || !months || months.length === 0) return null;
+  const cellsByKey = {};
+  (box.cells || []).forEach(c => { cellsByKey[`${c.year}-${c.month}`] = c; });
+
+  return (
+    <div style={{ marginTop: '8px', borderTop: '1px dashed #e5e7eb', paddingTop: '6px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px' }}>
+        {months.map(({ year, month }) => {
+          const cell = cellsByKey[`${year}-${month}`] || { year, month, status: 'unpaid', source: null };
+          const colors = STATUS_COLORS[cell.status] || STATUS_COLORS.unpaid;
+          const srcLabel = cell.source ? SOURCE_LABELS[cell.source] : 'No data';
+          const title = `${MONTH_ABBR[month]} ${year} — ${cell.status.charAt(0).toUpperCase() + cell.status.slice(1)} (${srcLabel})`;
+          return (
+            <div
+              key={`${year}-${month}`}
+              title={title}
+              onClick={(e) => { e.stopPropagation(); onToggle(box.billing_id, cell); }}
+              style={{
+                width: '20px', height: '20px', borderRadius: '3px',
+                backgroundColor: colors.bg, color: colors.text,
+                fontSize: '0.55rem', fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: canEdit ? 'pointer' : 'default',
+                // Manual overrides get a dark ring so they stand out.
+                outline: cell.source === 'manual' ? '2px solid #1e3a5f' : 'none',
+                outlineOffset: '-2px',
+              }}
+            >
+              {month}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canEdit, onCellToggle, isExpanded, onChanged, onOpenFull }) {
   const occupied = !!space.billing_id;
   const label = space.label.replace(/^(Outdoor|Indoor)\s*/, '');
   const linearFt = space.space_linear_feet || space.unit_linear_feet;
@@ -541,6 +690,8 @@ function SpaceCard({ space, onClick, canSeeFinancials }) {
       backgroundColor: occupied ? '#fef2f2' : '#f0fdf4',
       borderColor: occupied ? '#fca5a5' : '#86efac',
       cursor: 'pointer',
+      // Let an expanded card grow to fit the inline editor.
+      gridColumn: isExpanded ? '1 / -1' : 'auto',
     }}>
       <div style={{ fontWeight: 700, fontSize: '0.9rem', color: occupied ? '#991b1b' : '#065f46', marginBottom: '4px' }}>
         {label}
@@ -557,10 +708,191 @@ function SpaceCard({ space, onClick, canSeeFinancials }) {
             <div>{[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ')}</div>
           )}
           {canSeeFinancials && <div style={{ color: '#059669' }}>${parseFloat(space.monthly_rate).toFixed(0)}/mo</div>}
+          <PaymentMonthGrid box={gridBox} months={gridMonths} canEdit={canEdit} onToggle={onCellToggle} />
+          {isExpanded && canEdit && (
+            <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials} onChanged={onChanged} onOpenFull={onOpenFull} />
+          )}
         </div>
       ) : (
         <div style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 500 }}>Available</div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InlineBoxEditor — edit a box's fields in place (no modal, no edit mode).
+//
+// Box fields (monthly_rate, due day, type, start, notes, Square IDs, unit,
+// linear feet) autosave via PATCH /storage/:id — these change FUTURE billing
+// runs and have no ledger row. Posted monthly charges autosave via
+// PATCH /storage/charges/:id, which mirrors to the GL ledger (account 4000),
+// so correcting a past amount stays in sync with the books.
+// ---------------------------------------------------------------------------
+function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
+  const [spaceType, setSpaceType] = useState(space.space_type || 'outdoor');
+  const [unitId, setUnitId] = useState(space.unit_id ? String(space.unit_id) : '');
+  const [units, setUnits] = useState([]);
+  const [charges, setCharges] = useState(null); // null = loading
+  const [status, setStatus] = useState('');
+
+  const initialLinearFeet = space.unit_linear_feet ? String(parseFloat(space.unit_linear_feet)) : '';
+
+  useEffect(() => {
+    if (space.customer_id) {
+      api.getCustomerUnits(space.customer_id).then(setUnits).catch(() => setUnits([]));
+    }
+    api.getStorageCharges({ customer_id: space.customer_id })
+      .then((data) => {
+        const all = Array.isArray(data) ? data : (data.charges || []);
+        // Only this box's charges (by billing, or by space for ad-hoc charges).
+        setCharges(all.filter(
+          (c) => (c.billing_id && c.billing_id === space.billing_id) ||
+                 (c.space_id && c.space_id === space.id)
+        ));
+      })
+      .catch(() => setCharges([]));
+  }, [space.customer_id, space.billing_id, space.id]);
+
+  const flash = (msg) => { setStatus(msg); setTimeout(() => setStatus(''), 2000); };
+
+  // Save a single storage_billing field (future billing — no ledger row).
+  const saveBilling = async (patch, label) => {
+    try {
+      await api.updateStorage(space.billing_id, patch);
+      flash(`Saved ${label}`);
+      onChanged && onChanged();
+    } catch (err) { flash('Error: ' + err.message); }
+  };
+
+  // Save a posted charge amount — mirrors to the GL ledger via the PATCH path.
+  const saveChargeAmount = async (chargeId, value) => {
+    const amount = parseFloat(value);
+    if (Number.isNaN(amount)) return;
+    try {
+      const updated = await api.updateStorageCharge(chargeId, { amount });
+      setCharges((prev) => prev.map((c) => (c.id === chargeId ? { ...c, amount: updated.amount ?? amount } : c)));
+      flash('Charge updated (ledger synced)');
+      onChanged && onChanged();
+    } catch (err) { flash('Error: ' + err.message); }
+  };
+
+  const fieldWrap = { marginBottom: '8px' };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{
+      marginTop: '10px', paddingTop: '10px', borderTop: '2px solid #fca5a5',
+      cursor: 'default', fontSize: '0.75rem',
+    }}>
+      {status && <div style={{ fontSize: '0.7rem', color: '#065f46', fontWeight: 600, marginBottom: '6px' }}>{status}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px' }}>
+        {canSeeFinancials && (
+          <div style={fieldWrap}>
+            <label style={labelStyle}>Monthly Rate ($)</label>
+            <input type="number" step="0.01" defaultValue={parseFloat(space.monthly_rate) || 0}
+              onBlur={(e) => saveBilling({ monthly_rate: parseFloat(e.target.value) }, 'monthly rate')}
+              style={inputStyleFull} />
+          </div>
+        )}
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Due Day</label>
+          <input type="number" min="1" max="28" defaultValue={space.due_day || 1}
+            onBlur={(e) => saveBilling({ due_day: parseInt(e.target.value) }, 'due day')}
+            style={inputStyleFull} />
+        </div>
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Space Type</label>
+          <select value={spaceType} onChange={(e) => { setSpaceType(e.target.value); saveBilling({ space_type: e.target.value }, 'space type'); }} style={inputStyleFull}>
+            <option value="outdoor">Outdoor</option>
+            <option value="indoor">Indoor</option>
+          </select>
+        </div>
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Start Date</label>
+          <input type="date"
+            defaultValue={space.billing_start_date ? (String(space.billing_start_date).includes('T') ? String(space.billing_start_date).split('T')[0] : space.billing_start_date) : ''}
+            onBlur={(e) => e.target.value && saveBilling({ billing_start_date: e.target.value }, 'start date')}
+            style={inputStyleFull} />
+        </div>
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Unit</label>
+          <select value={unitId} onChange={(e) => {
+            const v = e.target.value;
+            setUnitId(v);
+            saveBilling({ unit_id: v ? parseInt(v) : null }, 'unit');
+          }} style={inputStyleFull}>
+            <option value="">— No unit —</option>
+            {units.map((u) => (
+              <option key={u.id} value={String(u.id)}>
+                {[u.year, u.make, u.model].filter(Boolean).join(' ') || `Unit #${u.id}`}{u.license_plate ? ` — ${u.license_plate}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Linear Feet</label>
+          <input type="number" step="0.5" min="0" defaultValue={initialLinearFeet}
+            onBlur={(e) => {
+              if (!unitId) { flash('Select a unit to set linear feet'); return; }
+              if (e.target.value === initialLinearFeet) return;
+              api.updateUnit(parseInt(unitId), { linear_feet: e.target.value ? parseFloat(e.target.value) : null })
+                .then(() => { flash('Saved linear feet'); onChanged && onChanged(); })
+                .catch((err) => flash('Error: ' + err.message));
+            }}
+            style={inputStyleFull} />
+        </div>
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Square Customer ID</label>
+          <input defaultValue={space.square_customer_id || ''} placeholder="Optional"
+            onBlur={(e) => saveBilling({ square_customer_id: e.target.value || null }, 'Square customer ID')}
+            style={inputStyleFull} />
+        </div>
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Square Subscription ID</label>
+          <input defaultValue={space.square_sub_id || ''} placeholder="Optional"
+            onBlur={(e) => saveBilling({ square_sub_id: e.target.value || null }, 'Square subscription ID')}
+            style={inputStyleFull} />
+        </div>
+      </div>
+
+      <div style={fieldWrap}>
+        <label style={labelStyle}>Notes</label>
+        <textarea defaultValue={space.billing_notes || ''}
+          onBlur={(e) => saveBilling({ notes: e.target.value }, 'notes')}
+          style={{ ...inputStyleFull, minHeight: '44px' }} />
+      </div>
+
+      {/* Posted monthly charges — ledger-synced. */}
+      {canSeeFinancials && (
+        <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px solid #bae6fd' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '6px' }}>
+            Posted monthly charges <span style={{ fontWeight: 400, color: '#6b7280' }}>— edits post to the GL ledger (acct 4000)</span>
+          </div>
+          {charges === null ? (
+            <div style={{ color: '#9ca3af' }}>Loading…</div>
+          ) : charges.length === 0 ? (
+            <div style={{ color: '#9ca3af' }}>No posted charges yet. Use "Record & Post Storage Billing" to generate them.</div>
+          ) : (
+            charges.map((c) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <span style={{ minWidth: '64px', fontWeight: 600, color: '#374151' }}>{c.charge_month}</span>
+                <span style={{ color: '#6b7280' }}>$</span>
+                <input type="number" step="0.01" defaultValue={parseFloat(c.amount) || 0}
+                  onBlur={(e) => { if (parseFloat(e.target.value) !== parseFloat(c.amount)) saveChargeAmount(c.id, e.target.value); }}
+                  style={{ ...inputStyleFull, maxWidth: '120px' }} />
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      <div style={{ marginTop: '8px', display: 'flex', gap: '12px' }}>
+        <button onClick={() => onOpenFull && onOpenFull()} style={{ ...btnTinyGray, padding: '4px 10px' }}>
+          Full details / End storage…
+        </button>
+        <span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>Changes save automatically.</span>
+      </div>
     </div>
   );
 }
@@ -1134,7 +1466,7 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
 
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={() => onConfirm(month)} disabled={running} style={btnPrimary}>
-            {running ? 'Recording...' : `Record Billing for ${month}`}
+            {running ? 'Recording...' : `Record & Post Storage Billing for ${month}`}
           </button>
           <button onClick={onClose} disabled={running} style={btnSecondary}>Cancel</button>
         </div>

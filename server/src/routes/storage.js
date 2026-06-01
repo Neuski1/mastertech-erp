@@ -3,7 +3,123 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { getSetting } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
+const { syncChargeToLedger } = require('../services/storageLedger');
 // Square billing removed — Square handles recurring billing automatically
+
+// ===========================================================================
+// PAYMENT GRID HELPERS
+// ===========================================================================
+
+// Last 12 months (current + prior 11), oldest first, as {year, month} (month 1-12).
+// Uses America/Denver so the "current month" matches the shop's clock.
+function lastTwelveMonths() {
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+  let curYear = parseInt(todayStr.slice(0, 4), 10);
+  let curMonth = parseInt(todayStr.slice(5, 7), 10); // 1-12
+  const months = [];
+  for (let i = 0; i < 12; i++) {
+    let m = curMonth - i;
+    let y = curYear;
+    while (m <= 0) { m += 12; y -= 1; }
+    months.push({ year: y, month: m });
+  }
+  return months.reverse(); // oldest -> newest
+}
+
+// Map a Square invoice status to our internal status.
+function mapSquareStatus(squareStatus) {
+  if (squareStatus === 'PAID') return 'paid';
+  if (squareStatus === 'PARTIALLY_PAID') return 'partial';
+  return 'unpaid';
+}
+
+const cellKey = (year, month) => `${year}-${month}`;
+
+// Build the 12-month grid for every active storage box from persisted status
+// (manual overrides + cached Square results). Square is the single source of
+// truth. Precedence per cell: manual > square > unpaid.
+async function buildPaymentGrid() {
+  const months = lastTwelveMonths();
+  const windowStart = `${months[0].year}-${String(months[0].month).padStart(2, '0')}`; // YYYY-MM
+
+  // Active boxes (one per occupied space)
+  const { rows: boxes } = await pool.query(
+    `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate,
+            sb.square_customer_id, sb.square_sub_id,
+            s.space_type, s.label AS space_label,
+            c.last_name, c.first_name, c.company_name, c.account_number,
+            u.year AS unit_year, u.make AS unit_make, u.model AS unit_model
+       FROM storage_billing sb
+       JOIN storage_spaces s ON s.id = sb.space_id
+       JOIN customers c ON c.id = sb.customer_id
+       LEFT JOIN units u ON u.id = sb.unit_id
+      WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
+      ORDER BY s.space_type, s.label`
+  );
+
+  if (boxes.length === 0) {
+    return { months, boxes: [] };
+  }
+
+  const billingIds = boxes.map(b => b.billing_id);
+
+  // Persisted status rows (manual + square cache) within the window
+  const { rows: statusRows } = await pool.query(
+    `SELECT storage_billing_id, year, month, status, source, square_invoice_id, amount
+       FROM storage_payment_status
+      WHERE storage_billing_id = ANY($1)
+        AND (year * 100 + month) >= $2`,
+    [billingIds, parseInt(windowStart.replace('-', ''), 10)]
+  );
+  const statusMap = new Map(); // `${billingId}|${year}-${month}` -> row
+  for (const r of statusRows) {
+    statusMap.set(`${r.storage_billing_id}|${cellKey(r.year, r.month)}`, r);
+  }
+
+  const result = boxes.map(box => {
+    const cells = months.map(({ year, month }) => {
+      const key = `${box.billing_id}|${cellKey(year, month)}`;
+      const persisted = statusMap.get(key);
+
+      // manual override wins; otherwise the cached Square status; otherwise unpaid.
+      if (persisted && persisted.source === 'manual') {
+        return {
+          year, month, status: persisted.status, source: 'manual',
+          square_invoice_id: persisted.square_invoice_id,
+          amount: persisted.amount != null ? parseFloat(persisted.amount) : null,
+        };
+      }
+      if (persisted && persisted.source === 'square') {
+        return {
+          year, month, status: persisted.status, source: 'square',
+          square_invoice_id: persisted.square_invoice_id,
+          amount: persisted.amount != null ? parseFloat(persisted.amount) : null,
+        };
+      }
+      return { year, month, status: 'unpaid', source: null, square_invoice_id: null, amount: null };
+    });
+
+    const customerName = box.company_name
+      || `${box.last_name}${box.first_name ? ', ' + box.first_name : ''}`;
+
+    return {
+      billing_id: box.billing_id,
+      customer_id: box.customer_id,
+      space_id: box.space_id,
+      space_type: box.space_type,
+      space_label: box.space_label,
+      customer_name: customerName,
+      account_number: box.account_number,
+      monthly_rate: parseFloat(box.monthly_rate),
+      unit: [box.unit_year, box.unit_make, box.unit_model].filter(Boolean).join(' ') || null,
+      square_customer_id: box.square_customer_id,
+      square_linked: !!box.square_customer_id,
+      cells,
+    };
+  });
+
+  return { months, boxes: result };
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/storage — List all spaces with occupancy status
@@ -471,12 +587,16 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
       const customerName = billing.company_name
         || `${billing.last_name}${billing.first_name ? ', ' + billing.first_name : ''}`;
 
-      await client.query(
+      const { rows: [charge] } = await client.query(
         `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id`,
         [billing.billing_id, billing.customer_id, billing.space_id, amount, month,
          `Storage: ${billing.space_label} — ${customerName}`, req.user?.id || null]
       );
+
+      // Mirror into the GL ledger (account 4000) so storage income is counted once.
+      await syncChargeToLedger(client, charge.id);
 
       totalAmount += amount;
       results.push({
@@ -518,8 +638,10 @@ router.post('/charges', requireRole('admin'), async (req, res) => {
     return res.status(400).json({ error: 'customer_id, amount, and charge_month are required' });
   }
 
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, charge_date, notes, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
@@ -534,10 +656,16 @@ router.post('/charges', requireRole('admin'), async (req, res) => {
         req.user?.id || null,
       ]
     );
+    // Mirror into the GL ledger (account 4000) so storage income is counted once.
+    await syncChargeToLedger(client, rows[0].id);
+    await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('POST /api/storage/charges error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -617,17 +745,193 @@ router.patch('/charges/:id', requireRole('admin'), async (req, res) => {
   }
 
   values.push(req.params.id);
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `UPDATE storage_charges SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Charge not found' });
     }
+    // Keep the mirrored GL ledger row (account 4000) in sync with the edit.
+    await syncChargeToLedger(client, rows[0].id);
+    await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('PATCH /api/storage/charges/:id error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ===========================================================================
+// PAYMENT GRID ROUTES
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// GET /api/storage/payment-grid — 12-month Paid/Unpaid/Partial grid per box.
+// Reads persisted status (manual overrides + cached Square results) and ERP
+// paid charges. Does NOT call Square live — use POST /payment-grid/sync for
+// that (keeps this endpoint fast and resilient when Square is unconfigured).
+// ---------------------------------------------------------------------------
+router.get('/payment-grid', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
+  try {
+    const grid = await buildPaymentGrid();
+    res.json(grid);
+  } catch (err) {
+    console.error('GET /api/storage/payment-grid error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/storage/payment-grid/sync — Pull invoice status from Square for
+// every box that has a square_customer_id, cache it into storage_payment_status
+// (source=square), then return the refreshed grid. Manual overrides are never
+// overwritten. Degrades gracefully if Square is not configured.
+// ---------------------------------------------------------------------------
+router.post('/payment-grid/sync', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const months = lastTwelveMonths();
+  const oldest = months[0]; // {year, month}
+  const oldestKey = oldest.year * 100 + oldest.month;
+
+  let squareClient, locationId;
+  try {
+    ({ client: squareClient, locationId } = require('../services/square'));
+  } catch (e) {
+    return res.status(503).json({ error: 'Square is not available in this environment' });
+  }
+
+  try {
+    const { rows: boxes } = await pool.query(
+      `SELECT id AS billing_id, square_customer_id
+         FROM storage_billing
+        WHERE deleted_at IS NULL AND billing_end_date IS NULL
+          AND square_customer_id IS NOT NULL AND square_customer_id <> ''`
+    );
+
+    const summary = { synced: 0, skipped: 0, invoices: 0, errors: [] };
+
+    for (const box of boxes) {
+      try {
+        const response = await squareClient.invoices.search({
+          query: {
+            filter: {
+              locationIds: locationId ? [locationId] : undefined,
+              customerIds: [box.square_customer_id],
+            },
+          },
+          limit: 100,
+        });
+
+        const invoices = response?.invoices || response?.result?.invoices || [];
+
+        for (const inv of invoices) {
+          // Determine the month this invoice applies to.
+          const pr = Array.isArray(inv.paymentRequests) ? inv.paymentRequests[0] : null;
+          const dateStr = (pr && pr.dueDate) || inv.createdAt || inv.created_at;
+          if (!dateStr) continue;
+          const year = parseInt(String(dateStr).slice(0, 4), 10);
+          const month = parseInt(String(dateStr).slice(5, 7), 10);
+          if (!year || !month) continue;
+          // Only persist within the visible 12-month window.
+          if (year * 100 + month < oldestKey) continue;
+
+          const status = mapSquareStatus(inv.status);
+
+          // Amount (cents -> dollars); tolerate BigInt / missing fields.
+          let amount = null;
+          const money = (pr && (pr.computedAmountMoney || pr.totalCompletedAmountMoney))
+            || inv.nextPaymentAmountMoney;
+          if (money && money.amount != null) {
+            amount = Number(money.amount) / 100;
+          }
+
+          // Upsert as source=square, but never clobber a manual override.
+          await pool.query(
+            `INSERT INTO storage_payment_status
+               (storage_billing_id, year, month, status, source, square_invoice_id, amount)
+             VALUES ($1, $2, $3, $4, 'square', $5, $6)
+             ON CONFLICT (storage_billing_id, year, month) DO UPDATE
+               SET status = EXCLUDED.status,
+                   source = 'square',
+                   square_invoice_id = EXCLUDED.square_invoice_id,
+                   amount = EXCLUDED.amount,
+                   updated_at = NOW()
+             WHERE storage_payment_status.source <> 'manual'`,
+            [box.billing_id, year, month, status, inv.id || null, amount]
+          );
+          summary.invoices += 1;
+        }
+        summary.synced += 1;
+      } catch (boxErr) {
+        summary.skipped += 1;
+        summary.errors.push({ billing_id: box.billing_id, error: boxErr.message });
+        console.error(`Square sync failed for billing ${box.billing_id}:`, boxErr.message);
+      }
+    }
+
+    const grid = await buildPaymentGrid();
+    res.json({ sync: summary, ...grid });
+  } catch (err) {
+    console.error('POST /api/storage/payment-grid/sync error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/storage/payment-grid — Set (or clear) a manual override for a
+// given box + month. Body: { storage_billing_id, year, month, status }.
+// status one of paid|unpaid|partial. Send status=null (or "auto") to clear
+// the override and revert that cell to ERP/Square data.
+// ---------------------------------------------------------------------------
+router.post('/payment-grid', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const { storage_billing_id, year, month, status } = req.body;
+
+  if (!storage_billing_id || !year || !month) {
+    return res.status(400).json({ error: 'storage_billing_id, year, and month are required' });
+  }
+  const y = parseInt(year, 10);
+  const m = parseInt(month, 10);
+  if (!(m >= 1 && m <= 12)) {
+    return res.status(400).json({ error: 'month must be 1-12' });
+  }
+
+  try {
+    // Clear override -> revert to auto (ERP/Square)
+    if (status == null || status === '' || status === 'auto') {
+      await pool.query(
+        `DELETE FROM storage_payment_status
+          WHERE storage_billing_id = $1 AND year = $2 AND month = $3 AND source = 'manual'`,
+        [storage_billing_id, y, m]
+      );
+      return res.json({ cleared: true, storage_billing_id, year: y, month: m });
+    }
+
+    if (!['paid', 'unpaid', 'partial'].includes(status)) {
+      return res.status(400).json({ error: 'status must be paid, unpaid, partial, or auto' });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO storage_payment_status
+         (storage_billing_id, year, month, status, source)
+       VALUES ($1, $2, $3, $4, 'manual')
+       ON CONFLICT (storage_billing_id, year, month) DO UPDATE
+         SET status = EXCLUDED.status,
+             source = 'manual',
+             updated_at = NOW()
+       RETURNING *`,
+      [storage_billing_id, y, m, status]
+    );
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/storage/payment-grid error:', err);
     res.status(500).json({ error: err.message });
   }
 });
