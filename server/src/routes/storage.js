@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { getSetting } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
+const { syncChargeToLedger } = require('../services/storageLedger');
 // Square billing removed — Square handles recurring billing automatically
 
 // ===========================================================================
@@ -586,12 +587,16 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
       const customerName = billing.company_name
         || `${billing.last_name}${billing.first_name ? ', ' + billing.first_name : ''}`;
 
-      await client.query(
+      const { rows: [charge] } = await client.query(
         `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id`,
         [billing.billing_id, billing.customer_id, billing.space_id, amount, month,
          `Storage: ${billing.space_label} — ${customerName}`, req.user?.id || null]
       );
+
+      // Mirror into the GL ledger (account 4000) so storage income is counted once.
+      await syncChargeToLedger(client, charge.id);
 
       totalAmount += amount;
       results.push({
@@ -633,8 +638,10 @@ router.post('/charges', requireRole('admin'), async (req, res) => {
     return res.status(400).json({ error: 'customer_id, amount, and charge_month are required' });
   }
 
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, charge_date, notes, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
@@ -649,10 +656,16 @@ router.post('/charges', requireRole('admin'), async (req, res) => {
         req.user?.id || null,
       ]
     );
+    // Mirror into the GL ledger (account 4000) so storage income is counted once.
+    await syncChargeToLedger(client, rows[0].id);
+    await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('POST /api/storage/charges error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -732,18 +745,27 @@ router.patch('/charges/:id', requireRole('admin'), async (req, res) => {
   }
 
   values.push(req.params.id);
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `UPDATE storage_charges SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
       values
     );
     if (rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Charge not found' });
     }
+    // Keep the mirrored GL ledger row (account 4000) in sync with the edit.
+    await syncChargeToLedger(client, rows[0].id);
+    await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('PATCH /api/storage/charges/:id error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

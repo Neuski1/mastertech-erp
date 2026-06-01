@@ -167,14 +167,20 @@ async function upsertTransaction(client, txn) {
   const rawId = rawRow.rows[0].id;
   const category = await categorize(client, txn);
 
+  // Transfer guard: Square payout deposits move cash already counted as storage
+  // income in the ledger. Flag them as transfers so they reconcile the bank
+  // balance without being re-counted as revenue (Revenue Summary excludes
+  // is_transfer rows).
+  const isTransfer = /\bsquare\b/i.test(`${txn.merchant_name || ''} ${txn.name || ''}`);
+
   await client.query(
     `INSERT INTO transactions
        (raw_transaction_id, plaid_account_id, txn_date, posted_date, amount,
-        merchant_name, description, category_gl_id, categorization_source, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')
+        merchant_name, description, category_gl_id, categorization_source, status, is_transfer)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10)
      ON CONFLICT DO NOTHING`,
     [rawId, plaidAccountDbId, txn.date, txn.authorized_date, txn.amount,
-     txn.merchant_name || txn.name, txn.name, category.gl_id, category.source]
+     txn.merchant_name || txn.name, txn.name, category.gl_id, category.source, isTransfer]
   );
 }
 

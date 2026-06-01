@@ -41,13 +41,20 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
 
     const totalPayments = payments.reduce((s, p) => s + parseFloat(p.total), 0);
 
-    // Storage revenue in date range
+    // Storage revenue in date range — read from the GL ledger (transactions
+    // posted to storage-income account 4000), NOT from storage_charges, so
+    // storage income is counted exactly ONCE. Transfers (e.g. Square payout
+    // deposits) and removed rows are excluded.
     const { rows: [storage] } = await pool.query(`
       SELECT
-        COALESCE(SUM(amount), 0) AS total,
+        COALESCE(SUM(t.amount), 0) AS total,
         COUNT(*) AS charge_count
-      FROM storage_charges
-      WHERE charge_date BETWEEN $1 AND $2
+      FROM transactions t
+      JOIN accounts a ON a.id = t.category_gl_id
+      WHERE a.account_number = '4000'
+        AND t.is_transfer = FALSE
+        AND t.status <> 'excluded'
+        AND t.txn_date BETWEEN $1 AND $2
     `, [from, to]);
 
     // Top customers by revenue
