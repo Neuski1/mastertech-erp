@@ -69,14 +69,41 @@ function labelFor(sql, fallback) {
 }
 
 (async () => {
-  const url = process.env.PRODUCTION_DATABASE_URL;
+  // (1) Source of truth is PRODUCTION_DATABASE_URL ONLY. We never read
+  //     DATABASE_URL and never fall back to a local default — that is exactly
+  //     how a run can silently hit localhost (user "postgres").
+  const url = (process.env.PRODUCTION_DATABASE_URL || '').trim();
+
+  // (2) Guard: missing/empty → exit clearly instead of connecting to localhost.
   if (!url) {
-    console.error('ERROR: PRODUCTION_DATABASE_URL is not set in .env');
+    console.error('ERROR: PRODUCTION_DATABASE_URL is not set (or empty) in .env');
     console.error('Add a line like  PRODUCTION_DATABASE_URL=postgres://...  to .env and retry.');
+    console.error('This script will NOT fall back to DATABASE_URL or localhost.');
     process.exit(1);
   }
 
-  const isLocal = /localhost|127\.0\.0\.1/.test(url);
+  // (3) Show the host (and port/db/user) we are about to connect to — never the
+  //     password — so it is obvious whether this is Railway prod or localhost.
+  let host;
+  try {
+    const u = new URL(url);
+    host = u.hostname;
+    console.log('Connecting to database:');
+    console.log(`  host: ${u.hostname}`);
+    console.log(`  port: ${u.port || '5432'}`);
+    console.log(`  db:   ${u.pathname.replace(/^\//, '') || '(default)'}`);
+    console.log(`  user: ${decodeURIComponent(u.username) || '(default)'}`);
+  } catch {
+    console.error('ERROR: PRODUCTION_DATABASE_URL is not a valid connection URL.');
+    process.exit(1);
+  }
+
+  const isLocal = /^(localhost|127\.0\.0\.1|::1)$/.test(host);
+  if (isLocal) {
+    console.warn('\nWARNING: host resolves to LOCALHOST — this is not Railway prod.');
+    console.warn('Check the PRODUCTION_DATABASE_URL value in your .env.\n');
+  }
+
   const pool = new Pool({
     connectionString: url,
     ssl: isLocal ? false : { rejectUnauthorized: false },
