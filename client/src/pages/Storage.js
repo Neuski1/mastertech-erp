@@ -187,7 +187,9 @@ export default function Storage() {
   const outdoor = spaces.filter(s => s.space_type === 'outdoor').sort(numSort);
   const indoor = spaces.filter(s => s.space_type === 'indoor').sort(numSort);
 
-  if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading...</div>;
+  // Only show the full-page loader on the FIRST load. Refetches (e.g. after an
+  // inline edit) keep the grid mounted so the scroll position is preserved.
+  if (loading && spaces.length === 0) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading...</div>;
 
   return (
     <div>
@@ -266,10 +268,18 @@ export default function Storage() {
         <h2 style={sectionTitle}>Outdoor Spaces ({outdoor.filter(s => s.billing_id).length}/{outdoor.length} occupied)</h2>
         <div style={gridStyle}>
           {outdoor.map(space => (
-            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
-              gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
-              canEdit={canEditRecords} onCellToggle={handleCellToggle}
-              isExpanded={expandedId === space.id} onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
+            <React.Fragment key={space.id}>
+              <SpaceCard space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
+                gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
+                canEdit={canEditRecords} onCellToggle={handleCellToggle}
+                isExpanded={expandedId === space.id} />
+              {expandedId === space.id && space.billing_id && canEditRecords && (
+                <div style={expandedEditorStyle}>
+                  <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials}
+                    onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
+                </div>
+              )}
+            </React.Fragment>
           ))}
         </div>
       </div>
@@ -279,10 +289,18 @@ export default function Storage() {
         <h2 style={sectionTitle}>Indoor Spaces ({indoor.filter(s => s.billing_id).length}/{indoor.length} occupied)</h2>
         <div style={gridStyle}>
           {indoor.map(space => (
-            <SpaceCard key={space.id} space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
-              gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
-              canEdit={canEditRecords} onCellToggle={handleCellToggle}
-              isExpanded={expandedId === space.id} onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
+            <React.Fragment key={space.id}>
+              <SpaceCard space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
+                gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
+                canEdit={canEditRecords} onCellToggle={handleCellToggle}
+                isExpanded={expandedId === space.id} />
+              {expandedId === space.id && space.billing_id && canEditRecords && (
+                <div style={expandedEditorStyle}>
+                  <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials}
+                    onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
+                </div>
+              )}
+            </React.Fragment>
           ))}
         </div>
       </div>
@@ -679,7 +697,7 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
   );
 }
 
-function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canEdit, onCellToggle, isExpanded, onChanged, onOpenFull }) {
+function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canEdit, onCellToggle, isExpanded }) {
   const occupied = !!space.billing_id;
   const label = space.label.replace(/^(Outdoor|Indoor)\s*/, '');
   const linearFt = space.space_linear_feet || space.unit_linear_feet;
@@ -688,10 +706,10 @@ function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canE
     <div onClick={onClick} style={{
       ...spaceCardStyle,
       backgroundColor: occupied ? '#fef2f2' : '#f0fdf4',
-      borderColor: occupied ? '#fca5a5' : '#86efac',
+      // Highlight the selected box; the editor renders as a full-width panel
+      // below (a separate grid item), so the card never changes position.
+      borderColor: isExpanded ? '#1e3a5f' : (occupied ? '#fca5a5' : '#86efac'),
       cursor: 'pointer',
-      // Let an expanded card grow to fit the inline editor.
-      gridColumn: isExpanded ? '1 / -1' : 'auto',
     }}>
       <div style={{ fontWeight: 700, fontSize: '0.9rem', color: occupied ? '#991b1b' : '#065f46', marginBottom: '4px' }}>
         {label}
@@ -709,9 +727,6 @@ function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canE
           )}
           {canSeeFinancials && <div style={{ color: '#059669' }}>${parseFloat(space.monthly_rate).toFixed(0)}/mo</div>}
           <PaymentMonthGrid box={gridBox} months={gridMonths} canEdit={canEdit} onToggle={onCellToggle} />
-          {isExpanded && canEdit && (
-            <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials} onChanged={onChanged} onOpenFull={onOpenFull} />
-          )}
         </div>
       ) : (
         <div style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 500 }}>Available</div>
@@ -780,10 +795,7 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
   const fieldWrap = { marginBottom: '8px' };
 
   return (
-    <div onClick={(e) => e.stopPropagation()} style={{
-      marginTop: '10px', paddingTop: '10px', borderTop: '2px solid #fca5a5',
-      cursor: 'default', fontSize: '0.75rem',
-    }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ cursor: 'default', fontSize: '0.75rem' }}>
       {status && <div style={{ fontSize: '0.7rem', color: '#065f46', fontWeight: 600, marginBottom: '6px' }}>{status}</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px' }}>
@@ -2174,6 +2186,16 @@ const spaceCardStyle = {
   border: '2px solid',
   minHeight: '80px',
   transition: 'transform 0.1s',
+};
+// Full-width panel for the expanded inline editor. It is its own grid item
+// (grid-column: 1 / -1), so the clicked card keeps its position and the page
+// does not jump on expand.
+const expandedEditorStyle = {
+  gridColumn: '1 / -1',
+  backgroundColor: '#fff',
+  border: '2px solid #1e3a5f',
+  borderRadius: '8px',
+  padding: '12px',
 };
 const overlayStyle = {
   position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
