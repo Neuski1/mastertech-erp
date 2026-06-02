@@ -810,13 +810,26 @@ router.post('/payment-grid/sync', requireRole('admin', 'service_writer', 'techni
         const invoices = response?.invoices || response?.result?.invoices || [];
 
         for (const inv of invoices) {
-          // Determine the month this invoice applies to.
+          // Determine the SERVICE month this invoice applies to.
+          // Storage is billed in advance: an invoice DUE on the last day of
+          // month M covers month M+1 (e.g. the invoice due May 31 is June's
+          // rent). The invoice title and line items are generic ("Outdoor RV
+          // Storage") and carry no month, so dueDate is the only reliable
+          // signal — we bucket by its month and shift one month forward.
           const pr = Array.isArray(inv.paymentRequests) ? inv.paymentRequests[0] : null;
-          const dateStr = (pr && pr.dueDate) || inv.createdAt || inv.created_at;
+          const dueDate = pr && pr.dueDate ? String(pr.dueDate) : null;
+          const dateStr = dueDate || inv.createdAt || inv.created_at;
           if (!dateStr) continue;
-          const year = parseInt(String(dateStr).slice(0, 4), 10);
-          const month = parseInt(String(dateStr).slice(5, 7), 10);
+          let year = parseInt(String(dateStr).slice(0, 4), 10);
+          let month = parseInt(String(dateStr).slice(5, 7), 10);
           if (!year || !month) continue;
+          // Advance-billing shift to the covered month. Only dueDate carries
+          // this meaning; the createdAt fallback is best-effort for the rare
+          // invoice with no payment request.
+          if (dueDate) {
+            month += 1;
+            if (month > 12) { month = 1; year += 1; }
+          }
           // Only persist within the visible 12-month window.
           if (year * 100 + month < oldestKey) continue;
 
