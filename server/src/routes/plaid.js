@@ -34,12 +34,14 @@ const plaidClient = new PlaidApi(plaidConfig);
 router.post('/link-token', async (req, res) => {
   try {
     const userId = req.user?.id || req.body?.userId || 'mastertech-owner';
+    const redirectUri = req.body?.redirect_uri || process.env.PLAID_REDIRECT_URI;
     const response = await plaidClient.linkTokenCreate({
       user: { client_user_id: String(userId) },
       client_name: 'Master Tech ERP',
       products: [Products.Transactions, Products.Liabilities],
       country_codes: [CountryCode.Us],
       language: 'en',
+      redirect_uri: redirectUri || undefined,
       webhook: process.env.PLAID_WEBHOOK_URL || undefined,
     });
     res.json({ link_token: response.data.link_token, expiration: response.data.expiration });

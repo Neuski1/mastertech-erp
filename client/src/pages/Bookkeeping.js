@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { api } from '../api/client';
 
+const LS_TOKEN = 'plaid_link_token';
+const LS_INST  = 'plaid_pending_institution';
+
 export default function Bookkeeping() {
   const [items, setItems] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -11,6 +14,12 @@ export default function Bookkeeping() {
   const [syncing, setSyncing] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  // Detect OAuth return: Plaid appends ?oauth_state_id=... to the redirect URI
+  const isOAuthRedirect = typeof window !== 'undefined' &&
+    window.location.search.includes('oauth_state_id=');
+  const savedLinkToken = isOAuthRedirect ? localStorage.getItem(LS_TOKEN) : null;
+  const savedInstitution = isOAuthRedirect ? localStorage.getItem(LS_INST) : null;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -24,7 +33,7 @@ export default function Bookkeeping() {
       setAccounts(ac);
       setGlAccounts(gl);
     } catch (e) {
-      setError(e.message);
+      setError(typeof e === 'string' ? e : (e.message || JSON.stringify(e)));
     } finally {
       setLoading(false);
     }
@@ -32,35 +41,63 @@ export default function Bookkeeping() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Fetch a link token whenever we need to connect a new bank
+  // If we have a saved token AND we're returning from OAuth, set it as the active token
+  useEffect(() => {
+    if (savedLinkToken && isOAuthRedirect) {
+      setLinkToken(savedLinkToken);
+    }
+  }, [savedLinkToken, isOAuthRedirect]);
+
   const startConnect = async () => {
     setError(''); setMessage('');
     try {
-      const { link_token } = await api.getPlaidLinkToken();
+      // Pass current URL as redirect_uri so Plaid OAuth banks return us here
+      const redirectUri = `${window.location.origin}/bookkeeping`;
+      const { link_token } = await api.getPlaidLinkToken(redirectUri);
+      localStorage.setItem(LS_TOKEN, link_token);
       setLinkToken(link_token);
     } catch (e) {
-      setError(e.message);
+      setError(typeof e === 'string' ? e : (e.message || JSON.stringify(e)));
     }
   };
 
   const onPlaidSuccess = useCallback(async (public_token, metadata) => {
     setMessage('Connecting...');
     try {
-      await api.exchangePlaidToken(public_token, metadata?.institution?.name);
-      setMessage(`Connected ${metadata?.institution?.name || 'institution'}.`);
+      const instName = metadata?.institution?.name || savedInstitution;
+      await api.exchangePlaidToken(public_token, instName);
+      setMessage(`Connected ${instName || 'institution'}.`);
       setLinkToken(null);
+      localStorage.removeItem(LS_TOKEN);
+      localStorage.removeItem(LS_INST);
+      // Clean ?oauth_state_id off the URL
+      if (window.location.search.includes('oauth_state_id')) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
       await loadData();
     } catch (e) {
-      setError('Connect failed: ' + e.message);
+      setError('Connect failed: ' + (typeof e === 'string' ? e : (e.message || JSON.stringify(e))));
     }
-  }, [loadData]);
+  }, [loadData, savedInstitution]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: onPlaidSuccess,
-    onExit: () => setLinkToken(null),
+    onExit: () => {
+      setLinkToken(null);
+      localStorage.removeItem(LS_TOKEN);
+      localStorage.removeItem(LS_INST);
+    },
+    onEvent: (eventName, metadata) => {
+      // Capture the institution name before OAuth redirect so we can recover it after
+      if (eventName === 'SELECT_INSTITUTION' && metadata?.institution_name) {
+        localStorage.setItem(LS_INST, metadata.institution_name);
+      }
+    },
+    receivedRedirectUri: isOAuthRedirect ? window.location.href : undefined,
   });
 
+  // Auto-open Link when token is ready (covers both fresh connect and OAuth resume)
   useEffect(() => {
     if (linkToken && ready) open();
   }, [linkToken, ready, open]);
@@ -73,7 +110,7 @@ export default function Bookkeeping() {
       setMessage(`Synced: ${r.added || 0} added, ${r.modified || 0} updated, ${r.removed || 0} removed`);
       await loadData();
     } catch (e) {
-      setError('Sync failed: ' + e.message);
+      setError('Sync failed: ' + (typeof e === 'string' ? e : (e.message || JSON.stringify(e))));
     } finally {
       setSyncing(null);
     }
@@ -85,7 +122,7 @@ export default function Bookkeeping() {
       await api.setPlaidGlMapping(plaidAccountId, glAccountNumber);
       await loadData();
     } catch (e) {
-      setError('Mapping failed: ' + e.message);
+      setError('Mapping failed: ' + (typeof e === 'string' ? e : (e.message || JSON.stringify(e))));
     }
   };
 
@@ -98,7 +135,7 @@ export default function Bookkeeping() {
       </p>
 
       {error && (
-        <div style={{ background: '#fee', border: '1px solid #c00', color: '#900', padding: 12, borderRadius: 6, marginBottom: 16 }}>
+        <div style={{ background: '#fee', border: '1px solid #c00', color: '#900', padding: 12, borderRadius: 6, marginBottom: 16, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {error}
         </div>
       )}
