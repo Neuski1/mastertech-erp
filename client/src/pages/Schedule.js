@@ -27,10 +27,10 @@ const STATUS_COLORS = {
 
 const TYPE_COLORS = {
   // New types
-  storage_pickup:      { bg: '#a855f7', dark: '#9333ea' }, // light purple
+  storage_pickup:      { bg: '#eab308', dark: '#ca8a04' }, // yellow
   storage_drop_off:    { bg: '#7c3aed', dark: '#6d28d9' }, // deep purple
-  rv_service_pickup:   { bg: '#0d9488', dark: '#0f766e' }, // teal
-  rv_service_drop_off: { bg: '#4f46e5', dark: '#4338ca' }, // indigo
+  rv_service_pickup:   { bg: '#ea580c', dark: '#c2410c' }, // orange
+  rv_service_drop_off: { bg: '#059669', dark: '#047857' }, // emerald green
   rv_diagnostics:      { bg: '#dc2626', dark: '#b91c1c' }, // red
   rv_estimate_build:   { bg: '#d97706', dark: '#b45309' }, // amber
   // Existing
