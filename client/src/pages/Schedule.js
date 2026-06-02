@@ -387,23 +387,31 @@ export default function Schedule() {
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '4px' }}>
-          <button onClick={() => setView('week')} style={view === 'week' ? btnToggleActive : btnToggle}>Week</button>
-          <button onClick={() => setView('month')} style={view === 'month' ? btnToggleActive : btnToggle}>Month</button>
-          <button onClick={() => setView('list')} style={view === 'list' ? btnToggleActive : btnToggle}>List</button>
-        </div>
-      </div>
-
-      {/* List view filter bar */}
-      {view === 'list' && (
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Always-visible customer name search. Typing here jumps the
+              calendar to List view so the search results are actually shown. */}
           <input
             type="text"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search by name..."
-            style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', width: '200px' }}
+            onChange={e => {
+              const q = e.target.value;
+              setSearchQuery(q);
+              if (q.trim() && view !== 'list') setView('list');
+            }}
+            placeholder="Search customer name..."
+            style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', width: isMobile ? '160px' : '220px' }}
           />
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button onClick={() => setView('week')} style={view === 'week' ? btnToggleActive : btnToggle}>Week</button>
+            <button onClick={() => setView('month')} style={view === 'month' ? btnToggleActive : btnToggle}>Month</button>
+            <button onClick={() => setView('list')} style={view === 'list' ? btnToggleActive : btnToggle}>List</button>
+          </div>
+        </div>
+      </div>
+
+      {/* List view filter bar (search input now lives above next to the view toggles) */}
+      {view === 'list' && (
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
