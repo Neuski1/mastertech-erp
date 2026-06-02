@@ -1729,7 +1729,7 @@ function ScheduleModal({ record, onSuccess, onClose }) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   const [date, setDate] = useState(today);
   const [time, setTime] = useState('09:00');
-  const [apptType, setApptType] = useState('drop_off');
+  const [apptType, setApptType] = useState('rv_service_drop_off');
   const [duration, setDuration] = useState(30);
   const [notes, setNotes] = useState(`WO #${record.record_number} - ${record.last_name || ''}${record.first_name ? ', ' + record.first_name : ''}`);
   const [customerEmail, setCustomerEmail] = useState(record.email_primary || '');
@@ -1784,11 +1784,14 @@ function ScheduleModal({ record, onSuccess, onClose }) {
             <div>
               <label style={labelStyle}>Type</label>
               <select value={apptType} onChange={(e) => setApptType(e.target.value)} style={inputStyle}>
-                <option value="drop_off">Drop Off</option>
-                <option value="pick_up">Pick Up</option>
+                <option value="storage_pickup">Storage Pickup</option>
+                <option value="storage_drop_off">Storage Drop Off</option>
+                <option value="rv_service_pickup">RV Service Pickup</option>
+                <option value="rv_service_drop_off">RV Service Drop Off</option>
+                <option value="rv_diagnostics">RV Diagnostics</option>
+                <option value="rv_estimate_build">RV Estimate Build</option>
                 <option value="rv_repair">RV Repair</option>
                 <option value="parts">Parts</option>
-                <option value="storage">Storage</option>
                 <option value="other">Other</option>
               </select>
             </div>
