@@ -790,10 +790,14 @@ router.get('/payment-grid', requireRole('admin', 'service_writer', 'bookkeeper',
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/storage/payment-grid/sync — Pull invoice status from Square for
-// every box that has a square_customer_id, cache it into storage_payment_status
-// (source=square), then return the refreshed grid. Manual overrides are never
-// overwritten. Degrades gracefully if Square is not configured.
+// POST /api/storage/payment-grid/sync — Pull recurring-invoice status from
+// Square for every active box that has a square_sub_id (the recurring INVOICE
+// SERIES id, e.g. 1537 — NOT a subscription). Square invoice search can't
+// filter by series, so we page ALL invoices for SQUARE_LOCATION_ID and match
+// each to a box by the series id embedded in the invoice number (1537-R-0003
+// -> 1537). Results are cached into storage_payment_status (source=square);
+// manual overrides are never overwritten. Degrades gracefully if Square is
+// not configured.
 // ---------------------------------------------------------------------------
 router.post('/payment-grid/sync', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const months = lastTwelveMonths();
@@ -806,75 +810,88 @@ router.post('/payment-grid/sync', requireRole('admin', 'service_writer', 'techni
   } catch (e) {
     return res.status(503).json({ error: 'Square is not available in this environment' });
   }
+  if (!locationId) {
+    return res.status(503).json({ error: 'SQUARE_LOCATION_ID is not configured — cannot list invoices' });
+  }
 
   try {
+    // Active boxes keyed by their recurring-invoice series id (square_sub_id).
     const { rows: boxes } = await pool.query(
-      `SELECT id AS billing_id, square_customer_id
+      `SELECT id AS billing_id, square_sub_id
          FROM storage_billing
         WHERE deleted_at IS NULL AND billing_end_date IS NULL
-          AND square_customer_id IS NOT NULL AND square_customer_id <> ''`
+          AND square_sub_id IS NOT NULL AND square_sub_id <> ''`
     );
+    const boxBySeries = new Map();
+    for (const b of boxes) boxBySeries.set(String(b.square_sub_id).trim(), b.billing_id);
 
-    const summary = { synced: 0, skipped: 0, invoices: 0, errors: [] };
+    const summary = {
+      boxes: boxes.length,   // active boxes that have a series id
+      invoicesScanned: 0,    // all invoices seen for the location
+      matched: 0,            // invoices matched to a box by series id
+      unmatched: 0,          // invoices whose series id isn't one of our boxes
+      cellsUpserted: 0,      // month cells written within the 12-month window
+      boxesSynced: 0,        // distinct boxes that received >=1 invoice
+    };
+    const syncedBoxes = new Set();
 
-    for (const box of boxes) {
-      try {
-        const response = await squareClient.invoices.search({
-          query: {
-            filter: {
-              locationIds: locationId ? [locationId] : undefined,
-              customerIds: [box.square_customer_id],
-            },
-          },
-          limit: 100,
-        });
+    // Series id = invoice_number prefix before "-R-" (1537-R-0003 -> 1537).
+    const seriesOf = (inv) => {
+      const num = inv.invoiceNumber || inv.invoice_number;
+      if (!num) return null;
+      const i = String(num).indexOf('-R-');
+      return i > 0 ? String(num).slice(0, i).trim() : null;
+    };
 
-        const invoices = response?.invoices || response?.result?.invoices || [];
+    // Page through every invoice for the location (no customer filter). The
+    // SDK Page object auto-paginates via async iteration.
+    const page = await squareClient.invoices.list({ locationId, limit: 200 });
+    for await (const inv of page) {
+      summary.invoicesScanned += 1;
 
-        for (const inv of invoices) {
-          // Determine the month this invoice applies to.
-          const pr = Array.isArray(inv.paymentRequests) ? inv.paymentRequests[0] : null;
-          const dateStr = (pr && pr.dueDate) || inv.createdAt || inv.created_at;
-          if (!dateStr) continue;
-          const year = parseInt(String(dateStr).slice(0, 4), 10);
-          const month = parseInt(String(dateStr).slice(5, 7), 10);
-          if (!year || !month) continue;
-          // Only persist within the visible 12-month window.
-          if (year * 100 + month < oldestKey) continue;
+      const series = seriesOf(inv);
+      const billingId = series ? boxBySeries.get(series) : undefined;
+      if (!billingId) { summary.unmatched += 1; continue; }
+      summary.matched += 1;
+      syncedBoxes.add(billingId);
 
-          const status = mapSquareStatus(inv.status);
+      // Bucket to its month by the billing-period / due date.
+      const pr = Array.isArray(inv.paymentRequests) ? inv.paymentRequests[0] : null;
+      const dateStr = (pr && pr.dueDate) || inv.createdAt || inv.created_at;
+      if (!dateStr) continue;
+      const year = parseInt(String(dateStr).slice(0, 4), 10);
+      const month = parseInt(String(dateStr).slice(5, 7), 10);
+      if (!year || !month) continue;
+      // Only persist within the visible 12-month window.
+      if (year * 100 + month < oldestKey) continue;
 
-          // Amount (cents -> dollars); tolerate BigInt / missing fields.
-          let amount = null;
-          const money = (pr && (pr.computedAmountMoney || pr.totalCompletedAmountMoney))
-            || inv.nextPaymentAmountMoney;
-          if (money && money.amount != null) {
-            amount = Number(money.amount) / 100;
-          }
+      const status = mapSquareStatus(inv.status);
 
-          // Upsert as source=square, but never clobber a manual override.
-          await pool.query(
-            `INSERT INTO storage_payment_status
-               (storage_billing_id, year, month, status, source, square_invoice_id, amount)
-             VALUES ($1, $2, $3, $4, 'square', $5, $6)
-             ON CONFLICT (storage_billing_id, year, month) DO UPDATE
-               SET status = EXCLUDED.status,
-                   source = 'square',
-                   square_invoice_id = EXCLUDED.square_invoice_id,
-                   amount = EXCLUDED.amount,
-                   updated_at = NOW()
-             WHERE storage_payment_status.source <> 'manual'`,
-            [box.billing_id, year, month, status, inv.id || null, amount]
-          );
-          summary.invoices += 1;
-        }
-        summary.synced += 1;
-      } catch (boxErr) {
-        summary.skipped += 1;
-        summary.errors.push({ billing_id: box.billing_id, error: boxErr.message });
-        console.error(`Square sync failed for billing ${box.billing_id}:`, boxErr.message);
-      }
+      // Amount (cents -> dollars); tolerate BigInt / missing fields.
+      let amount = null;
+      const money = (pr && (pr.computedAmountMoney || pr.totalCompletedAmountMoney))
+        || inv.nextPaymentAmountMoney;
+      if (money && money.amount != null) amount = Number(money.amount) / 100;
+
+      // Upsert as source=square, but never clobber a manual override.
+      await pool.query(
+        `INSERT INTO storage_payment_status
+           (storage_billing_id, year, month, status, source, square_invoice_id, amount)
+         VALUES ($1, $2, $3, $4, 'square', $5, $6)
+         ON CONFLICT (storage_billing_id, year, month) DO UPDATE
+           SET status = EXCLUDED.status,
+               source = 'square',
+               square_invoice_id = EXCLUDED.square_invoice_id,
+               amount = EXCLUDED.amount,
+               updated_at = NOW()
+         WHERE storage_payment_status.source <> 'manual'`,
+        [billingId, year, month, status, inv.id || null, amount]
+      );
+      summary.cellsUpserted += 1;
     }
+
+    summary.boxesSynced = syncedBoxes.size;
+    console.log('[storage payment-grid sync]', JSON.stringify(summary));
 
     const grid = await buildPaymentGrid();
     res.json({ sync: summary, ...grid });

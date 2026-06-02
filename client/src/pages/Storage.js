@@ -104,7 +104,7 @@ export default function Storage() {
       (data.boxes || []).forEach(b => { byBilling[b.billing_id] = b; });
       setGrid({ months: data.months || [], byBilling });
       const s = data.sync || {};
-      setActionMsg(`Square sync: ${s.synced || 0} customer(s), ${s.invoices || 0} invoice(s)${s.skipped ? `, ${s.skipped} skipped` : ''}.`);
+      setActionMsg(`Square sync: matched ${s.matched || 0} invoice(s) to ${s.boxesSynced || 0}/${s.boxes || 0} box(es); ${s.cellsUpserted || 0} month(s) updated; ${s.unmatched || 0} unmatched (of ${s.invoicesScanned || 0} scanned).`);
     } catch (err) {
       setError(err.message);
     } finally {
