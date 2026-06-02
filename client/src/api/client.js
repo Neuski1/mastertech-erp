@@ -404,7 +404,7 @@ export const api = {
   getTerminalPaymentStatus: (linkId) =>
     request(`/payments/online/links/${linkId}/terminal-status`),
   // Bookkeeping / Plaid
-  getPlaidLinkToken: () => request('/plaid/link-token', { method: 'POST', body: JSON.stringify({}) }),
+  getPlaidLinkToken: (redirect_uri) => request('/plaid/link-token', { method: 'POST', body: JSON.stringify({ redirect_uri }) }),
   exchangePlaidToken: (public_token, institution_name) =>
     request('/plaid/exchange-token', { method: 'POST', body: JSON.stringify({ public_token, institution_name }) }),
   getPlaidItems: () => request('/plaid/items'),
