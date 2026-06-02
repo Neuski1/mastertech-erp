@@ -855,15 +855,9 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
             style={inputStyleFull} />
         </div>
         <div style={fieldWrap}>
-          <label style={labelStyle}>Square Customer ID</label>
-          <input defaultValue={space.square_customer_id || ''} placeholder="Optional"
-            onBlur={(e) => saveBilling({ square_customer_id: e.target.value || null }, 'Square customer ID')}
-            style={inputStyleFull} />
-        </div>
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Square Subscription ID</label>
-          <input defaultValue={space.square_sub_id || ''} placeholder="Optional"
-            onBlur={(e) => saveBilling({ square_sub_id: e.target.value || null }, 'Square subscription ID')}
+          <label style={labelStyle}>Square Series ID</label>
+          <input defaultValue={space.square_sub_id || ''} placeholder="e.g. 1550"
+            onBlur={(e) => saveBilling({ square_sub_id: e.target.value || null }, 'Square series ID')}
             style={inputStyleFull} />
         </div>
       </div>
