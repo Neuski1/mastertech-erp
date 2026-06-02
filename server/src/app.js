@@ -409,6 +409,15 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_note TEXT DEFAULT NULL`);
     // Migration 052: per-part pricing notes (used on the Edit Part form to compare supplier prices)
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS pricing_notes TEXT DEFAULT NULL`);
+    // Migration 053: expand appointment_type enum with the more specific
+    // pickup/drop-off and diagnostics/estimate categories so the Schedule
+    // dropdown can split out the workflows the shop actually uses.
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'storage_pickup'");
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'storage_drop_off'");
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_service_pickup'");
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_service_drop_off'");
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_diagnostics'");
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_estimate_build'");
 
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');

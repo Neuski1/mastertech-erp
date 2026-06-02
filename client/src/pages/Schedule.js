@@ -4,12 +4,15 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 const APPT_TYPES = [
-  { value: 'drop_off', label: 'Drop Off' },
-  { value: 'pick_up', label: 'Pick Up' },
+  { value: 'storage_pickup', label: 'Storage Pickup' },
+  { value: 'storage_drop_off', label: 'Storage Drop Off' },
+  { value: 'rv_service_pickup', label: 'RV Service Pickup' },
+  { value: 'rv_service_drop_off', label: 'RV Service Drop Off' },
+  { value: 'rv_diagnostics', label: 'RV Diagnostics' },
+  { value: 'rv_estimate_build', label: 'RV Estimate Build' },
   { value: 'rv_repair', label: 'RV Repair' },
   { value: 'rv_service', label: 'RV Service' },
   { value: 'parts', label: 'Parts' },
-  { value: 'storage', label: 'Storage' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -24,13 +27,22 @@ const STATUS_COLORS = {
 };
 
 const TYPE_COLORS = {
-  drop_off:   { bg: '#2563eb', dark: '#1d4ed8' },
-  rv_repair:  { bg: '#16a34a', dark: '#15803d' },
-  rv_service: { bg: '#16a34a', dark: '#15803d' },
-  storage:    { bg: '#7c3aed', dark: '#6d28d9' },
-  pick_up:    { bg: '#ea580c', dark: '#c2410c' },
-  parts:      { bg: '#0891b2', dark: '#0e7490' },
-  other:      { bg: '#6b7280', dark: '#4b5563' },
+  // New types
+  storage_pickup:      { bg: '#a855f7', dark: '#9333ea' }, // light purple
+  storage_drop_off:    { bg: '#7c3aed', dark: '#6d28d9' }, // deep purple
+  rv_service_pickup:   { bg: '#0d9488', dark: '#0f766e' }, // teal
+  rv_service_drop_off: { bg: '#4f46e5', dark: '#4338ca' }, // indigo
+  rv_diagnostics:      { bg: '#dc2626', dark: '#b91c1c' }, // red
+  rv_estimate_build:   { bg: '#d97706', dark: '#b45309' }, // amber
+  // Existing
+  rv_repair:           { bg: '#16a34a', dark: '#15803d' }, // green
+  rv_service:          { bg: '#16a34a', dark: '#15803d' }, // green
+  parts:               { bg: '#0891b2', dark: '#0e7490' }, // cyan
+  other:               { bg: '#6b7280', dark: '#4b5563' }, // gray
+  // Legacy values left so old appointments still render with a color
+  drop_off:            { bg: '#2563eb', dark: '#1d4ed8' },
+  pick_up:             { bg: '#ea580c', dark: '#c2410c' },
+  storage:             { bg: '#7c3aed', dark: '#6d28d9' },
 };
 const getTypeColor = (type) => TYPE_COLORS[type] || TYPE_COLORS.other;
 

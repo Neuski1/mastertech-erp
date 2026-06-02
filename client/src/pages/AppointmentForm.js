@@ -5,12 +5,15 @@ import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import NewCustomerModal from '../components/NewCustomerModal';
 
 const APPT_TYPES = [
-  { value: 'drop_off', label: 'Drop Off' },
-  { value: 'pick_up', label: 'Pick Up' },
+  { value: 'storage_pickup', label: 'Storage Pickup' },
+  { value: 'storage_drop_off', label: 'Storage Drop Off' },
+  { value: 'rv_service_pickup', label: 'RV Service Pickup' },
+  { value: 'rv_service_drop_off', label: 'RV Service Drop Off' },
+  { value: 'rv_diagnostics', label: 'RV Diagnostics' },
+  { value: 'rv_estimate_build', label: 'RV Estimate Build' },
   { value: 'rv_repair', label: 'RV Repair' },
   { value: 'rv_service', label: 'RV Service' },
   { value: 'parts', label: 'Parts' },
-  { value: 'storage', label: 'Storage' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -27,7 +30,7 @@ export default function AppointmentForm() {
     customer_id: '',
     unit_id: '',
     record_id: '',
-    appointment_type: 'drop_off',
+    appointment_type: 'rv_service_drop_off',
     scheduled_date: prefillDate || new Date().toISOString().split('T')[0],
     scheduled_time: '09:00',
     duration_minutes: '60',
