@@ -39,9 +39,21 @@
  *     node scripts/inspect-square-invoices.js
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const { Pool } = require('pg');
+// Deps (dotenv, pg) live in server/node_modules, not the repo root. Resolve
+// them from there if a root-level install isn't present, so this runs no matter
+// which workspace got `npm install`.
+function dep(name) {
+  try {
+    return require(name);
+  } catch (e) {
+    return require(path.join(__dirname, '..', 'server', 'node_modules', name));
+  }
+}
+
+dep('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
+const { Pool } = dep('pg');
 
 // Boxes to inspect: display name + recurring series id (invoice_number prefix).
 const TARGETS = [
