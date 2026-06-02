@@ -88,9 +88,12 @@ async function syncAppointmentToCalendar(appointment, action = 'create') {
     end: { dateTime: endTime.toISOString(), timeZone: 'America/Denver' },
   };
 
-  if (appointment.email_primary) {
-    event.attendees = [{ email: appointment.email_primary }];
-  }
+  // Intentionally NOT adding the customer as an attendee — doing so makes
+  // Google Calendar fire its own "Invitation from..." email on top of the
+  // branded "Appointment Confirmed" email we send via Resend, which Carol's
+  // customers were seeing as a duplicate / unknown-sender second email.
+  // The shop's Google Calendar still shows the event; the customer gets the
+  // ics attachment in our Resend email for their own calendar.
 
   try {
     if (action === 'create') {

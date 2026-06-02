@@ -12,7 +12,6 @@ const APPT_TYPES = [
   { value: 'rv_diagnostics', label: 'RV Diagnostics' },
   { value: 'rv_estimate_build', label: 'RV Estimate Build' },
   { value: 'rv_repair', label: 'RV Repair' },
-  { value: 'rv_service', label: 'RV Service' },
   { value: 'parts', label: 'Parts' },
   { value: 'other', label: 'Other' },
 ];
