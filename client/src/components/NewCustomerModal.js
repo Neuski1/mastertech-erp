@@ -19,7 +19,7 @@ export default function NewCustomerModal({ onClose, onCreated, initialName = '' 
 
   const [form, setForm] = useState({
     first_name: parsed.first_name, last_name: parsed.last_name, company_name: '',
-    phone_primary: '', phone_secondary: '', email_primary: '',
+    phone_primary: '', phone_secondary: '', email_primary: '', email_secondary: '',
     address_street: '', address_city: '', address_state: '', address_zip: '',
   });
   const [saving, setSaving] = useState(false);
@@ -75,6 +75,10 @@ export default function NewCustomerModal({ onClose, onCreated, initialName = '' 
           <div>
             <label style={labelStyle}>Email</label>
             <input type="text" value={form.email_primary} onChange={(e) => handleChange('email_primary', e.target.value)} style={inputStyle} autoComplete="off" />
+          </div>
+          <div>
+            <label style={labelStyle}>Email 2</label>
+            <input type="text" value={form.email_secondary} onChange={(e) => handleChange('email_secondary', e.target.value)} style={inputStyle} autoComplete="off" />
           </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={labelStyle}>Street</label>

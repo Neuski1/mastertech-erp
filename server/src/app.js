@@ -418,6 +418,9 @@ const pool = require('./db/pool');
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_service_drop_off'");
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_diagnostics'");
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_estimate_build'");
+    // Migration 054: customers can have a second email on file (used as an
+    // alternate point of contact, surfaced everywhere email_primary is).
+    await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_secondary VARCHAR(255)');
 
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');

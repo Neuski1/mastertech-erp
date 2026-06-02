@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
       c.last_name ILIKE $${idx} OR c.first_name ILIKE $${idx} OR
       c.company_name ILIKE $${idx} OR c.account_number ILIKE $${idx} OR
       c.phone_primary ILIKE $${idx} OR c.phone_secondary ILIKE $${idx} OR
-      c.email_primary ILIKE $${idx} OR
+      c.email_primary ILIKE $${idx} OR c.email_secondary ILIKE $${idx} OR
       (c.first_name || ' ' || c.last_name) ILIKE $${idx}
     )`);
     params.push(`%${search}%`);
@@ -115,7 +115,7 @@ router.get('/', async (req, res) => {
     // Data query
     const dataSQL = `
       SELECT c.id, c.account_number, c.first_name, c.last_name, c.company_name,
-             c.phone_primary, c.phone_secondary, c.email_primary, c.address_city, c.address_state,
+             c.phone_primary, c.phone_secondary, c.email_primary, c.email_secondary, c.address_city, c.address_state,
              c.address_zip, c.is_storage_customer, c.lead_source,
              COUNT(DISTINCT u.id) FILTER (WHERE u.deleted_at IS NULL) AS unit_count,
              STRING_AGG(DISTINCT TRIM(CONCAT_WS(' ', u.year::text, u.make, u.model)), ', ') FILTER (WHERE u.deleted_at IS NULL) AS unit_descriptions,
@@ -144,7 +144,7 @@ router.get('/', async (req, res) => {
 // POST /api/customers — Create a new customer
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
-  const { first_name, last_name, company_name, phone_primary, phone_secondary, email_primary,
+  const { first_name, last_name, company_name, phone_primary, phone_secondary, email_primary, email_secondary,
           address_street, address_city, address_state, address_zip } = req.body;
 
   if (!last_name) {
@@ -161,10 +161,10 @@ router.post('/', async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO customers (account_number, first_name, last_name, company_name,
-         phone_primary, phone_secondary, email_primary, address_street, address_city, address_state, address_zip)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+         phone_primary, phone_secondary, email_primary, email_secondary, address_street, address_city, address_state, address_zip)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [accountNumber, first_name || null, last_name, company_name || null,
-       phone_primary || null, phone_secondary || null, email_primary || null, address_street || null,
+       phone_primary || null, phone_secondary || null, email_primary || null, email_secondary || null, address_street || null,
        address_city || null, address_state || null, address_zip || null]
     );
     res.status(201).json(rows[0]);

@@ -140,7 +140,7 @@ export default function CustomerDetail() {
     setError('');
     try {
       const fields = ['first_name', 'last_name', 'company_name', 'phone_primary',
-        'phone_secondary', 'email_primary', 'address_street', 'address_city',
+        'phone_secondary', 'email_primary', 'email_secondary', 'address_street', 'address_city',
         'address_state', 'address_zip', 'notes'];
       const updates = {};
       fields.forEach(f => {
@@ -211,6 +211,7 @@ export default function CustomerDetail() {
     { key: 'phone_primary', label: 'Phone 1' },
     { key: 'phone_secondary', label: 'Phone 2' },
     { key: 'email_primary', label: 'Email' },
+    { key: 'email_secondary', label: 'Email 2' },
     { key: 'address_street', label: 'Street' },
     { key: 'address_city', label: 'City' },
     { key: 'address_state', label: 'State' },
@@ -352,6 +353,7 @@ export default function CustomerDetail() {
               </span>
             )}
           </div>
+          <EditableField label="Email 2" field="email_secondary" value={formData.email_secondary || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="Street" field="address_street" value={formData.address_street || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="City" field="address_city" value={formData.address_city || ''} editing={editing} onChange={handleFieldChange} />
           <EditableField label="State" field="address_state" value={formData.address_state || ''} editing={editing} onChange={handleFieldChange} />
