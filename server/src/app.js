@@ -89,6 +89,7 @@ app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
 app.use('/api/reports', requireAuth, require('./routes/reports'));
 app.use('/api/bookkeeper-adjustments', requireAuth, require('./routes/bookkeeperAdjustments'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
+app.use('/api/cowork-admin', require('./routes/cowork-admin')); // API-key auth, separate from JWT
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/partners', requireAuth, require('./routes/partners'));
