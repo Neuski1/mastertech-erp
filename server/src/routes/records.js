@@ -1266,6 +1266,7 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
 
     const result = await sendEmail({
       to: record.customer_email,
+      cc: 'service@mastertechrvrepair.com',
       subject: `Estimate for Review — ${record.record_number || `Record #${id}`}`,
       html
     });
