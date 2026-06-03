@@ -248,6 +248,7 @@ export const api = {
 
   // Storage
   getStorageSpaces: () => request('/storage'),
+  getStorageSpaceHistory: (spaceId) => request(`/storage/spaces/${spaceId}/history`),
   createStorageSpace: (data) => request('/storage/spaces', { method: 'POST', body: JSON.stringify(data) }),
   assignStorage: (data) => request('/storage/assign', { method: 'POST', body: JSON.stringify(data) }),
   updateStorage: (id, data) => request(`/storage/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

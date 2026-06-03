@@ -424,6 +424,39 @@ const pool = require('./db/pool');
     // alternate point of contact, surfaced everywhere email_primary is).
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_secondary VARCHAR(255)');
 
+    // Migration 055: backfill missing storage_payment_status rows for active
+    // billings that never got a row in Jan-May 2026. Carol confirmed every
+    // active box was paid these months; the rows were missing because Square
+    // only syncs boxes with active Square subscriptions, leaving cash/check
+    // payers off the grid entirely. Marking source='manual' so a future
+    // Square sync can't clobber these. ON CONFLICT keeps existing rows.
+    await pool.query(`
+      INSERT INTO storage_payment_status
+        (storage_billing_id, year, month, status, source, amount)
+      VALUES
+        (17, 2026, 1, 'paid', 'manual', 132.00),
+        (26, 2026, 1, 'paid', 'manual', 660.00),
+        (17, 2026, 2, 'paid', 'manual', 132.00),
+        (26, 2026, 2, 'paid', 'manual', 660.00),
+        (12, 2026, 3, 'paid', 'manual',  96.00),
+        (16, 2026, 3, 'paid', 'manual', 120.00),
+        (17, 2026, 3, 'paid', 'manual', 132.00),
+        (26, 2026, 3, 'paid', 'manual', 660.00),
+        (29, 2026, 3, 'paid', 'manual', 418.00),
+        (16, 2026, 4, 'paid', 'manual', 120.00),
+        (17, 2026, 4, 'paid', 'manual', 132.00),
+        (26, 2026, 4, 'paid', 'manual', 660.00),
+        (33, 2026, 4, 'paid', 'manual', 150.00),
+        (34, 2026, 4, 'paid', 'manual', 150.00),
+        (35, 2026, 4, 'paid', 'manual', 150.00),
+        (36, 2026, 4, 'paid', 'manual', 150.00),
+        (37, 2026, 4, 'paid', 'manual', 132.00),
+        (38, 2026, 4, 'paid', 'manual', 150.00),
+        (17, 2026, 5, 'paid', 'manual', 132.00),
+        (26, 2026, 5, 'paid', 'manual', 660.00)
+      ON CONFLICT (storage_billing_id, year, month) DO NOTHING
+    `);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
@@ -459,6 +492,9 @@ startAppointmentReminderCron();
 
 const { startReviewRequestCron } = require('./jobs/reviewRequestCron');
 startReviewRequestCron();
+
+const { startStorageStatusBackfillCron } = require('./jobs/storageStatusBackfillCron');
+startStorageStatusBackfillCron();
 
 // Auto-migrate: create storage_waitlist if missing
 require('./db/pool').query(`

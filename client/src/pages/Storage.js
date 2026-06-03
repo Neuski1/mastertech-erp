@@ -1172,6 +1172,9 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [contractMsg, setContractMsg] = useState('');
+  const [history, setHistory] = useState([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   // Load customer's units for the dropdown
   useEffect(() => {
@@ -1179,6 +1182,15 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
       api.getCustomerUnits(space.customer_id).then(setCustomerUnits).catch(() => {});
     }
   }, [space.customer_id]);
+
+  // Lazy-load tenancy history when the section is first expanded
+  useEffect(() => {
+    if (historyOpen && !historyLoaded && space.id) {
+      api.getStorageSpaceHistory(space.id)
+        .then(rows => { setHistory(rows || []); setHistoryLoaded(true); })
+        .catch(err => { setError('History load failed: ' + err.message); setHistoryLoaded(true); });
+    }
+  }, [historyOpen, historyLoaded, space.id]);
 
   const customerName = `${space.last_name || ''}${space.first_name ? `, ${space.first_name}` : ''}` +
     (space.company_name ? ` (${space.company_name})` : '');
@@ -1397,6 +1409,65 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
             </div>
           </div>
         )}
+
+        {/* Box History — prior tenants of this same physical space */}
+        <div style={{ marginTop: '20px', marginBottom: '16px', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
+          <button onClick={() => setHistoryOpen(o => !o)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', fontWeight: 600, fontSize: '0.9rem', padding: 0 }}>
+            {historyOpen ? '▼' : '▶'} Box History
+          </button>
+          {historyOpen && (
+            <div style={{ marginTop: '10px' }}>
+              {!historyLoaded && <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Loading…</div>}
+              {historyLoaded && history.length === 0 && (
+                <div style={{ fontSize: '0.85rem', color: '#6b7280', fontStyle: 'italic' }}>No prior tenants.</div>
+              )}
+              {historyLoaded && history.length > 0 && (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f3f4f6', textAlign: 'left' }}>
+                      <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Customer</th>
+                      <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Unit</th>
+                      <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>Start</th>
+                      <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb' }}>End</th>
+                      <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>Rate</th>
+                      <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>Months Paid</th>
+                      {canSeeFinancials && <th style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>Total Paid</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map(h => {
+                      const isActive = !h.billing_end_date && !h.deleted_at;
+                      const name = `${h.last_name || ''}${h.first_name ? ', ' + h.first_name : ''}${h.company_name ? ' (' + h.company_name + ')' : ''}`;
+                      const unit = [h.unit_year, h.unit_make, h.unit_model].filter(Boolean).join(' ') || '—';
+                      const fmtDate = (d) => d ? (d.includes('T') ? d.split('T')[0] : d) : '—';
+                      return (
+                        <tr key={h.billing_id} style={{ backgroundColor: isActive ? '#ecfdf5' : 'transparent' }}>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>
+                            <a href={`/customers/${h.customer_id}`} style={{ color: '#1e3a5f', textDecoration: 'underline' }}>{name}</a>
+                            {isActive && <span style={{ marginLeft: '6px', fontSize: '0.7rem', color: '#059669', fontWeight: 600 }}>CURRENT</span>}
+                          </td>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{unit}</td>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{fmtDate(h.billing_start_date)}</td>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{fmtDate(h.billing_end_date)}</td>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>${parseFloat(h.monthly_rate || 0).toFixed(2)}</td>
+                          <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'right' }}>
+                            {h.paid_months}{h.unpaid_months > 0 ? <span style={{ color: '#dc2626' }}> ({h.unpaid_months} unpaid)</span> : ''}
+                          </td>
+                          {canSeeFinancials && (
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', fontWeight: 600 }}>
+                              ${parseFloat(h.paid_total || 0).toFixed(2)}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
           {canEdit && (

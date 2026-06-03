@@ -239,6 +239,49 @@ router.get('/customer/:customerId', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/storage/spaces/:id/history — full tenancy history for one space
+// Returns every storage_billing row (current + ended + soft-deleted) ever
+// attached to this space, with the customer, unit, dates, and a payment
+// summary rolled up from storage_payment_status. Used by the SpaceModal to
+// show prior tenants and their collected revenue.
+// ---------------------------------------------------------------------------
+router.get('/spaces/:id/history', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT sb.id AS billing_id,
+             sb.customer_id, sb.unit_id, sb.space_id,
+             sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
+             sb.notes, sb.created_at, sb.deleted_at,
+             c.first_name, c.last_name, c.company_name, c.account_number,
+             c.phone_primary, c.email_primary,
+             u.year  AS unit_year,
+             u.make  AS unit_make,
+             u.model AS unit_model,
+             COALESCE(p.paid_months, 0)   AS paid_months,
+             COALESCE(p.unpaid_months, 0) AS unpaid_months,
+             COALESCE(p.paid_total, 0)    AS paid_total
+        FROM storage_billing sb
+        JOIN customers c ON c.id = sb.customer_id
+        LEFT JOIN units u ON u.id = sb.unit_id
+        LEFT JOIN (
+          SELECT storage_billing_id,
+                 COUNT(*) FILTER (WHERE status = 'paid')   AS paid_months,
+                 COUNT(*) FILTER (WHERE status = 'unpaid') AS unpaid_months,
+                 COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS paid_total
+            FROM storage_payment_status
+           GROUP BY storage_billing_id
+        ) p ON p.storage_billing_id = sb.id
+       WHERE sb.space_id = $1
+       ORDER BY sb.billing_start_date DESC, sb.id DESC
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/storage/spaces/:id/history error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/storage/spaces — Add a new storage space (admin only)
 // ---------------------------------------------------------------------------
 router.post('/spaces', requireRole('admin'), async (req, res) => {
