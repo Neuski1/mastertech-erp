@@ -41,20 +41,22 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
 
     const totalPayments = payments.reduce((s, p) => s + parseFloat(p.total), 0);
 
-    // Storage revenue in date range — read from the GL ledger (transactions
-    // posted to storage-income account 4000), NOT from storage_charges, so
-    // storage income is counted exactly ONCE. Transfers (e.g. Square payout
-    // deposits) and removed rows are excluded.
+    // Storage revenue in date range — read from storage_payment_status
+    // (the per-month paid/unpaid grid backed by Square + manual overrides).
+    // Earlier this read from the GL transactions table, but that required
+    // every Plaid transaction to be hand-categorized to account 4000, so
+    // storage revenue almost always reported $0. storage_payment_status is
+    // the source of truth for what's actually been collected. Manual rows
+    // without an explicit amount fall back to the billing's monthly_rate.
     const { rows: [storage] } = await pool.query(`
       SELECT
-        COALESCE(SUM(t.amount), 0) AS total,
+        COALESCE(SUM(COALESCE(sps.amount, sb.monthly_rate)), 0) AS total,
         COUNT(*) AS charge_count
-      FROM transactions t
-      JOIN accounts a ON a.id = t.category_gl_id
-      WHERE a.account_number = '4000'
-        AND t.is_transfer = FALSE
-        AND t.status <> 'excluded'
-        AND t.txn_date BETWEEN $1 AND $2
+      FROM storage_payment_status sps
+      JOIN storage_billing sb ON sb.id = sps.storage_billing_id
+      WHERE sps.status = 'paid'
+        AND MAKE_DATE(sps.year, sps.month, 1)
+              BETWEEN DATE_TRUNC('month', $1::date) AND $2::date
     `, [from, to]);
 
     // Top customers by revenue
