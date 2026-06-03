@@ -11,6 +11,10 @@ import Schedule from './pages/Schedule';
 import AppointmentForm from './pages/AppointmentForm';
 import Settings from './pages/Settings';
 import Bookkeeping from './pages/Bookkeeping';
+import BookkeepingJournalEntries from './pages/BookkeepingJournalEntries';
+import BookkeepingChart from './pages/BookkeepingChart';
+import BookkeepingPnl from './pages/BookkeepingPnl';
+import BookkeepingBalanceSheet from './pages/BookkeepingBalanceSheet';
 import UserManagement from './pages/UserManagement';
 import Storage from './pages/Storage';
 import Partners from './pages/Partners';
@@ -209,6 +213,10 @@ function AppLayout() {
           <Route path="/reports/active-workorders" element={<ActiveWorkOrdersReport />} />
           <Route path="/payments/online" element={canManageSettings ? <OnlinePaymentsHistory /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping" element={canManageSettings ? <Bookkeeping /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping/journal-entries" element={canManageSettings ? <BookkeepingJournalEntries /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping/chart" element={canManageSettings ? <BookkeepingChart /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping/reports/pnl" element={canManageSettings ? <BookkeepingPnl /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping/reports/balance-sheet" element={canManageSettings ? <BookkeepingBalanceSheet /> : <Navigate to="/records" />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>
