@@ -1,0 +1,120 @@
+import React, { useState, useEffect } from 'react';
+import { api } from '../api/client';
+import BookkeepingNav from '../components/BookkeepingNav';
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+export default function BookkeepingPnl() {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(currentYear);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    api.getBookkeepingPnl(year)
+      .then(setData)
+      .catch(e => setError(e.message || String(e)))
+      .finally(() => setLoading(false));
+  }, [year]);
+
+  const fmt = (n) => {
+    const v = Number(n || 0);
+    if (v === 0) return '';
+    return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // Group accounts by type for P&L sections (Income, COGS, Expense, Other Income)
+  const groups = { Income: [], COGS: [], Expense: [], 'Other Income': [] };
+  if (data) for (const a of data.accounts) {
+    if (groups[a.account_type]) groups[a.account_type].push(a);
+  }
+
+  const sumMonths = (accts) => MONTHS.map((_, mi) => accts.reduce((s, a) => s + Number(a.months[mi]), 0));
+  const sumYear = (arr) => arr.reduce((s, n) => s + n, 0);
+
+  const income = sumMonths(groups['Income']);
+  const cogs = sumMonths(groups['COGS']);
+  const expense = sumMonths(groups['Expense']);
+  const otherInc = sumMonths(groups['Other Income']);
+  const grossProfit = income.map((v, i) => v - cogs[i]);
+  const netIncome = grossProfit.map((v, i) => v - expense[i] + otherInc[i]);
+
+  return (
+    <div style={{ padding: 24, maxWidth: 1600, margin: '0 auto' }}>
+      <h1 style={{ marginTop: 0 }}>Bookkeeping</h1>
+      <BookkeepingNav />
+      <div style={{ display:'flex', alignItems:'center', gap: 12, marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Profit &amp; Loss by Month</h2>
+        <label>
+          Year:&nbsp;
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ padding: 6, borderRadius: 4 }}>
+            {[currentYear, currentYear - 1, currentYear - 2, currentYear - 3].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
+      </div>
+      {error && <div style={{ background:'#fee', color:'#900', padding:12, borderRadius:6, marginBottom:16 }}>{error}</div>}
+      {loading ? <p>Loading...</p> : data && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+          <thead>
+            <tr style={{ background: '#1a2a4a', color: '#fff' }}>
+              <th style={{ ...thLeft, position: 'sticky', left: 0, background: '#1a2a4a' }}>Account</th>
+              {MONTHS.map(m => <th key={m} style={thRight}>{m}</th>)}
+              <th style={{ ...thRight, fontWeight: 700 }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {renderSection('INCOME', groups['Income'], fmt)}
+            {renderTotal('Total Income', income, fmt, '#e8f5e9')}
+            {renderSection('COST OF GOODS SOLD', groups['COGS'], fmt)}
+            {renderTotal('Total COGS', cogs, fmt, '#fff3e0')}
+            {renderTotal('GROSS PROFIT', grossProfit, fmt, '#c8e6c9')}
+            {renderSection('EXPENSES', groups['Expense'], fmt)}
+            {renderTotal('Total Expenses', expense, fmt, '#fce4ec')}
+            {renderSection('OTHER INCOME', groups['Other Income'], fmt)}
+            {renderTotal('Total Other Income', otherInc, fmt, '#e8f5e9')}
+            {renderTotal('NET INCOME', netIncome, fmt, '#1a2a4a', '#fff')}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function renderSection(label, accts, fmt) {
+  return (
+    <>
+      <tr style={{ background: '#f0f0f0' }}>
+        <td style={{ ...tdLeft, fontWeight: 700, position: 'sticky', left: 0, background: '#f0f0f0' }}>{label}</td>
+        {Array(13).fill(null).map((_, i) => <td key={i} style={tdRight}></td>)}
+      </tr>
+      {accts.map(a => (
+        <tr key={a.account_number}>
+          <td style={{ ...tdLeft, position: 'sticky', left: 0, background: '#fff' }}>
+            <span style={{ color: '#888', fontFamily: 'monospace', marginRight: 6 }}>{a.account_number}</span>{a.name}
+          </td>
+          {a.months.map((v, i) => <td key={i} style={tdRight}>{fmt(v)}</td>)}
+          <td style={{ ...tdRight, fontWeight: 600 }}>{fmt(a.months.reduce((s, n) => s + Number(n), 0))}</td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function renderTotal(label, vals, fmt, bg = '#e0e0e0', color = '#000') {
+  const total = vals.reduce((s, n) => s + n, 0);
+  return (
+    <tr style={{ background: bg, color }}>
+      <td style={{ ...tdLeft, fontWeight: 700, position: 'sticky', left: 0, background: bg, color }}>{label}</td>
+      {vals.map((v, i) => <td key={i} style={{ ...tdRight, fontWeight: 700 }}>{fmt(v)}</td>)}
+      <td style={{ ...tdRight, fontWeight: 700 }}>{fmt(total)}</td>
+    </tr>
+  );
+}
+
+const thLeft = { padding: '8px 12px', textAlign: 'left', minWidth: 250 };
+const thRight = { padding: '8px 12px', textAlign: 'right', minWidth: 90 };
+const tdLeft = { padding: '6px 12px', textAlign: 'left', borderBottom: '1px solid #eee' };
+const tdRight = { padding: '6px 12px', textAlign: 'right', borderBottom: '1px solid #eee', fontFamily: 'monospace' };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { api } from '../api/client';
+import BookkeepingNav from '../components/BookkeepingNav';
 
 const LS_TOKEN = 'plaid_link_token';
 const LS_INST  = 'plaid_pending_institution';
@@ -128,7 +129,9 @@ export default function Bookkeeping() {
 
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1 style={{ marginTop: 0 }}>Bookkeeping — Bank Connections</h1>
+      <h1 style={{ marginTop: 0 }}>Bookkeeping</h1>
+      <BookkeepingNav />
+      <h2 style={{ marginTop: 0 }}>Bank Connections</h2>
       <p style={{ color: '#666' }}>
         Connect your bank and credit card accounts. Transactions sync automatically and
         get categorized to your chart of accounts.
