@@ -91,12 +91,36 @@ async function sendViaResend(mailOptions) {
   return data;
 }
 
+// Canonical human-readable labels per appointment_type enum value. Falls back
+// to a generic prettifier (handling the "RV" abbreviation) for any value not
+// listed, so legacy or future types still render cleanly in customer emails.
+const APPT_TYPE_LABELS = {
+  storage_pickup:      'Storage Pickup',
+  storage_drop_off:    'Storage Drop Off',
+  rv_service_pickup:   'RV Service Pickup',
+  rv_service_drop_off: 'RV Service Drop Off',
+  rv_diagnostics:      'RV Diagnostics',
+  rv_estimate_build:   'RV Estimate Build',
+  rv_repair:           'RV Repair',
+  rv_service:          'RV Service',
+  parts:               'Parts',
+  storage:             'Storage',
+  drop_off:            'Drop Off',
+  pick_up:             'Pick Up',
+  other:               'Appointment',
+};
+function formatApptTypeLabel(t) {
+  if (!t) return 'Appointment';
+  if (APPT_TYPE_LABELS[t]) return APPT_TYPE_LABELS[t];
+  return String(t).replace(/_/g, ' ').replace(/\bRv\b/gi, 'RV').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 /**
  * Generate an .ics calendar invite for an appointment
  */
 function generateICS({ appointmentDate, appointmentTime, durationMinutes, appointmentType, notes }) {
   const duration = parseInt(durationMinutes) || 60;
-  const typeLabel = appointmentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const typeLabel = formatApptTypeLabel(appointmentType);
 
   // Convert Mountain Time to UTC for .ics (which expects UTC when using Z suffix)
   // Build a Date in Mountain Time using Intl to find the correct UTC offset
@@ -115,7 +139,7 @@ function generateICS({ appointmentDate, appointmentTime, durationMinutes, appoin
     startInputType: 'utc',
     startOutputType: 'utc',
     duration: { hours: Math.floor(duration / 60), minutes: duration % 60 },
-    title: 'RV Service Appointment — Master Tech RV Repair & Storage',
+    title: `${typeLabel} — Master Tech RV Repair & Storage`,
     description: `Appointment Type: ${typeLabel}${notes ? '\\n' + notes : ''}\\n\\nQuestions? Call (303) 557-2214 or email service@mastertechrvrepair.com`,
     location: '6590 East 49th Avenue, Commerce City, CO 80022',
     url: 'https://mastertechrvrepair.com/',
@@ -169,7 +193,7 @@ async function sendAppointmentConfirmation({
     return { success: false, error: 'Set RESEND_API_KEY or EMAIL_PASS to enable email' };
   }
 
-  const typeLabel = appointmentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const typeLabel = formatApptTypeLabel(appointmentType);
 
   const dateFormatted = new Date(appointmentDate + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -197,7 +221,7 @@ async function sendAppointmentConfirmation({
   const gcalEnd = `${gcalUtcEnd.getUTCFullYear()}${pad(gcalUtcEnd.getUTCMonth()+1)}${pad(gcalUtcEnd.getUTCDate())}T${pad(gcalUtcEnd.getUTCHours())}${pad(gcalUtcEnd.getUTCMinutes())}00Z`;
   const gcalParams = new URLSearchParams({
     action: 'TEMPLATE',
-    text: `RV Service Appointment — Master Tech RV`,
+    text: `${typeLabel} — Master Tech RV`,
     dates: `${gcalStart}/${gcalEnd}`,
     details: `Appointment type: ${typeLabel}\nQuestions? Call (303) 557-2214 or email service@mastertechrvrepair.com`,
     location: '6590 East 49th Avenue, Commerce City, CO 80022',
@@ -327,7 +351,7 @@ Our Service Makes Happy Campers!`;
     // No longer CC service@ — the From address already lands a copy in the
     // service inbox via Resend and we were getting duplicates per appointment.
     bcc: bcc || (process.env.EMAIL_USER !== 'service@mastertechrvrepair.com' ? process.env.EMAIL_USER : undefined),
-    subject: revised ? 'Appointment Updated — Master Tech RV Repair & Storage' : 'Appointment Confirmed — Master Tech RV Repair & Storage',
+    subject: revised ? `${typeLabel} Updated — Master Tech RV Repair & Storage` : `${typeLabel} Confirmed — Master Tech RV Repair & Storage`,
     html: htmlBody,
     text: textBody,
     attachments: [],

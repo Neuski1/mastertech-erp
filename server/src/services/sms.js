@@ -91,18 +91,41 @@ function formatApptTime(appointmentTime) {
   return `${hour12}:${m} ${ampm}`;
 }
 
-async function sendAppointmentSMS(phone, { customerFirstName, appointmentDate, appointmentTime }) {
+const APPT_TYPE_LABELS = {
+  storage_pickup:      'Storage Pickup',
+  storage_drop_off:    'Storage Drop Off',
+  rv_service_pickup:   'RV Service Pickup',
+  rv_service_drop_off: 'RV Service Drop Off',
+  rv_diagnostics:      'RV Diagnostics',
+  rv_estimate_build:   'RV Estimate Build',
+  rv_repair:           'RV Repair',
+  rv_service:          'RV Service',
+  parts:               'Parts',
+  storage:             'Storage',
+  drop_off:            'Drop Off',
+  pick_up:             'Pick Up',
+  other:               'Appointment',
+};
+function formatApptTypeLabel(t) {
+  if (!t) return 'appointment';
+  if (APPT_TYPE_LABELS[t]) return APPT_TYPE_LABELS[t];
+  return String(t).replace(/_/g, ' ').replace(/\bRv\b/gi, 'RV').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+async function sendAppointmentSMS(phone, { customerFirstName, appointmentDate, appointmentTime, appointmentType }) {
   const firstName = customerFirstName || 'there';
   const dateFormatted = formatApptDate(appointmentDate);
   const timeFormatted = formatApptTime(appointmentTime);
-  const body = `Hi ${firstName}, your RV service appt at Master Tech is confirmed for ${dateFormatted} at ${timeFormatted}. Directions: https://maps.google.com/?q=6590+E+49th+Ave+Commerce+City+CO+80022 Questions? Call (303) 557-2214. Reply STOP to opt out.`;
+  const typeLabel = formatApptTypeLabel(appointmentType);
+  const body = `Hi ${firstName}, your ${typeLabel} appointment at Master Tech is confirmed for ${dateFormatted} at ${timeFormatted}. Directions: https://maps.google.com/?q=6590+E+49th+Ave+Commerce+City+CO+80022 Questions? Call (303) 557-2214. Reply STOP to opt out.`;
   return sendSMS(phone, body);
 }
 
-async function sendAppointmentReminderSMS(phone, { customerFirstName, appointmentTime }) {
+async function sendAppointmentReminderSMS(phone, { customerFirstName, appointmentTime, appointmentType }) {
   const firstName = customerFirstName || 'there';
   const timeFormatted = formatApptTime(appointmentTime);
-  const body = `Hi ${firstName}, reminder: your RV service appt at Master Tech is tomorrow at ${timeFormatted}. Directions: https://maps.google.com/?q=6590+E+49th+Ave+Commerce+City+CO+80022 Questions? Call (303) 557-2214. Reply STOP to opt out.`;
+  const typeLabel = formatApptTypeLabel(appointmentType);
+  const body = `Hi ${firstName}, reminder: your ${typeLabel} appointment at Master Tech is tomorrow at ${timeFormatted}. Directions: https://maps.google.com/?q=6590+E+49th+Ave+Commerce+City+CO+80022 Questions? Call (303) 557-2214. Reply STOP to opt out.`;
   return sendSMS(phone, body);
 }
 

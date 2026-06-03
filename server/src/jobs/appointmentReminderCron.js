@@ -8,7 +8,7 @@ async function processAppointmentReminders() {
   // phone number. scheduled_at is TIMESTAMPTZ, so `AT TIME ZONE 'America/Denver'`
   // yields the Mountain wall-clock date regardless of the DB session timezone.
   const { rows } = await pool.query(`
-    SELECT a.id, a.scheduled_at, a.customer_phone,
+    SELECT a.id, a.scheduled_at, a.customer_phone, a.appointment_type,
            c.first_name, c.phone_primary
     FROM appointments a
     JOIN customers c ON c.id = a.customer_id
@@ -43,6 +43,7 @@ async function processAppointmentReminders() {
       const result = await sendAppointmentReminderSMS(phone, {
         customerFirstName: appt.first_name,
         appointmentTime: mtTime,
+        appointmentType: appt.appointment_type,
       });
       if (result.success) {
         await pool.query('UPDATE appointments SET sms_reminder_sent = true WHERE id = $1', [appt.id]);
