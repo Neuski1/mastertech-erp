@@ -414,4 +414,13 @@ export const api = {
     request(`/plaid/accounts/${plaidAccountId}/gl-mapping`, { method: 'PUT', body: JSON.stringify({ gl_account_number }) }),
   getGlAccounts: () => request('/plaid/gl-accounts'),
 
+  // Bookkeeping reports
+  getChartOfAccounts: () => request('/bookkeeping/chart-of-accounts'),
+  getJournalEntries: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request(q ? `/bookkeeping/journal-entries?${q}` : '/bookkeeping/journal-entries');
+  },
+  getBookkeepingPnl: (year) => request(`/bookkeeping/reports/pnl?year=${year || new Date().getFullYear()}`),
+  getBookkeepingBalanceSheet: (asOf) => request(`/bookkeeping/reports/balance-sheet${asOf ? `?as_of=${asOf}` : ''}`),
+
 };
