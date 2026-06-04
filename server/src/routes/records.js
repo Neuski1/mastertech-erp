@@ -97,10 +97,14 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
 // POST /api/records/:id/copy — Copy selected lines to a new record
 // ---------------------------------------------------------------------------
 router.post('/:id/copy', requireRole('admin', 'service_writer'), async (req, res) => {
-  const { customer_id, unit_id, labor_line_ids = [], parts_line_ids = [], freight_line_ids = [] } = req.body;
+  const { customer_id, unit_id, target_record_id, labor_line_ids = [], parts_line_ids = [], freight_line_ids = [] } = req.body;
 
-  if (!customer_id || !unit_id) {
-    return res.status(400).json({ error: 'customer_id and unit_id are required' });
+  // Two modes: append to an existing open WO (target_record_id), or
+  // create a brand-new record (customer_id + unit_id). Pick one.
+  if (target_record_id) {
+    // We'll validate the target record below.
+  } else if (!customer_id || !unit_id) {
+    return res.status(400).json({ error: 'Either target_record_id, or customer_id and unit_id, are required' });
   }
 
   const client = await pool.connect();
@@ -117,27 +121,46 @@ router.post('/:id/copy', requireRole('admin', 'service_writer'), async (req, res
     }
     const src = srcRows[0];
 
-    // Generate next record_number
-    const numRes = await client.query('SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records');
-    const recordNumber = numRes.rows[0].next_num;
+    let newId, recordNumber, appendMode = false;
 
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
-
-    // Create new record
-    const { rows: newRows } = await client.query(
-      `INSERT INTO records (
-         record_number, customer_id, unit_id, status, key_number,
-         job_description, is_insurance_job,
-         internal_notes, customer_notes,
-         tax_rate, shop_supplies_exempt, cc_fee_applied, intake_date
-       ) VALUES ($1,$2,$3,'estimate',$4,$5,false,$6,$7,$8,$9,true,$10)
-       RETURNING *`,
-      [recordNumber, customer_id, unit_id,
-       src.key_number || null, src.job_description || null,
-       src.internal_notes || null, src.customer_notes || null,
-       src.tax_rate, src.shop_supplies_exempt, today]
-    );
-    const newId = newRows[0].id;
+    if (target_record_id) {
+      // Append mode: validate the target is editable
+      const { rows: tgtRows } = await client.query(
+        'SELECT id, record_number, status FROM records WHERE id = $1 AND deleted_at IS NULL',
+        [target_record_id]
+      );
+      if (tgtRows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Target work order not found' });
+      }
+      const tgt = tgtRows[0];
+      if (['paid', 'void', 'complete', 'filed'].includes(tgt.status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Cannot append to a ${tgt.status} work order` });
+      }
+      newId = tgt.id;
+      recordNumber = tgt.record_number;
+      appendMode = true;
+    } else {
+      // New record mode (legacy default)
+      const numRes = await client.query('SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records');
+      recordNumber = numRes.rows[0].next_num;
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+      const { rows: newRows } = await client.query(
+        `INSERT INTO records (
+           record_number, customer_id, unit_id, status, key_number,
+           job_description, is_insurance_job,
+           internal_notes, customer_notes,
+           tax_rate, shop_supplies_exempt, cc_fee_applied, intake_date
+         ) VALUES ($1,$2,$3,'estimate',$4,$5,false,$6,$7,$8,$9,true,$10)
+         RETURNING *`,
+        [recordNumber, customer_id, unit_id,
+         src.key_number || null, src.job_description || null,
+         src.internal_notes || null, src.customer_notes || null,
+         src.tax_rate, src.shop_supplies_exempt, today]
+      );
+      newId = newRows[0].id;
+    }
 
     // Copy selected labor lines
     if (labor_line_ids.length > 0) {
@@ -203,7 +226,7 @@ router.post('/:id/copy', requireRole('admin', 'service_writer'), async (req, res
     await recalculateTotals(newId, client);
     await client.query('COMMIT');
 
-    res.status(201).json({ success: true, new_record_id: newId, record_number: recordNumber });
+    res.status(201).json({ success: true, new_record_id: newId, record_number: recordNumber, appended: appendMode });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/records/:id/copy error:', err);

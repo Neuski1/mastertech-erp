@@ -1528,11 +1528,16 @@ ${paymentDetailHtml}
 // ─── Manual Payment Modal (Check / Cash / Zelle) ────────────────────────────
 // ─── Schedule Modal ─────────────────────────────────────────────────────────
 function CopyToWOModal({ record, onClose, onSuccess }) {
+  // mode: 'new' = create a brand new record; 'existing' = append to open WO
+  const [mode, setMode] = React.useState('new');
   const [customerSearch, setCSearch] = React.useState('');
   const [customerResults, setCResults] = React.useState([]);
   const [selectedCustomer, setSelCustomer] = React.useState(null);
   const [units, setUnits] = React.useState([]);
   const [unitId, setUnitId] = React.useState('');
+  const [woSearch, setWoSearch] = React.useState('');
+  const [woResults, setWoResults] = React.useState([]);
+  const [selectedTarget, setSelectedTarget] = React.useState(null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -1555,6 +1560,24 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
     return () => clearTimeout(t);
   }, [customerSearch]);
 
+  // Search open work orders when in "existing" mode. Filters out closed
+  // (paid/void/complete/filed) records server-side via the search param —
+  // we further filter on the client to be safe.
+  React.useEffect(() => {
+    if (mode !== 'existing' || woSearch.length < 2) { setWoResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.getRecords({ search: woSearch, limit: 15 });
+        const open = (r.records || []).filter(rec =>
+          rec.id !== record.id &&
+          !['paid', 'void', 'complete', 'filed'].includes(rec.status)
+        );
+        setWoResults(open);
+      } catch (e) { /* ignore */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [woSearch, mode, record.id]);
+
   const pickCustomer = async (c) => {
     setSelCustomer(c);
     setCSearch('');
@@ -1574,13 +1597,16 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
   };
 
   const handleCopy = async () => {
-    if (!selectedCustomer || !unitId) return;
+    if (mode === 'new' && (!selectedCustomer || !unitId)) return;
+    if (mode === 'existing' && !selectedTarget) return;
     setSaving(true);
     setError('');
     try {
+      const payload = mode === 'existing'
+        ? { target_record_id: selectedTarget.id }
+        : { customer_id: selectedCustomer.id, unit_id: parseInt(unitId) };
       const res = await api.copyRecord(record.id, {
-        customer_id: selectedCustomer.id,
-        unit_id: parseInt(unitId),
+        ...payload,
         labor_line_ids: selLabor,
         parts_line_ids: selParts,
         freight_line_ids: selFreight,
@@ -1603,13 +1629,67 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, width: '600px', maxHeight: '85vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, color: '#1e3a5f' }}>Copy WO #{record.record_number} to New Record</h3>
+          <h3 style={{ margin: 0, color: '#1e3a5f' }}>Copy lines from WO #{record.record_number}</h3>
           <button onClick={onClose} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', color: '#6b7280' }}>X</button>
         </div>
 
         {error && <div style={{ padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', marginBottom: '12px', fontSize: '0.85rem' }}>{error}</div>}
 
-        {/* Customer search */}
+        {/* Mode toggle */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+          <button onClick={() => setMode('new')}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+                           backgroundColor: mode === 'new' ? '#1e3a5f' : '#fff', color: mode === 'new' ? '#fff' : '#374151' }}>
+            New Work Order
+          </button>
+          <button onClick={() => setMode('existing')}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+                           backgroundColor: mode === 'existing' ? '#1e3a5f' : '#fff', color: mode === 'existing' ? '#fff' : '#374151' }}>
+            Existing Open WO
+          </button>
+        </div>
+
+        {/* Existing WO picker */}
+        {mode === 'existing' && (
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>Target Work Order *</label>
+            {selectedTarget ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ padding: '6px 12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '0.85rem' }}>
+                  <strong>WO #{selectedTarget.record_number}</strong>
+                  <span style={{ color: '#6b7280', marginLeft: '6px', fontSize: '0.75rem', textTransform: 'uppercase' }}>{selectedTarget.status}</span>
+                  {selectedTarget.customer_last_name && (
+                    <span style={{ marginLeft: '8px' }}>— {selectedTarget.customer_last_name}{selectedTarget.customer_first_name ? ', ' + selectedTarget.customer_first_name : ''}</span>
+                  )}
+                </span>
+                <button onClick={() => setSelectedTarget(null)} style={{ padding: '3px 8px', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Change</button>
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input value={woSearch} onChange={(e) => setWoSearch(e.target.value)} placeholder="Search by WO# or customer name..." style={inputStyle} autoFocus />
+                {woResults.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '0 0 6px 6px', maxHeight: '220px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                    {woResults.map(w => (
+                      <div key={w.id} onClick={() => { setSelectedTarget(w); setWoSearch(''); setWoResults([]); }} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f3f4f6' }}>
+                        <strong>WO #{w.record_number}</strong>
+                        <span style={{ color: '#6b7280', marginLeft: '6px', fontSize: '0.7rem', textTransform: 'uppercase' }}>{w.status}</span>
+                        {w.customer_last_name && (
+                          <span style={{ marginLeft: '8px' }}>{w.customer_last_name}{w.customer_first_name ? ', ' + w.customer_first_name : ''}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {woSearch.length >= 2 && woResults.length === 0 && (
+                  <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '4px', fontStyle: 'italic' }}>No open work orders match. Paid, void, complete, and filed WOs are excluded.</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Customer search (only in new mode) */}
+        {mode === 'new' && (<>
         <div style={{ marginBottom: '12px' }}>
           <label style={labelStyle}>Copy to Customer *</label>
           {selectedCustomer ? (
@@ -1651,6 +1731,7 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
             </select>
           </div>
         )}
+        </>)}
 
         {/* Labor lines */}
         <div style={{ marginBottom: '12px' }}>
@@ -1711,12 +1792,16 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
             <strong>{selLabor.length}</strong> labor, <strong>{selParts.length}</strong> parts{selFreight.length > 0 ? `, ${selFreight.length} freight` : ''} selected
           </div>
           <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '12px', fontStyle: 'italic' }}>
-            Status will be set to Estimate. Payments and signatures are not copied.
+            {mode === 'new'
+              ? 'Status on the new WO will be set to Estimate. Payments and signatures are not copied.'
+              : 'Lines will be appended to the target WO. The target WO\'s status, payments, and signatures are unchanged.'}
           </div>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
             <button onClick={onClose} style={btnSecondary}>Cancel</button>
-            <button onClick={handleCopy} disabled={saving || !selectedCustomer || !unitId} style={{ ...btnPrimary, opacity: (!selectedCustomer || !unitId) ? 0.5 : 1 }}>
-              {saving ? 'Copying...' : 'Copy Work Order'}
+            <button onClick={handleCopy}
+                    disabled={saving || (mode === 'new' ? (!selectedCustomer || !unitId) : !selectedTarget)}
+                    style={{ ...btnPrimary, opacity: (mode === 'new' ? (!selectedCustomer || !unitId) : !selectedTarget) ? 0.5 : 1 }}>
+              {saving ? 'Copying...' : (mode === 'existing' ? 'Append to WO' : 'Create New WO')}
             </button>
           </div>
         </div>
