@@ -576,8 +576,10 @@ export default function RecordDetail() {
     <span>${r.company_name ? r.company_name + ' (' + (r.account_number || '') + ')' : ''}</span><br/>
     <span>${customerName}</span><br/>
     <span>${address || '—'}</span><br/>
-    <span>${r.email_primary || ''}</span><br/>
-    <span>${formatPhone(r.phone_primary) || ''}</span>
+    ${r.email_primary ? `<span>${r.email_primary}</span><br/>` : ''}
+    ${r.email_secondary ? `<span>${r.email_secondary}</span><br/>` : ''}
+    ${r.phone_primary ? `<span>${formatPhone(r.phone_primary)}</span>` : ''}
+    ${r.phone_secondary ? `<br/><span>${formatPhone(r.phone_secondary)}</span>` : ''}
   </div>
   <div>
     <label>Unit</label>

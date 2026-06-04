@@ -330,7 +330,7 @@ router.get('/:id', async (req, res) => {
     const { rows: recordRows } = await pool.query(
       `SELECT r.*,
               c.last_name, c.first_name, c.company_name, c.account_number,
-              c.phone_primary, c.email_primary, c.tax_exempt,
+              c.phone_primary, c.phone_secondary, c.email_primary, c.email_secondary, c.tax_exempt,
               c.address_street, c.address_city, c.address_state, c.address_zip,
               u.year, u.make, u.model, u.vin, u.license_plate, u.unit_notes
        FROM records r
@@ -777,7 +777,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
-              c.first_name, c.last_name, c.company_name, c.email_primary, c.phone_primary, c.account_number,
+              c.first_name, c.last_name, c.company_name, c.email_primary, c.email_secondary, c.phone_primary, c.phone_secondary, c.account_number,
               c.address_street, c.address_city, c.address_state, c.address_zip,
               u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin, u.license_plate
        FROM records r
@@ -950,7 +950,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
           <div style="font-weight:600;color:#111;">${customerName}${r.company_name ? ' (' + r.company_name + ')' : ''}</div>
           ${address ? `<div style="color:#374151;">${address}</div>` : ''}
           ${r.phone_primary ? `<div style="color:#374151;">${r.phone_primary}</div>` : ''}
+          ${r.phone_secondary ? `<div style="color:#374151;">${r.phone_secondary}</div>` : ''}
           ${r.email_primary ? `<div style="color:#374151;">${r.email_primary}</div>` : ''}
+          ${r.email_secondary ? `<div style="color:#374151;">${r.email_secondary}</div>` : ''}
         </td>
         <td style="padding:10px 14px;border:1px solid #e5e7eb;vertical-align:top;">
           <div style="font-size:10px;font-weight:bold;text-transform:uppercase;color:#6b7280;margin-bottom:4px;">Unit</div>
