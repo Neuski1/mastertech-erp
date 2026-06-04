@@ -524,7 +524,6 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <div>
                 <label style={labelStyle}>Sale Price Each *</label>
                 <input type="number" step="0.01" value={form.sale_price_each} onChange={(e) => setForm({ ...form, sale_price_each: e.target.value })} style={inlineInput} />
-                <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>Auto-calculated at 50% markup</div>
               </div>
               <div>
                 <label style={labelStyle}>Line Total</label>
