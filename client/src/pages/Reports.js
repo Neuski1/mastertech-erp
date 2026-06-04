@@ -133,9 +133,19 @@ export default function Reports() {
   // Subtotal = sum of line items (labor + parts + freight + shop supplies)
   // Not derived from grossRevenue which may differ for Summit-imported records
   const subtotal = r ? r.labor + r.parts + r.misc + r.shopSupplies : 0;
-  const grandTotal = r ? r.grossRevenue + report.storage.total : 0;
+  const storageRev = report ? report.storage.total : 0;
+  // INCOME line matches the bookkeeper convention: sales tax is a pass-through
+  // liability (booked separately) and CC fees are a bank expense (booked
+  // separately), so neither belongs in "income". Subtotal + Storage IS the
+  // line that should match the bookkeeper's P&L Income figure.
+  const incomeMatchesBookkeeper = subtotal + storageRev;
+  // Total Collected = everything that hit the bank from the customer, including
+  // sales tax we'll remit and CC fees the customer covered. Used for cash
+  // reconciliation, NOT for matching bookkeeper Income.
+  const totalCollected = r ? r.grossRevenue + storageRev : 0;
   const adjTotal = adjustments.reduce((sum, a) => sum + parseFloat(a.adjustment_amount || 0), 0);
-  const adjustedTotal = grandTotal + adjTotal;
+  // Adjustments reconcile to the bookkeeper Income line, not Total Collected.
+  const adjustedIncome = incomeMatchesBookkeeper + adjTotal;
 
   return (
     <div style={{ maxWidth: '800px' }}>
@@ -204,12 +214,9 @@ export default function Reports() {
                 <Row label="Parts" value={fmtCur(r.parts)} />
                 <Row label="Miscellaneous / Freight" value={fmtCur(r.misc)} />
                 <Row label="Shop Supplies" value={fmtCur(r.shopSupplies)} />
-                <Row label="SUBTOTAL (before tax/fees)" value={fmtCur(subtotal)} bold border />
-                <Row label="Sales Tax" value={fmtCur(r.tax)} indent />
-                <Row label="Credit Card Fees (3%)" value={fmtCur(r.ccFees)} indent />
-                <Row label="TOTAL SERVICE REVENUE" value={fmtCur(r.grossRevenue)} bold border />
-                <Row label="Storage Revenue" value={fmtCur(report.storage.total)} />
-                <Row label="GRAND TOTAL" value={fmtCur(grandTotal)} bold border color="#065f46" />
+                <Row label="Subtotal (Labor + Parts + Misc + Supplies)" value={fmtCur(subtotal)} bold border />
+                <Row label="Storage Revenue" value={fmtCur(storageRev)} />
+                <Row label="INCOME (matches bookkeeper)" value={fmtCur(incomeMatchesBookkeeper)} bold border color="#065f46" />
                 {adjustments.map(a => {
                   const amt = parseFloat(a.adjustment_amount || 0);
                   const amtColor = amt < 0 ? '#dc2626' : '#065f46';
@@ -233,7 +240,7 @@ export default function Reports() {
                   );
                 })}
                 {adjustments.length > 0 && (
-                  <Row label="ADJUSTED TOTAL" value={fmtCur(adjustedTotal)} bold border color="#0d9488" />
+                  <Row label="ADJUSTED INCOME (after bookkeeper)" value={fmtCur(adjustedIncome)} bold border color="#0d9488" />
                 )}
                 {isAdmin && adjEditing === null && adjustments.length === 0 && (
                   <tr className="print-hide">
@@ -287,6 +294,19 @@ export default function Reports() {
                     </td>
                   </tr>
                 )}
+                <tr>
+                  <td style={{ padding: '6px 12px 6px 28px', fontSize: '0.8rem', color: '#6b7280', fontStyle: 'italic' }}>
+                    Sales Tax <span style={{ fontSize: '0.7rem' }}>(pass-through liability — booked separately by bookkeeper)</span>
+                  </td>
+                  <td style={{ padding: '6px 12px', textAlign: 'right', fontSize: '0.8rem', color: '#6b7280', fontStyle: 'italic' }}>{fmtCur(r.tax)}</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '6px 12px 6px 28px', fontSize: '0.8rem', color: '#6b7280', fontStyle: 'italic' }}>
+                    Credit Card Fees (3%) <span style={{ fontSize: '0.7rem' }}>(bank expense — booked separately by bookkeeper)</span>
+                  </td>
+                  <td style={{ padding: '6px 12px', textAlign: 'right', fontSize: '0.8rem', color: '#6b7280', fontStyle: 'italic' }}>{fmtCur(r.ccFees)}</td>
+                </tr>
+                <Row label="TOTAL COLLECTED (cash to bank)" value={fmtCur(totalCollected)} bold border />
               </tbody>
             </table>
           </div>
