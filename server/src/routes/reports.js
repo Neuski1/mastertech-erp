@@ -9,24 +9,45 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
   if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
 
   try {
-    // Revenue from paid records in date range (by actual_completion_date or created_at)
+    // Paid revenue in date range — attributed to the LAST PAYMENT DATE on the
+    // record, not the completion date. Master Tech is cash-basis: a WO can be
+    // completed Mar 28 but the customer pays Apr 3 when they come pick up, and
+    // the bookkeeper records the revenue in April when cash hits the bank.
+    // Using actual_completion_date here put real April revenue into March.
     const { rows: [revenue] } = await pool.query(`
       SELECT
+        COUNT(*) AS paid_count,
+        COALESCE(SUM(r.labor_subtotal), 0)        AS labor,
+        COALESCE(SUM(r.parts_subtotal), 0)        AS parts,
+        COALESCE(SUM(r.freight_subtotal), 0)      AS misc,
+        COALESCE(SUM(r.shop_supplies_amount), 0)  AS shop_supplies,
+        COALESCE(SUM(r.tax_amount), 0)            AS tax,
+        COALESCE(SUM(r.cc_fee_amount), 0)         AS cc_fees,
+        COALESCE(SUM(r.total_sales), 0)           AS gross_revenue,
+        COALESCE(AVG(r.total_sales), 0)           AS avg_invoice,
+        COALESCE(MAX(r.total_sales), 0)           AS max_invoice
+      FROM records r
+      JOIN (
+        SELECT record_id, MAX(payment_date) AS last_payment_date
+          FROM payments
+         WHERE deleted_at IS NULL
+         GROUP BY record_id
+      ) p ON p.record_id = r.id
+      WHERE r.deleted_at IS NULL
+        AND r.status = 'paid'
+        AND p.last_payment_date BETWEEN $1 AND $2
+    `, [from, to]);
+
+    // Work-order activity counts (total/open) stay on the completion-date
+    // basis since "how many WOs were open this month" is an operational
+    // question, not a revenue question.
+    const { rows: [activity] } = await pool.query(`
+      SELECT
         COUNT(*) AS total_records,
-        COUNT(*) FILTER (WHERE status = 'paid') AS paid_count,
-        COUNT(*) FILTER (WHERE status NOT IN ('paid', 'void')) AS open_count,
-        COALESCE(SUM(labor_subtotal) FILTER (WHERE status = 'paid'), 0) AS labor,
-        COALESCE(SUM(parts_subtotal) FILTER (WHERE status = 'paid'), 0) AS parts,
-        COALESCE(SUM(freight_subtotal) FILTER (WHERE status = 'paid'), 0) AS misc,
-        COALESCE(SUM(shop_supplies_amount) FILTER (WHERE status = 'paid'), 0) AS shop_supplies,
-        COALESCE(SUM(tax_amount) FILTER (WHERE status = 'paid'), 0) AS tax,
-        COALESCE(SUM(cc_fee_amount) FILTER (WHERE status = 'paid'), 0) AS cc_fees,
-        COALESCE(SUM(total_sales) FILTER (WHERE status = 'paid'), 0) AS gross_revenue,
-        COALESCE(AVG(total_sales) FILTER (WHERE status = 'paid'), 0) AS avg_invoice,
-        COALESCE(MAX(total_sales) FILTER (WHERE status = 'paid'), 0) AS max_invoice
+        COUNT(*) FILTER (WHERE status NOT IN ('paid', 'void')) AS open_count
       FROM records
       WHERE deleted_at IS NULL
-      AND COALESCE(actual_completion_date, created_at::date) BETWEEN $1 AND $2
+        AND COALESCE(actual_completion_date, created_at::date) BETWEEN $1 AND $2
     `, [from, to]);
 
     // Payments by method in date range
@@ -66,8 +87,14 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
              SUM(r.total_sales) AS total_revenue
       FROM records r
       JOIN customers c ON c.id = r.customer_id
+      JOIN (
+        SELECT record_id, MAX(payment_date) AS last_payment_date
+          FROM payments
+         WHERE deleted_at IS NULL
+         GROUP BY record_id
+      ) p ON p.record_id = r.id
       WHERE r.deleted_at IS NULL AND r.status = 'paid'
-      AND COALESCE(r.actual_completion_date, r.created_at::date) BETWEEN $1 AND $2
+        AND p.last_payment_date BETWEEN $1 AND $2
       GROUP BY c.id, c.first_name, c.last_name, c.company_name
       ORDER BY total_revenue DESC
       LIMIT 10
@@ -91,9 +118,9 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
         chargeCount: parseInt(storage.charge_count),
       },
       workOrders: {
-        total: parseInt(revenue.total_records),
+        total: parseInt(activity.total_records),
         paid: parseInt(revenue.paid_count),
-        open: parseInt(revenue.open_count),
+        open: parseInt(activity.open_count),
       },
       payments: payments.map(p => ({
         method: p.payment_method,
