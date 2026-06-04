@@ -42,9 +42,13 @@ function brandedPage(title, body) {
 // ---------------------------------------------------------------------------
 router.get('/:token', async (req, res) => {
   try {
-    // Validate token
+    // Validate token; pull r.total_sales so the customer can see what the
+    // work order is already at, and what the new total will be once the
+    // additional inspection items they approve are added.
     const { rows: tokenRows } = await pool.query(
-      `SELECT ela.*, r.record_number, r.id AS record_id, c.first_name
+      `SELECT ela.*, r.record_number, r.id AS record_id,
+              r.total_sales AS existing_total,
+              c.first_name
        FROM estimate_line_approvals ela
        JOIN records r ON r.id = ela.record_id
        JOIN customers c ON c.id = r.customer_id
@@ -103,12 +107,13 @@ router.get('/:token', async (req, res) => {
         <table><tr><th class="cb-cell">Approve</th><th>Description</th><th class="right">Hours</th><th class="right">Rate</th><th class="right">Total</th></tr>`;
       laborLines.forEach(l => {
         const checked = 'checked'; // pre-selected by default; customer unchecks to decline
+        const lt = parseFloat(l.line_total);
         laborHtml += `<tr>
-          <td class="cb-cell"><input type="checkbox" name="labor_${l.id}" value="${l.id}" ${checked}></td>
+          <td class="cb-cell"><input type="checkbox" name="labor_${l.id}" value="${l.id}" ${checked} class="estimate-cb" data-amount="${lt.toFixed(2)}"></td>
           <td>${l.description}</td>
           <td class="right">${parseFloat(l.hours).toFixed(1)}</td>
           <td class="right">$${parseFloat(l.rate).toFixed(2)}</td>
-          <td class="right">$${parseFloat(l.line_total).toFixed(2)}</td>
+          <td class="right">$${lt.toFixed(2)}</td>
         </tr>`;
       });
       laborHtml += '</table>';
@@ -120,21 +125,27 @@ router.get('/:token', async (req, res) => {
         <table><tr><th class="cb-cell">Approve</th><th>Description</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr>`;
       partsLines.forEach(p => {
         const checked = 'checked'; // pre-selected by default; customer unchecks to decline
+        const lt = parseFloat(p.line_total);
         partsHtml += `<tr>
-          <td class="cb-cell"><input type="checkbox" name="parts_${p.id}" value="${p.id}" ${checked}></td>
+          <td class="cb-cell"><input type="checkbox" name="parts_${p.id}" value="${p.id}" ${checked} class="estimate-cb" data-amount="${lt.toFixed(2)}"></td>
           <td>${p.description}</td>
           <td class="right">${parseFloat(p.quantity)}</td>
           <td class="right">$${parseFloat(p.sale_price_each).toFixed(2)}</td>
-          <td class="right">$${parseFloat(p.line_total).toFixed(2)}</td>
+          <td class="right">$${lt.toFixed(2)}</td>
         </tr>`;
       });
       partsHtml += '</table>';
     }
 
-    // Total estimate
+    // Total estimate (everything checked by default)
     let totalEstimate = 0;
     laborLines.forEach(l => totalEstimate += parseFloat(l.line_total));
     partsLines.forEach(p => totalEstimate += parseFloat(p.line_total));
+
+    // What the WO is already at (work that was approved or committed before
+    // these new inspection findings came in). Could be 0 for a fresh estimate.
+    const existingTotal = parseFloat(token.existing_total || 0);
+    const startingNewTotal = existingTotal + totalEstimate;
 
     const body = `
       <h2 style="color:#1e3a5f;margin:0 0 8px;">Estimate Review</h2>
@@ -143,10 +154,50 @@ router.get('/:token', async (req, res) => {
       <form method="POST" action="/api/estimate-lines/approve/${req.params.token}">
         ${laborHtml}
         ${partsHtml}
-        <p style="font-size:16px;margin:20px 0 8px;"><strong>Total Estimate: $${totalEstimate.toFixed(2)}</strong></p>
+
+        <div style="margin:24px 0 12px;padding:16px 18px;background:#f0fdf4;border:2px solid #065f46;border-radius:10px;">
+          ${existingTotal > 0 ? `
+            <div style="display:flex;justify-content:space-between;font-size:14px;color:#374151;margin-bottom:6px;">
+              <span>Existing work order balance</span>
+              <span>$${existingTotal.toFixed(2)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:14px;color:#374151;margin-bottom:10px;">
+              <span>Additional items selected</span>
+              <span>+ $<span id="selected-total">${totalEstimate.toFixed(2)}</span></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#065f46;border-top:1px solid #86efac;padding-top:10px;">
+              <span>New work order total</span>
+              <span>$<span id="new-total">${startingNewTotal.toFixed(2)}</span></span>
+            </div>
+          ` : `
+            <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#065f46;">
+              <span>Total of selected items</span>
+              <span>$<span id="selected-total">${totalEstimate.toFixed(2)}</span></span>
+            </div>
+          `}
+          <p style="color:#6b7280;font-size:12px;margin:10px 0 0;">Updates live as you check or uncheck items. Sales tax not included.</p>
+        </div>
+
         <p style="color:#6b7280;font-size:13px;margin:0 0 20px;">Only checked items will be added to your work order. Uncheck any you would like to decline.</p>
         <button type="submit" class="btn">Approve Selected Items</button>
       </form>
+      <script>
+        (function() {
+          var existingTotal = ${existingTotal.toFixed(2)};
+          var cbs = document.querySelectorAll('.estimate-cb');
+          var selSpan = document.getElementById('selected-total');
+          var newSpan = document.getElementById('new-total');
+          function recalc() {
+            var sel = 0;
+            for (var i = 0; i < cbs.length; i++) {
+              if (cbs[i].checked) sel += parseFloat(cbs[i].dataset.amount || 0);
+            }
+            if (selSpan) selSpan.textContent = sel.toFixed(2);
+            if (newSpan) newSpan.textContent = (existingTotal + sel).toFixed(2);
+          }
+          for (var j = 0; j < cbs.length; j++) cbs[j].addEventListener('change', recalc);
+        })();
+      </script>
     `;
 
     res.send(brandedPage('Estimate Review', body));
