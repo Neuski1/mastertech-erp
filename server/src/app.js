@@ -423,6 +423,11 @@ const pool = require('./db/pool');
     // Migration 054: customers can have a second email on file (used as an
     // alternate point of contact, surfaced everywhere email_primary is).
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_secondary VARCHAR(255)');
+    // Migration 056: snapshot the supplier/mfr part number on the parts line
+    // when a part is pulled from inventory. Used only for in-app verification
+    // by service writers (so they don't have to bounce to the inventory
+    // module). Intentionally never printed on the customer-facing work order.
+    await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS vendor_part_number VARCHAR(100)');
 
     // Migration 055: backfill missing storage_payment_status rows for active
     // billings that never got a row in Jan-May 2026. Carol confirmed every

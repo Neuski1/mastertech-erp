@@ -121,6 +121,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       finalPartNumber = inv.part_number;
       finalDescription = inv.description;
       finalCostEach = parseFloat(inv.cost_each) || null;
+      var finalVendorPartNumber = inv.vendor_part_number || null;
       // Use user-provided sale price if given, otherwise fall back to inventory price
       finalSalePrice = (sale_price_each !== undefined && sale_price_each !== null && !isNaN(parseFloat(sale_price_each)))
         ? parseFloat(sale_price_each)
@@ -173,12 +174,14 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     const { rows } = await client.query(
       `INSERT INTO record_parts_lines
-         (record_id, inventory_id, is_inventory_part, part_number, description,
+         (record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description,
           quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor,
           order_status, order_supplier, is_estimate_line)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
-      [recordId, finalInventoryId, isInvPart, finalPartNumber, finalDescription,
+      [recordId, finalInventoryId, isInvPart, finalPartNumber,
+       typeof finalVendorPartNumber === 'undefined' ? null : finalVendorPartNumber,
+       finalDescription,
        parsedQty, finalCostEach, finalSalePrice, lineTotal,
        taxable !== undefined ? taxable : true, sortRes.rows[0].next_sort, finalVendor,
        autoOrderStatus, autoOrderSupplier, isEstimate]
