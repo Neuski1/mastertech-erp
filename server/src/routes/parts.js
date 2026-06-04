@@ -126,8 +126,14 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
         ? parseFloat(sale_price_each)
         : parseFloat(inv.sale_price_each);
 
-      // Decrement inventory only for non-estimate/filed records (skip if user chose "Order New")
-      if (!skip_deduct && recRows[0].status !== 'estimate' && recRows[0].status !== 'filed') {
+      // Decrement inventory only when the line is becoming a real work-order
+      // line, not an estimate (inspection-findings) line. Inspection findings
+      // are proposals — they don't commit stock until the customer approves
+      // them (which flips is_estimate_line FALSE). 'filed' records and the
+      // user's explicit "Order New" choice also skip the decrement.
+      const lineIsEstimate = !!is_estimate_line;
+      if (!skip_deduct && !lineIsEstimate
+          && recRows[0].status !== 'estimate' && recRows[0].status !== 'filed') {
         await client.query(
           'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
           [parsedQty, inv.id]
@@ -328,8 +334,11 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       updates.push(`quantity = $${idx++}`);
       values.push(newQty);
 
-      // Adjust inventory if inventory part (skip for estimates)
-      if (existing.is_inventory_part && existing.inventory_id && recordStatus !== 'estimate') {
+      // Adjust inventory only for real WO lines (not inspection-finding
+      // estimate lines, not lines on an estimate-status record).
+      if (existing.is_inventory_part && existing.inventory_id
+          && !existing.is_estimate_line
+          && recordStatus !== 'estimate') {
         const qtyDiff = newQty - parseFloat(existing.quantity);
         if (qtyDiff !== 0) {
           await client.query(
@@ -363,20 +372,44 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (order_number !== undefined) { updates.push(`order_number = $${idx++}`); values.push(order_number || null); }
     if (order_tracking !== undefined) { updates.push(`order_tracking = $${idx++}`); values.push(order_tracking || null); }
 
-    // Estimate line fields
+    // Estimate line fields. Decide the FINAL is_estimate_line value first
+    // so we can do the inventory adjustment on the transition correctly.
+    let finalIsEstimate = existing.is_estimate_line;
     if (is_estimate_line !== undefined) {
+      finalIsEstimate = !!is_estimate_line;
       updates.push(`is_estimate_line = $${idx++}`);
-      values.push(!!is_estimate_line);
+      values.push(finalIsEstimate);
+    } else if (customer_approved === true) {
+      // Approving an estimate line promotes it (is_estimate_line = FALSE).
+      finalIsEstimate = false;
+      updates.push(`is_estimate_line = FALSE`);
     }
+
+    // Inventory transition: estimate <-> real WO line. Only matters for
+    // inventory parts on records that aren't fully estimate-status.
+    if (existing.is_inventory_part && existing.inventory_id
+        && recordStatus !== 'estimate' && recordStatus !== 'filed') {
+      const qtyForInv = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
+      if (existing.is_estimate_line && !finalIsEstimate) {
+        // Promoting estimate -> real: pull stock now.
+        await client.query(
+          'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
+          [qtyForInv, existing.inventory_id]
+        );
+      } else if (!existing.is_estimate_line && finalIsEstimate) {
+        // Demoting real -> estimate: put the stock back.
+        await client.query(
+          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
+          [qtyForInv, existing.inventory_id]
+        );
+      }
+    }
+
     if (customer_approved !== undefined) {
       updates.push(`customer_approved = $${idx++}`);
       values.push(!!customer_approved);
       if (customer_approved) {
         updates.push(`customer_approved_at = NOW()`);
-        // Promote approved estimate lines into the main work order
-        if (is_estimate_line === undefined) {
-          updates.push(`is_estimate_line = FALSE`);
-        }
       }
     }
 

@@ -583,12 +583,17 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
-    // When estimate/filed → active (non-estimate/filed): deduct inventory
+    // When estimate/filed → active (non-estimate/filed): deduct inventory.
+    // Only the committed quote lines (is_estimate_line = FALSE). Inspection-
+    // finding lines (is_estimate_line = TRUE) stay as proposals until the
+    // customer approves them via the email link, which decrements separately.
     const preCommit = (s) => s === 'estimate' || s === 'filed';
     if (preCommit(record.status) && !preCommit(newStatus) && newStatus !== 'void') {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
-         WHERE record_id = $1 AND deleted_at IS NULL AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
+         WHERE record_id = $1 AND deleted_at IS NULL
+           AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
+           AND is_estimate_line = FALSE`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -599,11 +604,14 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       }
     }
 
-    // When active → estimate/filed (revert) or → void: restore inventory
+    // When active → estimate/filed (revert) or → void: restore inventory for
+    // the committed lines only — same scoping as above.
     if ((!preCommit(record.status) && preCommit(newStatus)) || (record.status !== 'void' && newStatus === 'void')) {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
-         WHERE record_id = $1 AND deleted_at IS NULL AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
+         WHERE record_id = $1 AND deleted_at IS NULL
+           AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
+           AND is_estimate_line = FALSE`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -669,12 +677,15 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       );
     }
 
-    // Reverse inventory when voiding — restore qty for all inventory parts
+    // Reverse inventory when voiding — restore qty for committed inventory
+    // lines only. Estimate (inspection-finding) lines never decremented stock
+    // in the first place, so they shouldn't be added back here.
     if (newStatus === 'void' && record.status !== 'void') {
       const { rows: invParts } = await client.query(
         `SELECT id, inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
-           AND is_inventory_part = true AND inventory_id IS NOT NULL`,
+           AND is_inventory_part = true AND inventory_id IS NOT NULL
+           AND is_estimate_line = FALSE`,
         [req.params.id]
       );
       for (const part of invParts) {
@@ -743,11 +754,13 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
       return res.status(404).json({ error: 'Record not found' });
     }
 
-    // Reverse inventory for all inventory parts on this record
+    // Reverse inventory for committed lines only (estimate-finding lines
+    // never pulled from stock, so they have nothing to put back).
     const { rows: invParts } = await client.query(
       `SELECT id, inventory_id, quantity FROM record_parts_lines
        WHERE record_id = $1 AND deleted_at IS NULL
-         AND is_inventory_part = true AND inventory_id IS NOT NULL`,
+         AND is_inventory_part = true AND inventory_id IS NOT NULL
+         AND is_estimate_line = FALSE`,
       [req.params.id]
     );
     for (const part of invParts) {

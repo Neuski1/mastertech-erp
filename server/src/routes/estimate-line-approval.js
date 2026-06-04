@@ -270,6 +270,23 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
         );
       }
       if (approvedPartsIds.length > 0) {
+        // Decrement inventory for any approved parts lines tied to an
+        // inventory item. Inspection findings don't touch inventory; once
+        // approved they become real WO lines and the stock leaves the shelf.
+        const { rows: invLines } = await client.query(
+          `SELECT inventory_id, quantity
+             FROM record_parts_lines
+            WHERE record_id = $1 AND id = ANY($2)
+              AND is_estimate_line = TRUE AND deleted_at IS NULL
+              AND is_inventory_part = TRUE AND inventory_id IS NOT NULL`,
+          [recordId, approvedPartsIds]
+        );
+        for (const pl of invLines) {
+          await client.query(
+            'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
+            [parseFloat(pl.quantity), pl.inventory_id]
+          );
+        }
         await client.query(
           `UPDATE record_parts_lines SET customer_approved = TRUE, customer_approved_at = NOW(), is_estimate_line = FALSE
            WHERE record_id = $1 AND id = ANY($2) AND is_estimate_line = TRUE AND deleted_at IS NULL`,
