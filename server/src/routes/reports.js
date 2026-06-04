@@ -9,11 +9,15 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
   if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
 
   try {
-    // Paid revenue in date range — attributed to the LAST PAYMENT DATE on the
-    // record, not the completion date. Master Tech is cash-basis: a WO can be
-    // completed Mar 28 but the customer pays Apr 3 when they come pick up, and
-    // the bookkeeper records the revenue in April when cash hits the bank.
-    // Using actual_completion_date here put real April revenue into March.
+    // Paid revenue in date range. Attribution date precedence:
+    //   1. last payment_date on the record (cash-basis correct: a WO finished
+    //      Mar 28 but paid Apr 3 lands in April, matching bookkeeper);
+    //   2. actual_completion_date (fallback for legacy 'paid' records that
+    //      never got rows in the payments table — the table started getting
+    //      written in March 2026, so all Jan/Feb 'paid' records have no
+    //      payment row and would otherwise silently drop out of the report);
+    //   3. created_at date as a final defensive fallback.
+    // Using a LEFT JOIN + COALESCE rather than an inner JOIN so #2 still counts.
     const { rows: [revenue] } = await pool.query(`
       SELECT
         COUNT(*) AS paid_count,
@@ -27,7 +31,7 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
         COALESCE(AVG(r.total_sales), 0)           AS avg_invoice,
         COALESCE(MAX(r.total_sales), 0)           AS max_invoice
       FROM records r
-      JOIN (
+      LEFT JOIN (
         SELECT record_id, MAX(payment_date) AS last_payment_date
           FROM payments
          WHERE deleted_at IS NULL
@@ -35,7 +39,9 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
       ) p ON p.record_id = r.id
       WHERE r.deleted_at IS NULL
         AND r.status = 'paid'
-        AND p.last_payment_date BETWEEN $1 AND $2
+        AND COALESCE(p.last_payment_date::date,
+                     r.actual_completion_date,
+                     r.created_at::date) BETWEEN $1 AND $2
     `, [from, to]);
 
     // Work-order activity counts (total/open) stay on the completion-date
@@ -87,14 +93,16 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
              SUM(r.total_sales) AS total_revenue
       FROM records r
       JOIN customers c ON c.id = r.customer_id
-      JOIN (
+      LEFT JOIN (
         SELECT record_id, MAX(payment_date) AS last_payment_date
           FROM payments
          WHERE deleted_at IS NULL
          GROUP BY record_id
       ) p ON p.record_id = r.id
       WHERE r.deleted_at IS NULL AND r.status = 'paid'
-        AND p.last_payment_date BETWEEN $1 AND $2
+        AND COALESCE(p.last_payment_date::date,
+                     r.actual_completion_date,
+                     r.created_at::date) BETWEEN $1 AND $2
       GROUP BY c.id, c.first_name, c.last_name, c.company_name
       ORDER BY total_revenue DESC
       LIMIT 10
