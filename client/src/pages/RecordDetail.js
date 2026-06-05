@@ -82,6 +82,7 @@ export default function RecordDetail() {
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showCopyModal, setShowCopyModal] = useState(false);
+  const [showEstimateEmailModal, setShowEstimateEmailModal] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState(null);
@@ -451,7 +452,11 @@ export default function RecordDetail() {
     };
 
     // Collect distinct technician names for "Serviced By"
-    const laborLines = r.labor_lines || [];
+    // Only print lines that are committed work — exclude inspection-finding
+    // estimate lines unless the customer has explicitly approved them.
+    // Otherwise the printed totals (from the DB) won't match the printed rows.
+    const isCommitted = (line) => !line.is_estimate_line || line.customer_approved;
+    const laborLines = (r.labor_lines || []).filter(isCommitted);
     const techNames = [...new Set(laborLines.map(l => l.technician_name).filter(Boolean))].sort();
     const isEstimate = r.status === 'estimate';
 
@@ -465,7 +470,7 @@ export default function RecordDetail() {
     ` : '';
 
     // Build parts rows
-    const partsRows = (r.parts_lines || []).map(p =>
+    const partsRows = (r.parts_lines || []).filter(isCommitted).map(p =>
       `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
     ).join('');
 
@@ -1148,14 +1153,7 @@ ${paymentDetailHtml}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                   {allApproved && <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>All Approved</span>}
                   <button
-                    onClick={async () => {
-                      try {
-                        await api.sendEstimateApproval(record.id);
-                        alert('Estimate approval email sent to customer!');
-                      } catch (err) {
-                        alert('Error sending email: ' + err.message);
-                      }
-                    }}
+                    onClick={() => setShowEstimateEmailModal(true)}
                     style={{ padding: '6px 14px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
                   >
                     Email Estimate to Customer
@@ -1494,6 +1492,15 @@ ${paymentDetailHtml}
         />
       )}
 
+      {/* Email Estimate Modal — optional personal note */}
+      {showEstimateEmailModal && (
+        <EstimateEmailModal
+          recordId={record.id}
+          recordNumber={record.record_number}
+          onClose={() => setShowEstimateEmailModal(false)}
+        />
+      )}
+
       {/* Notes — always editable */}
       <div style={editSectionStyle}>
         <h2 style={sectionTitle}>Notes</h2>
@@ -1529,6 +1536,58 @@ ${paymentDetailHtml}
 
 // ─── Manual Payment Modal (Check / Cash / Zelle) ────────────────────────────
 // ─── Schedule Modal ─────────────────────────────────────────────────────────
+function EstimateEmailModal({ recordId, recordNumber, onClose }) {
+  const [note, setNote] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  const handleSend = async () => {
+    setSending(true);
+    setError('');
+    try {
+      await api.sendEstimateApproval(recordId, { personalMessage: note });
+      alert('Estimate approval email sent to customer!');
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, width: '560px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0, color: '#1e3a5f' }}>Email Estimate — WO #{recordNumber}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', padding: '4px 10px', color: '#6b7280' }}>X</button>
+        </div>
+        {error && <div style={{ padding: '8px 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '4px', marginBottom: '12px', fontSize: '0.85rem' }}>{error}</div>}
+        <div style={{ marginBottom: '14px' }}>
+          <label style={labelStyle}>Personal Message (optional)</label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Add a short note to the customer. Leave blank to send the default email."
+            rows={5}
+            autoFocus
+            style={{ ...inputStyle, width: '100%', minHeight: '110px', fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>
+            Will appear above the estimate items in the email the customer receives.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={sending} style={btnSecondary}>Cancel</button>
+          <button onClick={handleSend} disabled={sending} style={{ ...btnPrimary, backgroundColor: '#f59e0b' }}>
+            {sending ? 'Sending...' : 'Send Estimate Email'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CopyToWOModal({ record, onClose, onSuccess }) {
   // mode: 'new' = create a brand new record; 'existing' = append to open WO
   const [mode, setMode] = React.useState('new');

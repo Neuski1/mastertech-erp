@@ -868,12 +868,18 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     const techNames = techNamesRes.rows.map(row => row.name);
     const isEstimate = r.status === 'estimate';
 
+    // Only include inspection-finding lines (is_estimate_line = TRUE) once the
+    // customer has approved them. Otherwise the customer sees rows in the
+    // line listing that aren't in the totals, which is what was causing the
+    // "totals don't match the lines" confusion on the emailed WO/Invoice.
+    const isCommitted = (line) => !line.is_estimate_line || line.customer_approved;
+
     // Build labor table rows
-    const laborRows = laborRes.rows.map(l =>
+    const laborRows = laborRes.rows.filter(isCommitted).map(l =>
       `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${l.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(l.hours||0).toFixed(2)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.rate)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.line_total)}</td></tr>`
     ).join('');
 
-    const partsRows = partsRes.rows.map(p =>
+    const partsRows = partsRes.rows.filter(isCommitted).map(p =>
       `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(p.quantity||0)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(p.sale_price_each)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(p.line_total)}</td></tr>`
     ).join('');
 
@@ -1203,6 +1209,7 @@ router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer'
 // ---------------------------------------------------------------------------
 router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'), async (req, res) => {
   const { id } = req.params;
+  const { personalMessage } = req.body || {};
 
   try {
     // Get record + customer info
@@ -1254,6 +1261,17 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
       [id]
     );
 
+    // Photos to include in the estimate email so the customer can see what
+    // we're proposing to fix. URL falls back to the ERP image endpoint when
+    // there's no OneDrive sharing link (uploaded photos).
+    const { rows: photosForEmail } = await pool.query(
+      `SELECT id, category, label, onedrive_url
+         FROM record_photos
+        WHERE record_id = $1 AND deleted_at IS NULL
+        ORDER BY id`,
+      [id]
+    );
+
     // Build estimate total
     let estimateTotal = 0;
     laborLines.forEach(l => estimateTotal += parseFloat(l.line_total));
@@ -1295,15 +1313,49 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
       partsHtml += '</table>';
     }
 
+    // Personal message block (only shown if the writer typed one). Plain-text
+    // escape so the customer doesn't see raw HTML if someone pastes brackets.
+    const personalBlock = (personalMessage && personalMessage.trim()) ? `
+      <div style="margin:16px 0;padding:14px 18px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:4px;">
+        <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.5;white-space:pre-wrap;">${personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+      </div>` : '';
+
+    // Photo block — inline thumbnails for uploaded photos (using the public
+    // image endpoint) and a list of OneDrive links for legacy linked photos.
+    let photoBlock = '';
+    if (photosForEmail.length > 0) {
+      const catLabels = { before: 'Before', during: 'During', after: 'After', damage: 'Damage', other: 'Other' };
+      const grouped = {};
+      photosForEmail.forEach(p => {
+        const c = catLabels[p.category] || 'Photos';
+        (grouped[c] = grouped[c] || []).push(p);
+      });
+      photoBlock = '<h3 style="margin:20px 0 8px;color:#1e3a5f;">Photos from the Inspection</h3>';
+      for (const [cat, items] of Object.entries(grouped)) {
+        photoBlock += `<p style="font-weight:bold;margin:10px 0 4px;color:#374151;font-size:13px;">${cat}</p>`;
+        photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
+        items.forEach(p => {
+          const url = p.onedrive_url || `${backendUrl}/api/records/${id}/photos/${p.id}/image`;
+          photoBlock += `<a href="${url}" target="_blank" style="text-decoration:none;color:#374151;">
+            <img src="${url}" alt="${p.label || cat}" style="width:140px;height:100px;object-fit:cover;border-radius:6px;border:1px solid #d1d5db;display:block;" />
+            ${p.label ? `<div style="font-size:11px;max-width:140px;margin-top:2px;color:#6b7280;">${p.label}</div>` : ''}
+          </a>`;
+        });
+        photoBlock += '</div>';
+      }
+    }
+
     const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto">
         <h2>Estimate for Review — ${record.record_number || `Record #${id}`}</h2>
         <p>Hi ${record.customer_name},</p>
+        ${personalBlock}
         <p>We've completed our inspection and found the following additional items that need attention:</p>
         ${laborHtml}
         ${partsHtml}
         <p style="font-size:18px;font-weight:bold;margin-top:16px">Estimate Total: $${estimateTotal.toFixed(2)}</p>
-        <p>Please click the link below to review and approve the work you'd like us to proceed with:</p>
+        ${photoBlock}
+        <p style="margin-top:18px;">Please click the link below to review and approve the work you'd like us to proceed with:</p>
         <p><a href="${approvalUrl}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold">Review & Approve Estimate</a></p>
         <p style="color:#6b7280;font-size:13px">This link expires in 30 days. If you have questions, please call us.</p>
         <p>Thank you,<br>Master Tech RV Repair</p>
