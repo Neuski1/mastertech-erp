@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { formatDate } from '../utils/dateFormat';
 
 function getMonthRange(offset = 0) {
   const d = new Date();
@@ -153,12 +154,12 @@ export default function Reports() {
         <div className="company">Master Tech RV</div>
         <div className="subtitle">Financial Report</div>
         <div className="meta">
-          {new Date(from + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          {formatDate(from + 'T12:00:00')}
           {' — '}
-          {new Date(to + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          {formatDate(to + 'T12:00:00')}
         </div>
         <div className="meta">
-          Printed: {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          Printed: {formatDate()}
         </div>
       </div>
 
@@ -205,7 +206,7 @@ export default function Reports() {
           <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Revenue Summary</h2>
             <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 12px' }}>
-              {new Date(from + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} — {new Date(to + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              {formatDate(from + 'T12:00:00')} — {formatDate(to + 'T12:00:00')}
             </p>
             <table style={tableStyle}>
               <tbody>

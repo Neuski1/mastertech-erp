@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { formatDate } from '../utils/dateFormat';
 
 const STATUS_STYLES = {
   in_progress: { label: 'IN PROGRESS', bg: '#d4f5e2', color: '#1a7a4a' },
@@ -20,7 +21,7 @@ function fmtCurrency(val) {
 
 function fmtDate(d) {
   if (!d) return '\u2014';
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return formatDate(d);
 }
 
 function isPastDue(record) {
@@ -73,7 +74,7 @@ export default function ActiveWorkOrdersReport() {
   const attentionRecords = sortRecords(records.filter(r => ATTENTION_STATUSES.includes(r.status)));
   const allActive = [...activeRecords, ...attentionRecords];
   const pastDueCount = allActive.filter(isPastDue).length;
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const today = formatDate();
 
   const countByStatus = (status) => allActive.filter(r => r.status === status).length;
 
@@ -131,7 +132,7 @@ export default function ActiveWorkOrdersReport() {
       {/* Footer */}
       <div style={footerStyle}>
         <span>Master Tech RV ERP &middot; Active Work Orders</span>
-        <span>Generated: {new Date().toLocaleDateString()} &middot; {allActive.length} records</span>
+        <span>Generated: {formatDate()} &middot; {allActive.length} records</span>
       </div>
 
       {/* Print styles */}

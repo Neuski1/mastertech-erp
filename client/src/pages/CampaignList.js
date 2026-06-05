@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { formatDate } from '../utils/dateFormat';
 
 export default function CampaignList() {
   const [campaigns, setCampaigns] = useState([]);
@@ -27,7 +28,7 @@ export default function CampaignList() {
 
   const formatDate = (d) => {
     if (!d) return '—';
-    return new Date(d).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' });
+    return formatDate(d);
   };
 
   const statusBadge = (status) => {
@@ -118,7 +119,7 @@ export default function CampaignList() {
                   <thead><tr><th style={athStyle}>Name</th><th style={athStyle}>Email</th><th style={athStyle}>Date</th><th style={athStyle}></th></tr></thead>
                   <tbody>
                     {audit.optedOut.map(c => (
-                      <tr key={c.id}><td style={atdStyle}>{c.name}</td><td style={atdStyle}>{c.email}</td><td style={atdStyle}>{c.date ? new Date(c.date).toLocaleDateString() : '—'}</td><td style={atdStyle}><button onClick={() => navigate(`/customers/${c.id}`)} style={btnView}>View</button></td></tr>
+                      <tr key={c.id}><td style={atdStyle}>{c.name}</td><td style={atdStyle}>{c.email}</td><td style={atdStyle}>{c.date ? formatDate(c.date) : '—'}</td><td style={atdStyle}><button onClick={() => navigate(`/customers/${c.id}`)} style={btnView}>View</button></td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -139,7 +140,7 @@ export default function CampaignList() {
                   <thead><tr><th style={athStyle}>Name</th><th style={athStyle}>Email</th><th style={athStyle}>Campaign</th><th style={athStyle}>Sent</th></tr></thead>
                   <tbody>
                     {audit.sentHistory.map((r, i) => (
-                      <tr key={i}><td style={atdStyle}>{r.customer_name}</td><td style={atdStyle}>{r.email}</td><td style={atdStyle}>{r.campaign_name}</td><td style={atdStyle}>{r.sent_at ? new Date(r.sent_at).toLocaleDateString() : '—'}</td></tr>
+                      <tr key={i}><td style={atdStyle}>{r.customer_name}</td><td style={atdStyle}>{r.email}</td><td style={atdStyle}>{r.campaign_name}</td><td style={atdStyle}>{r.sent_at ? formatDate(r.sent_at) : '—'}</td></tr>
                     ))}
                   </tbody>
                 </table>

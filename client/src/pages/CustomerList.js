@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
+import { formatDate } from '../utils/dateFormat';
 
 function debounce(fn, delay) {
   let timer;
@@ -148,7 +149,7 @@ export default function CustomerList() {
 
       const formatDate = (d) => {
         if (!d) return '—';
-        return new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+        return formatDate(d);
       };
 
       const printWindow = window.open('', '_blank');
@@ -167,7 +168,7 @@ export default function CustomerList() {
         </style>
       </head><body>
         <h1>MasterTech RV Repair — Customer List</h1>
-        <div class="subtitle">Printed ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+        <div class="subtitle">Printed ${formatDate()}</div>
         ${filters.length ? `<div class="filters">Filters: ${filters.join(' | ')}</div>` : ''}
         <div class="count">${rows.length} customers</div>
         <table>
@@ -388,7 +389,7 @@ export default function CustomerList() {
                     )}
                   </td>
                   <td style={{ ...tdStyle, fontSize: '0.8rem', color: '#6b7280' }}>
-                    {c.last_service_date ? new Date(c.last_service_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—'}
+                    {c.last_service_date ? formatDate(c.last_service_date) : '—'}
                   </td>
                 </tr>
               ))}

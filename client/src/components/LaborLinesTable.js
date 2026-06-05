@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { formatDate } from '../utils/dateFormat';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
@@ -159,7 +160,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                     checked={!!line.customer_approved}
                     onChange={(e) => handleInlineSave(line.id, 'customer_approved', e.target.checked)}
                     style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#059669' }}
-                    title={line.customer_approved ? `Approved ${line.customer_approved_at ? new Date(line.customer_approved_at).toLocaleDateString() : ''}` : 'Not yet approved'}
+                    title={line.customer_approved ? `Approved ${line.customer_approved_at ? formatDate(line.customer_approved_at) : ''}` : 'Not yet approved'}
                   />
                 </td>
               )}

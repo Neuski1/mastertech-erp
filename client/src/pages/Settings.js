@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import { formatDateTime } from '../utils/dateFormat';
 
 export default function Settings() {
   const [searchParams] = useSearchParams();
@@ -123,10 +124,7 @@ export default function Settings() {
 
   const formatExpiry = (iso) => {
     if (!iso) return '—';
-    return new Date(iso).toLocaleString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric',
-      hour: 'numeric', minute: '2-digit', hour12: true,
-    });
+    return formatDateTime(iso);
   };
 
   return (
@@ -411,7 +409,7 @@ function PaymentRemindersSection({ onMessage }) {
               <span style={labelStyle}>Last Run</span>
               <div style={{ fontSize: '0.875rem' }}>
                 {settings.payment_reminders_last_run
-                  ? new Date(settings.payment_reminders_last_run).toLocaleString()
+                  ? formatDateTime(settings.payment_reminders_last_run)
                   : 'Never'}
               </div>
             </div>

@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
+import { formatDate, formatDateTime } from '../utils/dateFormat';
 
 export default function Storage() {
   const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
@@ -1446,7 +1447,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
             {contractMsg && <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', fontWeight: 600 }}>{contractMsg}</div>}
             {space.contract_accepted_at && (
               <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#f0fdf4', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
-                Contract accepted on {new Date(space.contract_accepted_at).toLocaleString()}
+                Contract accepted on {formatDateTime(space.contract_accepted_at)}
               </div>
             )}
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1966,8 +1967,8 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
-                Added {new Date(entry.created_at).toLocaleDateString()}
-                {entry.notified_at && ` · Notified ${new Date(entry.notified_at).toLocaleDateString()}`}
+                Added {formatDate(entry.created_at)}
+                {entry.notified_at && ` · Notified ${formatDate(entry.notified_at)}`}
               </div>
               {!contractMode && entry.status !== 'assigned' && (
                 <button type="button" onClick={startContractSetup}

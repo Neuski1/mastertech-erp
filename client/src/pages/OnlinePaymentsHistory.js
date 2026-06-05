@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { formatDateTime } from '../utils/dateFormat';
 
 const TYPE_LABELS = { parts_deposit: 'Parts Deposit', final_payment: 'Final Payment' };
 const STATUS_STYLES = {
@@ -139,7 +140,7 @@ export default function OnlinePaymentsHistory() {
               const dt = r.paid_at || r.created_at;
               return (
                 <tr key={r.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={td}>{new Date(dt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
+                  <td style={td}>{formatDateTime(dt)}</td>
                   <td style={td}>
                     <Link to={`/records/${r.record_id || ''}`} style={{ color: '#1e40af' }}>#{r.record_number}</Link>
                   </td>

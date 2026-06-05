@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { api } from '../api/client';
 import BookkeepingNav from '../components/BookkeepingNav';
+import { formatDateTime } from '../utils/dateFormat';
 
 const LS_TOKEN = 'plaid_link_token';
 const LS_INST  = 'plaid_pending_institution';
@@ -187,7 +188,7 @@ export default function Bookkeeping() {
                   </span>
                 </td>
                 <td style={cell}>{it.account_count}</td>
-                <td style={cell}>{it.last_synced_at ? new Date(it.last_synced_at).toLocaleString() : 'Never'}</td>
+                <td style={cell}>{it.last_synced_at ? formatDateTime(it.last_synced_at) : 'Never'}</td>
                 <td style={cell}>
                   <button
                     onClick={() => handleSync(it.id)}
