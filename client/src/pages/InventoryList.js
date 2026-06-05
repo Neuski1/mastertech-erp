@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import useIsMobile from '../utils/useIsMobile';
+import { formatDate } from '../utils/dateFormat';
 
 const LOCATIONS = ['Front Closet', 'Back Room', 'Shop', 'unassigned'];
 
@@ -839,7 +840,7 @@ export default function InventoryList() {
                       ) : item.reorder_status === 'ordered' ? (
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.78rem' }}>
                           <span style={{ padding: '2px 8px', borderRadius: '4px', fontWeight: 600, fontSize: '0.72rem', backgroundColor: '#fef3c7', color: '#92400e' }}>ORDERED</span>
-                          {item.reorder_date && <span><strong>Date:</strong> {new Date(item.reorder_date.toString().slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
+                          {item.reorder_date && <span><strong>Date:</strong> {formatDate(item.reorder_date.toString().slice(0,10) + 'T12:00:00')}</span>}
                           {item.reorder_note && <span style={{ color: '#6b7280' }}>{item.reorder_note}</span>}
                           <button onClick={(e) => openReorderEdit(item, e)}
                             style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>
@@ -847,7 +848,7 @@ export default function InventoryList() {
                       ) : item.reorder_status === 'received' ? (
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.78rem' }}>
                           <span style={{ padding: '2px 8px', borderRadius: '4px', fontWeight: 600, fontSize: '0.72rem', backgroundColor: '#d1fae5', color: '#065f46' }}>RECEIVED</span>
-                          {item.reorder_date && <span><strong>Date:</strong> {new Date(item.reorder_date.toString().slice(0,10) + 'T12:00:00').toLocaleDateString()}</span>}
+                          {item.reorder_date && <span><strong>Date:</strong> {formatDate(item.reorder_date.toString().slice(0,10) + 'T12:00:00')}</span>}
                           {item.reorder_note && <span style={{ color: '#6b7280' }}>{item.reorder_note}</span>}
                           <button onClick={(e) => openReorderEdit(item, e)}
                             style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>

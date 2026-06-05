@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import BookkeepingNav from '../components/BookkeepingNav';
+import { formatDate } from '../utils/dateFormat';
 
 export default function BookkeepingJournalEntries() {
   const [entries, setEntries] = useState([]);
@@ -48,7 +49,7 @@ export default function BookkeepingJournalEntries() {
               <React.Fragment key={e.id}>
                 <tr style={{ cursor: 'pointer' }} onClick={() => toggle(e.id)}>
                   <td style={td}>{expanded.has(e.id) ? '▼' : '▶'}</td>
-                  <td style={td}>{new Date(e.entry_date).toLocaleDateString()}</td>
+                  <td style={td}>{formatDate(e.entry_date)}</td>
                   <td style={td}>{e.description}</td>
                   <td style={td}>{e.source}</td>
                   <td style={td}>{e.posted_by}</td>

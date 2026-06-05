@@ -14,6 +14,7 @@ import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
 import { BulletDisplay } from '../components/BulletTextarea';
 import useIsMobile from '../utils/useIsMobile';
+import { formatDate, formatDateTime } from '../utils/dateFormat';
 
 const NEXT_STATUS = {
   estimate: 'approved',
@@ -865,7 +866,7 @@ ${paymentDetailHtml}
       <OnlinePaymentLinksSection recordId={id} refreshKey={payLinksRefresh} />
       {record.last_reminder_sent_at && (
         <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px' }}>
-          Last reminder: {new Date(record.last_reminder_sent_at).toLocaleString()} ({record.reminder_count} sent)
+          Last reminder: {formatDateTime(record.last_reminder_sent_at)} ({record.reminder_count} sent)
         </div>
       )}
 
@@ -894,7 +895,7 @@ ${paymentDetailHtml}
             <div>
               <strong style={{ color: '#065f46' }}>Estimate Authorized</strong>
               <span style={{ marginLeft: '12px', fontSize: '0.85rem', color: '#6b7280' }}>
-                Signed {new Date(record.authorization_signed_at).toLocaleString()}
+                Signed {formatDateTime(record.authorization_signed_at)}
               </span>
             </div>
           </div>
@@ -1872,7 +1873,7 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
 }
 
 function ScheduleModal({ record, onSuccess, onClose }) {
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+  const today = formatDate();
   const [date, setDate] = useState(today);
   const [time, setTime] = useState('09:00');
   const [apptType, setApptType] = useState('rv_service_drop_off');
@@ -1985,7 +1986,7 @@ function ManualPaymentModal({ method, amountDue, recordId, onSuccess, onClose })
   const [amount, setAmount] = useState(amountDue > 0 ? amountDue.toFixed(2) : '');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }));
+  const [paymentDate, setPaymentDate] = useState(formatDate());
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
 
@@ -2599,7 +2600,7 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
             const statusLabel = isTerminalPending ? 'Waiting on terminal' : l.status;
             return (
               <tr key={l.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '6px 8px', color: '#374151' }}>{new Date(l.created_at).toLocaleDateString()}</td>
+                <td style={{ padding: '6px 8px', color: '#374151' }}>{formatDate(l.created_at)}</td>
                 <td style={{ padding: '6px 8px' }}>{typeLabel(l.payment_type)}</td>
                 <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500 }}>${(parseInt(l.amount_cents) / 100).toFixed(2)}</td>
                 <td style={{ padding: '6px 8px' }}>
@@ -2608,7 +2609,7 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
                   </span>
                 </td>
                 <td style={{ padding: '6px 8px', color: '#374151' }}>
-                  {l.paid_at ? new Date(l.paid_at).toLocaleDateString() : '—'}
+                  {l.paid_at ? formatDate(l.paid_at) : '—'}
                 </td>
                 <td style={{ padding: '6px 8px' }}>
                   {isPending && (

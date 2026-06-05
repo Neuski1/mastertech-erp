@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { formatDate } from '../utils/dateFormat';
 
 export default function Suppliers() {
   const { user } = useAuth();
@@ -1166,7 +1167,7 @@ export default function Suppliers() {
               </div>
               <div>
                 <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Order Date</div>
-                <div style={{ fontSize: '1rem', color: '#1f2937' }}>{selectedPo.order_date ? new Date(selectedPo.order_date + 'T00:00:00').toLocaleDateString() : '—'}</div>
+                <div style={{ fontSize: '1rem', color: '#1f2937' }}>{selectedPo.order_date ? formatDate(selectedPo.order_date + 'T00:00:00') : '—'}</div>
               </div>
               {selectedPo.order_number && <div>
                 <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Order #</div>
@@ -1182,7 +1183,7 @@ export default function Suppliers() {
               </div>
               {selectedPo.received_at && <div>
                 <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Received</div>
-                <div style={{ fontSize: '1rem', color: '#065f46' }}>{new Date(selectedPo.received_at).toLocaleDateString()}</div>
+                <div style={{ fontSize: '1rem', color: '#065f46' }}>{formatDate(selectedPo.received_at)}</div>
               </div>}
             </div>
 

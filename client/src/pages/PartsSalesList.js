@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import useIsMobile from '../utils/useIsMobile';
+import { formatDate } from '../utils/dateFormat';
 
 export default function PartsSalesList() {
   const navigate = useNavigate();
@@ -45,7 +46,7 @@ export default function PartsSalesList() {
 
   const formatDate = (d) => {
     if (!d) return '—';
-    return new Date(d).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' });
+    return formatDate(d);
   };
 
   const statusBadge = (status) => {

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import NewCustomerModal from '../components/NewCustomerModal';
+import { formatDate } from '../utils/dateFormat';
 
 export default function PartsSaleDetail() {
   const { id } = useParams();
@@ -63,7 +64,7 @@ export default function PartsSaleDetail() {
 
   const formatDate = (d) => {
     if (!d) return '—';
-    return new Date(d).toLocaleDateString('en-US', { timeZone: 'America/Denver', month: 'short', day: 'numeric', year: 'numeric' });
+    return formatDate(d);
   };
 
   // ── Customer search ───────────────────────────────────────────────

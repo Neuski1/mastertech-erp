@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import VendorSelect from './VendorSelect';
+import { formatDate } from '../utils/dateFormat';
 
 export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate, isEstimate = false, showApproval = false }) {
   const { canSeeFinancials } = useAuth();
@@ -623,7 +624,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                       checked={!!line.customer_approved}
                       onChange={(e) => handleInlineSave(line.id, 'customer_approved', e.target.checked)}
                       style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#059669' }}
-                      title={line.customer_approved ? `Approved ${line.customer_approved_at ? new Date(line.customer_approved_at).toLocaleDateString() : ''}` : 'Not yet approved'}
+                      title={line.customer_approved ? `Approved ${line.customer_approved_at ? formatDate(line.customer_approved_at) : ''}` : 'Not yet approved'}
                     />
                   </td>
                 )}

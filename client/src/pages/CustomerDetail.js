@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
+import { formatDate } from '../utils/dateFormat';
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -344,12 +345,12 @@ export default function CustomerDetail() {
             <EditableField label="Email" field="email_primary" value={formData.email_primary || ''} editing={editing} onChange={handleFieldChange} />
             {!editing && customer.email_invalid && (
               <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fef3c7', color: '#92400e' }}>
-                Email bounced {customer.email_invalid_date ? new Date(customer.email_invalid_date).toLocaleDateString() : ''} — please verify
+                Email bounced {customer.email_invalid_date ? formatDate(customer.email_invalid_date) : ''} — please verify
               </span>
             )}
             {!editing && customer.marketing_opt_out && (
               <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: '#fee2e2', color: '#dc2626' }}>
-                Unsubscribed {customer.email_opt_out_date ? new Date(customer.email_opt_out_date).toLocaleDateString() : ''}
+                Unsubscribed {customer.email_opt_out_date ? formatDate(customer.email_opt_out_date) : ''}
               </span>
             )}
           </div>
@@ -491,7 +492,7 @@ export default function CustomerDetail() {
                       {doc.doc_type === 'storage_contract' ? 'Contract' : doc.doc_type}
                     </span>
                   </td>
-                  <td style={tdStyle}>{new Date(doc.created_at).toLocaleDateString('en-US')}</td>
+                  <td style={tdStyle}>{formatDate(doc.created_at)}</td>
                   <td style={tdStyle}>{doc.file_size ? `${(doc.file_size / 1024).toFixed(0)} KB` : '—'}</td>
                   <td style={tdStyle}>
                     <button
@@ -1115,8 +1116,8 @@ function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdat
     setAddForm(f => ({ ...f, space, notes }));
   };
 
-  const fmtDate = (d) => new Date(d.substring(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const fmtMonth = (m) => m ? new Date(m + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '\u2014';
+  const fmtDate = (d) => formatDate(d.substring(0, 10) + 'T12:00:00');
+  const fmtMonth = (m) => m ? formatDate(m + '-01T12:00:00') : '\u2014';
 
   const smallInput = { padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' };
 

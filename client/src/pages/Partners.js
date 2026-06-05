@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
+import { formatDate } from '../utils/dateFormat';
 
 const STAGES = [
   { key: 'new', label: 'New', color: '#6b7280', bg: '#f3f4f6' },
@@ -313,7 +314,7 @@ export default function Partners() {
                     <span style={badgeStyle(STAGE_MAP[p.status])}>{STAGE_MAP[p.status]?.label || p.status}</span>
                   </td>
                   <td style={{ padding: '10px 12px', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                    {p.date_contacted ? new Date(p.date_contacted).toLocaleDateString() : '-'}
+                    {p.date_contacted ? formatDate(p.date_contacted) : '-'}
                   </td>
                   <td style={{ padding: '10px 12px', color: '#6b7280', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.notes || '-'}</td>
                   <td style={{ padding: '10px 12px' }}>
@@ -438,7 +439,7 @@ export default function Partners() {
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
                               <span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>{aType.label}</span>
                               <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                                {new Date(act.contact_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                {formatDate(act.contact_date)}
                               </span>
                             </div>
                             <div style={{ fontSize: 13, color: '#4b5563', whiteSpace: 'pre-wrap' }}>{act.summary}</div>
