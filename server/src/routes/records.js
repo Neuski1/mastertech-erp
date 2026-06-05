@@ -1063,11 +1063,19 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       const catLabels = { before: 'Before', during: 'During', after: 'After', damage: 'Damage', other: 'Other' };
       const grouped = {};
       photos.forEach(p => { if (!grouped[p.category]) grouped[p.category] = []; grouped[p.category].push(p); });
+      // Photos can be either OneDrive sharing links (legacy) or direct uploads
+      // served back from the ERP. Pick whichever URL the photo actually has —
+      // a missing onedrive_url used to produce href="null" which gave the
+      // customer a "DNS_PROBE_FINISHED_NXDOMAIN — typo in null" error.
+      const backendBase = process.env.BACKEND_URL
+        || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app');
       let html = '<h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">PHOTOS</h3>';
       for (const [cat, items] of Object.entries(grouped)) {
         html += `<p style="font-weight:bold;font-size:12px;color:#374151;margin:8px 0 4px;">${catLabels[cat] || cat}</p>`;
         items.forEach(p => {
-          html += `<p style="margin:2px 0;font-size:12px;">&bull; ${p.label || 'Photo'} — <a href="${p.onedrive_url}" target="_blank" style="color:#3b82f6;">View Photo &rarr;</a></p>`;
+          const url = p.onedrive_url
+            || `${backendBase}/api/records/${r.id}/photos/${p.id}/image`;
+          html += `<p style="margin:2px 0;font-size:12px;">&bull; ${p.label || 'Photo'} — <a href="${url}" target="_blank" style="color:#3b82f6;">View Photo &rarr;</a></p>`;
         });
       }
       return html;

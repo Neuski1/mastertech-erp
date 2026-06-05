@@ -77,7 +77,7 @@ router.get('/:token', async (req, res) => {
       ));
     }
 
-    // Get estimate lines
+    // Get NEW estimate lines (inspection findings waiting on approval)
     const { rows: laborLines } = await pool.query(
       `SELECT id, description, hours, rate, line_total, customer_approved
        FROM record_labor_lines
@@ -89,6 +89,22 @@ router.get('/:token', async (req, res) => {
       `SELECT id, description, quantity, sale_price_each, line_total, customer_approved
        FROM record_parts_lines
        WHERE record_id = $1 AND is_estimate_line = TRUE AND deleted_at IS NULL
+       ORDER BY sort_order`,
+      [token.record_id]
+    );
+    // Get EXISTING (already-approved / committed) work lines so the customer
+    // sees the full picture, not just the new findings.
+    const { rows: existingLabor } = await pool.query(
+      `SELECT description, hours, rate, line_total
+       FROM record_labor_lines
+       WHERE record_id = $1 AND is_estimate_line = FALSE AND deleted_at IS NULL
+       ORDER BY sort_order`,
+      [token.record_id]
+    );
+    const { rows: existingParts } = await pool.query(
+      `SELECT description, quantity, sale_price_each, line_total
+       FROM record_parts_lines
+       WHERE record_id = $1 AND is_estimate_line = FALSE AND deleted_at IS NULL
        ORDER BY sort_order`,
       [token.record_id]
     );
@@ -147,10 +163,40 @@ router.get('/:token', async (req, res) => {
     const existingTotal = parseFloat(token.existing_total || 0);
     const startingNewTotal = existingTotal + totalEstimate;
 
+    // Build the "Already Approved Work" section so the customer sees the
+    // full picture (existing committed lines + new inspection findings)
+    // rather than only the new findings on their own.
+    let existingHtml = '';
+    if (existingLabor.length > 0 || existingParts.length > 0) {
+      existingHtml = `<h3 style="margin:20px 0 8px;color:#1e3a5f;">Already Approved Work</h3>
+        <p style="color:#6b7280;font-size:12px;margin:0 0 8px;">This is what we agreed to up front. No action needed on these.</p>
+        <table>
+          <tr><th>Description</th><th class="right">Qty/Hrs</th><th class="right">Rate</th><th class="right">Total</th></tr>`;
+      existingLabor.forEach(l => {
+        existingHtml += `<tr>
+          <td>${l.description}</td>
+          <td class="right">${parseFloat(l.hours).toFixed(1)}</td>
+          <td class="right">$${parseFloat(l.rate).toFixed(2)}</td>
+          <td class="right">$${parseFloat(l.line_total).toFixed(2)}</td>
+        </tr>`;
+      });
+      existingParts.forEach(p => {
+        existingHtml += `<tr>
+          <td>${p.description}</td>
+          <td class="right">${parseFloat(p.quantity)}</td>
+          <td class="right">$${parseFloat(p.sale_price_each).toFixed(2)}</td>
+          <td class="right">$${parseFloat(p.line_total).toFixed(2)}</td>
+        </tr>`;
+      });
+      existingHtml += '</table>';
+    }
+
     const body = `
       <h2 style="color:#1e3a5f;margin:0 0 8px;">Estimate Review</h2>
       <p style="color:#374151;margin:0 0 4px;">Work Order: <strong>#${token.record_number}</strong></p>
       <p style="color:#6b7280;margin:0 0 20px;">Hi${token.first_name ? ' ' + token.first_name : ''}, please review the inspection findings below. Every item is checked by default. Uncheck anything you would like us to skip, then click Approve.</p>
+      ${existingHtml}
+      <h3 style="margin:20px 0 8px;color:#92400e;">Inspection Findings — Needs Your Approval</h3>
       <form method="POST" action="/api/estimate-lines/approve/${req.params.token}">
         ${laborHtml}
         ${partsHtml}
