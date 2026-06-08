@@ -96,7 +96,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/copy — Copy selected lines to a new record
 // ---------------------------------------------------------------------------
-router.post('/:id/copy', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { customer_id, unit_id, target_record_id, labor_line_ids = [], parts_line_ids = [], freight_line_ids = [] } = req.body;
 
   // Two modes: append to an existing open WO (target_record_id), or
