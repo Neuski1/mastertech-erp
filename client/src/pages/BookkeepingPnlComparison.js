@@ -50,9 +50,24 @@ export default function BookkeepingPnlComparison() {
   const sectionMonth = (accts, year, month) => accts.reduce((s, a) => s + ((a.years[year] || [])[month] || 0), 0);
   const sectionYear = (accts, year) => accts.reduce((s, a) => s + yearTotal(a, year), 0);
 
-  if (loading) return <Wrapper><BookkeepingNav /><p>Loading...</p></Wrapper>;
-  if (error) return <Wrapper><BookkeepingNav /><div style={errBox}>{error}</div></Wrapper>;
-  if (!data) return <Wrapper><BookkeepingNav /></Wrapper>;
+  if (loading) return <Wrapper><BookkeepingNav />
+      <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
+        <h2 style={{ margin: 0 }}>P&L Comparison</h2>
+        <p style={{ margin: 0 }}>{years.join(' vs ')}</p>
+      </div><p>Loading...</p></Wrapper>;
+  if (error) return <Wrapper><BookkeepingNav />
+      <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
+        <h2 style={{ margin: 0 }}>P&L Comparison</h2>
+        <p style={{ margin: 0 }}>{years.join(' vs ')}</p>
+      </div><div style={errBox}>{error}</div></Wrapper>;
+  if (!data) return <Wrapper><BookkeepingNav />
+      <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
+        <h2 style={{ margin: 0 }}>P&L Comparison</h2>
+        <p style={{ margin: 0 }}>{years.join(' vs ')}</p>
+      </div></Wrapper>;
 
   const incomeBy = (y,m) => sectionMonth(groups.Income, y, m);
   const cogsBy = (y,m) => sectionMonth(groups.COGS, y, m);
@@ -64,11 +79,17 @@ export default function BookkeepingPnlComparison() {
   return (
     <Wrapper>
       <BookkeepingNav />
+      <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
+        <h2 style={{ margin: 0 }}>P&L Comparison</h2>
+        <p style={{ margin: 0 }}>{years.join(' vs ')}</p>
+      </div>
       <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>P&L Comparison</h2>
         <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
           <button onClick={() => setView('annual')} style={view==='annual'?tabActive:tab}>Annual Totals</button>
           <button onClick={() => setView('monthly')} style={view==='monthly'?tabActive:tab}>Month-by-Month</button>
+          <button className="print-hide" onClick={() => window.print()} style={{ padding: '8px 16px', background: '#1a2a4a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>Print</button>
         </div>
       </div>
 

@@ -56,12 +56,18 @@ export default function BookkeepingBalanceSheet() {
     <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
       <h1 style={{ marginTop: 0 }}>Bookkeeping</h1>
       <BookkeepingNav />
+      <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
+        <h2 style={{ margin: 0 }}>Balance Sheet</h2>
+        <p style={{ margin: 0 }}>As of {formatDate(asOf)}</p>
+      </div>
       <div style={{ display:'flex', alignItems:'center', gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Balance Sheet</h2>
         <label>
           As of:&nbsp;
           <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} style={{ padding: 6, borderRadius: 4 }} />
         </label>
+        <button className="print-hide" onClick={() => window.print()} style={{ marginLeft: 'auto', padding: '8px 16px', background: '#1a2a4a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>Print</button>
       </div>
       {error && <div style={{ background:'#fee', color:'#900', padding:12, borderRadius:6, marginBottom:16 }}>{error}</div>}
       {loading ? <p>Loading...</p> : data && (
