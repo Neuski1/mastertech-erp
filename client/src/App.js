@@ -15,6 +15,7 @@ import BookkeepingJournalEntries from './pages/BookkeepingJournalEntries';
 import BookkeepingChart from './pages/BookkeepingChart';
 import BookkeepingPnl from './pages/BookkeepingPnl';
 import BookkeepingBalanceSheet from './pages/BookkeepingBalanceSheet';
+import BookkeepingPnlComparison from './pages/BookkeepingPnlComparison';
 import UserManagement from './pages/UserManagement';
 import Storage from './pages/Storage';
 import Partners from './pages/Partners';
@@ -217,6 +218,7 @@ function AppLayout() {
           <Route path="/bookkeeping/chart" element={canManageSettings ? <BookkeepingChart /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/reports/pnl" element={canManageSettings ? <BookkeepingPnl /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/reports/balance-sheet" element={canManageSettings ? <BookkeepingBalanceSheet /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping/reports/pnl-comparison" element={canManageSettings ? <BookkeepingPnlComparison /> : <Navigate to="/records" />} />
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>

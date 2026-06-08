@@ -7,6 +7,7 @@ const links = [
   { to: '/bookkeeping/chart',               label: 'Chart of Accounts' },
   { to: '/bookkeeping/reports/pnl',         label: 'P&L Report' },
   { to: '/bookkeeping/reports/balance-sheet', label: 'Balance Sheet' },
+  { to: '/bookkeeping/reports/pnl-comparison', label: 'P&L Comparison' },
 ];
 
 export default function BookkeepingNav() {
