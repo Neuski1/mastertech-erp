@@ -87,12 +87,13 @@ export default function BookkeepingPnlComparison() {
       </div>
 
       {view === 'annual' ? (
+        <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 240px)' }}>
         <table style={tbl}>
           <thead>
             <tr style={hdr}>
-              <th style={{ ...th, textAlign:'left', minWidth: 300 }}>Account</th>
-              {years.map(y => <th key={y} style={th}>{y}</th>)}
-              {years.length >= 2 && <th style={th}>{years[0]} vs {years[1]}</th>}
+              <th style={{ ...th, textAlign:'left', minWidth: 300, position: 'sticky', top: 0, left: 0, background: '#1a2a4a', zIndex: 5 }}>Account</th>
+              {years.map(y => <th key={y} style={{ ...th, position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{y}</th>)}
+              {years.length >= 2 && <th style={{ ...th, position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{years[0]} vs {years[1]}</th>}
             </tr>
           </thead>
           <tbody>
@@ -107,22 +108,23 @@ export default function BookkeepingPnlComparison() {
             {renderAnnualTotal('NET INCOME', years.map(y => sectionYear(groups.Income, y) - sectionYear(groups.COGS, y) - sectionYear(groups.Expense, y) + sectionYear(groups['Other Income'], y)), fmt, fmtPct, '#1a2a4a', '#fff')}
           </tbody>
         </table>
+        </div>
       ) : (
-        <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxWidth: '100%', maxHeight: 'calc(100vh - 240px)' }}>
           <table style={{ ...tbl, fontSize: '0.78rem', tableLayout: 'auto' }}>
             <thead>
               <tr style={hdr}>
-                <th rowSpan={2} style={{ ...th, textAlign:'left', minWidth: 220, position: 'sticky', left: 0, background:'#1a2a4a', zIndex: 3 }}>Account</th>
+                <th rowSpan={2} style={{ ...th, textAlign:'left', minWidth: 220, position: 'sticky', left: 0, top: 0, background:'#1a2a4a', zIndex: 5 }}>Account</th>
                 {MONTHS.map((m, idx) => (
-                  <th key={m} colSpan={years.length} style={{ ...th, borderRight: '2px solid #fff' }}>{m}</th>
+                  <th key={m} colSpan={years.length} style={{ ...th, borderRight: '2px solid #fff', position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{m}</th>
                 ))}
-                <th colSpan={years.length} style={{ ...th, background:'#3949ab' }}>YTD Total</th>
+                <th colSpan={years.length} style={{ ...th, background:'#3949ab', position: 'sticky', top: 0, zIndex: 4 }}>YTD Total</th>
               </tr>
               <tr style={hdr}>
                 {MONTHS.flatMap((m) =>
-                  years.map((y, i) => <th key={`${m}-${y}`} style={{ ...thSm, borderRight: i === years.length-1 ? '2px solid #fff' : '1px solid #555' }}>{String(y).slice(2)}</th>)
+                  years.map((y, i) => <th key={`${m}-${y}`} style={{ ...thSm, borderRight: i === years.length-1 ? '2px solid #fff' : '1px solid #555', position: 'sticky', top: 36, background: '#1a2a4a', zIndex: 4 }}>{String(y).slice(2)}</th>)
                 )}
-                {years.map((y) => <th key={`tot-${y}`} style={{ ...thSm, background:'#3949ab' }}>{String(y).slice(2)}</th>)}
+                {years.map((y) => <th key={`tot-${y}`} style={{ ...thSm, background:'#3949ab', position: 'sticky', top: 36, zIndex: 4 }}>{String(y).slice(2)}</th>)}
               </tr>
             </thead>
             <tbody>
