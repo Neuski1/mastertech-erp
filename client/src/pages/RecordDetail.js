@@ -832,9 +832,12 @@ ${paymentDetailHtml}
               style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', color: '#374151', backgroundColor: '#fff', cursor: 'pointer' }}
             >
               {ALL_STATUSES.filter(s => {
-                // Paid and Void: only admin and bookkeeper
-                if (['paid', 'void'].includes(s.value)) return isAdmin || isBookkeeper;
-                // All others: admin and service_writer
+                // Void: admin and bookkeeper only (destructive).
+                if (s.value === 'void') return isAdmin || isBookkeeper;
+                // Paid: admin, bookkeeper, and editors (incl. techs) — techs
+                // close out and collect payment at pickup all the time.
+                if (s.value === 'paid') return isAdmin || isBookkeeper || canEditRecords;
+                // All others: admin and any record editor.
                 return isAdmin || canEditRecords;
               }).map(s => (
                 <option key={s.value} value={s.value}>{s.label}</option>
