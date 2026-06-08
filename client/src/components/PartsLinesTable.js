@@ -312,6 +312,9 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                         {item.part_number && `#${item.part_number} · `}
                         {formatCurrency(item.sale_price_each)} · Qty: {parseFloat(item.qty_on_hand).toFixed(0)}
                       </span>
+                      {item.vendor_part_number && (
+                        <div style={{ color: '#6b7280', fontSize: '0.7rem', marginTop: '2px' }}>Supplier/MPN: {item.vendor_part_number}</div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -449,6 +452,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                               </div>
                               <div style={{ color: '#6b7280', fontSize: '0.7rem' }}>
                                 {item.part_number && <span>#{item.part_number}</span>}
+                                {item.vendor_part_number && <span> &middot; MPN: {item.vendor_part_number}</span>}
                                 {item.vendor && <span> &middot; {item.vendor}</span>}
                                 <span> &middot; Qty: {parseFloat(item.qty_on_hand)}</span>
                               </div>
