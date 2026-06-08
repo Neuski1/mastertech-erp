@@ -88,7 +88,9 @@ router.get('/journal-entries', async (req, res) => {
 router.get('/reports/pnl', async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const { rows } = await pool.query(
+
+    // Live data from journal_lines
+    const live = await pool.query(
       `SELECT a.account_number, a.name, a.account_type,
               EXTRACT(MONTH FROM je.entry_date)::int AS month,
               SUM(CASE WHEN a.normal_balance = 'credit'
@@ -105,19 +107,36 @@ router.get('/reports/pnl', async (req, res) => {
       [year]
     );
 
-    // Pivot into account x months
+    // Historical data from historical_pnl
+    const hist = await pool.query(
+      `SELECT h.account_number, a.name, a.account_type, h.month, h.amount
+         FROM historical_pnl h
+         LEFT JOIN accounts a ON a.account_number = h.account_number
+        WHERE h.year = $1`,
+      [year]
+    );
+
+    // Pivot, merging both sources additively
     const map = {};
-    for (const r of rows) {
-      const key = r.account_number;
-      if (!map[key]) {
-        map[key] = {
-          account_number: r.account_number,
-          name: r.name,
-          account_type: r.account_type,
+    function ensure(acctNum, name, type) {
+      if (!map[acctNum]) {
+        map[acctNum] = {
+          account_number: acctNum,
+          name: name || `(Account ${acctNum})`,
+          account_type: type || 'Expense',
           months: Array(12).fill(0),
         };
       }
-      map[key].months[r.month - 1] = Number(r.amount);
+      if (name) map[acctNum].name = name;
+      if (type) map[acctNum].account_type = type;
+    }
+    for (const r of live.rows) {
+      ensure(r.account_number, r.name, r.account_type);
+      map[r.account_number].months[r.month - 1] = Number(r.amount);
+    }
+    for (const r of hist.rows) {
+      ensure(r.account_number, r.name, r.account_type);
+      map[r.account_number].months[r.month - 1] = (map[r.account_number].months[r.month - 1] || 0) + Number(r.amount);
     }
     const accounts = Object.values(map);
     res.json({ year, accounts });
