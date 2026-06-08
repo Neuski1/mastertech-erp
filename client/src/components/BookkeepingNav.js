@@ -13,7 +13,7 @@ const links = [
 export default function BookkeepingNav() {
   const loc = useLocation();
   return (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #1a2a4a', paddingBottom: 0 }}>
+    <div className="print-hide" style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '2px solid #1a2a4a', paddingBottom: 0 }}>
       {links.map(l => {
         const isActive = loc.pathname === l.to;
         return (
