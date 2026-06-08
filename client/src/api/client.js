@@ -60,7 +60,7 @@ export const api = {
   sendReminder: (recordId) => request(`/records/${recordId}/send-reminder`, { method: 'POST' }),
   copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),
   approveEstimateLines: (recordId, data) => request(`/records/${recordId}/approve-estimate-lines`, { method: 'POST', body: JSON.stringify(data) }),
-  sendEstimateApproval: (recordId) => request(`/records/${recordId}/send-estimate-approval`, { method: 'POST' }),
+  sendEstimateApproval: (recordId, data = {}) => request(`/records/${recordId}/send-estimate-approval`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Record Photos
   getRecordPhotos: (recordId) => request(`/records/${recordId}/photos`),

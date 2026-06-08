@@ -48,6 +48,7 @@ router.get('/:token', async (req, res) => {
     const { rows: tokenRows } = await pool.query(
       `SELECT ela.*, r.record_number, r.id AS record_id,
               r.total_sales AS existing_total,
+              r.tax_rate, r.shop_supplies_exempt,
               c.first_name
        FROM estimate_line_approvals ela
        JOIN records r ON r.id = ela.record_id
@@ -86,7 +87,7 @@ router.get('/:token', async (req, res) => {
       [token.record_id]
     );
     const { rows: partsLines } = await pool.query(
-      `SELECT id, description, quantity, sale_price_each, line_total, customer_approved
+      `SELECT id, description, quantity, sale_price_each, line_total, taxable, customer_approved
        FROM record_parts_lines
        WHERE record_id = $1 AND is_estimate_line = TRUE AND deleted_at IS NULL
        ORDER BY sort_order`,
@@ -125,7 +126,7 @@ router.get('/:token', async (req, res) => {
         const checked = 'checked'; // pre-selected by default; customer unchecks to decline
         const lt = parseFloat(l.line_total);
         laborHtml += `<tr>
-          <td class="cb-cell"><input type="checkbox" name="labor_${l.id}" value="${l.id}" ${checked} class="estimate-cb" data-amount="${lt.toFixed(2)}"></td>
+          <td class="cb-cell"><input type="checkbox" name="labor_${l.id}" value="${l.id}" ${checked} class="estimate-cb" data-type="labor" data-amount="${lt.toFixed(2)}"></td>
           <td>${l.description}</td>
           <td class="right">${parseFloat(l.hours).toFixed(1)}</td>
           <td class="right">$${parseFloat(l.rate).toFixed(2)}</td>
@@ -142,8 +143,9 @@ router.get('/:token', async (req, res) => {
       partsLines.forEach(p => {
         const checked = 'checked'; // pre-selected by default; customer unchecks to decline
         const lt = parseFloat(p.line_total);
+        const tax = p.taxable ? '1' : '0';
         partsHtml += `<tr>
-          <td class="cb-cell"><input type="checkbox" name="parts_${p.id}" value="${p.id}" ${checked} class="estimate-cb" data-amount="${lt.toFixed(2)}"></td>
+          <td class="cb-cell"><input type="checkbox" name="parts_${p.id}" value="${p.id}" ${checked} class="estimate-cb" data-type="parts" data-taxable="${tax}" data-amount="${lt.toFixed(2)}"></td>
           <td>${p.description}</td>
           <td class="right">${parseFloat(p.quantity)}</td>
           <td class="right">$${parseFloat(p.sale_price_each).toFixed(2)}</td>
@@ -153,13 +155,25 @@ router.get('/:token', async (req, res) => {
       partsHtml += '</table>';
     }
 
-    // Total estimate (everything checked by default)
-    let totalEstimate = 0;
-    laborLines.forEach(l => totalEstimate += parseFloat(l.line_total));
-    partsLines.forEach(p => totalEstimate += parseFloat(p.line_total));
+    // Starting selection totals (every box checked by default).
+    let startingLabor = 0;
+    laborLines.forEach(l => startingLabor += parseFloat(l.line_total));
+    let startingParts = 0;
+    let startingPartsTaxable = 0;
+    partsLines.forEach(p => {
+      const lt = parseFloat(p.line_total);
+      startingParts += lt;
+      if (p.taxable) startingPartsTaxable += lt;
+    });
 
-    // What the WO is already at (work that was approved or committed before
-    // these new inspection findings came in). Could be 0 for a fresh estimate.
+    const taxRate = parseFloat(token.tax_rate || 0); // e.g. 0.0905
+    const shopSuppliesRate = 0.05;                   // 5% of labor
+    const shopExempt = !!token.shop_supplies_exempt;
+
+    const startingShop = shopExempt ? 0 : startingLabor * shopSuppliesRate;
+    const startingTax  = startingPartsTaxable * taxRate;
+    const totalEstimate = startingLabor + startingParts + startingShop + startingTax;
+
     const existingTotal = parseFloat(token.existing_total || 0);
     const startingNewTotal = existingTotal + totalEstimate;
 
@@ -197,31 +211,44 @@ router.get('/:token', async (req, res) => {
       <p style="color:#6b7280;margin:0 0 20px;">Hi${token.first_name ? ' ' + token.first_name : ''}, please review the inspection findings below. Every item is checked by default. Uncheck anything you would like us to skip, then click Approve.</p>
       ${existingHtml}
       <h3 style="margin:20px 0 8px;color:#92400e;">Inspection Findings — Needs Your Approval</h3>
+      <div style="display:flex;gap:8px;margin:0 0 10px;">
+        <button type="button" id="approve-all" style="background:#1e3a5f;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;">Approve All</button>
+        <button type="button" id="deselect-all" style="background:#fff;color:#1e3a5f;border:1px solid #1e3a5f;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;">Deselect All</button>
+      </div>
       <form method="POST" action="/api/estimate-lines/approve/${req.params.token}">
         ${laborHtml}
         ${partsHtml}
 
         <div style="margin:24px 0 12px;padding:16px 18px;background:#f0fdf4;border:2px solid #065f46;border-radius:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#374151;margin-bottom:4px;">
+            <span>Labor selected</span><span>$<span id="sel-labor">${startingLabor.toFixed(2)}</span></span>
+          </div>
+          ${!shopExempt ? `
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#6b7280;margin-bottom:4px;">
+            <span style="padding-left:14px;">+ Shop Supplies (5% of labor)</span><span>$<span id="sel-shop">${startingShop.toFixed(2)}</span></span>
+          </div>` : ''}
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#374151;margin-top:8px;margin-bottom:4px;">
+            <span>Parts selected</span><span>$<span id="sel-parts">${startingParts.toFixed(2)}</span></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;color:#6b7280;margin-bottom:10px;">
+            <span style="padding-left:14px;">+ Sales Tax (${(taxRate*100).toFixed(2)}% on taxable parts)</span><span>$<span id="sel-tax">${startingTax.toFixed(2)}</span></span>
+          </div>
           ${existingTotal > 0 ? `
-            <div style="display:flex;justify-content:space-between;font-size:14px;color:#374151;margin-bottom:6px;">
-              <span>Existing work order balance</span>
-              <span>$${existingTotal.toFixed(2)}</span>
+            <div style="display:flex;justify-content:space-between;font-size:14px;color:#374151;border-top:1px solid #86efac;padding-top:8px;">
+              <span>Existing WO balance</span><span>$${existingTotal.toFixed(2)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;font-size:14px;color:#374151;margin-bottom:10px;">
-              <span>Additional items selected</span>
-              <span>+ $<span id="selected-total">${totalEstimate.toFixed(2)}</span></span>
+              <span>Additional items total</span><span>+ $<span id="sel-additional">${totalEstimate.toFixed(2)}</span></span>
             </div>
-            <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#065f46;border-top:1px solid #86efac;padding-top:10px;">
-              <span>New work order total</span>
-              <span>$<span id="new-total">${startingNewTotal.toFixed(2)}</span></span>
+            <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#065f46;border-top:2px solid #065f46;padding-top:10px;">
+              <span>New work order total</span><span>$<span id="new-total">${startingNewTotal.toFixed(2)}</span></span>
             </div>
           ` : `
-            <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#065f46;">
-              <span>Total of selected items</span>
-              <span>$<span id="selected-total">${totalEstimate.toFixed(2)}</span></span>
+            <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#065f46;border-top:2px solid #065f46;padding-top:10px;">
+              <span>Total of selected items</span><span>$<span id="sel-additional">${totalEstimate.toFixed(2)}</span></span>
             </div>
           `}
-          <p style="color:#6b7280;font-size:12px;margin:10px 0 0;">Updates live as you check or uncheck items. Sales tax not included.</p>
+          <p style="color:#6b7280;font-size:11px;margin:10px 0 0;">Totals update live as you check or uncheck items.</p>
         </div>
 
         <p style="color:#6b7280;font-size:13px;margin:0 0 20px;">Only checked items will be added to your work order. Uncheck any you would like to decline.</p>
@@ -230,18 +257,49 @@ router.get('/:token', async (req, res) => {
       <script>
         (function() {
           var existingTotal = ${existingTotal.toFixed(2)};
+          var taxRate = ${taxRate};
+          var shopRate = ${shopExempt ? 0 : shopSuppliesRate};
           var cbs = document.querySelectorAll('.estimate-cb');
-          var selSpan = document.getElementById('selected-total');
-          var newSpan = document.getElementById('new-total');
+          var s = {
+            labor:      document.getElementById('sel-labor'),
+            shop:       document.getElementById('sel-shop'),
+            parts:      document.getElementById('sel-parts'),
+            tax:        document.getElementById('sel-tax'),
+            additional: document.getElementById('sel-additional'),
+            newTotal:   document.getElementById('new-total')
+          };
           function recalc() {
-            var sel = 0;
+            var labor = 0, parts = 0, partsTaxable = 0;
             for (var i = 0; i < cbs.length; i++) {
-              if (cbs[i].checked) sel += parseFloat(cbs[i].dataset.amount || 0);
+              if (!cbs[i].checked) continue;
+              var amt = parseFloat(cbs[i].dataset.amount || 0);
+              if (cbs[i].dataset.type === 'labor') labor += amt;
+              else {
+                parts += amt;
+                if (cbs[i].dataset.taxable === '1') partsTaxable += amt;
+              }
             }
-            if (selSpan) selSpan.textContent = sel.toFixed(2);
-            if (newSpan) newSpan.textContent = (existingTotal + sel).toFixed(2);
+            var shop = labor * shopRate;
+            var tax = partsTaxable * taxRate;
+            var additional = labor + shop + parts + tax;
+            if (s.labor) s.labor.textContent = labor.toFixed(2);
+            if (s.shop)  s.shop.textContent = shop.toFixed(2);
+            if (s.parts) s.parts.textContent = parts.toFixed(2);
+            if (s.tax)   s.tax.textContent = tax.toFixed(2);
+            if (s.additional) s.additional.textContent = additional.toFixed(2);
+            if (s.newTotal)   s.newTotal.textContent = (existingTotal + additional).toFixed(2);
           }
           for (var j = 0; j < cbs.length; j++) cbs[j].addEventListener('change', recalc);
+          var approveAll = document.getElementById('approve-all');
+          var deselectAll = document.getElementById('deselect-all');
+          if (approveAll) approveAll.addEventListener('click', function() {
+            for (var k = 0; k < cbs.length; k++) cbs[k].checked = true;
+            recalc();
+          });
+          if (deselectAll) deselectAll.addEventListener('click', function() {
+            for (var k = 0; k < cbs.length; k++) cbs[k].checked = false;
+            recalc();
+          });
         })();
       </script>
     `;
