@@ -88,7 +88,9 @@ router.get('/journal-entries', async (req, res) => {
 router.get('/reports/pnl', async (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const { rows } = await pool.query(
+
+    // Live data from journal_lines
+    const live = await pool.query(
       `SELECT a.account_number, a.name, a.account_type,
               EXTRACT(MONTH FROM je.entry_date)::int AS month,
               SUM(CASE WHEN a.normal_balance = 'credit'
@@ -105,19 +107,36 @@ router.get('/reports/pnl', async (req, res) => {
       [year]
     );
 
-    // Pivot into account x months
+    // Historical data from historical_pnl
+    const hist = await pool.query(
+      `SELECT h.account_number, a.name, a.account_type, h.month, h.amount
+         FROM historical_pnl h
+         LEFT JOIN accounts a ON a.account_number = h.account_number
+        WHERE h.year = $1`,
+      [year]
+    );
+
+    // Pivot, merging both sources additively
     const map = {};
-    for (const r of rows) {
-      const key = r.account_number;
-      if (!map[key]) {
-        map[key] = {
-          account_number: r.account_number,
-          name: r.name,
-          account_type: r.account_type,
+    function ensure(acctNum, name, type) {
+      if (!map[acctNum]) {
+        map[acctNum] = {
+          account_number: acctNum,
+          name: name || `(Account ${acctNum})`,
+          account_type: type || 'Expense',
           months: Array(12).fill(0),
         };
       }
-      map[key].months[r.month - 1] = Number(r.amount);
+      if (name) map[acctNum].name = name;
+      if (type) map[acctNum].account_type = type;
+    }
+    for (const r of live.rows) {
+      ensure(r.account_number, r.name, r.account_type);
+      map[r.account_number].months[r.month - 1] = Number(r.amount);
+    }
+    for (const r of hist.rows) {
+      ensure(r.account_number, r.name, r.account_type);
+      map[r.account_number].months[r.month - 1] = (map[r.account_number].months[r.month - 1] || 0) + Number(r.amount);
     }
     const accounts = Object.values(map);
     res.json({ year, accounts });
@@ -152,6 +171,80 @@ router.get('/reports/balance-sheet', async (req, res) => {
       [asOf]
     );
     res.json({ as_of: asOf, accounts: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ---------------------------------------------------------------------------
+// GET /api/bookkeeping/reports/pnl-comparison?years=2026,2025,2024,2023
+// Returns side-by-side multi-year monthly P&L combining live journal_lines
+// data (current year) and historical_pnl table (prior years).
+// ---------------------------------------------------------------------------
+router.get('/reports/pnl-comparison', async (req, res) => {
+  try {
+    const years = (req.query.years || `${new Date().getFullYear()},${new Date().getFullYear()-1},${new Date().getFullYear()-2}`)
+      .split(',').map(y => parseInt(y)).filter(y => !isNaN(y));
+    if (years.length === 0) return res.status(400).json({ error: 'years required' });
+
+    // Live data from journal_lines
+    const live = await pool.query(
+      `SELECT a.account_number, a.name, a.account_type,
+              EXTRACT(YEAR FROM je.entry_date)::int AS year,
+              EXTRACT(MONTH FROM je.entry_date)::int AS month,
+              SUM(CASE WHEN a.normal_balance = 'credit'
+                       THEN jl.credit - jl.debit
+                       ELSE jl.debit - jl.credit END) AS amount
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id = jl.journal_entry_id
+         JOIN accounts a ON a.id = jl.account_id
+        WHERE je.is_posted = TRUE
+          AND a.statement = 'P&L'
+          AND EXTRACT(YEAR FROM je.entry_date) = ANY($1::int[])
+        GROUP BY a.account_number, a.name, a.account_type, year, month`,
+      [years]
+    );
+
+    // Historical from historical_pnl table
+    const hist = await pool.query(
+      `SELECT h.account_number, a.name, a.account_type, h.year, h.month, h.amount
+         FROM historical_pnl h
+         LEFT JOIN accounts a ON a.account_number = h.account_number
+        WHERE h.year = ANY($1::int[])`,
+      [years]
+    );
+
+    // Merge into account -> year -> month structure
+    const accounts = {};
+    function ensureAccount(acctNum, name, type) {
+      if (!accounts[acctNum]) {
+        accounts[acctNum] = {
+          account_number: acctNum,
+          name: name || `(Account ${acctNum})`,
+          account_type: type || 'Expense',
+          years: {},
+        };
+      }
+      // Update name if a better one comes in
+      if (name) accounts[acctNum].name = name;
+      if (type) accounts[acctNum].account_type = type;
+    }
+    for (const r of live.rows) {
+      ensureAccount(r.account_number, r.name, r.account_type);
+      const y = accounts[r.account_number].years[r.year] || Array(12).fill(0);
+      y[r.month - 1] = Number(r.amount);
+      accounts[r.account_number].years[r.year] = y;
+    }
+    for (const r of hist.rows) {
+      ensureAccount(r.account_number, r.name, r.account_type);
+      const y = accounts[r.account_number].years[r.year] || Array(12).fill(0);
+      // Historical data ADDS to any live data for that year/month (covers months not yet posted)
+      y[r.month - 1] = (y[r.month - 1] || 0) + Number(r.amount);
+      accounts[r.account_number].years[r.year] = y;
+    }
+
+    res.json({ years, accounts: Object.values(accounts) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
