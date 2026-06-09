@@ -144,6 +144,15 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
     return `${API_BASE}/records/${recordId}/photos/${photo.id}/image${token ? `?token=${token}` : ''}`;
   };
 
+  // Force a Save-As dialog and a real .jpg download. Used to bypass the
+  // Outlook bug where inline images saved out of an emailed WO get renamed
+  // to "pdfx". Same endpoint, just with download=1.
+  const downloadUrl = (photo) => {
+    const token = getAuthToken();
+    const q = `download=1${token ? `&token=${token}` : ''}`;
+    return `${API_BASE}/records/${recordId}/photos/${photo.id}/image?${q}`;
+  };
+
   return (
     <div style={sectionStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpanded(!isExpanded)}>
@@ -257,8 +266,13 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
                       <div style={{ color: '#6b7280', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {p.label || p.filename}
                       </div>
-                      <div style={{ color: '#9ca3af', fontSize: '0.6rem' }}>
-                        {p.file_size ? `${(p.file_size / 1024).toFixed(0)} KB` : ''}
+                      <div style={{ color: '#9ca3af', fontSize: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{p.file_size ? `${(p.file_size / 1024).toFixed(0)} KB` : ''}</span>
+                        <a href={downloadUrl(p)} download={p.filename || 'photo.jpg'}
+                           onClick={(e) => e.stopPropagation()}
+                           style={{ color: '#3b82f6', fontWeight: 600, textDecoration: 'none' }}>
+                          &darr; Save .jpg
+                        </a>
                       </div>
                     </div>
                     {isEditable && (

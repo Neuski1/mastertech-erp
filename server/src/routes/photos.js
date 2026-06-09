@@ -155,8 +155,14 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
     );
     if (rows.length === 0 || !rows[0].photo_data) return res.status(404).json({ error: 'Photo not found' });
 
+    // ?download=1 forces a Save-As dialog with the original filename + jpg
+    // extension. Outlook was converting inline images to "pdfx" when users
+    // tried to save them out of an emailed WO; download=1 hands the customer
+    // (or Carol) a real .jpg file directly.
+    const wantDownload = req.query.download === '1' || req.query.download === 'true';
+    const filename = rows[0].filename || 'photo.jpg';
     res.set('Content-Type', rows[0].content_type || 'image/jpeg');
-    res.set('Content-Disposition', `inline; filename="${rows[0].filename || 'photo.jpg'}"`);
+    res.set('Content-Disposition', `${wantDownload ? 'attachment' : 'inline'}; filename="${filename}"`);
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(rows[0].photo_data);
   } catch (err) {

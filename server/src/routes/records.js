@@ -1081,7 +1081,11 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         items.forEach(p => {
           const url = p.onedrive_url
             || `${backendBase}/api/records/${r.id}/photos/${p.id}/image`;
-          html += `<p style="margin:2px 0;font-size:12px;">&bull; ${p.label || 'Photo'} — <a href="${url}" target="_blank" style="color:#3b82f6;">View Photo &rarr;</a></p>`;
+          // Download URL bypasses Outlook's inline-image conversion (the
+          // "saves as .pdfx" bug) by serving the raw JPG with a Save-As prompt.
+          const downloadUrl = p.onedrive_url
+            || `${backendBase}/api/records/${r.id}/photos/${p.id}/image?download=1`;
+          html += `<p style="margin:2px 0;font-size:12px;">&bull; ${p.label || 'Photo'} — <a href="${url}" target="_blank" style="color:#3b82f6;">View</a> &middot; <a href="${downloadUrl}" target="_blank" style="color:#3b82f6;">Download .jpg</a></p>`;
         });
       }
       return html;
@@ -1336,10 +1340,14 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
         photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
         items.forEach(p => {
           const url = p.onedrive_url || `${backendUrl}/api/records/${id}/photos/${p.id}/image`;
-          photoBlock += `<a href="${url}" target="_blank" style="text-decoration:none;color:#374151;">
-            <img src="${url}" alt="${p.label || cat}" style="width:140px;height:100px;object-fit:cover;border-radius:6px;border:1px solid #d1d5db;display:block;" />
-            ${p.label ? `<div style="font-size:11px;max-width:140px;margin-top:2px;color:#6b7280;">${p.label}</div>` : ''}
-          </a>`;
+          const downloadUrl = p.onedrive_url || `${backendUrl}/api/records/${id}/photos/${p.id}/image?download=1`;
+          photoBlock += `<div style="text-align:center;">
+            <a href="${url}" target="_blank" style="text-decoration:none;color:#374151;">
+              <img src="${url}" alt="${p.label || cat}" style="width:140px;height:100px;object-fit:cover;border-radius:6px;border:1px solid #d1d5db;display:block;" />
+              ${p.label ? `<div style="font-size:11px;max-width:140px;margin-top:2px;color:#6b7280;">${p.label}</div>` : ''}
+            </a>
+            <a href="${downloadUrl}" style="font-size:10px;color:#3b82f6;text-decoration:underline;">Download .jpg</a>
+          </div>`;
         });
         photoBlock += '</div>';
       }
