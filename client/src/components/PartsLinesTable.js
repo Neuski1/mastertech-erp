@@ -587,7 +587,14 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             editingId === line.id ? (
               <tr key={line.id} style={{ backgroundColor: '#fffbeb' }}>
                 {showApproval && <td style={tdStyle}></td>}
-                <td style={tdStyle}>{line.part_number || '—'}</td>
+                <td style={tdStyle}>
+                  <div>{line.part_number || '—'}</div>
+                  {line.vendor_part_number && (
+                    <div style={{ fontSize: '0.7rem', color: '#0369a1', marginTop: '2px', fontWeight: 600 }}>
+                      MPN: {line.vendor_part_number}
+                    </div>
+                  )}
+                </td>
                 <td style={tdStyle}>
                   <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
                     style={inlineInput} />
@@ -632,16 +639,19 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     />
                   </td>
                 )}
-                <td style={tdStyle}>{line.part_number || '—'}</td>
+                <td style={tdStyle}>
+                  <div>{line.part_number || '—'}</div>
+                  {line.vendor_part_number && (
+                    <div style={{ fontSize: '0.7rem', color: '#0369a1', marginTop: '2px', fontWeight: 600 }}
+                         title="Manufacturer / Supplier part number — internal only, not printed">
+                      MPN: {line.vendor_part_number}
+                    </div>
+                  )}
+                </td>
                 <td style={tdStyle}>
                   {line.description}
                   {line.is_inventory_part && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#6b7280', backgroundColor: '#f3f4f6', padding: '1px 5px', borderRadius: '3px' }}>INV</span>}
                   {line.vendor && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '1px 5px', borderRadius: '3px' }}>{line.vendor}</span>}
-                  {line.is_inventory_part && line.vendor_part_number && (
-                    <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
-                      Supplier/MPN: {line.vendor_part_number}
-                    </div>
-                  )}
                 </td>
                 {canSeeFinancials && (
                   <td style={{ ...tdStyle, textAlign: 'center', color: line.taxable ? '#10b981' : '#9ca3af' }}>

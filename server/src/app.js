@@ -433,6 +433,17 @@ const pool = require('./db/pool');
     // by service writers (so they don't have to bounce to the inventory
     // module). Intentionally never printed on the customer-facing work order.
     await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS vendor_part_number VARCHAR(100)');
+    // Migration 057: backfill the new vendor_part_number column on existing
+    // parts lines from the linked inventory row so older WOs also display
+    // the supplier/MPN, not just lines added after migration 056 deployed.
+    await pool.query(`
+      UPDATE record_parts_lines rpl
+         SET vendor_part_number = inv.vendor_part_number
+        FROM inventory inv
+       WHERE rpl.vendor_part_number IS NULL
+         AND rpl.inventory_id = inv.id
+         AND inv.vendor_part_number IS NOT NULL
+    `);
 
     // Migration 055: backfill missing storage_payment_status rows for active
     // billings that never got a row in Jan-May 2026. Carol confirmed every
