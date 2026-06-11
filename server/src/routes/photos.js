@@ -171,6 +171,75 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/records/:recordId/photos/download-all — Bulk zip download
+//
+// Returns every uploaded photo on the WO as a .zip with sensible filenames
+// (WO####-category-N.jpg) so Carol can drag the whole batch into a OneDrive
+// folder or upload it to an insurance portal in one go. OneDrive-linked
+// photos are NOT included in the zip (we don't have their bytes), but their
+// links are written to a manifest.txt inside the zip so nothing is missed.
+// ---------------------------------------------------------------------------
+router.get('/:recordId/photos/download-all', async (req, res) => {
+  try {
+    const { rows: photos } = await pool.query(
+      `SELECT p.id, p.category, p.label, p.filename, p.content_type,
+              p.photo_data, p.onedrive_url,
+              r.record_number
+         FROM record_photos p
+         JOIN records r ON r.id = p.record_id
+        WHERE p.record_id = $1
+        ORDER BY p.category, p.created_at, p.id`,
+      [req.params.recordId]
+    );
+
+    if (photos.length === 0) {
+      return res.status(404).json({ error: 'No photos on this work order' });
+    }
+
+    const woNumber = photos[0].record_number || req.params.recordId;
+    const zipName = `WO${woNumber}-photos.zip`;
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', `attachment; filename="${zipName}"`);
+
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err) => {
+      console.error('Photo zip error:', err);
+      try { res.status(500).end(); } catch (e) { /* response already sent */ }
+    });
+    archive.pipe(res);
+
+    const counters = {};
+    const skippedLinks = [];
+    for (const p of photos) {
+      const cat = (p.category || 'other').toLowerCase();
+      counters[cat] = (counters[cat] || 0) + 1;
+      const n = counters[cat];
+      const ext = (p.filename && p.filename.includes('.'))
+        ? p.filename.slice(p.filename.lastIndexOf('.'))
+        : (p.content_type === 'image/png' ? '.png' : '.jpg');
+      const labelPart = p.label ? `-${p.label.replace(/[^a-z0-9-_]/gi, '_').slice(0, 40)}` : '';
+      const name = `WO${woNumber}-${cat}-${String(n).padStart(2,'0')}${labelPart}${ext}`;
+      if (p.photo_data) {
+        archive.append(p.photo_data, { name });
+      } else if (p.onedrive_url) {
+        skippedLinks.push(`${name}  ->  ${p.onedrive_url}`);
+      }
+    }
+    if (skippedLinks.length > 0) {
+      archive.append(
+        `OneDrive-linked photos (open these in a browser):\n\n${skippedLinks.join('\n')}\n`,
+        { name: 'manifest.txt' }
+      );
+    }
+    await archive.finalize();
+  } catch (err) {
+    console.error('GET photos/download-all error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/records/:recordId/photos/:photoId/thumbnail — Serve thumbnail
 // ---------------------------------------------------------------------------
 router.get('/:recordId/photos/:photoId/thumbnail', async (req, res) => {

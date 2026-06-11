@@ -198,6 +198,15 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
                 {emailSending ? 'Sending...' : '✉️ Email to Customer'}
               </button>
             )}
+            {photos.length > 0 && (
+              <a
+                href={`${API_BASE}/records/${recordId}/photos/download-all${getAuthToken() ? `?token=${getAuthToken()}` : ''}`}
+                style={{ ...btnSmallGray, display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                title="Download every photo as a single .zip — drag the contents into OneDrive or upload to an insurance portal"
+              >
+                ⬇ Download All (.zip)
+              </a>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); setShowLinkForm(!showLinkForm); }}
               style={btnSmallGray}
