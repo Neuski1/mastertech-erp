@@ -475,6 +475,22 @@ export default function RecordDetail() {
       `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
     ).join('');
 
+    // Build pending estimate rows (Inspection Findings / Estimate). These
+    // are is_estimate_line=TRUE lines the customer hasn't approved yet, so
+    // they sit OUTSIDE the main totals but should print so the shop has the
+    // full picture on paper.
+    const pendingEstLabor = (r.labor_lines || []).filter(l => l.is_estimate_line && !l.customer_approved);
+    const pendingEstParts = (r.parts_lines || []).filter(p => p.is_estimate_line && !p.customer_approved);
+    let pendingEstTotal = 0;
+    pendingEstLabor.forEach(l => pendingEstTotal += parseFloat(l.line_total || 0));
+    pendingEstParts.forEach(p => pendingEstTotal += parseFloat(p.line_total || 0));
+    const pendingEstLaborRows = pendingEstLabor.map((l, i) =>
+      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
+    ).join('');
+    const pendingEstPartsRows = pendingEstParts.map(p =>
+      `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
+    ).join('');
+
     // Build freight rows
     const freightRows = (r.freight_lines || []).map(f =>
       `<tr><td>S</td><td>${f.description || ''}</td><td style="text-align:right">1</td><td style="text-align:right">${fmtCur(f.amount)}</td><td style="text-align:right">${fmtCur(f.amount)}</td></tr>`
@@ -618,6 +634,26 @@ ${(r.freight_lines || []).length > 0 ? `
   <thead><tr style="background:#1a2a4a !important"><th style="background:#1a2a4a;color:#fff;font-weight:bold;font-size:11px">Type</th><th style="background:#1a2a4a;color:#fff;font-weight:bold;font-size:11px">Description</th><th style="background:#1a2a4a;color:#fff;font-weight:bold;font-size:11px;text-align:right">Qty</th><th style="background:#1a2a4a;color:#fff;font-weight:bold;font-size:11px;text-align:right">Rate</th><th style="background:#1a2a4a;color:#fff;font-weight:bold;font-size:11px;text-align:right">Subtotal</th></tr></thead>
   <tbody>${freightRows}</tbody>
 </table>` : ''}
+
+${(pendingEstLabor.length + pendingEstParts.length) > 0 ? `
+<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:2px solid #f59e0b;border-radius:6px;">
+  <div style="font-size:12px;font-weight:bold;color:#92400e;margin-bottom:4px;">INSPECTION FINDINGS / ESTIMATE — PENDING CUSTOMER APPROVAL</div>
+  <div style="font-size:10px;color:#92400e;margin-bottom:8px;font-style:italic;">Items below are NOT included in the totals above. They will be added to the work order once the customer approves them.</div>
+  ${pendingEstLabor.length > 0 ? `
+  <table class="lines" style="margin-top:6px;">
+    <thead><tr style="background:#92400e !important"><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px">#</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px">Type</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px">Labor Proposed</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px;text-align:right">Hours</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px;text-align:right">Rate</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px;text-align:right">Subtotal</th></tr></thead>
+    <tbody>${pendingEstLaborRows}</tbody>
+  </table>` : ''}
+  ${pendingEstParts.length > 0 ? `
+  <table class="lines" style="margin-top:6px;">
+    <thead><tr style="background:#92400e !important"><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px">Type</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px">Parts Proposed</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px;text-align:right">Qty</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px;text-align:right">Rate</th><th style="background:#92400e;color:#fff;font-weight:bold;font-size:11px;text-align:right">Subtotal</th></tr></thead>
+    <tbody>${pendingEstPartsRows}</tbody>
+  </table>` : ''}
+  <div style="margin-top:6px;display:flex;justify-content:flex-end;font-size:12px;font-weight:bold;color:#92400e;">
+    <span style="margin-right:16px;">ESTIMATE TOTAL (PENDING):</span>
+    <span>${fmtCur(pendingEstTotal)}</span>
+  </div>
+</div>` : ''}
 
 <div class="totals-block">
   <div class="totals">
