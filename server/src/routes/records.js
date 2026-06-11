@@ -1267,11 +1267,12 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
 
     // Photos to include in the estimate email so the customer can see what
     // we're proposing to fix. URL falls back to the ERP image endpoint when
-    // there's no OneDrive sharing link (uploaded photos).
+    // there's no OneDrive sharing link (uploaded photos). record_photos
+    // doesn't have a deleted_at column (hard-delete table), so no filter.
     const { rows: photosForEmail } = await pool.query(
       `SELECT id, category, label, onedrive_url
          FROM record_photos
-        WHERE record_id = $1 AND deleted_at IS NULL
+        WHERE record_id = $1
         ORDER BY id`,
       [id]
     );
