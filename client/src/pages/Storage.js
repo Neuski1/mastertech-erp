@@ -1036,6 +1036,12 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
             {space.contract_sent_at ? 'Resend Contract' : 'Email Contract'}
           </button>
+          <button onClick={() => {
+            const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+            window.open(`${apiBase}/storage-contract/guidelines-preview`, '_blank', 'noopener');
+          }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+            Preview Guidelines
+          </button>
         </div>
       </div>
 

@@ -100,6 +100,30 @@ router.post('/generate', requireAuth, requireRole('admin', 'service_writer'), as
 // Carol can review the actual contract in a new tab BEFORE clicking Send.
 // Does NOT email the customer, does NOT touch contract_sent_at.
 // ──────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────
+// GET /api/storage-contract/guidelines-preview
+// Returns the exact storage guidelines HTML that gets emailed to customers,
+// rendered inside the branded shell. Lets Carol open it in a new tab to
+// review what gets sent. No customer data — guidelines are the same for
+// everyone — so no billing_id required.
+// ──────────────────────────────────────────────────────
+// Public: guidelines are generic boilerplate (no customer data), and the
+// route needs to be openable in a new tab via window.open which can't send
+// auth headers. Safe to leave unauthenticated.
+router.get('/guidelines-preview', async (req, res) => {
+  try {
+    const body = `
+      <h2 style="color:#1e3a5f;margin:0 0 6px;text-align:center;">Master Tech RV Storage Guidelines</h2>
+      <p style="text-align:center;color:#6b7280;font-size:12px;margin:0 0 20px;">Internal preview — this is exactly what the customer receives when you click Send Guidelines.</p>
+      ${getGuidelinesHTML()}
+    `;
+    res.send(brandedPage('Storage Guidelines', body));
+  } catch (err) {
+    console.error('GET /api/storage-contract/guidelines-preview error:', err);
+    res.status(500).send('Error loading guidelines preview');
+  }
+});
+
 router.post('/preview-link', requireAuth, requireRole('admin', 'service_writer'), async (req, res) => {
   try {
     const { billing_id } = req.body;
