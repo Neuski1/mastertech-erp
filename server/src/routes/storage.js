@@ -1056,16 +1056,39 @@ router.get('/waitlist', async (req, res) => {
 router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const {
-      customer_id, contact_name, contact_phone, contact_email,
+      customer_id: providedCustomerId, contact_name, contact_phone, contact_email,
       space_type, rv_year, rv_make, rv_model, rv_length_feet,
       preferred_start, budget_monthly, notes
     } = req.body;
     if (!space_type || !['indoor', 'outdoor'].includes(space_type)) {
       return res.status(400).json({ error: 'space_type must be indoor or outdoor' });
     }
-    if (!customer_id && !contact_name) {
+    if (!providedCustomerId && !contact_name) {
       return res.status(400).json({ error: 'Either customer_id or contact_name is required' });
     }
+
+    // Auto-create a customer record when only contact info was provided, so
+    // the waitlist person is searchable from the assign-storage box flow and
+    // already exists when they convert to a real storage tenant. Previously
+    // waitlist contacts lived only in storage_waitlist, which is why the
+    // customer search came up empty.
+    let customer_id = providedCustomerId || null;
+    if (!customer_id && contact_name) {
+      const parts = contact_name.trim().split(/\s+/);
+      const firstName = parts.length > 1 ? parts[0] : '';
+      const lastName  = parts.length > 1 ? parts.slice(1).join(' ') : parts[0];
+      const numRes = await pool.query(
+        "SELECT account_number FROM customers WHERE account_number ~ '^[0-9]+$' ORDER BY account_number::int DESC LIMIT 1"
+      );
+      const nextNum = numRes.rows.length > 0 ? parseInt(numRes.rows[0].account_number) + 1 : 1001;
+      const { rows: custRows } = await pool.query(
+        `INSERT INTO customers (account_number, first_name, last_name, phone_primary, email_primary)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [String(nextNum), firstName || null, lastName, contact_phone || null, contact_email || null]
+      );
+      customer_id = custRows[0].id;
+    }
+
     // Auto-assign position (next in line for this type)
     const posRes = await pool.query(
       `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos
@@ -1081,7 +1104,7 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
           preferred_start, budget_monthly, notes, position)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
-      [customer_id || null, contact_name || null, contact_phone || null, contact_email || null,
+      [customer_id, contact_name || null, contact_phone || null, contact_email || null,
        space_type, rv_year || null, rv_make || null, rv_model || null, rv_length_feet || null,
        preferred_start || null, budget_monthly || null, notes || null, position]
     );

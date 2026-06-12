@@ -433,6 +433,38 @@ const pool = require('./db/pool');
     // by service writers (so they don't have to bounce to the inventory
     // module). Intentionally never printed on the customer-facing work order.
     await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS vendor_part_number VARCHAR(100)');
+    // Migration 058: backfill customer records for waitlist entries that
+    // were added before the auto-create-on-waitlist change. Old entries
+    // stored contact_name/email/phone only and never landed in customers,
+    // which broke the customer search in the assign-storage box flow.
+    try {
+      const { rows: orphans } = await pool.query(`
+        SELECT id, contact_name, contact_phone, contact_email
+          FROM storage_waitlist
+         WHERE customer_id IS NULL
+           AND contact_name IS NOT NULL
+           AND status IN ('waiting', 'notified')
+      `);
+      for (const w of orphans) {
+        const parts = (w.contact_name || '').trim().split(/\s+/);
+        const firstName = parts.length > 1 ? parts[0] : '';
+        const lastName  = parts.length > 1 ? parts.slice(1).join(' ') : (parts[0] || 'Waitlist');
+        const numRes = await pool.query(
+          "SELECT account_number FROM customers WHERE account_number ~ '^[0-9]+$' ORDER BY account_number::int DESC LIMIT 1"
+        );
+        const nextNum = numRes.rows.length > 0 ? parseInt(numRes.rows[0].account_number) + 1 : 1001;
+        const { rows: cust } = await pool.query(
+          `INSERT INTO customers (account_number, first_name, last_name, phone_primary, email_primary)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [String(nextNum), firstName || null, lastName, w.contact_phone || null, w.contact_email || null]
+        );
+        await pool.query(
+          'UPDATE storage_waitlist SET customer_id = $1 WHERE id = $2',
+          [cust[0].id, w.id]
+        );
+      }
+      if (orphans.length > 0) console.log(`[migration 058] backfilled ${orphans.length} waitlist customer record(s)`);
+    } catch (e) { console.error('[migration 058] error:', e.message); }
     // Migration 057: backfill the new vendor_part_number column on existing
     // parts lines from the linked inventory row so older WOs also display
     // the supplier/MPN, not just lines added after migration 056 deployed.

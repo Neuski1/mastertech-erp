@@ -1742,8 +1742,12 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
     if (!form.space_type) { setErr('Storage type is required'); return; }
     try {
       const data = await api.getStorageSpaces();
+      // A space is "available" when it has no active billing (billing_id NULL).
+      // The backend doesn't expose a status field — earlier code filtered
+      // on s.status === 'available' which is always false, so the available
+      // list always came back empty even when open spaces existed.
       const spaces = (data.spaces || data || []).filter(s =>
-        s.space_type === form.space_type && s.status === 'available'
+        s.space_type === form.space_type && !s.billing_id
       );
       setAvailableSpaces(spaces);
       if (spaces.length === 1) setSelectedSpaceId(String(spaces[0].id));
