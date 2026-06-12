@@ -969,6 +969,76 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
         )}
       </div>
 
+      {/* Contract status + Special Terms — visible right here in the inline
+          editor so Carol doesn't have to dig into Full details to see what's
+          been sent / accepted / needs editing. */}
+      <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contract</div>
+        <div style={{ fontSize: '0.78rem', marginBottom: '10px', padding: '7px 10px', borderRadius: '4px',
+                      backgroundColor: space.contract_accepted_at ? '#f0fdf4' : space.contract_sent_at ? '#fffbeb' : '#f9fafb',
+                      border: `1px solid ${space.contract_accepted_at ? '#bbf7d0' : space.contract_sent_at ? '#fcd34d' : '#e5e7eb'}`,
+                      color: space.contract_accepted_at ? '#065f46' : space.contract_sent_at ? '#92400e' : '#6b7280',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+          <div>
+            <strong>Status: </strong>
+            {space.contract_accepted_at
+              ? `Accepted ${new Date(space.contract_accepted_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' })}`
+              : space.contract_sent_at
+                ? `Sent ${new Date(space.contract_sent_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' })} — pending acceptance`
+                : 'Not sent yet'}
+          </div>
+          {(space.contract_sent_at || space.contract_accepted_at) && (
+            <button onClick={async () => {
+              try {
+                const { viewUrl } = await api.getStorageContractPreviewUrl(space.billing_id);
+                window.open(viewUrl, '_blank', 'noopener');
+              } catch (err) { flash('Error: ' + err.message); }
+            }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', textDecoration: 'underline', fontSize: '0.72rem', fontWeight: 600, padding: 0 }}>
+              View Contract
+            </button>
+          )}
+        </div>
+        <label style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Special Terms (optional)
+        </label>
+        <textarea
+          defaultValue={space.special_terms || ''}
+          onBlur={async (e) => {
+            const v = e.target.value;
+            if ((v || '') === (space.special_terms || '')) return;
+            try {
+              await api.updateStorage(space.billing_id, { special_terms: v });
+              flash('Special terms saved');
+              onChanged && onChanged();
+            } catch (err) { flash('Error: ' + err.message); }
+          }}
+          placeholder="Custom clause for this customer's contract (saves on blur)"
+          rows={2}
+          style={{ ...inputStyleFull, fontFamily: 'inherit', resize: 'vertical', marginTop: '4px' }}
+        />
+        <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <button onClick={async () => {
+            try {
+              const { viewUrl } = await api.getStorageContractPreviewUrl(space.billing_id);
+              window.open(viewUrl, '_blank', 'noopener');
+              flash('Preview opened in a new tab');
+            } catch (err) { flash('Error: ' + err.message); }
+          }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#f3f4f6', color: '#1e3a5f', border: '1px solid #d1d5db' }}>
+            Preview Contract
+          </button>
+          <button onClick={async () => {
+            if (!window.confirm('Send this contract to the customer? They will receive an email with a link to review and accept.')) return;
+            try {
+              await api.emailStorageContract(space.billing_id);
+              flash('Contract emailed to customer');
+              onChanged && onChanged();
+            } catch (err) { flash('Error: ' + err.message); }
+          }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
+            {space.contract_sent_at ? 'Resend Contract' : 'Email Contract'}
+          </button>
+        </div>
+      </div>
+
       <div style={{ marginTop: '8px', display: 'flex', gap: '12px' }}>
         <button onClick={() => onOpenFull && onOpenFull()} style={{ ...btnTinyGray, padding: '4px 10px' }}>
           Full details / End storage…
