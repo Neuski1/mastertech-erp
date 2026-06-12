@@ -1089,6 +1089,22 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
       customer_id = custRows[0].id;
     }
 
+    // Auto-create a unit record on the customer when RV info was provided.
+    // This way the customer's unit list is populated from day one and there's
+    // no duplicate-entry step when they convert to a real storage tenant.
+    if (customer_id && (rv_year || rv_make || rv_model || rv_length_feet)) {
+      try {
+        await pool.query(
+          `INSERT INTO units (customer_id, year, make, model, linear_feet)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [customer_id, rv_year || null, rv_make || null, rv_model || null,
+           rv_length_feet ? parseFloat(rv_length_feet) : null]
+        );
+      } catch (unitErr) {
+        console.error('Waitlist unit auto-create error:', unitErr.message);
+      }
+    }
+
     // Auto-assign position (next in line for this type)
     const posRes = await pool.query(
       `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos

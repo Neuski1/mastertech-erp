@@ -433,13 +433,15 @@ const pool = require('./db/pool');
     // by service writers (so they don't have to bounce to the inventory
     // module). Intentionally never printed on the customer-facing work order.
     await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS vendor_part_number VARCHAR(100)');
-    // Migration 058: backfill customer records for waitlist entries that
-    // were added before the auto-create-on-waitlist change. Old entries
-    // stored contact_name/email/phone only and never landed in customers,
-    // which broke the customer search in the assign-storage box flow.
+    // Migration 058: backfill customer records (and units) for waitlist
+    // entries that were added before the auto-create-on-waitlist change.
+    // Old entries stored contact_name/email/phone and rv_* on the waitlist
+    // row only, never landing in customers or units. That broke both the
+    // customer search and the unit dropdown in the assign-storage flow.
     try {
       const { rows: orphans } = await pool.query(`
-        SELECT id, contact_name, contact_phone, contact_email
+        SELECT id, contact_name, contact_phone, contact_email,
+               rv_year, rv_make, rv_model, rv_length_feet
           FROM storage_waitlist
          WHERE customer_id IS NULL
            AND contact_name IS NOT NULL
@@ -458,12 +460,24 @@ const pool = require('./db/pool');
            VALUES ($1, $2, $3, $4, $5) RETURNING id`,
           [String(nextNum), firstName || null, lastName, w.contact_phone || null, w.contact_email || null]
         );
+        const newCustomerId = cust[0].id;
         await pool.query(
           'UPDATE storage_waitlist SET customer_id = $1 WHERE id = $2',
-          [cust[0].id, w.id]
+          [newCustomerId, w.id]
         );
+        // Backfill unit too, if any RV info on the waitlist row.
+        if (w.rv_year || w.rv_make || w.rv_model || w.rv_length_feet) {
+          try {
+            await pool.query(
+              `INSERT INTO units (customer_id, year, make, model, linear_feet)
+               VALUES ($1, $2, $3, $4, $5)`,
+              [newCustomerId, w.rv_year || null, w.rv_make || null, w.rv_model || null,
+               w.rv_length_feet ? parseFloat(w.rv_length_feet) : null]
+            );
+          } catch (uErr) { console.error('[migration 058] unit backfill error:', uErr.message); }
+        }
       }
-      if (orphans.length > 0) console.log(`[migration 058] backfilled ${orphans.length} waitlist customer record(s)`);
+      if (orphans.length > 0) console.log(`[migration 058] backfilled ${orphans.length} waitlist customer+unit record(s)`);
     } catch (e) { console.error('[migration 058] error:', e.message); }
     // Migration 057: backfill the new vendor_part_number column on existing
     // parts lines from the linked inventory row so older WOs also display
