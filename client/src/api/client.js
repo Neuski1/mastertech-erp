@@ -281,7 +281,7 @@ export const api = {
   addToWaitlist: (data) => request('/storage/waitlist', { method: 'POST', body: JSON.stringify(data) }),
   updateWaitlistEntry: (id, data) => request(`/storage/waitlist/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   removeFromWaitlist: (id) => request(`/storage/waitlist/${id}`, { method: 'DELETE' }),
-  notifyWaitlistEntry: (id) => request(`/storage/waitlist/${id}/notify`, { method: 'POST' }),
+  notifyWaitlistEntry: (id, data = {}) => request(`/storage/waitlist/${id}/notify`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Storage Contract
   generateStorageContract: (data) => fetch(`${BASE}/storage-contract/generate`, {

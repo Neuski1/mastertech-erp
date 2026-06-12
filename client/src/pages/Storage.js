@@ -42,6 +42,7 @@ export default function Storage() {
   const [waitlist, setWaitlist] = useState([]);
   const [waitlistCounts, setWaitlistCounts] = useState({ indoor: 0, outdoor: 0 });
   const [waitlistLoading, setWaitlistLoading] = useState(false);
+  const [notifyEntry, setNotifyEntry] = useState(null);
   const [showAddWaitlist, setShowAddWaitlist] = useState(false);
   const [showWaitlistDetail, setShowWaitlistDetail] = useState(null);
   const [waitlistFilter, setWaitlistFilter] = useState('all'); // 'all' | 'indoor' | 'outdoor'
@@ -514,16 +515,8 @@ export default function Storage() {
                         <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: '4px' }}>
                             {entry.status === 'waiting' && (
-                              <button onClick={async () => {
-                                try {
-                                  const res = await api.notifyWaitlistEntry(entry.id);
-                                  const msgs = [];
-                                  if (res.results?.email === 'sent') msgs.push('Email sent');
-                                  if (res.results?.sms === 'sent') msgs.push('SMS sent');
-                                  setActionMsg(msgs.length ? msgs.join(' + ') : 'Notified (no contact method available)');
-                                  fetchWaitlist();
-                                } catch (err) { setError(err.message); }
-                              }} style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
+                              <button onClick={() => setNotifyEntry(entry)}
+                                      style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
                                 Notify
                               </button>
                             )}
@@ -560,6 +553,15 @@ export default function Storage() {
           entry={showWaitlistDetail}
           onClose={() => setShowWaitlistDetail(null)}
           onSaved={() => { setShowWaitlistDetail(null); setActionMsg('Waitlist entry updated'); fetchWaitlist(); }}
+        />
+      )}
+
+      {/* Waitlist Notify Modal — optional personal message before send */}
+      {notifyEntry && (
+        <WaitlistNotifyModal
+          entry={notifyEntry}
+          onClose={() => setNotifyEntry(null)}
+          onSent={(msg) => { setNotifyEntry(null); setActionMsg(msg); fetchWaitlist(); }}
         />
       )}
 
@@ -1620,6 +1622,68 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
             {running ? 'Recording...' : `Record & Post Storage Billing for ${month}`}
           </button>
           <button onClick={onClose} disabled={running} style={btnSecondary}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WaitlistNotifyModal({ entry, onClose, onSent }) {
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const name = entry.first_name || entry.contact_name || 'Customer';
+  const email = entry.email_primary || entry.contact_email || null;
+  const phone = entry.phone_primary || entry.contact_phone || null;
+  const typeLabel = entry.space_type === 'indoor' ? 'Indoor' : 'Outdoor';
+
+  const handleSend = async () => {
+    setSending(true);
+    setError('');
+    try {
+      const res = await api.notifyWaitlistEntry(entry.id, { personalMessage: message });
+      const parts = [];
+      if (res.results?.email === 'sent') parts.push('Email sent');
+      if (res.results?.sms === 'sent') parts.push('SMS sent');
+      onSent(parts.length ? parts.join(' + ') : 'Notified (no contact method available)');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, width: '560px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Notify Waitlist — {name}</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
+        </div>
+        <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '12px' }}>
+          {typeLabel} space &middot; {email ? `Email: ${email}` : 'No email on file'}{phone ? ` · SMS: ${phone}` : ''}
+        </div>
+        {error && <div style={errorBannerSmall}>{error}</div>}
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Personal Message (optional)</label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder={`Hi ${name}, an ${typeLabel.toLowerCase()} space just opened up. Let me know if you'd like it.`}
+            rows={5}
+            autoFocus
+            style={{ ...inputStyleFull, minHeight: '110px', fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>
+            Email: shown as a highlighted block above the standard availability message. SMS: replaces the canned text. Leave blank to send the default messages.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={sending} style={btnSecondary}>Cancel</button>
+          <button onClick={handleSend} disabled={sending} style={btnPrimary}>
+            {sending ? 'Sending...' : 'Send Notification'}
+          </button>
         </div>
       </div>
     </div>

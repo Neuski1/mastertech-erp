@@ -1146,6 +1146,10 @@ router.delete('/waitlist/:id', requireRole('admin', 'service_writer', 'technicia
 // POST /api/storage/waitlist/:id/notify — Notify customer of availability
 router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), async (req, res) => {
   try {
+    // Optional personal message from Carol — appears as a highlighted block
+    // in the email and replaces the canned SMS body when provided.
+    const personalMessage = (req.body && req.body.personalMessage || '').trim();
+
     const { rows } = await pool.query(
       `SELECT w.*, c.first_name, c.last_name, c.phone_primary AS phone, c.email_primary AS email
          FROM storage_waitlist w LEFT JOIN customers c ON c.id = w.customer_id
@@ -1161,6 +1165,13 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
 
     const results = { email: null, sms: null };
 
+    // HTML escape + paragraph break the personal message for email
+    const escaped = personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const personalBlock = personalMessage ? `
+      <div style="margin:14px 0;padding:14px 18px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:4px;">
+        <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.5;white-space:pre-wrap;">${escaped}</p>
+      </div>` : '';
+
     // Send email notification
     if (email) {
       try {
@@ -1169,8 +1180,12 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
         await resend.emails.send({
           from: 'Master Tech RV <service@mastertechrvrepair.com>',
           to: email,
+          // CC service@ so Carol has a record of exactly what message went
+          // out (mirrors the estimate-approval email pattern).
+          cc: 'service@mastertechrvrepair.com',
           subject: `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} Storage Space Available — Master Tech RV`,
           html: `<p>Hi ${name},</p>
+${personalBlock}
 <p>Great news! An <strong>${typeLabel} storage</strong> space has become available at Master Tech RV Repair & Storage.</p>
 <p>Since you're on our waitlist, we wanted to give you first opportunity to reserve this spot.</p>
 <p>Please call us at <strong>(303) 557-2214</strong> or reply to this email as soon as possible to secure your space. Spots fill up quickly!</p>
@@ -1183,14 +1198,19 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
       }
     }
 
-    // Send SMS notification (if Twilio is configured)
+    // Send SMS notification (if Twilio is configured). If Carol typed a
+    // personal message, that becomes the SMS body; otherwise use the canned
+    // copy. SMS is plain text so no HTML escape needed.
     if (phone && process.env.TWILIO_ACCOUNT_SID) {
       try {
         const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
         const cleanPhone = phone.replace(/\D/g, '');
         const toPhone = cleanPhone.length === 10 ? `+1${cleanPhone}` : `+${cleanPhone}`;
+        const smsBody = personalMessage
+          ? `${personalMessage}\n\n— Master Tech RV (303) 557-2214`
+          : `Hi ${name}! An ${typeLabel} storage space is now available at Master Tech RV. Call us at (303) 557-2214 to reserve your spot before it's taken!`;
         await twilio.messages.create({
-          body: `Hi ${name}! An ${typeLabel} storage space is now available at Master Tech RV. Call us at (303) 557-2214 to reserve your spot before it's taken!`,
+          body: smsBody,
           from: process.env.TWILIO_FROM_NUMBER,
           to: toPhone
         });
