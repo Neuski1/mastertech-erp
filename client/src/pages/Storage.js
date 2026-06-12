@@ -1463,11 +1463,34 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
           <div style={{ marginBottom: '16px', padding: '14px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
             <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contract & Guidelines</div>
             {contractMsg && <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', fontWeight: 600 }}>{contractMsg}</div>}
-            {space.contract_accepted_at && (
-              <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', padding: '6px 10px', backgroundColor: '#f0fdf4', borderRadius: '4px', border: '1px solid #bbf7d0' }}>
-                Contract accepted on {formatDateTime(space.contract_accepted_at)}
+
+            {/* Contract status — always visible so Carol can see what's been
+                sent and accepted without hunting through emails. */}
+            <div style={{ fontSize: '0.8rem', marginBottom: '10px', padding: '8px 10px', borderRadius: '4px',
+                          backgroundColor: space.contract_accepted_at ? '#f0fdf4' : space.contract_sent_at ? '#fffbeb' : '#f9fafb',
+                          border: `1px solid ${space.contract_accepted_at ? '#bbf7d0' : space.contract_sent_at ? '#fcd34d' : '#e5e7eb'}`,
+                          color: space.contract_accepted_at ? '#065f46' : space.contract_sent_at ? '#92400e' : '#6b7280' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <div>
+                  <strong>Contract status: </strong>
+                  {space.contract_accepted_at
+                    ? `Accepted ${formatDateTime(space.contract_accepted_at)}`
+                    : space.contract_sent_at
+                      ? `Sent ${formatDateTime(space.contract_sent_at)} — pending acceptance`
+                      : 'Not sent yet'}
+                </div>
+                {(space.contract_sent_at || space.contract_accepted_at) && (
+                  <button onClick={async () => {
+                    try {
+                      const { viewUrl } = await api.getStorageContractPreviewUrl(space.billing_id);
+                      window.open(viewUrl, '_blank', 'noopener');
+                    } catch (err) { setContractMsg('Error: ' + err.message); }
+                  }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', textDecoration: 'underline', fontSize: '0.75rem', fontWeight: 600, padding: 0 }}>
+                    View Contract
+                  </button>
+                )}
               </div>
-            )}
+            </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button onClick={async () => {
                 try {
