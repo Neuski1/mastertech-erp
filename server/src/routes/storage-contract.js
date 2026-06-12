@@ -333,6 +333,33 @@ router.get('/view/:token', async (req, res) => {
 
     const startDateInput = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
 
+    // Prorated first month: when the start date isn't the 1st, charge only
+    // for the days remaining in the start month. Calculation:
+    //   daysInMonth - startDay + 1, divided by daysInMonth, times monthly rate.
+    let proratedHtml = '';
+    if (r.billing_start_date && monthlyRate > 0) {
+      const sd = new Date(r.billing_start_date);
+      const startDay = sd.getUTCDate();
+      const daysInMonth = new Date(sd.getUTCFullYear(), sd.getUTCMonth() + 1, 0).getDate();
+      if (startDay > 1) {
+        const daysRemaining = daysInMonth - startDay + 1;
+        const proratedAmount = (monthlyRate * daysRemaining / daysInMonth);
+        const monthLabel = sd.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+        proratedHtml = `
+          <tr>
+            <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">First-Month Prorated:</td>
+            <td style="padding:8px 0;">
+              <div style="${readOnlyStyle}">
+                $${proratedAmount.toFixed(2)}
+                <span style="color:#6b7280;font-size:12px;">
+                  &nbsp;(${daysRemaining} of ${daysInMonth} days in ${monthLabel} &middot; $${monthlyRate.toFixed(2)} &times; ${daysRemaining}/${daysInMonth})
+                </span>
+              </div>
+            </td>
+          </tr>`;
+      }
+    }
+
     // Show contract summary + editable fields + accept button
     res.send(brandedPage('Storage Lease Agreement', `
       ${acceptedBanner}
@@ -350,7 +377,9 @@ router.get('/view/:token', async (req, res) => {
           ${editableRow('End Date', '', 'end_date', 'MM/DD/YYYY or leave blank for Open')}
           ${fixedRow('Space', `${r.label} — ${r.space_type === 'indoor' ? 'Indoor' : 'Outdoor'} Storage`)}
           ${fixedRow('Monthly Rate', `$${monthlyRate.toFixed(2)}`)}
+          ${proratedHtml}
         </table>
+        ${proratedHtml ? `<p style="font-size:12px;color:#1e3a5f;margin:10px 0 0;background:#eff6ff;border-left:3px solid #1e3a5f;padding:8px 12px;border-radius:4px;">Because your storage starts in the middle of the month, you will be billed a one-time prorated amount for the partial first month shown above. Regular monthly billing at the full rate begins on the 1st of the next month.</p>` : ''}
       </div>
 
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:20px;">
