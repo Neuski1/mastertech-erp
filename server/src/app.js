@@ -433,6 +433,13 @@ const pool = require('./db/pool');
     // by service writers (so they don't have to bounce to the inventory
     // module). Intentionally never printed on the customer-facing work order.
     await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS vendor_part_number VARCHAR(100)');
+    // Migration 059: per-billing custom contract terms. Carol asked for a
+    // way to edit the contract before sending; rather than rewrite the
+    // boilerplate (legal consistency matters), we add a free-form text
+    // block she can fill in. It renders as a clearly labeled callout in
+    // the contract view between the lessee/RV fields and the standard
+    // terms list. Blank means "use defaults only".
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS special_terms TEXT');
     // Migration 058: backfill customer records (and units) for waitlist
     // entries that were added before the auto-create-on-waitlist change.
     // Old entries stored contact_name/email/phone and rv_* on the waitlist

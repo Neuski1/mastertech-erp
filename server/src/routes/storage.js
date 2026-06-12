@@ -133,7 +133,7 @@ router.get('/', async (req, res) => {
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
               sb.due_day, sb.square_customer_id, sb.square_sub_id,
               sb.notes AS billing_notes,
-              sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at,
+              sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at, sb.special_terms,
               c.last_name, c.first_name, c.company_name, c.account_number,
               c.phone_primary,
               u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
@@ -431,7 +431,7 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
 // Allowed: monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes
 // ---------------------------------------------------------------------------
 router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type } = req.body;
+  const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type, special_terms } = req.body;
 
   const updates = [];
   const values = [];
@@ -464,6 +464,10 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   if (billing_start_date !== undefined) {
     updates.push(`billing_start_date = $${idx++}`);
     values.push(billing_start_date);
+  }
+  if (special_terms !== undefined) {
+    updates.push(`special_terms = $${idx++}`);
+    values.push((special_terms || '').trim() || null);
   }
 
   if (updates.length === 0 && !space_type) {

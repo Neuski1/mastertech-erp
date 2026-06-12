@@ -266,16 +266,15 @@ router.get('/view/:token', async (req, res) => {
     }
     const r = rows[0];
 
-    // Already accepted
-    if (r.contract_accepted_at) {
-      return res.send(brandedPage('Contract Accepted',
-        `<div style="text-align:center;">
-          <div style="font-size:48px;margin-bottom:16px;">&#9989;</div>
-          <h2 style="color:#065f46;">Contract Already Accepted</h2>
-          <p style="color:#6b7280;">Thank you — this storage lease agreement was accepted on ${new Date(r.contract_accepted_at).toLocaleString('en-US', { timeZone: 'America/Denver' })}.</p>
-        </div>`
-      ));
-    }
+    // If the customer already accepted, show a green confirmation banner
+    // at the top but STILL render the rest of the contract (read-only) so
+    // shop staff using the View Contract link can see what was signed.
+    const acceptedBanner = r.contract_accepted_at ? `
+      <div style="background:#f0fdf4;border:2px solid #065f46;border-radius:8px;padding:14px 18px;margin-bottom:20px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:4px;">&#9989;</div>
+        <strong style="color:#065f46;">Contract accepted on ${new Date(r.contract_accepted_at).toLocaleString('en-US', { timeZone: 'America/Denver' })}</strong>
+        <div style="color:#065f46;font-size:13px;margin-top:4px;">Read-only copy below.</div>
+      </div>` : '';
 
     const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
     const linearFeet = r.unit_linear_feet || r.space_linear_feet || '';
@@ -312,9 +311,10 @@ router.get('/view/:token', async (req, res) => {
 
     // Show contract summary + editable fields + accept button
     res.send(brandedPage('Storage Lease Agreement', `
+      ${acceptedBanner}
       <h2 style="color:#1e3a5f;margin:0 0 20px;text-align:center;">RV Storage Lease Agreement</h2>
-      <p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 20px;">Please review and complete the information below. Fields highlighted in <span style="background:#fefce8;padding:2px 6px;border:1px solid #facc15;border-radius:4px;">yellow</span> need to be filled in.</p>
-      <form method="POST" action="${acceptUrl}">
+      ${r.contract_accepted_at ? '' : '<p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 20px;">Please review and complete the information below. Fields highlighted in <span style="background:#fefce8;padding:2px 6px;border:1px solid #facc15;border-radius:4px;">yellow</span> need to be filled in.</p>'}
+      <form method="POST" action="${acceptUrl}" ${r.contract_accepted_at ? 'onsubmit="return false"' : ''}>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin-bottom:20px;">
         <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">Lessee Information</h3>
@@ -340,6 +340,12 @@ router.get('/view/:token', async (req, res) => {
           ${editableRow('VIN #', r.vin || '', 'vin', 'Vehicle Identification Number')}
         </table>
       </div>
+
+      ${r.special_terms && r.special_terms.trim() ? `
+      <div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:16px 18px;margin-bottom:20px;">
+        <h3 style="color:#92400e;margin:0 0 8px;font-size:15px;">Special Terms for This Agreement</h3>
+        <p style="margin:0;font-size:13px;color:#1a2a4a;line-height:1.6;white-space:pre-wrap;">${r.special_terms.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+      </div>` : ''}
 
       <div style="font-size:13px;color:#374151;line-height:1.7;margin-bottom:24px;">
         <p><strong>By accepting below, you agree to the following terms:</strong></p>

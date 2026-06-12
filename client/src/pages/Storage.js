@@ -1464,6 +1464,30 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
             <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contract & Guidelines</div>
             {contractMsg && <div style={{ fontSize: '0.8rem', color: '#065f46', marginBottom: '8px', fontWeight: 600 }}>{contractMsg}</div>}
 
+            {/* Special Terms — free-text addendum for THIS contract only.
+                Boilerplate stays standardized; this lets Carol add a custom
+                clause (deposit terms, promotional rate, access notes, etc.)
+                before sending or resending. Auto-saves on blur. */}
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ ...labelStyle, color: '#1e3a5f', fontWeight: 600 }}>
+                Special Terms (optional — appears as a highlighted block in the contract)
+              </label>
+              <textarea
+                defaultValue={space.special_terms || ''}
+                onBlur={async (e) => {
+                  const v = e.target.value;
+                  if ((v || '') === (space.special_terms || '')) return;
+                  try {
+                    await api.updateStorage(space.billing_id, { special_terms: v });
+                    setContractMsg('Special terms saved — preview or resend to push changes to the customer');
+                  } catch (err) { setContractMsg('Error saving: ' + err.message); }
+                }}
+                placeholder="e.g. First-month free promotional rate, no access after 9pm, etc."
+                rows={3}
+                style={{ ...inputStyleFull, fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </div>
+
             {/* Contract status — always visible so Carol can see what's been
                 sent and accepted without hunting through emails. */}
             <div style={{ fontSize: '0.8rem', marginBottom: '10px', padding: '8px 10px', borderRadius: '4px',
