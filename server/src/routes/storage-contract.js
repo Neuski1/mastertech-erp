@@ -94,6 +94,39 @@ router.post('/generate', requireAuth, requireRole('admin', 'service_writer'), as
 // POST /api/storage-contract/email — Email contract to customer with accept link
 //   body: { billing_id }
 // ──────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────
+// POST /api/storage-contract/preview-link — Internal preview
+// Generates (or reuses) the contract token and returns the view URL so
+// Carol can review the actual contract in a new tab BEFORE clicking Send.
+// Does NOT email the customer, does NOT touch contract_sent_at.
+// ──────────────────────────────────────────────────────
+router.post('/preview-link', requireAuth, requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { billing_id } = req.body;
+    if (!billing_id) return res.status(400).json({ error: 'billing_id required' });
+
+    const { rows } = await pool.query(
+      'SELECT id, contract_token FROM storage_billing WHERE id = $1 AND deleted_at IS NULL',
+      [billing_id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Billing record not found' });
+
+    let token = rows[0].contract_token;
+    if (!token) {
+      const tokenRes = await pool.query(
+        'UPDATE storage_billing SET contract_token = gen_random_uuid() WHERE id = $1 RETURNING contract_token',
+        [billing_id]
+      );
+      token = tokenRes.rows[0].contract_token;
+    }
+    const baseUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
+    res.json({ viewUrl: `${baseUrl}/api/storage-contract/view/${token}` });
+  } catch (err) {
+    console.error('POST /api/storage-contract/preview-link error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async (req, res) => {
   try {
     const { billing_id } = req.body;

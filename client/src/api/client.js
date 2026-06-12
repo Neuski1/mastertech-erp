@@ -113,6 +113,7 @@ export const api = {
   createUnit: (data) => request('/units', { method: 'POST', body: JSON.stringify(data) }),
   updateUnit: (id, data) => request(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteUnit: (id) => request(`/units/${id}`, { method: 'DELETE' }),
+  mergeUnits: (keeperId, data) => request(`/units/${keeperId}/merge`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Payments
   addPayment: (recordId, data) => request(`/payments/${recordId}`, { method: 'POST', body: JSON.stringify(data) }),
@@ -289,6 +290,7 @@ export const api = {
     body: JSON.stringify(data),
   }).then(r => { if (!r.ok) throw new Error('Failed to generate contract'); return r.blob(); }),
   emailStorageContract: (billing_id) => request('/storage-contract/email', { method: 'POST', body: JSON.stringify({ billing_id }) }),
+  getStorageContractPreviewUrl: (billing_id) => request('/storage-contract/preview-link', { method: 'POST', body: JSON.stringify({ billing_id }) }),
   sendStorageGuidelines: (data) => request('/storage-contract/send-guidelines', { method: 'POST', body: JSON.stringify(data) }),
 
   // CRM — Customer detail sub-resources

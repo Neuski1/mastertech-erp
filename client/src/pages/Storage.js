@@ -1061,10 +1061,26 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
         billing_start_date: form.billing_start_date || null,
         notes: form.notes || null,
       });
-      // Fire contract email and/or guidelines in background
+      // Preview the contract for Carol's review BEFORE the customer email
+      // fires, then ask before sending. Guidelines stay automatic.
       const billingId = result?.id;
       if (billingId) {
-        if (sendContract) api.emailStorageContract(billingId).catch(err => console.error('Contract email error:', err));
+        if (sendContract) {
+          try {
+            const { viewUrl } = await api.getStorageContractPreviewUrl(billingId);
+            window.open(viewUrl, '_blank', 'noopener');
+            const shouldSend = window.confirm(
+              'Contract preview opened in a new tab.\n\n' +
+              'Review it now. Click OK to email the contract to the customer, ' +
+              'or Cancel to keep it as a draft (you can send later from the box).'
+            );
+            if (shouldSend) {
+              await api.emailStorageContract(billingId);
+            }
+          } catch (err) {
+            console.error('Contract preview/send error:', err);
+          }
+        }
         if (sendGuidelines) api.sendStorageGuidelines({ billing_id: billingId }).catch(err => console.error('Guidelines email error:', err));
       }
       onAssigned();
@@ -1466,6 +1482,21 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
               </button>
               <button onClick={async () => {
                 try {
+                  setContractMsg('Loading preview...');
+                  const { viewUrl } = await api.getStorageContractPreviewUrl(space.billing_id);
+                  // Open the same page the customer would see in a new tab.
+                  // Carol can scroll through the full contract before deciding
+                  // to fire the email — kills the "I have no idea what I just
+                  // sent" problem.
+                  window.open(viewUrl, '_blank', 'noopener');
+                  setContractMsg('Preview opened in a new tab — review then click Email Contract to send');
+                } catch (err) { setContractMsg('Error: ' + err.message); }
+              }} style={{ ...btnTinyGray, backgroundColor: '#f3f4f6', color: '#1e3a5f', border: '1px solid #d1d5db', padding: '6px 14px' }}>
+                Preview Contract
+              </button>
+              <button onClick={async () => {
+                if (!window.confirm('Send this contract to the customer? They will receive an email with a link to review and accept.')) return;
+                try {
                   setContractMsg('Emailing contract...');
                   const res = await api.emailStorageContract(space.billing_id);
                   setContractMsg(res.message || 'Contract emailed with accept link');
@@ -1808,17 +1839,34 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
         notes: form.notes || null,
       });
 
-      // 5. Email contract & guidelines
+      // 5. Open a preview of the contract in a new tab so Carol can review
+      //    the actual document BEFORE the customer email is sent. The
+      //    customer-facing email only fires after she confirms in the dialog.
       const billingId = result?.id;
       if (billingId) {
-        if (sendContract) api.emailStorageContract(billingId).catch(e => console.error('Contract email error:', e));
+        if (sendContract) {
+          try {
+            const { viewUrl } = await api.getStorageContractPreviewUrl(billingId);
+            window.open(viewUrl, '_blank', 'noopener');
+            const shouldSend = window.confirm(
+              'Contract preview opened in a new tab.\n\n' +
+              'Review it now. Click OK to email the contract to the customer, ' +
+              'or Cancel to keep it as a draft (you can send later from the Storage page).'
+            );
+            if (shouldSend) {
+              await api.emailStorageContract(billingId);
+            }
+          } catch (e) {
+            console.error('Contract preview/send error:', e);
+          }
+        }
         if (sendGuidelines) api.sendStorageGuidelines({ billing_id: billingId }).catch(e => console.error('Guidelines email error:', e));
       }
 
       // 6. Update waitlist entry to "assigned"
       await api.updateWaitlistEntry(entry.id, { ...form, status: 'assigned', customer_id: customerId });
 
-      setContractSuccess(`Customer created, assigned to Space, and contract ${sendContract ? 'emailed' : 'ready'}!`);
+      setContractSuccess('Customer assigned. Contract handling complete — check the storage box if you want to resend.');
       setTimeout(() => onSaved(), 2000);
     } catch (e) {
       setErr(e.message);
