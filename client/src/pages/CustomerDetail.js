@@ -46,8 +46,17 @@ export default function CustomerDetail() {
   const [dupStorage, setDupStorage] = useState([]);
   const [dupMarketing, setDupMarketing] = useState([]);
   const [keepFields, setKeepFields] = useState({});
+  const [mergeFinal, setMergeFinal] = useState({});
   const [merging, setMerging] = useState(false);
   const [mergeSuccess, setMergeSuccess] = useState('');
+
+  // Unit merge state
+  const [showUnitMerge, setShowUnitMerge] = useState(false);
+  const [unitKeeperId, setUnitKeeperId] = useState('');
+  const [unitDupId, setUnitDupId] = useState('');
+  const [unitFinal, setUnitFinal] = useState({});
+  const [unitMerging, setUnitMerging] = useState(false);
+  const [unitMergeError, setUnitMergeError] = useState('');
 
   const fetchAll = useCallback(async () => {
     try {
@@ -186,10 +195,64 @@ export default function CustomerDetail() {
     finally { setMergeSearching(false); }
   };
 
+  // Split a first-name field like "Greg & Maureen" or "Greg, Maureen" into parts
+  const splitFirstNames = (s) => (s || '').split(/\s*(?:&|,|\band\b)\s*/i).map(x => x.trim()).filter(Boolean);
+
+  // Build the suggested final values for the merge preview:
+  // combine household names, fill empty contact slots, concatenate notes.
+  const buildMergeFinal = (master, dup) => {
+    const final = {};
+    for (const { key } of mergeFieldList) final[key] = master[key] || '';
+
+    // Combined name: same last name, different first names -> "Greg, Maureen & James"
+    const ml = (master.last_name || '').trim().toLowerCase();
+    const dl = (dup.last_name || '').trim().toLowerCase();
+    if (ml && ml === dl) {
+      const names = [...splitFirstNames(master.first_name)];
+      for (const n of splitFirstNames(dup.first_name)) {
+        if (!names.some(x => x.toLowerCase() === n.toLowerCase())) names.push(n);
+      }
+      if (names.length === 2) final.first_name = names.join(' & ');
+      else if (names.length > 2) final.first_name = names.slice(0, -1).join(', ') + ' & ' + names[names.length - 1];
+    }
+
+    // Phones: keep master's, slot the duplicate's into an empty spot
+    const normPhone = (v) => (v || '').replace(/\D/g, '');
+    const phones = [final.phone_primary, final.phone_secondary];
+    for (const p of [dup.phone_primary, dup.phone_secondary]) {
+      if (p && !phones.some(x => normPhone(x) === normPhone(p))) {
+        if (!final.phone_primary) { final.phone_primary = p; phones[0] = p; }
+        else if (!final.phone_secondary) { final.phone_secondary = p; phones[1] = p; }
+      }
+    }
+
+    // Emails: same idea
+    const normEmail = (v) => (v || '').trim().toLowerCase();
+    const emails = [final.email_primary, final.email_secondary];
+    for (const em of [dup.email_primary, dup.email_secondary]) {
+      if (em && !emails.some(x => normEmail(x) === normEmail(em))) {
+        if (!final.email_primary) { final.email_primary = em; emails[0] = em; }
+        else if (!final.email_secondary) { final.email_secondary = em; emails[1] = em; }
+      }
+    }
+
+    // Company/address: fill blanks from duplicate
+    for (const k of ['company_name', 'address_street', 'address_city', 'address_state', 'address_zip']) {
+      if (!final[k] && dup[k]) final[k] = dup[k];
+    }
+
+    // Notes: combine when both have content
+    if (dup.notes && dup.notes !== master.notes) {
+      final.notes = [master.notes, dup.notes].filter(Boolean).join(' | ');
+    }
+    return final;
+  };
+
   const selectDuplicate = async (dup) => {
     setDuplicate(dup);
     setMergeStep(2);
     setKeepFields({});
+    setMergeFinal(buildMergeFinal(customer, dup));
     // Load duplicate's related data counts
     try {
       const [u, r, s, mk] = await Promise.all([
@@ -223,7 +286,13 @@ export default function CustomerDetail() {
   const handleConfirmMerge = async () => {
     setMerging(true);
     try {
-      const result = await api.mergeCustomers(id, { duplicateId: duplicate.id, keepFields });
+      // Send every final value that differs from the master's current value
+      const finalKeepFields = {};
+      for (const { key } of mergeFieldList) {
+        const finalVal = mergeFinal[key] ?? '';
+        if (finalVal !== (customer[key] || '')) finalKeepFields[key] = finalVal;
+      }
+      const result = await api.mergeCustomers(id, { duplicateId: duplicate.id, keepFields: finalKeepFields });
       const m = result.merged;
       const parts = [];
       if (m.records) parts.push(`${m.records} records`);
@@ -232,7 +301,11 @@ export default function CustomerDetail() {
       if (m.storage) parts.push(`${m.storage} storage assignments`);
       if (m.communications) parts.push(`${m.communications} communications`);
       if (m.marketing) parts.push(`${m.marketing} marketing notes`);
-      setMergeSuccess(`Customers merged successfully. ${parts.length > 0 ? parts.join(', ') + ' reassigned.' : 'No related records to reassign.'}`);
+      let msg = `Customers merged successfully. ${parts.length > 0 ? parts.join(', ') + ' reassigned.' : 'No related records to reassign.'}`;
+      if (result.duplicateUnits && result.duplicateUnits.length > 0) {
+        msg += ` Heads up: this customer now has ${result.duplicateUnits.length} possible duplicate unit${result.duplicateUnits.length > 1 ? 's' : ''} (${result.duplicateUnits.map(u => (u.label || '').trim()).filter(Boolean).join('; ')}). Use Merge Units below to combine them.`;
+      }
+      setMergeSuccess(msg);
       setShowMerge(false);
       resetMerge();
       await fetchAll();
@@ -253,7 +326,80 @@ export default function CustomerDetail() {
     setDupStorage([]);
     setDupMarketing([]);
     setKeepFields({});
+    setMergeFinal({});
   };
+
+  // ─── Unit merge helpers ───
+  const startUnitMerge = () => {
+    setUnitKeeperId('');
+    setUnitDupId('');
+    setUnitFinal({});
+    setUnitMergeError('');
+    setShowUnitMerge(true);
+  };
+
+  const unitMergeFieldList = [
+    { key: 'year', label: 'Year' },
+    { key: 'make', label: 'Make' },
+    { key: 'model', label: 'Model' },
+    { key: 'vin', label: 'VIN' },
+    { key: 'license_plate', label: 'License Plate' },
+    { key: 'unit_type', label: 'Type' },
+    { key: 'color', label: 'Color' },
+    { key: 'linear_feet', label: 'Linear Feet' },
+    { key: 'unit_notes', label: 'Notes' },
+  ];
+
+  const buildUnitFinal = (keeper, dup) => {
+    const final = {};
+    for (const { key } of unitMergeFieldList) {
+      if (key === 'unit_notes') {
+        final[key] = (dup.unit_notes && dup.unit_notes !== keeper.unit_notes)
+          ? [keeper.unit_notes, dup.unit_notes].filter(Boolean).join(' | ')
+          : (keeper.unit_notes || '');
+      } else {
+        final[key] = (keeper[key] !== null && keeper[key] !== '') ? keeper[key] : (dup[key] || '');
+      }
+    }
+    return final;
+  };
+
+  const handleUnitSelectionChange = (keeperId, dupId) => {
+    setUnitKeeperId(keeperId);
+    setUnitDupId(dupId);
+    setUnitMergeError('');
+    const keeper = units.find(u => String(u.id) === String(keeperId));
+    const dup = units.find(u => String(u.id) === String(dupId));
+    if (keeper && dup && keeper.id !== dup.id) setUnitFinal(buildUnitFinal(keeper, dup));
+    else setUnitFinal({});
+  };
+
+  const handleConfirmUnitMerge = async () => {
+    if (!unitKeeperId || !unitDupId || unitKeeperId === unitDupId) {
+      setUnitMergeError('Pick two different units.');
+      return;
+    }
+    setUnitMerging(true);
+    try {
+      const result = await api.mergeUnits(unitKeeperId, { duplicateId: parseInt(unitDupId), finalFields: unitFinal });
+      const m = result.merged;
+      const parts = [];
+      if (m.records) parts.push(`${m.records} work orders`);
+      if (m.appointments) parts.push(`${m.appointments} appointments`);
+      if (m.storage) parts.push(`${m.storage} storage assignments`);
+      setMergeSuccess(`Units merged successfully.${parts.length > 0 ? ' ' + parts.join(', ') + ' moved to the kept unit.' : ''}`);
+      setShowUnitMerge(false);
+      setSelectedUnit(null);
+      setUnitFilter(null);
+      await fetchAll();
+    } catch (err) {
+      setUnitMergeError(err.message);
+    } finally {
+      setUnitMerging(false);
+    }
+  };
+
+  const unitLabel = (u) => [u.year, u.make, u.model].filter(Boolean).join(' ') || `Unit #${u.id}`;
 
   const formatDate = (val) => {
     if (!val) return '—';
@@ -522,9 +668,16 @@ export default function CustomerDetail() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' }}>
           <h2 style={{ ...sectionTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>Units ({units.length})</h2>
           {canEditRecords && (
-            <button onClick={() => setShowAddUnit(true)} style={{ padding: '4px 12px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>
-              + Add Unit
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {units.length >= 2 && (
+                <button onClick={startUnitMerge} style={{ padding: '4px 12px', backgroundColor: '#fff', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>
+                  Merge Units
+                </button>
+              )}
+              <button onClick={() => setShowAddUnit(true)} style={{ padding: '4px 12px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}>
+                + Add Unit
+              </button>
+            </div>
           )}
         </div>
         {units.length > 0 ? (
@@ -760,7 +913,7 @@ export default function CustomerDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ margin: 0, color: '#1e3a5f' }}>
                 {mergeStep === 1 && 'Step 1: Find Duplicate'}
-                {mergeStep === 2 && 'Step 2: Choose Fields to Keep'}
+                {mergeStep === 2 && 'Step 2: Review Combined Record'}
                 {mergeStep === 3 && 'Step 3: Confirm Merge'}
               </h3>
               <button onClick={() => setShowMerge(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem', color: '#6b7280' }}>&times;</button>
@@ -821,37 +974,57 @@ export default function CustomerDetail() {
                   </div>
                 </div>
 
+                <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 10px' }}>
+                  The Final column is what the merged customer will look like. Names, phones, emails, and notes
+                  are combined automatically. Click a Master or Duplicate value to copy it in, or type directly.
+                </p>
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        <th style={{ ...thStyle, width: '100px' }}>Field</th>
-                        <th style={thStyle}>Master Value</th>
-                        <th style={thStyle}>Duplicate Value</th>
+                        <th style={{ ...thStyle, width: '90px' }}>Field</th>
+                        <th style={thStyle}>Master</th>
+                        <th style={thStyle}>Duplicate</th>
+                        <th style={{ ...thStyle, backgroundColor: '#eff6ff' }}>Final (editable)</th>
                       </tr>
                     </thead>
                     <tbody>
                       {mergeFieldList.map(({ key, label }) => {
                         const masterVal = customer[key] || '';
                         const dupVal = duplicate[key] || '';
-                        const same = masterVal === dupVal;
-                        const keepDup = keepFields[key] !== undefined;
+                        const finalVal = mergeFinal[key] ?? '';
+                        const changed = finalVal !== masterVal;
                         return (
                           <tr key={key}>
                             <td style={{ ...tdStyle, fontWeight: 600, fontSize: '0.8rem' }}>{label}</td>
                             <td
-                              onClick={() => { const next = { ...keepFields }; delete next[key]; setKeepFields(next); }}
-                              style={{ ...tdStyle, cursor: same ? 'default' : 'pointer', backgroundColor: !same && !keepDup ? '#d1fae5' : 'transparent', fontSize: '0.85rem' }}
+                              onClick={() => masterVal && setMergeFinal({ ...mergeFinal, [key]: masterVal })}
+                              title={masterVal ? 'Click to use this value' : ''}
+                              style={{ ...tdStyle, cursor: masterVal ? 'pointer' : 'default', fontSize: '0.85rem' }}
                             >
-                              {!same && <input type="radio" checked={!keepDup} onChange={() => {}} style={{ marginRight: '6px' }} />}
                               {masterVal || <span style={{ color: '#d1d5db' }}>—</span>}
                             </td>
                             <td
-                              onClick={() => { if (!same) setKeepFields({ ...keepFields, [key]: dupVal }); }}
-                              style={{ ...tdStyle, cursor: same ? 'default' : 'pointer', backgroundColor: !same && keepDup ? '#dbeafe' : 'transparent', fontSize: '0.85rem' }}
+                              onClick={() => dupVal && setMergeFinal({ ...mergeFinal, [key]: dupVal })}
+                              title={dupVal ? 'Click to use this value' : ''}
+                              style={{ ...tdStyle, cursor: dupVal ? 'pointer' : 'default', fontSize: '0.85rem' }}
                             >
-                              {!same && <input type="radio" checked={keepDup} onChange={() => {}} style={{ marginRight: '6px' }} />}
                               {dupVal || <span style={{ color: '#d1d5db' }}>—</span>}
+                            </td>
+                            <td style={{ ...tdStyle, backgroundColor: changed ? '#dbeafe' : '#f8fafc', padding: '4px 8px' }}>
+                              {key === 'notes' ? (
+                                <textarea
+                                  value={finalVal}
+                                  onChange={(e) => setMergeFinal({ ...mergeFinal, [key]: e.target.value })}
+                                  style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px 6px', fontSize: '0.85rem', minHeight: '40px', resize: 'vertical', boxSizing: 'border-box' }}
+                                />
+                              ) : (
+                                <input
+                                  value={finalVal}
+                                  onChange={(e) => setMergeFinal({ ...mergeFinal, [key]: e.target.value })}
+                                  style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px 6px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                                />
+                              )}
                             </td>
                           </tr>
                         );
@@ -873,7 +1046,7 @@ export default function CustomerDetail() {
                 <div style={{ padding: '16px', backgroundColor: '#fffbeb', border: '1px solid #fbbf24', borderRadius: '8px', marginBottom: '16px' }}>
                   <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#92400e' }}>This action cannot be undone.</p>
                   <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: '#78350f' }}>
-                    Master record: <strong>{customer.last_name}{customer.first_name ? `, ${customer.first_name}` : ''}</strong> (#{customer.account_number})
+                    Merged record will be: <strong>{(mergeFinal.last_name || customer.last_name)}{(mergeFinal.first_name || customer.first_name) ? `, ${mergeFinal.first_name || customer.first_name}` : ''}</strong> (#{customer.account_number})
                   </p>
                   <p style={{ margin: '0 0 8px', fontSize: '0.85rem', fontWeight: 600, color: '#78350f' }}>The following will be moved to the master record:</p>
                   <ul style={{ margin: '0 0 12px', paddingLeft: '20px', fontSize: '0.85rem', color: '#78350f' }}>
@@ -898,6 +1071,117 @@ export default function CustomerDetail() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Merge Units Modal ─── */}
+      {showUnitMerge && (
+        <div style={overlayStyle}>
+          <div style={mergeModalStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, color: '#1e3a5f' }}>Merge Duplicate Units</h3>
+              <button onClick={() => setShowUnitMerge(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem', color: '#6b7280' }}>&times;</button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#065f46', marginBottom: '4px' }}>Keep this unit</label>
+                <select value={unitKeeperId} onChange={(e) => handleUnitSelectionChange(e.target.value, unitDupId)} style={{ ...inputStyle, width: '100%' }}>
+                  <option value="">Select unit to keep...</option>
+                  {units.map(u => (
+                    <option key={u.id} value={u.id} disabled={String(u.id) === String(unitDupId)}>
+                      {unitLabel(u)}{u.vin ? ` (VIN ...${u.vin.slice(-6)})` : ''} — #{u.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#991b1b', marginBottom: '4px' }}>Merge away this duplicate</label>
+                <select value={unitDupId} onChange={(e) => handleUnitSelectionChange(unitKeeperId, e.target.value)} style={{ ...inputStyle, width: '100%' }}>
+                  <option value="">Select duplicate...</option>
+                  {units.map(u => (
+                    <option key={u.id} value={u.id} disabled={String(u.id) === String(unitKeeperId)}>
+                      {unitLabel(u)}{u.vin ? ` (VIN ...${u.vin.slice(-6)})` : ''} — #{u.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {unitKeeperId && unitDupId && unitKeeperId !== unitDupId && (
+              <>
+                <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 10px' }}>
+                  All work orders, appointments, and storage assignments from the duplicate move to the kept unit.
+                  The Final column is editable.
+                </p>
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: '100px' }}>Field</th>
+                        <th style={thStyle}>Keep</th>
+                        <th style={thStyle}>Duplicate</th>
+                        <th style={{ ...thStyle, backgroundColor: '#eff6ff' }}>Final (editable)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unitMergeFieldList.map(({ key, label }) => {
+                        const keeper = units.find(u => String(u.id) === String(unitKeeperId)) || {};
+                        const dup = units.find(u => String(u.id) === String(unitDupId)) || {};
+                        const keepVal = keeper[key] ?? '';
+                        const dupVal = dup[key] ?? '';
+                        const finalVal = unitFinal[key] ?? '';
+                        return (
+                          <tr key={key}>
+                            <td style={{ ...tdStyle, fontWeight: 600, fontSize: '0.8rem' }}>{label}</td>
+                            <td
+                              onClick={() => keepVal && setUnitFinal({ ...unitFinal, [key]: keepVal })}
+                              style={{ ...tdStyle, cursor: keepVal ? 'pointer' : 'default', fontSize: '0.85rem' }}
+                            >
+                              {keepVal || <span style={{ color: '#d1d5db' }}>—</span>}
+                            </td>
+                            <td
+                              onClick={() => dupVal && setUnitFinal({ ...unitFinal, [key]: dupVal })}
+                              style={{ ...tdStyle, cursor: dupVal ? 'pointer' : 'default', fontSize: '0.85rem' }}
+                            >
+                              {dupVal || <span style={{ color: '#d1d5db' }}>—</span>}
+                            </td>
+                            <td style={{ ...tdStyle, backgroundColor: '#f8fafc', padding: '4px 8px' }}>
+                              <input
+                                value={finalVal}
+                                onChange={(e) => setUnitFinal({ ...unitFinal, [key]: e.target.value })}
+                                style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '4px', padding: '4px 6px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: '12px', backgroundColor: '#fffbeb', border: '1px solid #fbbf24', borderRadius: '8px', marginBottom: '16px' }}>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#92400e', fontWeight: 600 }}>
+                    The duplicate unit will be removed after its history moves to the kept unit. This cannot be undone.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {unitMergeError && (
+              <p style={{ color: '#dc2626', fontSize: '0.85rem', margin: '0 0 12px' }}>{unitMergeError}</p>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowUnitMerge(false)} style={btnSecondary}>Cancel</button>
+              <button
+                onClick={handleConfirmUnitMerge}
+                disabled={unitMerging || !unitKeeperId || !unitDupId || unitKeeperId === unitDupId}
+                style={{ ...btnPrimary, backgroundColor: '#dc2626', opacity: (!unitKeeperId || !unitDupId || unitKeeperId === unitDupId) ? 0.5 : 1 }}
+              >
+                {unitMerging ? 'Merging...' : 'Confirm Unit Merge'}
+              </button>
+            </div>
           </div>
         </div>
       )}

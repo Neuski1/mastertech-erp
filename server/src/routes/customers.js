@@ -444,6 +444,31 @@ router.post('/:id/merge', async (req, res) => {
       }
     }
 
+    // Step 2c: After reassignment, detect duplicate units now under the master
+    // (same VIN, or same year+make+model) so the UI can offer a unit merge.
+    let duplicateUnits = [];
+    try {
+      const { rows: dupUnitRows } = await client.query(
+        `SELECT u1.id AS keeper_id, u2.id AS dup_id,
+                coalesce(u1.year::text,'') || ' ' || coalesce(u1.make,'') || ' ' || coalesce(u1.model,'') AS label
+         FROM units u1
+         JOIN units u2 ON u2.customer_id = u1.customer_id AND u2.id > u1.id
+           AND u1.deleted_at IS NULL AND u2.deleted_at IS NULL
+           AND (
+             (u1.vin IS NOT NULL AND length(trim(u1.vin)) >= 8 AND upper(trim(u1.vin)) = upper(trim(u2.vin)))
+             OR (u1.make IS NOT NULL AND u1.model IS NOT NULL
+                 AND upper(trim(u1.make)) = upper(trim(coalesce(u2.make,'')))
+                 AND upper(trim(u1.model)) = upper(trim(coalesce(u2.model,'')))
+                 AND coalesce(u1.year, -1) = coalesce(u2.year, -1))
+           )
+         WHERE u1.customer_id = $1`,
+        [masterId]
+      );
+      duplicateUnits = dupUnitRows;
+    } catch (e) {
+      console.log(`Merge: duplicate unit detection skipped (${e.message})`);
+    }
+
     // Step 3: Hard delete the duplicate
     await client.query('DELETE FROM customers WHERE id = $1', [duplicateId]);
 
@@ -464,6 +489,7 @@ router.post('/:id/merge', async (req, res) => {
         communications: counts.communication_log || 0,
         marketing: counts.marketing_contacts || 0,
       },
+      duplicateUnits,
     });
   } catch (err) {
     await client.query('ROLLBACK');

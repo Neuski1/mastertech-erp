@@ -48,6 +48,37 @@ const getTypeColor = (type) => TYPE_COLORS[type] || TYPE_COLORS.other;
 const TYPE_LABELS = {};
 APPT_TYPES.forEach(t => { TYPE_LABELS[t.value] = t.label; });
 
+const STATUS_LABELS = {
+  scheduled: 'Scheduled',
+  confirmed: 'Confirmed',
+  arrived: 'Arrived',
+  in_progress: 'In Progress',
+  complete: 'Complete',
+  cancelled: 'Cancelled',
+  no_show: 'No Show',
+};
+
+// Small status badge shown on calendar cards so you can see appointment
+// status at a glance without opening the appointment.
+function StatusChip({ status, small }) {
+  if (!status) return null;
+  const colors = STATUS_COLORS[status] || { bg: '#e5e7eb', text: '#374151' };
+  return (
+    <span style={{
+      padding: small ? '1px 5px' : '2px 8px',
+      borderRadius: '4px',
+      fontSize: small ? '0.6rem' : '0.7rem',
+      fontWeight: 700,
+      backgroundColor: colors.bg,
+      color: colors.text,
+      whiteSpace: 'nowrap',
+      display: 'inline-block',
+    }}>
+      {STATUS_LABELS[status] || status}
+    </span>
+  );
+}
+
 function getWeekStart(date) {
   const d = new Date(date);
   const day = d.getDay();
@@ -510,10 +541,11 @@ export default function Schedule() {
                     <div style={{ fontWeight: 600, fontSize: '0.95rem', marginTop: '4px' }}>
                       {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: 'rgba(255,255,255,0.25)' }}>
                         {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                       </span>
+                      <StatusChip status={appt.status} />
                       {appt.technician_name && <span style={{ fontSize: '0.8rem', opacity: 0.85 }}>{appt.technician_name}</span>}
                     </div>
                     {(appt.unit_year || appt.unit_make || appt.unit_model) && (
@@ -568,8 +600,11 @@ export default function Schedule() {
                           borderLeft: `3px solid ${tc.dark}`,
                         }}
                       >
-                        <div style={{ fontWeight: 600, fontSize: '0.7rem' }}>
-                          {formatTime(appt.scheduled_at)}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.7rem' }}>
+                            {formatTime(appt.scheduled_at)}
+                          </span>
+                          <StatusChip status={appt.status} small />
                         </div>
                         <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.85 }}>
                           {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
@@ -634,9 +669,12 @@ export default function Schedule() {
                         ...monthPill,
                         backgroundColor: getTypeColor(appt.appointment_type).bg,
                       }}
-                      title={`${formatTime(appt.scheduled_at)} - ${TYPE_LABELS[appt.appointment_type] || appt.appointment_type} - ${appt.last_name || ''}`}
+                      title={`${formatTime(appt.scheduled_at)} - ${TYPE_LABELS[appt.appointment_type] || appt.appointment_type} - ${appt.last_name || ''} - ${STATUS_LABELS[appt.status] || appt.status || ''}`}
                     >
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {appt.status === 'arrived' && '✓ '}
+                        {appt.status === 'complete' && '✓✓ '}
+                        {appt.status === 'no_show' && '✕ '}
                         {formatTime(appt.scheduled_at)} {appt.last_name || ''}
                       </span>
                     </div>
@@ -686,6 +724,7 @@ export default function Schedule() {
                       }}>
                         {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                       </span>
+                      <StatusChip status={appt.status} />
                       <span style={{ fontSize: '0.875rem', color: '#374151' }}>
                         {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
                       </span>
