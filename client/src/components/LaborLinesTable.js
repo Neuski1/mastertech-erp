@@ -50,6 +50,28 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     setError('');
   };
 
+  // Bulk technician assign — one tech usually works the whole job
+  const [bulkTechId, setBulkTechId] = useState('');
+  const [bulkTechSaving, setBulkTechSaving] = useState(false);
+
+  const handleBulkAssignTech = async () => {
+    if (!bulkTechId) return;
+    setBulkTechSaving(true);
+    setError('');
+    try {
+      await api.assignTechnicianAll(recordId, {
+        technician_id: parseInt(bulkTechId),
+        lineIds: (laborLines || []).map(l => l.id),
+      });
+      setBulkTechId('');
+      onUpdate();
+    } catch (err) {
+      setError('Bulk assign failed: ' + err.message);
+    } finally {
+      setBulkTechSaving(false);
+    }
+  };
+
   const handleAdd = async () => {
     if (!form.description) {
       setError('Description is required');
@@ -118,13 +140,37 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
 
   return (
     <div style={sectionStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
         <h2 style={sectionTitle}>{isEstimate ? 'Estimate — Labor' : 'Labor Lines'}</h2>
-        {canEdit && !showAddForm && (
-          <button onClick={() => { setShowAddForm(true); resetForm(); }} style={btnSmallPrimary}>
-            + Add {isEstimate ? 'Estimate ' : ''}Labor
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Bulk tech assign: pick a tech, one click fills every line */}
+          {canEdit && (laborLines || []).length >= 2 && (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <select
+                value={bulkTechId}
+                onChange={(e) => setBulkTechId(e.target.value)}
+                style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.8rem', color: '#374151' }}
+              >
+                <option value="">Assign tech to all lines...</option>
+                {technicians.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
+              </select>
+              {bulkTechId && (
+                <button
+                  onClick={handleBulkAssignTech}
+                  disabled={bulkTechSaving}
+                  style={{ padding: '5px 12px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}
+                >
+                  {bulkTechSaving ? 'Saving...' : `✓ Apply to ${(laborLines || []).length} lines`}
+                </button>
+              )}
+            </div>
+          )}
+          {canEdit && !showAddForm && (
+            <button onClick={() => { setShowAddForm(true); resetForm(); }} style={btnSmallPrimary}>
+              + Add {isEstimate ? 'Estimate ' : ''}Labor
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div style={errorStyle}>{error}</div>}

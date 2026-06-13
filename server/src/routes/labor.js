@@ -120,6 +120,41 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/labor/:recordId/assign-technician — Bulk-assign one tech to lines
+// One tech usually works the whole job, so this sets technician_id on every
+// labor line in one shot instead of line-by-line. Accepts optional lineIds to
+// limit which lines (the UI passes the lines visible in its table).
+// ---------------------------------------------------------------------------
+router.post('/:recordId/assign-technician', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const { technician_id, lineIds } = req.body || {};
+  if (!technician_id) {
+    return res.status(400).json({ error: 'technician_id is required' });
+  }
+  try {
+    let result;
+    if (Array.isArray(lineIds) && lineIds.length > 0) {
+      result = await pool.query(
+        `UPDATE record_labor_lines
+            SET technician_id = $1
+          WHERE record_id = $2 AND id = ANY($3::int[]) AND deleted_at IS NULL`,
+        [parseInt(technician_id), req.params.recordId, lineIds]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE record_labor_lines
+            SET technician_id = $1
+          WHERE record_id = $2 AND deleted_at IS NULL`,
+        [parseInt(technician_id), req.params.recordId]
+      );
+    }
+    res.json({ updated: result.rowCount });
+  } catch (err) {
+    console.error('POST assign-technician error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /api/labor/:recordId/:lineId — Edit labor line
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
