@@ -58,23 +58,64 @@ const STATUS_LABELS = {
   no_show: 'No Show',
 };
 
-// Small status badge shown on calendar cards so you can see appointment
-// status at a glance without opening the appointment.
-function StatusChip({ status, small }) {
+// Clickable status badge shown on calendar cards. Click it to pick a new
+// status — the appointment updates immediately, no need to open it.
+function StatusChip({ status, small, onSelect }) {
+  const [open, setOpen] = useState(false);
   if (!status) return null;
   const colors = STATUS_COLORS[status] || { bg: '#e5e7eb', text: '#374151' };
+  const clickable = typeof onSelect === 'function';
   return (
-    <span style={{
-      padding: small ? '1px 5px' : '2px 8px',
-      borderRadius: '4px',
-      fontSize: small ? '0.6rem' : '0.7rem',
-      fontWeight: 700,
-      backgroundColor: colors.bg,
-      color: colors.text,
-      whiteSpace: 'nowrap',
-      display: 'inline-block',
-    }}>
-      {STATUS_LABELS[status] || status}
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <span
+        onClick={clickable ? (e) => { e.stopPropagation(); setOpen(o => !o); } : undefined}
+        title={clickable ? 'Click to change status' : undefined}
+        style={{
+          padding: small ? '1px 5px' : '2px 8px',
+          borderRadius: '4px',
+          fontSize: small ? '0.6rem' : '0.7rem',
+          fontWeight: 700,
+          backgroundColor: colors.bg,
+          color: colors.text,
+          whiteSpace: 'nowrap',
+          display: 'inline-block',
+          cursor: clickable ? 'pointer' : 'default',
+          border: clickable ? `1px solid ${colors.text}33` : 'none',
+        }}
+      >
+        {STATUS_LABELS[status] || status}{clickable ? ' ▾' : ''}
+      </span>
+      {open && (
+        <>
+          {/* click-away backdrop */}
+          <span
+            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            style={{ position: 'fixed', inset: 0, zIndex: 90 }}
+          />
+          <span style={{
+            position: 'absolute', top: '100%', left: 0, zIndex: 100,
+            backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '6px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: '4px',
+            display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '120px',
+          }}>
+            {Object.keys(STATUS_LABELS).map(s => (
+              <span
+                key={s}
+                onClick={(e) => { e.stopPropagation(); setOpen(false); if (s !== status) onSelect(s); }}
+                style={{
+                  padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
+                  backgroundColor: (STATUS_COLORS[s] || {}).bg || '#e5e7eb',
+                  color: (STATUS_COLORS[s] || {}).text || '#374151',
+                  cursor: 'pointer',
+                  outline: s === status ? '2px solid #1e3a5f' : 'none',
+                }}
+              >
+                {STATUS_LABELS[s]}
+              </span>
+            ))}
+          </span>
+        </>
+      )}
     </span>
   );
 }
@@ -200,6 +241,19 @@ export default function Schedule() {
   }, [view, weekStart, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+
+  // One-click status change from any calendar view — saves immediately
+  const handleStatusChange = async (apptId, newStatus) => {
+    const prev = appointments;
+    // Optimistic update so the badge flips instantly
+    setAppointments(curr => curr.map(a => a.id === apptId ? { ...a, status: newStatus } : a));
+    try {
+      await api.updateAppointment(apptId, { status: newStatus });
+    } catch (err) {
+      setAppointments(prev); // roll back on failure
+      alert('Failed to update status: ' + err.message);
+    }
+  };
 
   // Fetch cancelled appointments
   const fetchCancelled = async () => {
@@ -545,7 +599,7 @@ export default function Schedule() {
                       <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: 'rgba(255,255,255,0.25)' }}>
                         {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                       </span>
-                      <StatusChip status={appt.status} />
+                      <StatusChip status={appt.status} onSelect={(s) => handleStatusChange(appt.id, s)} />
                       {appt.technician_name && <span style={{ fontSize: '0.8rem', opacity: 0.85 }}>{appt.technician_name}</span>}
                     </div>
                     {(appt.unit_year || appt.unit_make || appt.unit_model) && (
@@ -604,7 +658,7 @@ export default function Schedule() {
                           <span style={{ fontWeight: 600, fontSize: '0.7rem' }}>
                             {formatTime(appt.scheduled_at)}
                           </span>
-                          <StatusChip status={appt.status} small />
+                          <StatusChip status={appt.status} small onSelect={(s) => handleStatusChange(appt.id, s)} />
                         </div>
                         <div style={{ fontSize: '0.7rem', marginTop: '2px', opacity: 0.85 }}>
                           {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
@@ -724,7 +778,7 @@ export default function Schedule() {
                       }}>
                         {TYPE_LABELS[appt.appointment_type] || appt.appointment_type}
                       </span>
-                      <StatusChip status={appt.status} />
+                      <StatusChip status={appt.status} onSelect={(s) => handleStatusChange(appt.id, s)} />
                       <span style={{ fontSize: '0.875rem', color: '#374151' }}>
                         {appt.last_name}{appt.first_name ? `, ${appt.first_name}` : ''}
                       </span>
@@ -826,7 +880,8 @@ const btnToggleActive = {
 };
 const dayColumn = {
   backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e5e7eb',
-  overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  // overflow must stay visible so the status picker dropdown isn't clipped
+  overflow: 'visible', boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
 };
 const dayHeader = {
   padding: '8px', textAlign: 'center', fontWeight: 600, fontSize: '0.8rem',

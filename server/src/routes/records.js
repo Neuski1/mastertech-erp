@@ -1078,13 +1078,17 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       let html = '<h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">PHOTOS</h3>';
       for (const [cat, items] of Object.entries(grouped)) {
         html += `<p style="font-weight:bold;font-size:12px;color:#374151;margin:8px 0 4px;">${catLabels[cat] || cat}</p>`;
+        // Customer is not logged into the ERP, so photo links must go through
+        // the token-protected public route (the authed route returns
+        // "Authentication required" from email clicks).
+        const photoToken = r.approval_token || r.payment_token || '';
         items.forEach(p => {
           const url = p.onedrive_url
-            || `${backendBase}/api/records/${r.id}/photos/${p.id}/image`;
+            || `${backendBase}/api/public/records/${r.id}/photos/${p.id}/image?token=${photoToken}`;
           // Download URL bypasses Outlook's inline-image conversion (the
           // "saves as .pdfx" bug) by serving the raw JPG with a Save-As prompt.
           const downloadUrl = p.onedrive_url
-            || `${backendBase}/api/records/${r.id}/photos/${p.id}/image?download=1`;
+            || `${backendBase}/api/public/records/${r.id}/photos/${p.id}/image?token=${photoToken}&download=1`;
           html += `<p style="margin:2px 0;font-size:12px;">&bull; ${p.label || 'Photo'} — <a href="${url}" target="_blank" style="color:#3b82f6;">View</a> &middot; <a href="${downloadUrl}" target="_blank" style="color:#3b82f6;">Download .jpg</a></p>`;
         });
       }
@@ -1340,8 +1344,10 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
         photoBlock += `<p style="font-weight:bold;margin:10px 0 4px;color:#374151;font-size:13px;">${cat}</p>`;
         photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
         items.forEach(p => {
-          const url = p.onedrive_url || `${backendUrl}/api/records/${id}/photos/${p.id}/image`;
-          const downloadUrl = p.onedrive_url || `${backendUrl}/api/records/${id}/photos/${p.id}/image?download=1`;
+          // Token-protected public route — customers aren't logged in
+          const photoToken = record.approval_token || record.payment_token || '';
+          const url = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}`;
+          const downloadUrl = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}&download=1`;
           photoBlock += `<div style="text-align:center;">
             <a href="${url}" target="_blank" style="text-decoration:none;color:#374151;">
               <img src="${url}" alt="${p.label || cat}" style="width:140px;height:100px;object-fit:cover;border-radius:6px;border:1px solid #d1d5db;display:block;" />

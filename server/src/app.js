@@ -56,6 +56,7 @@ app.use('/api/auth', require('./routes/auth'));
 // Public routes (no auth)
 app.use('/api/records/approve', require('./routes/estimate-approval')); // Customer clicks from email
 app.use('/api/estimate-lines/approve', require('./routes/estimate-line-approval')); // Line-level approval from email
+app.use('/api/public/records', require('./routes/publicPhotos')); // Token-protected photo links in customer emails
 
 // Protected API routes — all require authentication
 app.use('/api/records', requireAuth, require('./routes/records'));
