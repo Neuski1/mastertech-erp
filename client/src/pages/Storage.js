@@ -98,6 +98,14 @@ export default function Storage() {
 
   useEffect(() => { fetchGrid(); }, [fetchGrid]);
 
+  // Refresh everything the spaces tab shows (boxes + payment grid) after any
+  // create/update, so the view always reflects fresh server data — mirrors the
+  // records module's single refetch-after-mutation pattern. A charge edit or a
+  // billing run changes both the box and its payment grid, so both must reload.
+  const refreshSpaces = useCallback(async () => {
+    await Promise.all([fetchSpaces(), fetchGrid()]);
+  }, [fetchSpaces, fetchGrid]);
+
   const handleSyncSquare = async () => {
     setGridSyncing(true);
     try {
@@ -278,7 +286,7 @@ export default function Storage() {
               {expandedId === space.id && space.billing_id && canEditRecords && (
                 <div style={expandedEditorStyle}>
                   <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials}
-                    onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
+                    onChanged={refreshSpaces} onOpenFull={() => handleOpenFull(space)} />
                 </div>
               )}
             </React.Fragment>
@@ -299,7 +307,7 @@ export default function Storage() {
               {expandedId === space.id && space.billing_id && canEditRecords && (
                 <div style={expandedEditorStyle}>
                   <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials}
-                    onChanged={fetchSpaces} onOpenFull={() => handleOpenFull(space)} />
+                    onChanged={refreshSpaces} onOpenFull={() => handleOpenFull(space)} />
                 </div>
               )}
             </React.Fragment>
@@ -579,7 +587,7 @@ export default function Storage() {
           space={selectedSpace}
           rates={rates}
           onClose={() => { setShowAssign(false); setSelectedSpace(null); }}
-          onAssigned={() => { setShowAssign(false); setSelectedSpace(null); setActionMsg('Space assigned'); fetchSpaces(); }}
+          onAssigned={() => { setShowAssign(false); setSelectedSpace(null); setActionMsg('Space assigned'); refreshSpaces(); }}
         />
       )}
 
@@ -587,7 +595,7 @@ export default function Storage() {
       {showAddSpace && (
         <AddSpaceModal
           onClose={() => setShowAddSpace(false)}
-          onCreated={() => { setShowAddSpace(false); setActionMsg('Space added'); fetchSpaces(); }}
+          onCreated={() => { setShowAddSpace(false); setActionMsg('Space added'); refreshSpaces(); }}
         />
       )}
 
@@ -599,7 +607,7 @@ export default function Storage() {
           isAdmin={isAdmin}
           canSeeFinancials={canSeeFinancials}
           onClose={() => { setShowDetail(false); setSelectedSpace(null); }}
-          onUpdated={() => { setShowDetail(false); setSelectedSpace(null); setActionMsg('Storage updated'); fetchSpaces(); }}
+          onUpdated={() => { setShowDetail(false); setSelectedSpace(null); setActionMsg('Storage updated'); refreshSpaces(); }}
         />
       )}
 
@@ -617,6 +625,7 @@ export default function Storage() {
               setActionMsg(`Billing recorded for ${month}: ${results.recorded} entries, ${formatCurrency(results.total_amount)} total`);
               setShowBillingModal(false);
               setBillingPreview(null);
+              await refreshSpaces();
             } catch (err) {
               setError(err.message);
             } finally {
