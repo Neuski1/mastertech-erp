@@ -280,6 +280,40 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/parts/:recordId/mark-all-received — One-tap "all parts are in"
+// Marks every pending part line (ordered / not_ordered / backordered) on the
+// work order as received, or only the lineIds given in the body. Estimate
+// lines and stock pulls (null order_status) are left alone.
+// ---------------------------------------------------------------------------
+router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  try {
+    const { lineIds } = req.body || {};
+    let result;
+    if (Array.isArray(lineIds) && lineIds.length > 0) {
+      result = await pool.query(
+        `UPDATE record_parts_lines
+            SET order_status = 'received', updated_at = NOW()
+          WHERE record_id = $1 AND id = ANY($2::int[]) AND deleted_at IS NULL`,
+        [req.params.recordId, lineIds]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE record_parts_lines
+            SET order_status = 'received', updated_at = NOW()
+          WHERE record_id = $1 AND deleted_at IS NULL
+            AND is_estimate_line IS NOT TRUE
+            AND order_status IN ('ordered', 'not_ordered', 'backordered')`,
+        [req.params.recordId]
+      );
+    }
+    res.json({ updated: result.rowCount });
+  } catch (err) {
+    console.error('POST mark-all-received error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /api/parts/:recordId/:lineId — Edit parts line
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {

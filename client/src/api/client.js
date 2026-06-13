@@ -129,6 +129,7 @@ export const api = {
   addPart: (recordId, data) => request(`/parts/${recordId}`, { method: 'POST', body: JSON.stringify(data) }),
   updatePart: (recordId, lineId, data) => request(`/parts/${recordId}/${lineId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePart: (recordId, lineId) => request(`/parts/${recordId}/${lineId}`, { method: 'DELETE' }),
+  markAllPartsReceived: (recordId, data = {}) => request(`/parts/${recordId}/mark-all-received`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Freight lines
   getFreightLines: (recordId) => request(`/records/${recordId}/freight`),

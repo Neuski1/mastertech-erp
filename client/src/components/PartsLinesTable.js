@@ -60,6 +60,26 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     }
   };
 
+  // One-tap parts check-in: lines still waiting on parts (not stock pulls,
+  // not estimate proposals)
+  const pendingOrderLines = (partsLines || []).filter(l =>
+    !l.is_estimate_line && ['ordered', 'not_ordered', 'backordered'].includes(l.order_status)
+  );
+  const [checkinDismissed, setCheckinDismissed] = useState(false);
+  const [checkinSaving, setCheckinSaving] = useState(false);
+
+  const handleMarkAllReceived = async () => {
+    setCheckinSaving(true);
+    try {
+      await api.markAllPartsReceived(recordId);
+      onUpdate();
+    } catch (err) {
+      setError('Failed to mark parts received: ' + err.message);
+    } finally {
+      setCheckinSaving(false);
+    }
+  };
+
   const handleInventorySearch = (q) => {
     setSearchQuery(q);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
@@ -273,6 +293,34 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       </div>
 
       {error && <div style={errorStyle}>{error}</div>}
+
+      {/* Parts check-in banner — one tap marks everything received */}
+      {!isEstimate && isEditable && !checkinDismissed && pendingOrderLines.length > 0 && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px',
+          padding: '10px 14px', margin: '10px 0', backgroundColor: '#fffbeb',
+          border: '1px solid #fbbf24', borderRadius: '8px',
+        }}>
+          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#92400e' }}>
+            This job has {pendingOrderLines.length} part{pendingOrderLines.length !== 1 ? 's' : ''} on order. Are they all in?
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={handleMarkAllReceived}
+              disabled={checkinSaving}
+              style={{ padding: '6px 16px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}
+            >
+              {checkinSaving ? 'Saving...' : '✓ Yes — mark all received'}
+            </button>
+            <button
+              onClick={() => setCheckinDismissed(true)}
+              style={{ padding: '6px 12px', backgroundColor: '#fff', color: '#92400e', border: '1px solid #fbbf24', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' }}
+            >
+              Not yet
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add form */}
       {showAddForm && (
