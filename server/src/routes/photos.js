@@ -160,7 +160,17 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
     // tried to save them out of an emailed WO; download=1 hands the customer
     // (or Carol) a real .jpg file directly.
     const wantDownload = req.query.download === '1' || req.query.download === 'true';
-    const filename = rows[0].filename || 'photo.jpg';
+    let filename = rows[0].filename || 'photo.jpg';
+    if (wantDownload) {
+      const ct = rows[0].content_type || 'image/jpeg';
+      const goodExt = ct === 'image/png' ? '.png' : ct === 'image/gif' ? '.gif' : ct === 'image/webp' ? '.webp' : '.jpg';
+      const curExt = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')).toLowerCase() : '';
+      const validImgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'];
+      if (!validImgExts.includes(curExt)) {
+        const base = filename.includes('.') ? filename.slice(0, filename.lastIndexOf('.')) : filename;
+        filename = base + goodExt;
+      }
+    }
     res.set('Content-Type', rows[0].content_type || 'image/jpeg');
     res.set('Content-Disposition', `${wantDownload ? 'attachment' : 'inline'}; filename="${filename}"`);
     res.set('Cache-Control', 'public, max-age=86400');
@@ -215,9 +225,16 @@ router.get('/:recordId/photos/download-all', async (req, res) => {
       const cat = (p.category || 'other').toLowerCase();
       counters[cat] = (counters[cat] || 0) + 1;
       const n = counters[cat];
-      const ext = (p.filename && p.filename.includes('.'))
-        ? p.filename.slice(p.filename.lastIndexOf('.'))
-        : (p.content_type === 'image/png' ? '.png' : '.jpg');
+      const rawExt = (p.filename && p.filename.includes('.'))
+        ? p.filename.slice(p.filename.lastIndexOf('.')).toLowerCase()
+        : '';
+      const validImgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'];
+      const ext = validImgExts.includes(rawExt)
+        ? rawExt
+        : (p.content_type === 'image/png' ? '.png'
+           : p.content_type === 'image/gif' ? '.gif'
+           : p.content_type === 'image/webp' ? '.webp'
+           : '.jpg');
       const labelPart = p.label ? `-${p.label.replace(/[^a-z0-9-_]/gi, '_').slice(0, 40)}` : '';
       const name = `WO${woNumber}-${cat}-${String(n).padStart(2,'0')}${labelPart}${ext}`;
       if (p.photo_data) {
