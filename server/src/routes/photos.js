@@ -341,10 +341,19 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
     if (recRows.length === 0) return res.status(404).json({ error: 'Record not found' });
 
     const record = recRows[0];
-    const customerEmail = req.body.email || record.email_primary;
-    if (!customerEmail) return res.status(400).json({ error: 'No customer email address on file' });
+    // Recipients can be the customer (default) or anyone else - insurance,
+    // warranty, etc. Accept a comma-separated string or an array; fall back to
+    // the customer's email on file when none is provided.
+    const rawRecipients = req.body.email || req.body.recipients;
+    let recipients = Array.isArray(rawRecipients)
+      ? rawRecipients
+      : (rawRecipients ? String(rawRecipients).split(',') : []);
+    recipients = recipients.map(e => e.trim()).filter(e => /\S+@\S+\.\S+/.test(e));
+    if (recipients.length === 0 && record.email_primary) recipients = [record.email_primary];
+    if (recipients.length === 0) return res.status(400).json({ error: 'No recipient email address provided or on file' });
 
     const customerName = `${record.first_name || ''} ${record.last_name || ''}`.trim() || 'Valued Customer';
+    const greetingName = (req.body.recipientName && req.body.recipientName.trim()) || customerName;
 
     // Fetch photos with binary data
     let photoQuery = 'SELECT id, filename, label, content_type, photo_data FROM record_photos WHERE record_id = $1 AND photo_data IS NOT NULL';
@@ -381,7 +390,7 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
     </div>
     <div style="padding:32px;">
       <h2 style="color:#1e3a5f;margin:0 0 8px;font-size:20px;">Photos for Work Order #${record.record_number}</h2>
-      <p style="color:#374151;font-size:15px;margin:0 0 20px;">Hello ${customerName},</p>
+      <p style="color:#374151;font-size:15px;margin:0 0 20px;">Hello ${greetingName},</p>
       ${customMessage}
       <p style="color:#374151;font-size:15px;margin:0 0 12px;">
         We've attached <strong>${photoCount} photo${photoCount > 1 ? 's' : ''}</strong> related to your work order.
@@ -404,19 +413,26 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
   </div>
 </body></html>`;
 
-    const textBody = `Photos for Work Order #${record.record_number}\n\nHello ${customerName},\n\n${message ? message + '\n\n' : ''}We've attached ${photoCount} photo${photoCount > 1 ? 's' : ''} related to your work order.\n\nIf you have any questions:\nPhone: (303) 557-2214\nEmail: service@mastertechrvrepair.com\n\n---\nMaster Tech RV Repair & Storage\nOur Service Makes Happy Campers!`;
+    const textBody = `Photos for Work Order #${record.record_number}\n\nHello ${greetingName},\n\n${message ? message + '\n\n' : ''}We've attached ${photoCount} photo${photoCount > 1 ? 's' : ''} related to your work order.\n\nIf you have any questions:\nPhone: (303) 557-2214\nEmail: service@mastertechrvrepair.com\n\n---\nMaster Tech RV Repair & Storage\nOur Service Makes Happy Campers!`;
 
-    const attachments = photos.map((p, i) => ({
-      filename: p.filename || `photo-${i + 1}.jpg`,
-      content: p.photo_data,
-      contentType: p.content_type || 'image/jpeg',
-    }));
+    const validImgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'];
+    const attachments = photos.map((p, i) => {
+      let fname = p.filename || `photo-${i + 1}.jpg`;
+      const ct = (p.content_type && p.content_type.startsWith('image/')) ? p.content_type : 'image/jpeg';
+      const curExt = fname.includes('.') ? fname.slice(fname.lastIndexOf('.')).toLowerCase() : '';
+      if (!validImgExts.includes(curExt)) {
+        const base = fname.includes('.') ? fname.slice(0, fname.lastIndexOf('.')) : fname;
+        const goodExt = ct === 'image/png' ? '.png' : ct === 'image/gif' ? '.gif' : ct === 'image/webp' ? '.webp' : '.jpg';
+        fname = base + goodExt;
+      }
+      return { filename: fname, content: p.photo_data, contentType: ct };
+    });
 
     // Use the shared Resend-based email service. Railway blocks outbound SMTP
     // ports, so a raw nodemailer SMTP transporter hangs until timeout here.
     const { sendEmail } = require('../services/email');
     const emailResult = await sendEmail({
-      to: customerEmail,
+      to: recipients,
       cc: 'service@mastertechrvrepair.com',
       subject,
       html: htmlBody,
@@ -432,13 +448,13 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
       await pool.query(
         `INSERT INTO communication_log (record_id, comm_type, direction, recipient, subject, body, sent_by, sent_at)
          VALUES ($1, 'email', 'outbound', $2, $3, $4, $5, NOW())`,
-        [recordId, customerEmail, subject, `Sent ${photoCount} photo(s)`, req.user.id]
+        [recordId, recipients.join(', '), subject, `Sent ${photoCount} photo(s)`, req.user.id]
       );
     } catch (logErr) {
       console.log('Photo email log skip:', logErr.message);
     }
 
-    res.json({ success: true, sent_to: customerEmail, photo_count: photoCount });
+    res.json({ success: true, sent_to: recipients.join(', '), photo_count: photoCount });
   } catch (err) {
     console.error('Email photos error:', err);
     res.status(500).json({ error: err.message });
