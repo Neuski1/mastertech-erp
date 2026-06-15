@@ -161,9 +161,12 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
     // (or Carol) a real .jpg file directly.
     const wantDownload = req.query.download === '1' || req.query.download === 'true';
     let filename = rows[0].filename || 'photo.jpg';
+    // Never trust a non-image content_type on download: browsers (and Outlook)
+    // will re-tag the file from the MIME type, which is what produced .pdfx.
+    let serveType = rows[0].content_type || 'image/jpeg';
+    if (!serveType.startsWith('image/')) serveType = 'image/jpeg';
     if (wantDownload) {
-      const ct = rows[0].content_type || 'image/jpeg';
-      const goodExt = ct === 'image/png' ? '.png' : ct === 'image/gif' ? '.gif' : ct === 'image/webp' ? '.webp' : '.jpg';
+      const goodExt = serveType === 'image/png' ? '.png' : serveType === 'image/gif' ? '.gif' : serveType === 'image/webp' ? '.webp' : '.jpg';
       const curExt = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')).toLowerCase() : '';
       const validImgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic'];
       if (!validImgExts.includes(curExt)) {
@@ -171,7 +174,7 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
         filename = base + goodExt;
       }
     }
-    res.set('Content-Type', rows[0].content_type || 'image/jpeg');
+    res.set('Content-Type', serveType);
     res.set('Content-Disposition', `${wantDownload ? 'attachment' : 'inline'}; filename="${filename}"`);
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(rows[0].photo_data);
