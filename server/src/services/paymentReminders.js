@@ -70,7 +70,7 @@ function buildReminderEmailHtml({ customerName, amountDue, invoiceNumber, unitIn
 
 // ── Main: send payment reminder for a single record ──
 
-async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = null } = {}) {
+async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = null, channel = null } = {}) {
   // Fetch record + customer + unit
   const { rows } = await pool.query(
     `SELECT r.*, c.first_name, c.last_name, c.email_primary, c.phone_primary,
@@ -98,7 +98,13 @@ async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = 
     return { success: false, reason: 'No amount due on this record' };
   }
 
-  const commPref = (rec.comm_preference || 'both').toLowerCase();
+  // Determine which channels to use. A manual send can pass an explicit
+  // `channel` override ('email' | 'text' | 'both') chosen in the UI; otherwise
+  // fall back to the customer's stored communication preference (used by the
+  // automatic cron). 'text' is normalized to the internal 'text' keyword.
+  const validOverrides = ['email', 'text', 'both'];
+  const override = channel ? String(channel).toLowerCase() : null;
+  const commPref = (validOverrides.includes(override) ? override : (rec.comm_preference || 'both')).toLowerCase();
   if (commPref === 'none') {
     return { success: false, reason: 'Customer communication preference is set to "none"' };
   }
