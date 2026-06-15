@@ -57,7 +57,7 @@ export const api = {
   updateRecordStatus: (id, status, manualOverride = false) => request(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, manual_override: manualOverride }) }),
   deleteRecord: (id) => request(`/records/${id}`, { method: 'DELETE' }),
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
-  sendReminder: (recordId) => request(`/records/${recordId}/send-reminder`, { method: 'POST' }),
+  sendReminder: (recordId, channel) => request(`/records/${recordId}/send-reminder`, { method: 'POST', body: JSON.stringify({ channel }) }),
   copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),
   approveEstimateLines: (recordId, data) => request(`/records/${recordId}/approve-estimate-lines`, { method: 'POST', body: JSON.stringify(data) }),
   sendEstimateApproval: (recordId, data = {}) => request(`/records/${recordId}/send-estimate-approval`, { method: 'POST', body: JSON.stringify(data) }),

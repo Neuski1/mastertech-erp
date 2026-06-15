@@ -85,6 +85,8 @@ export default function RecordDetail() {
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [showEstimateEmailModal, setShowEstimateEmailModal] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [reminderChannel, setReminderChannel] = useState('both');
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState(null);
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -280,11 +282,11 @@ export default function RecordDetail() {
     }
   };
 
-  const handleSendReminder = async () => {
-    if (!window.confirm('Send a payment reminder to this customer via email and/or text?')) return;
+  const handleSendReminder = async (channel) => {
+    setShowReminderModal(false);
     setSendingReminder(true);
     try {
-      const result = await api.sendReminder(id);
+      const result = await api.sendReminder(id, channel);
       const channels = [];
       if (result.emailSent) channels.push('email');
       if (result.smsSent) channels.push('text');
@@ -888,7 +890,7 @@ ${paymentDetailHtml}
             </button>
           )}
           {(isAdmin || canEditRecords) && ['payment_pending', 'partial'].includes(record.status) && parseFloat(record.amount_due) > 0 && !editing && (
-            <button onClick={handleSendReminder} disabled={sendingReminder} style={{ padding: '8px 16px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+            <button onClick={() => { setReminderChannel('both'); setShowReminderModal(true); }} disabled={sendingReminder} style={{ padding: '8px 16px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
               {sendingReminder ? 'Sending...' : 'Send Reminder'}
             </button>
           )}
@@ -1416,6 +1418,36 @@ ${paymentDetailHtml}
           onSuccess={() => { setManualPayModal(null); fetchRecord(); }}
           onClose={() => setManualPayModal(null)}
         />
+      )}
+
+      {/* Send Payment Reminder Modal — choose Email / Text / Both */}
+      {showReminderModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '12px', padding: '24px', width: '420px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h2 style={{ margin: '0 0 8px', color: '#1e3a5f', fontSize: '1.1rem' }}>Send Payment Reminder</h2>
+            <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: '#6b7280' }}>How should we send this reminder to the customer?</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+              {[
+                { value: 'email', label: 'Email only' },
+                { value: 'text', label: 'Text only' },
+                { value: 'both', label: 'Email and Text' },
+              ].map((opt) => (
+                <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', border: `1px solid ${reminderChannel === opt.value ? '#f59e0b' : '#e5e7eb'}`, background: reminderChannel === opt.value ? '#fffbeb' : '#fff', borderRadius: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#1e3a5f' }}>
+                  <input type="radio" name="reminderChannel" value={opt.value} checked={reminderChannel === opt.value} onChange={(e) => setReminderChannel(e.target.value)} style={{ cursor: 'pointer' }} />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={() => handleSendReminder(reminderChannel)} disabled={sendingReminder} style={{ padding: '10px 24px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
+                {sendingReminder ? 'Sending...' : 'Send Reminder'}
+              </button>
+              <button onClick={() => setShowReminderModal(false)} style={{ padding: '10px 24px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Email Document Modal */}

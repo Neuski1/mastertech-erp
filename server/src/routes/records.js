@@ -725,7 +725,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
 router.post('/:id/send-reminder', requireRole('admin', 'service_writer'), async (req, res) => {
   try {
     const { sendPaymentReminder } = require('../services/paymentReminders');
-    const result = await sendPaymentReminder(req.params.id, { isManual: true, sentByUserId: req.user.id });
+    const { channel } = req.body || {};
+    const result = await sendPaymentReminder(req.params.id, { isManual: true, sentByUserId: req.user.id, channel });
     if (!result.success) return res.status(400).json({ error: result.reason });
     res.json(result);
   } catch (err) {
