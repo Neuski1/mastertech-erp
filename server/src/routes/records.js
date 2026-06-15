@@ -280,7 +280,7 @@ router.get('/', async (req, res) => {
     paramIdx++;
   }
 
-  const allowedSorts = ['record_number', 'created_at', 'status', 'amount_due'];
+  const allowedSorts = ['record_number', 'created_at', 'intake_date', 'status', 'amount_due'];
   const sortCol = allowedSorts.includes(sort) ? `r.${sort}` : 'r.record_number';
   const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
   const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -295,7 +295,7 @@ router.get('/', async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales, r.total_collected,
-              r.created_at, r.is_insurance_job, r.job_description,
+              r.created_at, r.intake_date, r.is_insurance_job, r.job_description,
               r.expected_completion_date,
               (SELECT MAX(p.payment_date) FROM payments p
                  WHERE p.record_id = r.id AND p.deleted_at IS NULL) AS last_payment_date,
