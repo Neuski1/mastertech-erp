@@ -588,7 +588,7 @@ export default function RecordDetail() {
     <h2>${docTitle} #${r.record_number}</h2>
     <p>Original Date: ${intakeDate}</p>
     ${r.start_date ? `<p>Start Date: ${fmtPrintDateShort(r.start_date.includes('T') ? r.start_date : r.start_date + 'T12:00:00')}</p>` : ''}
-    ${!['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && r.expected_completion_date ? `<p>Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
+    ${!['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && r.expected_completion_date ? `<p style="font-size:15px;font-weight:bold;color:#000;margin:5px 0;">Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
     ${r.actual_completion_date ? `<p>Completed: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : ''}
     <p>Time: ${timePrinted}</p>
   </div>
