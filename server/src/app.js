@@ -37,7 +37,12 @@ app.use(express.json({ limit: '5mb' }));
 
 // Health check endpoint (no auth required)
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date(),
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'unknown',
+    branch: process.env.RAILWAY_GIT_BRANCH || 'unknown',
+  });
 });
 
 // Calendar status — public, right after health check
