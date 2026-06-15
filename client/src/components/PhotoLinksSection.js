@@ -27,6 +27,8 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
   const [viewPhoto, setViewPhoto] = useState(null); // photo ID to view full-size
   const [emailSending, setEmailSending] = useState(false);
   const [emailMessage, setEmailMessage] = useState('');
+  const [emailTo, setEmailTo] = useState('');
+  const [emailRecipientName, setEmailRecipientName] = useState('');
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [emailSuccess, setEmailSuccess] = useState('');
   const fileInputRef = useRef(null);
@@ -106,10 +108,14 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
     try {
       const result = await api.emailRecordPhotos(recordId, {
         message: emailMessage || undefined,
+        email: emailTo.trim() || undefined,
+        recipientName: emailRecipientName.trim() || undefined,
       });
       setEmailSuccess(`${result.photo_count} photo${result.photo_count > 1 ? 's' : ''} sent to ${result.sent_to}`);
       setShowEmailForm(false);
       setEmailMessage('');
+      setEmailTo('');
+      setEmailRecipientName('');
       setTimeout(() => setEmailSuccess(''), 5000);
     } catch (err) {
       setError(err.message);
@@ -195,7 +201,7 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
                 disabled={emailSending}
                 style={{ ...btnGreen, display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                {emailSending ? 'Sending...' : '✉️ Email to Customer'}
+                {emailSending ? 'Sending...' : '✉️ Email Photos'}
               </button>
             )}
             {photos.length > 0 && (
@@ -220,7 +226,27 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
         {showEmailForm && (
           <div style={{ padding: '12px', backgroundColor: '#f0fdf4', borderRadius: '6px', marginBottom: '12px', border: '1px solid #bbf7d0' }}>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>
-              Message to customer (optional):
+              Send to (email):
+            </label>
+            <input
+              type="text"
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+              placeholder="Blank = customer on file. Separate multiple emails with commas (insurance, warranty, etc.)"
+              style={{ ...inputStyle, width: '100%', marginBottom: '8px' }}
+            />
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>
+              Recipient name (optional):
+            </label>
+            <input
+              type="text"
+              value={emailRecipientName}
+              onChange={(e) => setEmailRecipientName(e.target.value)}
+              placeholder="e.g., Acme Insurance (shown in the email greeting)"
+              style={{ ...inputStyle, width: '100%', marginBottom: '8px' }}
+            />
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>
+              Message (optional):
             </label>
             <textarea
               value={emailMessage}
@@ -233,7 +259,7 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
               <button onClick={handleEmailPhotos} disabled={emailSending} style={btnGreen}>
                 {emailSending ? 'Sending...' : `Send ${uploadedPhotos.length} Photo${uploadedPhotos.length > 1 ? 's' : ''}`}
               </button>
-              <button onClick={() => { setShowEmailForm(false); setEmailMessage(''); }} style={btnSmallGray}>Cancel</button>
+              <button onClick={() => { setShowEmailForm(false); setEmailMessage(''); setEmailTo(''); setEmailRecipientName(''); }} style={btnSmallGray}>Cancel</button>
             </div>
           </div>
         )}
