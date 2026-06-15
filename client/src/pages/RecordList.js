@@ -138,6 +138,7 @@ export default function RecordList() {
         {[r.year, r.make, r.model].filter(Boolean).join(' ') || '—'}
       </td>
       <td style={tdStyle}><StatusBadge status={r.status} /></td>
+      <td style={tdStyle}>{formatDate(r.intake_date || r.created_at)}</td>
       {showDueDate && (
         <td style={{ ...tdStyle, color: isPastDue(r) ? '#dc2626' : undefined, fontWeight: isPastDue(r) ? 600 : undefined }}>
           {formatDate(r.expected_completion_date)}
@@ -226,6 +227,7 @@ export default function RecordList() {
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_name')}>Customer{sortArrow(groupKey, 'last_name')}</th>
           <th style={thStyle}>Unit</th>
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('status')}>Status{sortArrow(groupKey, 'status')}</th>
+          <th style={{ ...thStyle, ...sortable }} onClick={onClick('intake_date')}>Intake Date{sortArrow(groupKey, 'intake_date')}</th>
           {showDueDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('expected_completion_date')}>Due Date{sortArrow(groupKey, 'expected_completion_date')}</th>}
           {showPaidDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_payment_date')}>Paid Date{sortArrow(groupKey, 'last_payment_date')}</th>}
           {canSeeFinancials && (
