@@ -236,6 +236,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     try {
       await api.updatePart(recordId, editingId, {
         description: form.description,
+        part_number: form.part_number || null,
         quantity: parseFloat(form.quantity),
         sale_price_each: parseFloat(form.sale_price_each),
         cost_each: form.cost_each ? parseFloat(form.cost_each) : null,
@@ -636,7 +637,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <tr key={line.id} style={{ backgroundColor: '#fffbeb' }}>
                 {showApproval && <td style={tdStyle}></td>}
                 <td style={tdStyle}>
-                  <div>{line.part_number || '—'}</div>
+                  <input value={form.part_number} onChange={(e) => setForm({ ...form, part_number: e.target.value })} placeholder="Part #" style={{ ...inlineInput, width: '90px' }} />
                   {line.vendor_part_number && (
                     <div style={{ fontSize: '0.7rem', color: '#0369a1', marginTop: '2px', fontWeight: 600 }}>
                       MPN: {line.vendor_part_number}

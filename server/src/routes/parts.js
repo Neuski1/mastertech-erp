@@ -318,7 +318,7 @@ router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { description, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
+  const { description, part_number, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
 
   const client = await pool.connect();
   try {
@@ -393,6 +393,10 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (taxable !== undefined) {
       updates.push(`taxable = $${idx++}`);
       values.push(taxable);
+    }
+    if (part_number !== undefined) {
+      updates.push(`part_number = $${idx++}`);
+      values.push(part_number || null);
     }
 
     // Recalc line_total if qty or price changed
