@@ -620,6 +620,11 @@ require('./db/pool').query(`
     .catch(err => console.error('waitlist seed error:', err.message));
 }).catch(err => console.error('storage_waitlist migration error:', err.message));
 
+// Auto-migrate: add 'order_parts' work status (migration 047)
+require('./db/pool').query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'order_parts'")
+  .then(() => console.log('order_parts status ready'))
+  .catch(err => console.error('order_parts enum migration error:', err.message));
+
 
 // Migration 043: Estimate line support
 require('./db/pool').query(`
