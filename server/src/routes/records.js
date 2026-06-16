@@ -594,7 +594,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
            AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE`,
+           AND is_estimate_line = FALSE
+           AND order_status IS NULL`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -612,7 +613,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
            AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE`,
+           AND is_estimate_line = FALSE
+           AND order_status IS NULL`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -745,7 +747,8 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
       `SELECT id, inventory_id, quantity FROM record_parts_lines
        WHERE record_id = $1 AND deleted_at IS NULL
          AND is_inventory_part = true AND inventory_id IS NOT NULL
-         AND is_estimate_line = FALSE`,
+         AND is_estimate_line = FALSE
+         AND order_status IS NULL`,
       [req.params.id]
     );
     if (pullsInventory(priorStatus)) for (const part of invParts) {
