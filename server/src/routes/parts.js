@@ -134,7 +134,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       // them (which flips is_estimate_line FALSE). 'filed' records and the
       // user's explicit "Order New" choice also skip the decrement.
       const lineIsEstimate = !!is_estimate_line;
-      if (!skip_deduct && !lineIsEstimate && pullsInventory(recRows[0].status)) {
+      if (!skip_deduct && !lineIsEstimate && pullsInventory(recRows[0].status) && parseFloat(inv.qty_on_hand) >= parsedQty) {
         await client.query(
           'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
           [parsedQty, inv.id]
@@ -375,7 +375,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       // estimate lines, not lines on an estimate-status record).
       if (existing.is_inventory_part && existing.inventory_id
           && !existing.is_estimate_line
-          && pullsInventory(recordStatus)) {
+          && pullsInventory(recordStatus)
+          && !existing.order_status) {
         const qtyDiff = newQty - parseFloat(existing.quantity);
         if (qtyDiff !== 0) {
           await client.query(
@@ -429,7 +430,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     // Inventory transition: estimate <-> real WO line. Only matters for
     // inventory parts on records that aren't fully estimate-status.
     if (existing.is_inventory_part && existing.inventory_id
-        && pullsInventory(recordStatus)) {
+        && pullsInventory(recordStatus)
+        && !existing.order_status) {
       const qtyForInv = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
       if (existing.is_estimate_line && !finalIsEstimate) {
         // Promoting estimate -> real: pull stock now.
@@ -504,7 +506,7 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
 
     // Restore inventory if it was an inventory part (skip for estimates — nothing was deducted)
     const { rows: delRecRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
-    if (line.is_inventory_part && line.inventory_id && pullsInventory(delRecRows[0]?.status)) {
+    if (line.is_inventory_part && line.inventory_id && pullsInventory(delRecRows[0]?.status) && !line.order_status) {
       await client.query(
         'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
         [parseFloat(line.quantity), line.inventory_id]
