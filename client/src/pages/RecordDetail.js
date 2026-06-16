@@ -23,6 +23,7 @@ const NEXT_STATUS = {
   scheduled: 'in_progress',
   in_progress: 'complete',
   awaiting_parts: 'in_progress',
+  order_parts: 'awaiting_parts',
   awaiting_approval: 'in_progress',
   complete: null,
   payment_pending: null,
@@ -37,6 +38,7 @@ const NEXT_LABEL = {
   scheduled: 'Mark In Progress',
   in_progress: 'Mark Complete',
   awaiting_parts: 'Resume Work',
+  order_parts: 'Mark Parts Ordered',
   awaiting_approval: 'Resume Work',
 };
 
@@ -46,6 +48,7 @@ const ALL_STATUSES = [
   { value: 'schedule_customer', label: 'Schedule Customer' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'in_progress', label: 'In Progress' },
+  { value: 'order_parts', label: 'Order Parts' },
   { value: 'awaiting_parts', label: 'Awaiting Parts' },
   { value: 'awaiting_approval', label: 'Awaiting Approval' },
   { value: 'complete', label: 'Complete' },
