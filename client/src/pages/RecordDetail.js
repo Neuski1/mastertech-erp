@@ -617,7 +617,21 @@ export default function RecordDetail() {
     ${!isEstimate && techNames.length > 0 ? `<br/><label>Serviced By</label><span>${techNames.join(', ')}</span>` : ''}
   </div>
 </div>
-${r.insurance_company ? `<div class="info-block"><div><label>Insurance</label><span>${r.insurance_company}</span>${r.claim_number ? ' &nbsp; <label style="display:inline">Claim #</label> <span>' + r.claim_number + '</span>' : ''}</div></div>` : ''}
+${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0) ? `<div class="info-block">
+  <div>
+    <label>Insurance</label>
+    <span>${r.insurance_company || '\u2014'}</span><br/>
+    ${r.claim_number ? `<label>Claim #</label><span>${r.claim_number}</span><br/>` : ''}
+    ${r.policy_number ? `<label>Policy #</label><span>${r.policy_number}</span><br/>` : ''}
+    ${parseFloat(r.deductible_amount) > 0 ? `<label>Deductible</label><span>${fmtCur(r.deductible_amount)}</span>` : ''}
+  </div>
+  ${(r.insurance_contact_name || r.insurance_phone || r.insurance_email) ? `<div>
+    <label>Insurance Contact</label>
+    ${r.insurance_contact_name ? `<span>${r.insurance_contact_name}</span><br/>` : ''}
+    ${r.insurance_phone ? `<span>${formatPhone(r.insurance_phone)}</span><br/>` : ''}
+    ${r.insurance_email ? `<span>${r.insurance_email}</span>` : ''}
+  </div>` : ''}
+</div>` : ''}
 
 ${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:3px 0 0;padding-left:20px;font-size:11px;line-height:1.35">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:1px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
 ${r.customer_notes ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Customer Notes:</strong><p style="margin:4px 0 0;font-size:11px;white-space:pre-wrap">${r.customer_notes}</p></div>` : ''}
