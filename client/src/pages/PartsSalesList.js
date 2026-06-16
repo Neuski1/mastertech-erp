@@ -44,11 +44,6 @@ export default function PartsSalesList() {
   const formatCurrency = (val) =>
     parseFloat(val || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-  const formatDate = (d) => {
-    if (!d) return '—';
-    return formatDate(d);
-  };
-
   const statusBadge = (status) => {
     const colors = { open: { bg: '#fef3c7', color: '#92400e' }, paid: { bg: '#d1fae5', color: '#065f46' }, void: { bg: '#fee2e2', color: '#991b1b' } };
     const c = colors[status] || colors.open;
