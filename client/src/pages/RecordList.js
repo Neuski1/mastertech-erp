@@ -9,7 +9,7 @@ const STATUS_GROUPS = [
   {
     key: 'attention',
     label: 'Needs Attention',
-    statuses: ['estimate', 'awaiting_approval', 'on_hold'],
+    statuses: ['estimate', 'awaiting_approval', 'order_parts', 'on_hold'],
     bg: '#fff1f2', border: '#fecdd3', headerBg: '#ffe4e6', headerColor: '#9f1239',
   },
   {
@@ -21,7 +21,7 @@ const STATUS_GROUPS = [
   {
     key: 'active',
     label: 'Active Work',
-    statuses: ['approved', 'order_parts', 'awaiting_parts', 'in_progress'],
+    statuses: ['approved', 'awaiting_parts', 'in_progress'],
     bg: '#eff6ff', border: '#bfdbfe', headerBg: '#dbeafe', headerColor: '#1e40af',
   },
   {
