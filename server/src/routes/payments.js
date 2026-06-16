@@ -80,15 +80,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'bookkeeper', '
       return res.status(404).json({ error: 'Record not found' });
     }
 
-    const payableStatuses = ['complete', 'payment_pending', 'partial', 'approved',
-                             'schedule_customer', 'scheduled', 'in_progress',
-                             'awaiting_parts', 'awaiting_approval'];
-    if (!payableStatuses.includes(recRows[0].status)) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: `Cannot add payment to a record with status '${recRows[0].status}'`
-      });
-    }
+    // Payments are allowed on a record in any status (deposits can come in
+    // before work starts, balances can be collected at any stage).
 
     const { rows } = await client.query(
       `INSERT INTO payments
