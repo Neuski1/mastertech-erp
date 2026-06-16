@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { getSetting, recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
+const { pullsInventory } = require('../utils/inventoryStatus');
 
 // ---------------------------------------------------------------------------
 // Status transition rules
@@ -583,12 +584,12 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
-    // When estimate/filed → active (non-estimate/filed): deduct inventory.
-    // Only the committed quote lines (is_estimate_line = FALSE). Inspection-
-    // finding lines (is_estimate_line = TRUE) stay as proposals until the
-    // customer approves them via the email link, which decrements separately.
-    const preCommit = (s) => s === 'estimate' || s === 'filed';
-    if (preCommit(record.status) && !preCommit(newStatus) && newStatus !== 'void') {
+    // Pull committed inventory only when the record ENTERS a work-active status
+    // (in_progress, awaiting_parts, complete, payment_pending, partial, paid).
+    // Pre-work / parked statuses (estimate, Not Started, schedule customer,
+    // scheduled, awaiting approval, order parts, on hold, filed) never hold
+    // stock. Only committed lines (is_estimate_line = FALSE) are pulled.
+    if (!pullsInventory(record.status) && pullsInventory(newStatus)) {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
@@ -604,9 +605,9 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       }
     }
 
-    // When active → estimate/filed (revert) or → void: restore inventory for
-    // the committed lines only — same scoping as above.
-    if ((!preCommit(record.status) && preCommit(newStatus)) || (record.status !== 'void' && newStatus === 'void')) {
+    // Put stock back when the record LEAVES a work-active status (reverts to a
+    // pre-work status, or is voided). Same committed-line scoping as above.
+    if (pullsInventory(record.status) && !pullsInventory(newStatus)) {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
@@ -677,29 +678,6 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       );
     }
 
-    // Reverse inventory when voiding — restore qty for committed inventory
-    // lines only. Estimate (inspection-finding) lines never decremented stock
-    // in the first place, so they shouldn't be added back here.
-    if (newStatus === 'void' && record.status !== 'void') {
-      const { rows: invParts } = await client.query(
-        `SELECT id, inventory_id, quantity FROM record_parts_lines
-         WHERE record_id = $1 AND deleted_at IS NULL
-           AND is_inventory_part = true AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE`,
-        [req.params.id]
-      );
-      for (const part of invParts) {
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-          [parseFloat(part.quantity), part.inventory_id]
-        );
-        console.log(`Inventory reversal: +${part.quantity} units returned to inventory #${part.inventory_id} from voided record #${record.record_number}`);
-      }
-      if (invParts.length > 0) {
-        console.log(`Total: ${invParts.length} inventory items restored for voided record #${record.record_number}`);
-      }
-    }
-
     // Recalculate totals on status change (shop supplies calculated at complete)
     await recalculateTotals(req.params.id, client);
 
@@ -743,6 +721,12 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
   try {
     await client.query('BEGIN');
 
+    const { rows: priorStatusRows } = await client.query(
+      'SELECT status FROM records WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    const priorStatus = priorStatusRows[0]?.status;
+
     const { rows } = await client.query(
       `UPDATE records SET deleted_at = NOW(), status = 'void'
        WHERE id = $1 AND deleted_at IS NULL
@@ -764,7 +748,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
          AND is_estimate_line = FALSE`,
       [req.params.id]
     );
-    for (const part of invParts) {
+    if (pullsInventory(priorStatus)) for (const part of invParts) {
       await client.query(
         'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
         [parseFloat(part.quantity), part.inventory_id]
@@ -773,7 +757,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
     }
 
     await client.query('COMMIT');
-    res.json({ message: 'Record voided', record: rows[0], inventory_restored: invParts.length });
+    res.json({ message: 'Record voided', record: rows[0], inventory_restored: pullsInventory(priorStatus) ? invParts.length : 0 });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('DELETE /api/records/:id error:', err);
