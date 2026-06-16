@@ -507,7 +507,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
 
   const ALL_STATUSES = [
     'estimate', 'approved', 'schedule_customer', 'scheduled', 'in_progress',
-    'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending',
+    'order_parts', 'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending',
     'partial', 'paid', 'on_hold', 'void', 'filed',
   ];
 
