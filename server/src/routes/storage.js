@@ -1128,7 +1128,48 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
        space_type, rv_year || null, rv_make || null, rv_model || null, rv_length_feet || null,
        preferred_start || null, budget_monthly || null, notes || null, position]
     );
-    res.status(201).json(rows[0]);
+    const entry = rows[0];
+
+    // Send a confirmation email so the person has something from us proving
+    // they are on the waitlist. Look up the customer email if only a
+    // customer_id was provided. Never let an email failure block the add.
+    let confirmEmail = contact_email || null;
+    let confirmName = (contact_name && contact_name.trim()) || null;
+    if ((!confirmEmail || !confirmName) && customer_id) {
+      try {
+        const { rows: cRows } = await pool.query(
+          'SELECT first_name, last_name, email_primary FROM customers WHERE id = $1', [customer_id]
+        );
+        if (cRows.length) {
+          confirmEmail = confirmEmail || cRows[0].email_primary;
+          confirmName = confirmName || [cRows[0].first_name, cRows[0].last_name].filter(Boolean).join(' ');
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+    let confirmationSent = false;
+    if (confirmEmail) {
+      const typeLabel = space_type === 'indoor' ? 'indoor' : 'outdoor';
+      const greet = (confirmName && confirmName.trim()) || 'there';
+      try {
+        const { Resend } = require('resend');
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: 'Master Tech RV <service@mastertechrvrepair.com>',
+          to: confirmEmail,
+          cc: 'service@mastertechrvrepair.com',
+          subject: `You're on the Master Tech RV Storage waitlist`,
+          html: `<p>Hi ${greet},</p>
+<p>This confirms you are on the waitlist for <strong>${typeLabel} RV storage</strong> at Master Tech RV Repair &amp; Storage. You are currently <strong>#${position}</strong> in line for ${typeLabel} storage.</p>
+<p>RV storage is seasonal, so wait times vary, but we keep the list in order and will reach out by phone or email as soon as a spot opens for you.</p>
+<p>Questions in the meantime? Call us at <strong>(303) 557-2214</strong> or just reply to this email.</p>
+<p>Thank you,<br/>Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022</p>`
+        });
+        confirmationSent = true;
+      } catch (mailErr) {
+        console.error('Waitlist confirmation email error:', mailErr.message);
+      }
+    }
+    res.status(201).json({ ...entry, confirmation_sent: confirmationSent });
   } catch (err) {
     console.error('POST /api/storage/waitlist error:', err);
     res.status(500).json({ error: err.message });
