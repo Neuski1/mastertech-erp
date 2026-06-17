@@ -1039,7 +1039,7 @@ router.get('/waitlist', async (req, res) => {
     } else {
       sql += ` AND w.status IN ('waiting', 'notified')`;
     }
-    sql += ` ORDER BY w.space_type, w.created_at ASC`;
+    sql += ` ORDER BY w.position ASC NULLS LAST, w.created_at ASC`;
     const { rows } = await pool.query(sql, params);
     // Return counts by type
     const countRes = await pool.query(
@@ -1109,12 +1109,13 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
       }
     }
 
-    // Auto-assign position (next in line for this type)
+    // Auto-assign position: land new signups at the end of the single
+    // combined waitlist (across both indoor and outdoor), so first-come
+    // first-served holds across the whole list.
     const posRes = await pool.query(
       `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos
          FROM storage_waitlist
-        WHERE space_type = $1 AND status IN ('waiting', 'notified')`,
-      [space_type]
+        WHERE status IN ('waiting', 'notified')`
     );
     const position = posRes.rows[0].next_pos;
     const { rows } = await pool.query(
@@ -1179,12 +1180,18 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
 });
 
 // PATCH /api/storage/waitlist/:id — Update waitlist entry
+//
+// When a `position` value is supplied it is treated as "move this entry to
+// rank N" and ALL active (waiting/notified) entries are resequenced so their
+// positions stay contiguous 1..N with no gaps or duplicates. Other field
+// updates (contact info, status, etc.) still work when position is omitted.
 router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { id } = req.params;
+    // `position` is handled separately (resequencing) so it is NOT in this list.
     const fields = ['contact_name', 'contact_phone', 'contact_email', 'space_type',
                     'rv_year', 'rv_make', 'rv_model', 'rv_length_feet',
-                    'preferred_start', 'budget_monthly', 'notes', 'status', 'position', 'customer_id'];
+                    'preferred_start', 'budget_monthly', 'notes', 'status', 'customer_id'];
     const sets = [];
     const params = [];
     fields.forEach(f => {
@@ -1198,15 +1205,73 @@ router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician
     } else if (req.body.status === 'assigned') {
       sets.push(`assigned_at = NOW()`);
     }
-    if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
-    sets.push('updated_at = NOW()');
-    params.push(id);
-    const { rows } = await pool.query(
-      `UPDATE storage_waitlist SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
-      params
+
+    const wantsReorder = req.body.position !== undefined && req.body.position !== null && req.body.position !== '';
+
+    // Apply the non-position field updates (if any) first.
+    if (sets.length > 0) {
+      sets.push('updated_at = NOW()');
+      const upParams = [...params, id];
+      const { rows } = await pool.query(
+        `UPDATE storage_waitlist SET ${sets.join(', ')} WHERE id = $${upParams.length} RETURNING id`,
+        upParams
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    } else if (!wantsReorder) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    // Reorder: move this entry to rank N and resequence the whole active list
+    // so positions are contiguous 1..count. Done in a transaction.
+    if (wantsReorder) {
+      const targetRank = parseInt(req.body.position, 10);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // All active entries ordered by current manual position, created_at as
+        // tiebreak (and to give a deterministic order when positions are null).
+        const { rows: active } = await client.query(
+          `SELECT id FROM storage_waitlist
+            WHERE status IN ('waiting', 'notified')
+            ORDER BY position ASC NULLS LAST, created_at ASC`
+        );
+        const ids = active.map(r => String(r.id));
+        const targetId = String(id);
+        const fromIdx = ids.indexOf(targetId);
+        if (fromIdx === -1) {
+          // Target isn't active (e.g. it was just set to assigned/cancelled);
+          // nothing to resequence against it.
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Entry is not an active waitlist entry' });
+        }
+        // Remove target, clamp the requested rank into [1, count], reinsert.
+        ids.splice(fromIdx, 1);
+        let rank = isNaN(targetRank) ? ids.length + 1 : targetRank;
+        const count = ids.length + 1;
+        if (rank < 1) rank = 1;
+        if (rank > count) rank = count;
+        ids.splice(rank - 1, 0, targetId);
+        // Write contiguous positions 1..N for every active entry.
+        for (let i = 0; i < ids.length; i++) {
+          await client.query(
+            'UPDATE storage_waitlist SET position = $1, updated_at = NOW() WHERE id = $2',
+            [i + 1, ids[i]]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    }
+
+    const { rows: finalRows } = await pool.query(
+      'SELECT * FROM storage_waitlist WHERE id = $1', [id]
     );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    if (!finalRows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(finalRows[0]);
   } catch (err) {
     console.error('PATCH /api/storage/waitlist/:id error:', err);
     res.status(500).json({ error: err.message });
