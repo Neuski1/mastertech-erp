@@ -1151,11 +1151,11 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
       const typeLabel = space_type === 'indoor' ? 'indoor' : 'outdoor';
       const greet = (confirmName && confirmName.trim()) || 'there';
       const confHtml = `<p>Hi ${greet},</p>
-<p>This confirms you are on the waitlist for <strong>${typeLabel} RV storage</strong> at Master Tech RV Repair &amp; Storage. You are currently <strong>#${position}</strong> in line for ${typeLabel} storage.</p>
+<p>This confirms you are on the waitlist for <strong>${typeLabel} RV storage</strong> at Master Tech RV Repair &amp; Storage.</p>
 <p>RV storage is seasonal, so wait times vary, but we keep the list in order and will reach out by phone or email as soon as a spot opens for you.</p>
 <p>Questions in the meantime? Call us at <strong>(303) 557-2214</strong> or just reply to this email.</p>
 <p>Thank you,<br/>Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022</p>`;
-      const confText = `Hi ${greet},\n\nThis confirms you are on the waitlist for ${typeLabel} RV storage at Master Tech RV Repair & Storage. You are currently #${position} in line for ${typeLabel} storage.\n\nRV storage is seasonal, so wait times vary, but we keep the list in order and will reach out as soon as a spot opens.\n\nQuestions? Call (303) 557-2214 or reply to this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022`;
+      const confText = `Hi ${greet},\n\nThis confirms you are on the waitlist for ${typeLabel} RV storage at Master Tech RV Repair & Storage.\n\nRV storage is seasonal, so wait times vary, but we keep the list in order and will reach out as soon as a spot opens.\n\nQuestions? Call (303) 557-2214 or reply to this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022`;
       try {
         const { sendEmail } = require('../services/email');
         const mailRes = await sendEmail({
