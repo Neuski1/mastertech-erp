@@ -1512,9 +1512,9 @@ function StorageBillingHistory({ charges, isAdmin, customer, customerId, onUpdat
 
 function Field({ label, value }) {
   return (
-    <div>
+    <div style={{ minWidth: 0 }}>
       <label style={labelStyle}>{label}</label>
-      <div style={{ fontSize: '0.875rem' }}>{value || '—'}</div>
+      <div style={{ fontSize: '0.875rem', overflowWrap: 'break-word' }}>{value || '—'}</div>
     </div>
   );
 }
@@ -1522,12 +1522,12 @@ function Field({ label, value }) {
 function EditableField({ label, field, value, editing, onChange }) {
   const isPhone = field && (field.includes('phone') && !field.includes('email'));
   return (
-    <div>
+    <div style={{ minWidth: 0 }}>
       <label style={labelStyle}>{label}</label>
       {editing ? (
         <input type="text" value={isPhone ? handlePhoneInput((value ?? '').replace(/\D/g, '')) : (value ?? '')} onChange={(e) => onChange(field, isPhone ? handlePhoneInput(e.target.value) : e.target.value)} style={inputStyle} />
       ) : (
-        <div style={{ fontSize: '0.875rem' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
+        <div style={{ fontSize: '0.875rem', overflowWrap: 'break-word' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
       )}
     </div>
   );
