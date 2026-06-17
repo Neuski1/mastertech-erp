@@ -107,7 +107,7 @@ export default function RecordDetail() {
   const isMobile = useIsMobile();
 
   // ── Always-editable fields: route each field to the correct API endpoint ──
-  const CUSTOMER_FIELDS = ['company_name', 'phone_primary', 'email_primary',
+  const CUSTOMER_FIELDS = ['company_name', 'phone_primary', 'phone_secondary', 'email_primary', 'email_secondary',
     'address_street', 'address_city', 'address_state', 'address_zip'];
   const UNIT_FIELDS = ['year', 'make', 'model', 'vin', 'license_plate'];
 
@@ -293,7 +293,7 @@ export default function RecordDetail() {
     // User checks "Include Payment Link" when they actually want to collect.
     setEmailIncludePayLink(false);
     setEmailTo(record.email_primary || '');
-    setEmailCc('');
+    setEmailCc(record.email_secondary || '');
     setEmailPersonalMsg('');
     setShowEmailModal(true);
   };
@@ -879,7 +879,9 @@ ${paymentDetailHtml}
           </div>
           <EditableField label="Company" field="company_name" value={record.company_name || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
           <EditableField label="Phone" field="phone_primary" value={record.phone_primary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Phone 2" field="phone_secondary" value={record.phone_secondary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
           <EditableField label="Email" field="email_primary" value={record.email_primary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Email 2" field="email_secondary" value={record.email_secondary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
           {isEditable ? (
             <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr 80px 120px', gap: '8px' }}>
               <EditableField label="Street" field="address_street" value={record.address_street || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
