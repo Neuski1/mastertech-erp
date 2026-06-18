@@ -390,6 +390,15 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       newPrice = parseFloat(sale_price_each);
       updates.push(`sale_price_each = $${idx++}`);
       values.push(newPrice);
+
+      // Also update the inventory catalog price so it stays current
+      // (mirrors how cost_each syncs back to inventory above).
+      if (existing.inventory_id && !isNaN(newPrice)) {
+        await client.query(
+          'UPDATE inventory SET sale_price_each = $1 WHERE id = $2',
+          [newPrice, existing.inventory_id]
+        );
+      }
     }
     if (taxable !== undefined) {
       updates.push(`taxable = $${idx++}`);
