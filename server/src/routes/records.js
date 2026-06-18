@@ -809,6 +809,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         'UPDATE records SET approval_token = $1, approval_token_expires_at = $2 WHERE id = $3',
         [token, expires, r.id]
       );
+      // Keep the in-memory record in sync so the photo View/Download links
+      // below are built with the token we just saved (not the stale value).
+      r.approval_token = token;
       const backendUrl = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app';
       approvalUrl = `${backendUrl}/api/records/approve/${token}`;
       console.log('Approval URL generated:', approvalUrl);
@@ -1333,7 +1336,7 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
         photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
         items.forEach(p => {
           // Token-protected public route — customers aren't logged in
-          const photoToken = record.approval_token || record.payment_token || '';
+          const photoToken = record.approval_token || token || record.payment_token || '';
           const url = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}`;
           const downloadUrl = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}&download=1`;
           photoBlock += `<div style="text-align:center;">
