@@ -110,7 +110,8 @@ export default function RecordNew() {
         insurance_email: recordData.insurance_email || null,
         claim_number: recordData.claim_number || null,
         policy_number: recordData.policy_number || null,
-        deposit_amount: recordData.deductible_amount ? parseFloat(recordData.deductible_amount) : 0,
+        deposit_amount: 0,
+        deductible_amount: recordData.deductible_amount ? parseFloat(recordData.deductible_amount) : null,
       });
       navigate(`/records/${rec.id}`);
     } catch (err) {

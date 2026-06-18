@@ -35,7 +35,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     is_insurance_job, insurance_company, insurance_contact_name,
     insurance_phone, insurance_email, claim_number, policy_number,
     estimate_valid_until, internal_notes, customer_notes,
-    deposit_amount, mileage_at_intake, expected_completion_date
+    deposit_amount, deductible_amount, mileage_at_intake, expected_completion_date
   } = req.body;
 
   if (!customer_id || !unit_id) {
@@ -69,8 +69,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
          claim_number, policy_number, estimate_valid_until,
          internal_notes, customer_notes, deposit_amount,
          mileage_at_intake, tax_rate, shop_supplies_exempt, cc_fee_applied, intake_date,
-         expected_completion_date
-       ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         expected_completion_date, deductible_amount
+       ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [recordNumber, customer_id, unit_id, key_number || null,
        job_description || null, is_insurance_job || false,
@@ -80,7 +80,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
        estimate_valid_until || null, internal_notes || null,
        customer_notes || null, deposit_amount || 0,
        mileage_at_intake || null, taxRate, shopSuppliesExempt, ccFeeApplied, today,
-       expected_completion_date || null]
+       expected_completion_date || null, deductible_amount || 0]
     );
 
     await client.query('COMMIT');
