@@ -629,6 +629,31 @@ router.post('/:token/charge', async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    // Notify the shop that a customer paid online (deposit or balance) so
+    // nobody has to watch the payments screen. Non-blocking.
+    try {
+      const { rows: cRows } = await pool.query(
+        `SELECT c.first_name, c.last_name, c.company_name
+           FROM records r JOIN customers c ON c.id = r.customer_id WHERE r.id = $1`,
+        [link.record_id]
+      );
+      const cn = cRows[0]
+        ? ([cRows[0].first_name, cRows[0].last_name].filter(Boolean).join(' ') || cRows[0].company_name || 'A customer')
+        : 'A customer';
+      const amt = (parseInt(link.amount_cents) / 100).toFixed(2);
+      const lbl = typeLabel(link.payment_type);
+      const { sendEmail } = require('../services/email');
+      await sendEmail({
+        to: 'service@mastertechrvrepair.com',
+        subject: `Payment received: $${amt} on WO #${link.record_number}`,
+        html: `<p><strong>${cn}</strong> just paid <strong>$${amt}</strong> (${lbl}) online toward Work Order #${link.record_number}.</p><p style="color:#6b7280;font-size:13px;">Transaction ID: ${txnId || 'n/a'}</p>`,
+        text: `${cn} paid $${amt} (${lbl}) online toward WO #${link.record_number}.\nTransaction ID: ${txnId || 'n/a'}`,
+      });
+    } catch (notifyErr) {
+      console.error('Online payment notification email error:', notifyErr.message);
+    }
+
     res.json({
       success: true,
       transactionId: txnId,
