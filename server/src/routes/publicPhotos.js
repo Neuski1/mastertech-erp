@@ -17,11 +17,14 @@ const pool = require('../db/pool');
 
 async function validateToken(recordId, token) {
   if (!token || !String(token).trim()) return false;
+  const t = String(token).trim();
   const { rows } = await pool.query(
-    `SELECT id FROM records
-      WHERE id = $1
-        AND (approval_token::text = $2 OR payment_token::text = $2)`,
-    [recordId, String(token).trim()]
+    `SELECT 1 FROM records
+       WHERE id = $1 AND (approval_token::text = $2 OR payment_token::text = $2)
+     UNION ALL
+     SELECT 1 FROM estimate_line_approvals
+       WHERE record_id = $1 AND approval_token::text = $2`,
+    [recordId, t]
   );
   return rows.length > 0;
 }
