@@ -702,7 +702,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/send-reminder — Send payment reminder
 // ---------------------------------------------------------------------------
-router.post('/:id/send-reminder', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/send-reminder', requireRole('admin', 'service_writer', 'technician', 'bookkeeper'), async (req, res) => {
   try {
     const { sendPaymentReminder } = require('../services/paymentReminders');
     const { channel } = req.body || {};
@@ -1160,7 +1160,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/approve-estimate-lines — Batch approve/unapprove lines
 // ---------------------------------------------------------------------------
-router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer', 'technician', 'bookkeeper'), async (req, res) => {
   const { id } = req.params;
   const { labor_line_ids, parts_line_ids, approved } = req.body;
   // approved: true = approve, false = unapprove
