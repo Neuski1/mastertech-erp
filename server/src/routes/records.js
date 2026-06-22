@@ -1206,7 +1206,7 @@ router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer'
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/send-estimate-approval — Email estimate to customer
 // ---------------------------------------------------------------------------
-router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer', 'technician', 'bookkeeper'), async (req, res) => {
   const { id } = req.params;
   const { personalMessage } = req.body || {};
 
