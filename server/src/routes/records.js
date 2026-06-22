@@ -878,6 +878,26 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${f.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">1</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(f.amount)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(f.amount)}</td></tr>`
     ).join('');
 
+    // Inspection findings = recommended items found during service that the
+    // customer has NOT yet approved (is_estimate_line = TRUE, not approved).
+    // Shown as a separate section so the full document includes them without
+    // affecting the charged totals / amount due.
+    const findingLabor = laborRes.rows.filter(l => l.is_estimate_line && !l.customer_approved);
+    const findingParts = partsRes.rows.filter(p => p.is_estimate_line && !p.customer_approved);
+    const findingTotal = [...findingLabor, ...findingParts].reduce((s, l) => s + (parseFloat(l.line_total) || 0), 0);
+    const findingLaborRows = findingLabor.map(l =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${l.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(l.hours||0).toFixed(2)} hr</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.line_total)}</td></tr>`
+    ).join('');
+    const findingPartsRows = findingParts.map(p =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${p.part_number ? p.part_number + ' \u2014 ' : ''}${p.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(p.quantity||0)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(p.line_total)}</td></tr>`
+    ).join('');
+    const inspectionFindingsHtml = (findingLabor.length || findingParts.length) ? `
+    <h3 style="color:#92400e;font-size:14px;margin:24px 0 4px;border-bottom:2px solid #f59e0b;padding-bottom:4px;">INSPECTION FINDINGS &mdash; RECOMMENDED</h3>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 8px;">Additional items found during service. These are recommendations only and are NOT included in the Amount Due above until approved.</p>
+    ${findingLaborRows ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;"><thead><tr style="background:#fffbeb;"><th style="padding:6px 8px;text-align:left;">Recommended Labor</th><th style="padding:6px 8px;text-align:right;">Hours</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead><tbody>${findingLaborRows}</tbody></table>` : ''}
+    ${findingPartsRows ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;"><thead><tr style="background:#fffbeb;"><th style="padding:6px 8px;text-align:left;">Recommended Parts</th><th style="padding:6px 8px;text-align:right;">Qty</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead><tbody>${findingPartsRows}</tbody></table>` : ''}
+    <div style="text-align:right;font-size:13px;font-weight:bold;color:#92400e;">Recommended Total: ${fmtCur(findingTotal)}</div>
+    ` : '';
     const underWarranty = parseFloat(r.under_warranty_amount) || 0;
     const noCharge = parseFloat(r.no_charge_amount) || 0;
     const discount = parseFloat(r.discount_amount) || 0;
@@ -1053,6 +1073,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         ${payments.map(p => `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${fmtDate(p.payment_date)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${methodLabels[p.payment_method] || p.payment_method || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${p.reference_number || p.check_number || '&mdash;'}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${fmtCur(p.amount)}</td></tr>`).join('')}
       </tbody>
     </table>` : ''}
+
+    ${inspectionFindingsHtml}
 
     ${(() => {
       const photos = photosRes.rows;
