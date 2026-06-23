@@ -661,13 +661,11 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 <td style={{ ...tdStyle, textAlign: 'right', color: '#6b7280' }}>
                   {form.quantity && form.sale_price_each ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each)) : '—'}
                 </td>
-                <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af', fontSize: '0.8rem' }}>
-                  {line.cost_each ? formatCurrency(line.cost_each) : '—'}
+                <td style={tdStyle}>
+                  <input type="number" step="0.01" value={form.cost_each} onChange={(e) => handleCostChange(e.target.value)} placeholder="Cost" style={{ ...inlineInput, width: '70px', textAlign: 'right' }} />
                 </td>
-                <td style={{ ...tdStyle, textAlign: 'right', color: '#9ca3af', fontSize: '0.8rem' }}>
-                  {line.cost_each && parseFloat(line.cost_each) > 0 && form.sale_price_each
-                    ? ((parseFloat(form.sale_price_each) - parseFloat(line.cost_each)) / parseFloat(line.cost_each) * 100).toFixed(1) + '%'
-                    : '—'}
+                <td style={tdStyle}>
+                  <input type="number" step="1" value={form.markup} onChange={(e) => handleMarkupChange(e.target.value)} placeholder="%" style={{ ...inlineInput, width: '55px', textAlign: 'right' }} />
                 </td>
                 <td style={tdStyle}>
                   <button onClick={handleSaveEdit} disabled={saving} style={btnTiny}>Save</button>
