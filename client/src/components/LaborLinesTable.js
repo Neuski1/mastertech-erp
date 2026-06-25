@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../utils/dateFormat';
+import FlatRateLookup from './FlatRateLookup';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
@@ -34,6 +35,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   const [saving, setSaving] = useState(false);
   const [savedLineId, setSavedLineId] = useState(null);
   const descriptionRef = useRef(null);
+  const [showFlatRateModal, setShowFlatRateModal] = useState(false);
 
   useEffect(() => {
     api.getTechnicians().then(setTechnicians).catch(() => {});
@@ -70,6 +72,16 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     } finally {
       setBulkTechSaving(false);
     }
+  };
+
+  const handleFlatRateSelect = (job) => {
+    setForm(prev => ({
+      ...prev,
+      description: job.description,
+      hours: job.hours > 0 ? job.hours.toString() : prev.hours,
+    }));
+    setShowFlatRateModal(false);
+    setTimeout(() => { if (descriptionRef.current) descriptionRef.current.focus(); }, 100);
   };
 
   const handleAdd = async () => {
@@ -344,7 +356,14 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
             <tr style={{ backgroundColor: isEstimate ? '#fffbeb' : '#f0fdf4' }}>
               {showApproval && <td style={tdStyle}></td>}
               <td style={tdStyle}>L</td>
-              <td style={tdStyle}>
+              <td style={{ ...tdStyle, verticalAlign: 'top' }}>
+                <button
+                  onClick={() => setShowFlatRateModal(true)}
+                  style={{ ...btnTinyGray, marginBottom: '6px', display: 'block', width: '100%', textAlign: 'center', backgroundColor: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}
+                  type="button"
+                >
+                  🔍 Lookup Flat Rate
+                </button>
                 <textarea ref={descriptionRef} placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} autoFocus />
               </td>
               <td style={tdStyle}>
@@ -398,6 +417,35 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
         </tfoot>
       </table>
     </div>
+
+    {/* Flat Rate Lookup Modal */}
+    {showFlatRateModal && (
+      <div
+        onClick={() => setShowFlatRateModal(false)}
+        style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+          zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          paddingTop: '60px', overflowY: 'auto',
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: '#fff', borderRadius: '10px', width: '90%', maxWidth: '1000px',
+            maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            marginBottom: '40px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid #e5e7eb' }}>
+            <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>Click a job to populate description and hours</span>
+            <button onClick={() => setShowFlatRateModal(false)} style={{ ...btnTinyGray, fontSize: '0.8rem' }}>Close</button>
+          </div>
+          <div style={{ padding: '16px' }}>
+            <FlatRateLookup onSelectJob={handleFlatRateSelect} />
+          </div>
+        </div>
+      </div>
+    )}
   );
 }
 
