@@ -79,6 +79,20 @@ export default function RecordNew() {
     }
   };
 
+  const skipUnitAndContinue = async () => {
+    setError('');
+    try {
+      // Create a blank placeholder unit so the record can be started now;
+      // the RV type (year/make/model) gets filled in on the record later.
+      const unit = await api.createUnit({ customer_id: selectedCustomer.id });
+      setSelectedUnit(unit);
+      setShowNewUnit(false);
+      setStep(3);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const createRecord = async () => {
     setSaving(true);
     setError('');
@@ -96,7 +110,8 @@ export default function RecordNew() {
         insurance_email: recordData.insurance_email || null,
         claim_number: recordData.claim_number || null,
         policy_number: recordData.policy_number || null,
-        deposit_amount: recordData.deductible_amount ? parseFloat(recordData.deductible_amount) : 0,
+        deposit_amount: 0,
+        deductible_amount: recordData.deductible_amount ? parseFloat(recordData.deductible_amount) : null,
       });
       navigate(`/records/${rec.id}`);
     } catch (err) {
@@ -194,6 +209,9 @@ export default function RecordNew() {
           <button onClick={() => setShowNewUnit(!showNewUnit)} style={btnSecondary}>
             {showNewUnit ? 'Cancel' : '+ Add New Unit'}
           </button>
+          <button onClick={skipUnitAndContinue} style={{ ...btnSecondary, marginLeft: '8px' }}>
+            Skip - add RV later
+          </button>
 
           {showNewUnit && (
             <div style={{ marginTop: '16px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px' }}>
@@ -236,7 +254,7 @@ export default function RecordNew() {
           <div style={{ padding: '12px', backgroundColor: '#f0f9ff', borderRadius: '6px', marginBottom: '16px', fontSize: '0.85rem' }}>
             <strong>Customer:</strong> {selectedCustomer.last_name}{selectedCustomer.first_name ? `, ${selectedCustomer.first_name}` : ''} (#{selectedCustomer.account_number})
             <br/>
-            <strong>Unit:</strong> {[selectedUnit.year, selectedUnit.make, selectedUnit.model].filter(Boolean).join(' ')}
+            <strong>Unit:</strong> {[selectedUnit.year, selectedUnit.make, selectedUnit.model].filter(Boolean).join(' ') || 'RV type not set yet (add it on the record)'}
             {selectedUnit.license_plate && ` \u00B7 ${selectedUnit.license_plate}`}
           </div>
 

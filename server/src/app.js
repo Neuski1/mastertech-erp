@@ -37,7 +37,12 @@ app.use(express.json({ limit: '5mb' }));
 
 // Health check endpoint (no auth required)
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date(),
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'unknown',
+    branch: process.env.RAILWAY_GIT_BRANCH || 'unknown',
+  });
 });
 
 // Calendar status — public, right after health check
@@ -614,6 +619,11 @@ require('./db/pool').query(`
   `).then(r => { if (r.rowCount > 0) console.log('Seeded', r.rowCount, 'waitlist entries'); })
     .catch(err => console.error('waitlist seed error:', err.message));
 }).catch(err => console.error('storage_waitlist migration error:', err.message));
+
+// Auto-migrate: add 'order_parts' work status (migration 047)
+require('./db/pool').query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'order_parts'")
+  .then(() => console.log('order_parts status ready'))
+  .catch(err => console.error('order_parts enum migration error:', err.message));
 
 
 // Migration 043: Estimate line support

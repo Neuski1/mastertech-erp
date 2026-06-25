@@ -23,6 +23,7 @@ const NEXT_STATUS = {
   scheduled: 'in_progress',
   in_progress: 'complete',
   awaiting_parts: 'in_progress',
+  order_parts: 'awaiting_parts',
   awaiting_approval: 'in_progress',
   complete: null,
   payment_pending: null,
@@ -37,6 +38,7 @@ const NEXT_LABEL = {
   scheduled: 'Mark In Progress',
   in_progress: 'Mark Complete',
   awaiting_parts: 'Resume Work',
+  order_parts: 'Mark Parts Ordered',
   awaiting_approval: 'Resume Work',
 };
 
@@ -46,6 +48,7 @@ const ALL_STATUSES = [
   { value: 'schedule_customer', label: 'Schedule Customer' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'in_progress', label: 'In Progress' },
+  { value: 'order_parts', label: 'Order Parts' },
   { value: 'awaiting_parts', label: 'Awaiting Parts' },
   { value: 'awaiting_approval', label: 'Awaiting Approval' },
   { value: 'complete', label: 'Complete' },
@@ -70,8 +73,6 @@ export default function RecordDetail() {
   const fromCustomerId = location.state?.customerId;
   const { canSeeFinancials, canEditRecords, canPostPayments, isAdmin, isBookkeeper } = useAuth();
   const [record, setRecord] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [formData, setFormData] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -97,88 +98,36 @@ export default function RecordDetail() {
   const [emailPayLinkType, setEmailPayLinkType] = useState('parts_deposit');
   const [emailPayLinkAmount, setEmailPayLinkAmount] = useState('');
 
-  // Section-level inline editing
-  const [editingHeader, setEditingHeader] = useState(false);
-  const [editingUnit, setEditingUnit] = useState(false);
-  const [editingDates, setEditingDates] = useState(false);
-  const [editingInsurance, setEditingInsurance] = useState(false);
-  const [sectionForm, setSectionForm] = useState({});
-  const [sectionSaving, setSectionSaving] = useState(false);
+  // Track which field is currently being edited so the polling refetch
+  // does not clobber what the user is typing. null = no field focused.
+  const [focusedField, setFocusedField] = useState(null);
 
   // Collapsible sections
   const [expandedSections, setExpandedSections] = useState({});
   const isMobile = useIsMobile();
 
-  const startSectionEdit = (section) => {
-    setSectionForm({ ...record });
-    if (section === 'header') setEditingHeader(true);
-    if (section === 'unit') setEditingUnit(true);
-    if (section === 'dates') setEditingDates(true);
-    if (section === 'insurance') setEditingInsurance(true);
-  };
+  // ── Always-editable fields: route each field to the correct API endpoint ──
+  const CUSTOMER_FIELDS = ['company_name', 'phone_primary', 'phone_secondary', 'email_primary', 'email_secondary',
+    'address_street', 'address_city', 'address_state', 'address_zip'];
+  const UNIT_FIELDS = ['year', 'make', 'model', 'vin', 'license_plate'];
 
-  const cancelSectionEdit = (section) => {
-    if (section === 'header') setEditingHeader(false);
-    if (section === 'unit') setEditingUnit(false);
-    if (section === 'dates') setEditingDates(false);
-    if (section === 'insurance') setEditingInsurance(false);
-  };
-
-  const handleSectionSave = async (section, fields) => {
-    setSectionSaving(true);
-    try {
-      if (section === 'header') {
-        const recordFields = ['key_number'];
-        const custFields = ['company_name', 'phone_primary', 'email_primary',
-          'address_street', 'address_city', 'address_state', 'address_zip'];
-        const recordUpdates = {};
-        const custUpdates = {};
-        recordFields.forEach(f => { if (sectionForm[f] !== record[f]) recordUpdates[f] = sectionForm[f] ?? null; });
-        custFields.forEach(f => { if (sectionForm[f] !== record[f]) custUpdates[f] = sectionForm[f] ?? null; });
-        if (Object.keys(recordUpdates).length) await api.updateRecord(id, recordUpdates);
-        if (Object.keys(custUpdates).length && record.customer_id) await api.updateCustomer(record.customer_id, custUpdates);
-        setEditingHeader(false);
-      } else if (section === 'unit') {
-        const unitFields = ['year', 'make', 'model', 'vin', 'license_plate'];
-        const unitUpdates = {};
-        unitFields.forEach(f => { if (sectionForm[f] !== record[f]) unitUpdates[f] = sectionForm[f] ?? null; });
-        if (Object.keys(unitUpdates).length && record.unit_id) await api.updateUnit(record.unit_id, unitUpdates);
-        setEditingUnit(false);
-      } else {
-        const updates = {};
-        fields.forEach(f => {
-          if (sectionForm[f] !== record[f]) updates[f] = sectionForm[f] ?? null;
-        });
-        if (Object.keys(updates).length > 0) {
-          await api.updateRecord(id, updates);
-        }
-        if (section === 'dates') setEditingDates(false);
-        if (section === 'insurance') setEditingInsurance(false);
-      }
-      await fetchRecord();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSectionSaving(false);
-    }
-  };
-
-  const handleSectionField = (field, value) => {
-    setSectionForm(prev => ({ ...prev, [field]: value }));
-  };
-
-  // Ref to track editing state inside fetchRecord without adding it as dependency
-  const editingRef = useRef(false);
-  editingRef.current = editing;
+  // Ref mirrors focusedField so the polling refetch can read it without
+  // being recreated as a dependency.
+  const focusedFieldRef = useRef(null);
+  focusedFieldRef.current = focusedField;
 
   const fetchRecord = useCallback(async () => {
     try {
       const data = await api.getRecord(id);
-      setRecord(data);
-      // Only overwrite form data when NOT in edit mode
-      if (!editingRef.current) {
-        setFormData(data);
-      }
+      // Do not clobber the field the user is actively editing. Preserve the
+      // local in-progress value for that one field; refresh everything else.
+      setRecord(prev => {
+        const focused = focusedFieldRef.current;
+        if (prev && focused && Object.prototype.hasOwnProperty.call(prev, focused)) {
+          return { ...data, [focused]: prev[focused] };
+        }
+        return data;
+      });
     } catch (err) {
       setError(err.message);
     }
@@ -186,63 +135,23 @@ export default function RecordDetail() {
 
   useEffect(() => { fetchRecord(); }, [fetchRecord]);
 
-  // Reset editing when navigating to a different record
-  useEffect(() => {
-    setEditing(false);
-  }, [id]);
-
-  const handleFieldChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
+  // Auto-save a single field on blur/change, routing to the correct endpoint.
+  const autoSave = async (field, value) => {
+    if (record && value === record[field]) return; // no change
     setSaving(true);
     setError('');
     try {
-      // Record fields
-      const recordFields = [
-        'key_number', 'job_description', 'mileage_at_intake',
-        'intake_date', 'start_date', 'expected_completion_date', 'actual_completion_date',
-        'is_insurance_job', 'insurance_company', 'insurance_contact_name',
-        'insurance_phone', 'insurance_email', 'claim_number', 'policy_number',
-        'estimate_valid_until', 'internal_notes', 'customer_notes',
-        'under_warranty_amount', 'no_charge_amount', 'discount_amount', 'discount_description', 'deductible_amount',
-        'deposit_amount', 'cc_fee_applied', 'shop_supplies_exempt', 'tax_waived',
-      ];
-      const recordUpdates = {};
-      recordFields.forEach(f => {
-        if (formData[f] !== record[f]) recordUpdates[f] = formData[f];
-      });
-      if (Object.keys(recordUpdates).length > 0) {
-        const result = await api.updateRecord(id, recordUpdates);
-        if (result.labor_lines_created > 0) {
+      if (CUSTOMER_FIELDS.includes(field)) {
+        if (record.customer_id) await api.updateCustomer(record.customer_id, { [field]: value });
+      } else if (UNIT_FIELDS.includes(field)) {
+        if (record.unit_id) await api.updateUnit(record.unit_id, { [field]: value });
+      } else {
+        const result = await api.updateRecord(id, { [field]: value });
+        if (result && result.labor_lines_created > 0) {
           setSuccessMsg(`${result.labor_lines_created} labor line${result.labor_lines_created > 1 ? 's' : ''} created from job description`);
           setTimeout(() => setSuccessMsg(''), 5000);
         }
       }
-
-      // Unit fields
-      const unitFields = ['year', 'make', 'model', 'vin', 'license_plate'];
-      const unitUpdates = {};
-      unitFields.forEach(f => {
-        if (formData[f] !== record[f]) unitUpdates[f] = formData[f];
-      });
-      if (Object.keys(unitUpdates).length > 0 && record.unit_id) {
-        await api.updateUnit(record.unit_id, unitUpdates);
-      }
-
-      // Customer fields
-      const custFields = ['company_name', 'phone_primary', 'email_primary',
-        'address_street', 'address_city', 'address_state', 'address_zip'];
-      const custUpdates = {};
-      custFields.forEach(f => {
-        if (formData[f] !== record[f]) custUpdates[f] = formData[f];
-      });
-      if (Object.keys(custUpdates).length > 0 && record.customer_id) {
-        await api.updateCustomer(record.customer_id, custUpdates);
-      }
-
-      setEditing(false);
       await fetchRecord();
     } catch (err) {
       setError(err.message);
@@ -384,7 +293,7 @@ export default function RecordDetail() {
     // User checks "Include Payment Link" when they actually want to collect.
     setEmailIncludePayLink(false);
     setEmailTo(record.email_primary || '');
-    setEmailCc('');
+    setEmailCc(record.email_secondary || '');
     setEmailPersonalMsg('');
     setShowEmailModal(true);
   };
@@ -588,7 +497,7 @@ export default function RecordDetail() {
     <h2>${docTitle} #${r.record_number}</h2>
     <p>Original Date: ${intakeDate}</p>
     ${r.start_date ? `<p>Start Date: ${fmtPrintDateShort(r.start_date.includes('T') ? r.start_date : r.start_date + 'T12:00:00')}</p>` : ''}
-    ${!['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && r.expected_completion_date ? `<p>Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
+    ${!['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && r.expected_completion_date ? `<p style="font-size:15px;font-weight:bold;color:#000;margin:5px 0;">Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
     ${r.actual_completion_date ? `<p>Completed: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : ''}
     <p>Time: ${timePrinted}</p>
   </div>
@@ -614,7 +523,21 @@ export default function RecordDetail() {
     ${!isEstimate && techNames.length > 0 ? `<br/><label>Serviced By</label><span>${techNames.join(', ')}</span>` : ''}
   </div>
 </div>
-${r.insurance_company ? `<div class="info-block"><div><label>Insurance</label><span>${r.insurance_company}</span>${r.claim_number ? ' &nbsp; <label style="display:inline">Claim #</label> <span>' + r.claim_number + '</span>' : ''}</div></div>` : ''}
+${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0) ? `<div class="info-block">
+  <div>
+    <label>Insurance</label>
+    <span>${r.insurance_company || '\u2014'}</span><br/>
+    ${r.claim_number ? `<label>Claim #</label><span>${r.claim_number}</span><br/>` : ''}
+    ${r.policy_number ? `<label>Policy #</label><span>${r.policy_number}</span><br/>` : ''}
+    ${parseFloat(r.deductible_amount) > 0 ? `<label>Deductible</label><span>${fmtCur(r.deductible_amount)}</span>` : ''}
+  </div>
+  ${(r.insurance_contact_name || r.insurance_phone || r.insurance_email) ? `<div>
+    <label>Insurance Contact</label>
+    ${r.insurance_contact_name ? `<span>${r.insurance_contact_name}</span><br/>` : ''}
+    ${r.insurance_phone ? `<span>${formatPhone(r.insurance_phone)}</span><br/>` : ''}
+    ${r.insurance_email ? `<span>${r.insurance_email}</span>` : ''}
+  </div>` : ''}
+</div>` : ''}
 
 ${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:3px 0 0;padding-left:20px;font-size:11px;line-height:1.35">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:1px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
 ${r.customer_notes ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Customer Notes:</strong><p style="margin:4px 0 0;font-size:11px;white-space:pre-wrap">${r.customer_notes}</p></div>` : ''}
@@ -772,10 +695,6 @@ ${paymentDetailHtml}
   const isEditable = statusEditable && canEditRecords;
   const canDeletePayments = isAdmin || isBookkeeper;
 
-  const editSectionStyle = {
-    ...sectionStyle,
-    ...(editing ? { borderColor: '#93c5fd', backgroundColor: '#fafbff' } : {}),
-  };
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
@@ -797,22 +716,19 @@ ${paymentDetailHtml}
         <button onClick={() => navigate(fromCustomer ? `/customers/${fromCustomerId}` : '/records')} style={{ ...btnLink, marginBottom: '8px' }}>
           &larr; {fromCustomer ? 'Back to Customer' : 'Back to Records'}
         </button>
-        <div className={isMobile ? 'detail-actions' : ''} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {!editing && (
-            <>
-              <button onClick={handlePrint} style={btnPrint}>Print</button>
-              <button onClick={openEmailDialog} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
-                {emailing ? 'Sending...' : '\u2709 Email'}
-              </button>
-            </>
-          )}
-          {canEditRecords && !editing && record.status !== 'void' && (
+        <div className={isMobile ? 'detail-actions' : ''} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {saving && <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Saving...</span>}
+          <button onClick={handlePrint} style={btnPrint}>Print</button>
+          <button onClick={openEmailDialog} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
+            {emailing ? 'Sending...' : '\u2709 Email'}
+          </button>
+          {canEditRecords && record.status !== 'void' && (
             <button onClick={() => setShowScheduleModal(true)} style={btnSchedule}>Add to Schedule</button>
           )}
-          {canEditRecords && !editing && (
+          {canEditRecords && (
             <button onClick={() => setShowCopyModal(true)} style={btnSecondary}>Copy to WO</button>
           )}
-          {canEditRecords && !editing && record.status === 'estimate' && (
+          {canEditRecords && record.status === 'estimate' && (
             <button
               onClick={() => {
                 if (window.confirm('File this estimate? It will move out of Needs Attention into the Filed Estimates section.')) {
@@ -824,7 +740,7 @@ ${paymentDetailHtml}
               File
             </button>
           )}
-          {canEditRecords && !editing && record.status === 'filed' && (
+          {canEditRecords && record.status === 'filed' && (
             <button
               onClick={() => {
                 if (window.confirm('Move this estimate back to active? It will reappear in Needs Attention.')) {
@@ -836,7 +752,7 @@ ${paymentDetailHtml}
               Unfile
             </button>
           )}
-          {isEditable && !editing && record.status !== 'void' && (
+          {isEditable && record.status !== 'void' && (
             <button onClick={handleVoid} style={btnDanger}>Void</button>
           )}
         </div>
@@ -863,7 +779,7 @@ ${paymentDetailHtml}
           <span style={{ fontWeight: 600, color: '#374151' }}>Status:</span>
           <StatusBadge status={record.status} />
           {/* Manual status override dropdown */}
-          {(isAdmin || canEditRecords || isBookkeeper) && !editing && (
+          {(isAdmin || canEditRecords || isBookkeeper) && (
             <select
               value={record.status}
               onChange={(e) => handleManualStatusChange(e.target.value)}
@@ -884,12 +800,12 @@ ${paymentDetailHtml}
           )}
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {canEditRecords && NEXT_STATUS[record.status] && !editing && (
+          {canEditRecords && NEXT_STATUS[record.status] && (
             <button onClick={handleAdvanceStatus} style={btnPrimary}>
               {NEXT_LABEL[record.status] || 'Advance Status'}
             </button>
           )}
-          {(isAdmin || canEditRecords) && ['payment_pending', 'partial'].includes(record.status) && parseFloat(record.amount_due) > 0 && !editing && (
+          {(isAdmin || canEditRecords) && ['payment_pending', 'partial'].includes(record.status) && parseFloat(record.amount_due) > 0 && (
             <button onClick={() => { setReminderChannel('both'); setShowReminderModal(true); }} disabled={sendingReminder} style={{ padding: '8px 16px', backgroundColor: '#f59e0b', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
               {sendingReminder ? 'Sending...' : 'Send Reminder'}
             </button>
@@ -912,7 +828,7 @@ ${paymentDetailHtml}
       )}
 
       {/* Customer Estimate Sign-Off — only visible for estimates */}
-      {record.status === 'estimate' && canEditRecords && !editing && (
+      {record.status === 'estimate' && canEditRecords && (
         <div style={{ ...sectionStyle, backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -944,109 +860,73 @@ ${paymentDetailHtml}
       )}
 
       {/* ─── Record Header ─── */}
-      {(() => {
-        const hdrEditing = editing || editingHeader;
-        const hdrForm = editingHeader ? sectionForm : formData;
-        const hdrChange = editingHeader ? handleSectionField : handleFieldChange;
-        return (
-        <div style={editSectionStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Record Header</h2>
-            {canEditRecords && !editing && !editingHeader && statusEditable && (
-              <button onClick={() => startSectionEdit('header')} style={btnSectionEdit}>Edit</button>
-            )}
-          </div>
-          <div style={gridStyle}>
-            <Field label="Record Number" value={record.record_number} />
-            <Field label="Record Date" value={formatDate(record.intake_date || record.created_at)} />
-            <Field label="Account #" value={record.account_number} />
-            <EditableField label="Key #" field="key_number" value={hdrForm.key_number || ''} editing={hdrEditing} onChange={hdrChange} />
-            <div>
-              <label style={labelStyle}>Customer</label>
-              <div style={{ fontSize: '0.875rem' }}>
-                <Link to={`/customers/${record.customer_id}`} style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 500 }}>
-                  {record.last_name || ''}{record.first_name ? ', ' + record.first_name : ''}
-                </Link>
-              </div>
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Record Header</h2>
+        </div>
+        <div style={gridStyle}>
+          <Field label="Record Number" value={record.record_number} />
+          <Field label="Record Date" value={formatDate(record.intake_date || record.created_at)} />
+          <Field label="Account #" value={record.account_number} />
+          <EditableField label="Key #" field="key_number" value={record.key_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <div>
+            <label style={labelStyle}>Customer</label>
+            <div style={{ fontSize: '0.875rem' }}>
+              <Link to={`/customers/${record.customer_id}`} style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 500 }}>
+                {record.last_name || ''}{record.first_name ? ', ' + record.first_name : ''}
+              </Link>
             </div>
-            <EditableField label="Company" field="company_name" value={hdrForm.company_name || ''} editing={hdrEditing} onChange={hdrChange} />
-            <EditableField label="Phone" field="phone_primary" value={hdrForm.phone_primary || ''} editing={hdrEditing} onChange={hdrChange} />
-            <EditableField label="Email" field="email_primary" value={hdrForm.email_primary || ''} editing={hdrEditing} onChange={hdrChange} />
-            {hdrEditing ? (
-              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr 80px 120px', gap: '8px' }}>
-                <EditableField label="Street" field="address_street" value={hdrForm.address_street || ''} editing={hdrEditing} onChange={hdrChange} />
-                <EditableField label="City" field="address_city" value={hdrForm.address_city || ''} editing={hdrEditing} onChange={hdrChange} />
-                <EditableField label="State" field="address_state" value={hdrForm.address_state || ''} editing={hdrEditing} onChange={hdrChange} />
-                <EditableField label="ZIP" field="address_zip" value={hdrForm.address_zip || ''} editing={hdrEditing} onChange={hdrChange} />
-              </div>
-            ) : (
-              <FieldFull label="Address" value={[record.address_street, record.address_city, record.address_state, record.address_zip].filter(Boolean).join(', ') || '—'} />
-            )}
           </div>
-          {editingHeader && !editing && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-              <button onClick={() => handleSectionSave('header', [])} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
-              <button onClick={() => cancelSectionEdit('header')} style={btnSecondary}>Cancel</button>
+          <EditableField label="Company" field="company_name" value={record.company_name || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Phone" field="phone_primary" value={record.phone_primary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Phone 2" field="phone_secondary" value={record.phone_secondary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Email" field="email_primary" value={record.email_primary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Email 2" field="email_secondary" value={record.email_secondary || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          {isEditable ? (
+            <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr 80px 120px', gap: '8px' }}>
+              <EditableField label="Street" field="address_street" value={record.address_street || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+              <EditableField label="City" field="address_city" value={record.address_city || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+              <EditableField label="State" field="address_state" value={record.address_state || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+              <EditableField label="ZIP" field="address_zip" value={record.address_zip || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
             </div>
+          ) : (
+            <FieldFull label="Address" value={[record.address_street, record.address_city, record.address_state, record.address_zip].filter(Boolean).join(', ') || '—'} />
           )}
         </div>
-        );
-      })()}
+      </div>
 
       {/* ─── Unit Information ─── */}
-      {(() => {
-        const unitEditingMode = editing || editingUnit;
-        const unitForm = editingUnit ? sectionForm : formData;
-        const unitChange = editingUnit ? handleSectionField : handleFieldChange;
-        return (
-        <div style={editSectionStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Unit Information</h2>
-            {canEditRecords && !editing && !editingUnit && statusEditable && (
-              <button onClick={() => startSectionEdit('unit')} style={btnSectionEdit}>Edit</button>
-            )}
-          </div>
-          <div style={gridStyle}>
-            <EditableField label="Year" field="year" value={unitForm.year || ''} editing={unitEditingMode} onChange={unitChange} />
-            <EditableField label="Make" field="make" value={unitForm.make || ''} editing={unitEditingMode} onChange={unitChange} />
-            <EditableField label="Model" field="model" value={unitForm.model || ''} editing={unitEditingMode} onChange={unitChange} />
-            <EditableField label="VIN" field="vin" value={unitForm.vin || ''} editing={unitEditingMode} onChange={unitChange} />
-            <EditableField label="License Plate" field="license_plate" value={unitForm.license_plate || ''} editing={unitEditingMode} onChange={unitChange} />
-          </div>
-          {editingUnit && !editing && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-              <button onClick={() => handleSectionSave('unit', [])} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
-              <button onClick={() => cancelSectionEdit('unit')} style={btnSecondary}>Cancel</button>
-            </div>
-          )}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Unit Information</h2>
         </div>
-        );
-      })()}
+        <div style={gridStyle}>
+          <EditableField label="Year" field="year" value={record.year || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Make" field="make" value={record.make || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="Model" field="model" value={record.model || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="VIN" field="vin" value={record.vin || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+          <EditableField label="License Plate" field="license_plate" value={record.license_plate || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+        </div>
+      </div>
 
       {/* ─── Insurance / Warranty ─── */}
       {(() => {
-        const insEditing = editing || editingInsurance;
-        const insForm = editing ? formData : sectionForm;
-        const insChange = editing ? handleFieldChange : handleSectionField;
-        const insFields = ['mileage_at_intake', 'under_warranty_amount', 'no_charge_amount', 'discount_amount', 'discount_description', 'deductible_amount',
-          'is_insurance_job', 'insurance_company', 'insurance_contact_name', 'insurance_phone',
-          'insurance_email', 'claim_number', 'policy_number'];
         const hasInsData = record.insurance_company || record.claim_number || record.policy_number
           || record.insurance_contact_name || record.insurance_phone || record.insurance_email
           || parseFloat(record.deductible_amount) > 0 || record.is_insurance_job;
         const insExpanded = expandedSections.insurance !== undefined ? expandedSections.insurance : !!hasInsData;
         const toggleIns = () => setExpandedSections(s => ({ ...s, insurance: !insExpanded }));
         return (
-          <div style={editSectionStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: insExpanded ? '12px' : 0, cursor: 'pointer' }} onClick={!insEditing ? toggleIns : undefined}>
+          <div style={sectionStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: insExpanded ? '12px' : 0, cursor: 'pointer' }} onClick={toggleIns}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
                   <span style={{ fontSize: '0.7rem', marginRight: '6px' }}>{insExpanded ? '\u25BC' : '\u25B6'}</span>
                   Insurance / Warranty
                 </h2>
-                {insEditing ? (
+                {isEditable ? (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }} onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={insForm.is_insurance_job || false} onChange={(e) => insChange('is_insurance_job', e.target.checked)} />
+                    <input type="checkbox" checked={record.is_insurance_job || false} onChange={(e) => autoSave('is_insurance_job', e.target.checked)} />
                     Insurance Job
                   </label>
                 ) : (
@@ -1056,39 +936,30 @@ ${paymentDetailHtml}
                   <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 500 }}>+ Add Insurance Info</span>
                 )}
               </div>
-              {canEditRecords && !editing && !editingInsurance && statusEditable && insExpanded && (
-                <button onClick={(e) => { e.stopPropagation(); startSectionEdit('insurance'); }} style={btnSectionEdit}>Edit</button>
-              )}
             </div>
             {insExpanded && (
               <>
                 {/* Row 1: Insurance Company, Claim #, Policy #, Deductible */}
                 <div style={gridStyle}>
-                  <EditableField label="Insurance Company" field="insurance_company" value={insEditing ? (insForm.insurance_company || '') : (record.insurance_company || '')} editing={insEditing} onChange={insChange} />
-                  <EditableField label="Claim #" field="claim_number" value={insEditing ? (insForm.claim_number || '') : (record.claim_number || '')} editing={insEditing} onChange={insChange} />
-                  <EditableField label="Policy #" field="policy_number" value={insEditing ? (insForm.policy_number || '') : (record.policy_number || '')} editing={insEditing} onChange={insChange} />
-                  <EditableField label="Deductible" field="deductible_amount" value={insEditing ? (insForm.deductible_amount || '') : (record.deductible_amount || '')} editing={insEditing} onChange={insChange} type="number" />
+                  <EditableField label="Insurance Company" field="insurance_company" value={record.insurance_company || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+                  <EditableField label="Claim #" field="claim_number" value={record.claim_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+                  <EditableField label="Policy #" field="policy_number" value={record.policy_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+                  <EditableField label="Deductible" field="deductible_amount" value={record.deductible_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
                 </div>
                 {/* Row 2: Contact Name, Phone, Email, Not Covered Amount */}
                 <div style={{ ...gridStyle, marginTop: '12px' }}>
-                  <EditableField label="Contact Name" field="insurance_contact_name" value={insEditing ? (insForm.insurance_contact_name || '') : (record.insurance_contact_name || '')} editing={insEditing} onChange={insChange} />
-                  <EditableField label="Phone" field="insurance_phone" value={insEditing ? (insForm.insurance_phone || '') : (record.insurance_phone || '')} editing={insEditing} onChange={insChange} />
-                  <EditableField label="Email" field="insurance_email" value={insEditing ? (insForm.insurance_email || '') : (record.insurance_email || '')} editing={insEditing} onChange={insChange} />
-                  <EditableField label="Not Covered Amount" field="no_charge_amount" value={insEditing ? (insForm.no_charge_amount || '') : (record.no_charge_amount || '')} editing={insEditing} onChange={insChange} type="number" />
+                  <EditableField label="Contact Name" field="insurance_contact_name" value={record.insurance_contact_name || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+                  <EditableField label="Phone" field="insurance_phone" value={record.insurance_phone || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+                  <EditableField label="Email" field="insurance_email" value={record.insurance_email || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
+                  <EditableField label="Not Covered Amount" field="no_charge_amount" value={record.no_charge_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
                 </div>
                 {/* Row 3: Under Warranty Amount, Mileage at Intake */}
                 <div style={{ ...gridStyle, marginTop: '12px' }}>
-                  <EditableField label="Under Warranty Amount" field="under_warranty_amount" value={insEditing ? (insForm.under_warranty_amount || '') : (record.under_warranty_amount || '')} editing={insEditing} onChange={insChange} type="number" />
-                  <EditableField label="Mileage at Intake" field="mileage_at_intake" value={insEditing ? (insForm.mileage_at_intake || '') : (record.mileage_at_intake || '')} editing={insEditing} onChange={insChange} type="number" />
+                  <EditableField label="Under Warranty Amount" field="under_warranty_amount" value={record.under_warranty_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
+                  <EditableField label="Mileage at Intake" field="mileage_at_intake" value={record.mileage_at_intake || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
                 </div>
-                {!insEditing && !record.is_insurance_job && (
+                {!isEditable && !record.is_insurance_job && (
                   <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: '12px 0 0' }}>Not an insurance job</p>
-                )}
-                {editingInsurance && !editing && (
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                    <button onClick={() => handleSectionSave('insurance', insFields)} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
-                    <button onClick={() => cancelSectionEdit('insurance')} style={btnSecondary}>Cancel</button>
-                  </div>
                 )}
               </>
             )}
@@ -1097,37 +968,20 @@ ${paymentDetailHtml}
       })()}
 
       {/* ─── Dates ─── */}
-      {(() => {
-        const dEditing = editing || editingDates;
-        const dForm = editing ? formData : sectionForm;
-        const dChange = editing ? handleFieldChange : handleSectionField;
-        const dateFields = ['intake_date', 'start_date', 'expected_completion_date', 'actual_completion_date'];
-        return (
-          <div style={editSectionStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={sectionTitle}>Dates</h2>
-              {canEditRecords && !editing && !editingDates && statusEditable && (
-                <button onClick={() => startSectionEdit('dates')} style={btnSectionEdit}>Edit</button>
-              )}
-            </div>
-            <div style={gridStyle}>
-              <EditableField label="Intake Date" field="intake_date" value={dEditing ? toDateVal(dForm.intake_date) : formatDate(record.intake_date)} editing={dEditing} onChange={dChange} type={dEditing ? 'date' : 'text'} />
-              <EditableField label="Start Date" field="start_date" value={dEditing ? toDateVal(dForm.start_date) : formatDate(record.start_date)} editing={dEditing} onChange={dChange} type={dEditing ? 'date' : 'text'} />
-              <EditableField label="Expected Completion" field="expected_completion_date" value={dEditing ? toDateVal(dForm.expected_completion_date) : formatDate(record.expected_completion_date)} editing={dEditing} onChange={dChange} type={dEditing ? 'date' : 'text'} />
-              <EditableField label="Completion Date" field="actual_completion_date" value={dEditing ? toDateVal(dForm.actual_completion_date) : formatDate(record.actual_completion_date)} editing={dEditing} onChange={dChange} type={dEditing ? 'date' : 'text'} />
-            </div>
-            {editingDates && !editing && (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <button onClick={() => handleSectionSave('dates', dateFields)} disabled={sectionSaving} style={btnPrimary}>{sectionSaving ? 'Saving...' : 'Save'}</button>
-                <button onClick={() => cancelSectionEdit('dates')} style={btnSecondary}>Cancel</button>
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={sectionTitle}>Dates</h2>
+        </div>
+        <div style={gridStyle}>
+          <EditableField label="Intake Date" field="intake_date" value={isEditable ? toDateVal(record.intake_date) : formatDate(record.intake_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
+          <EditableField label="Start Date" field="start_date" value={isEditable ? toDateVal(record.start_date) : formatDate(record.start_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
+          <EditableField label="Expected Completion" field="expected_completion_date" value={isEditable ? toDateVal(record.expected_completion_date) : formatDate(record.expected_completion_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
+          <EditableField label="Completion Date" field="actual_completion_date" value={isEditable ? toDateVal(record.actual_completion_date) : formatDate(record.actual_completion_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
+        </div>
+      </div>
 
       {/* ─── Job Description ─── */}
-      <div style={editSectionStyle}>
+      <div style={sectionStyle}>
         <h2 style={sectionTitle}>Job Description</h2>
         {record.status === 'void' ? (
           <BulletDisplay text={record.job_description} />
@@ -1246,7 +1100,7 @@ ${paymentDetailHtml}
           return <FreightLinesTable recordId={record.id} freightLines={record.freight_lines} isEditable={isEditable} recordStatus={record.status} onUpdate={fetchRecord} />;
         }
         return (
-          <div style={editSectionStyle}>
+          <div style={sectionStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedSections(s => ({ ...s, freight: true }))}>
               <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
                 <span style={{ fontSize: '0.7rem', marginRight: '6px' }}>{'\u25B6'}</span>
@@ -1574,7 +1428,7 @@ ${paymentDetailHtml}
       )}
 
       {/* Notes — always editable */}
-      <div style={editSectionStyle}>
+      <div style={sectionStyle}>
         <h2 style={sectionTitle}>Notes</h2>
         <div style={gridStyle}>
           <div>
@@ -2290,21 +2144,66 @@ function FieldFull({ label, value }) {
   );
 }
 
-function EditableField({ label, field, value, editing, onChange, type = 'text' }) {
+// Always-editable field. Renders an input when `editable`; otherwise read-only
+// text. Edits are kept in local draft state and auto-saved on blur via the
+// `autoSave(field, value)` handler. `onFocus`/`onBlur` let the parent pause its
+// polling refetch for the focused field so typing is never wiped mid-edit.
+function EditableField({ label, field, value, editable, autoSave, onFocus, onBlur, type = 'text' }) {
   const isPhone = field && (field.includes('phone') && !field.includes('email'));
+  const [draft, setDraft] = React.useState(value ?? '');
+  const [dirty, setDirty] = React.useState(false);
+
+  // Sync external value into the draft when not actively editing this field.
+  React.useEffect(() => {
+    if (!dirty) setDraft(value ?? '');
+  }, [value, dirty]);
+
+  if (!editable) {
+    return (
+      <div>
+        <label style={labelStyle}>{label}</label>
+        <div style={{ fontSize: '0.875rem' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
+      </div>
+    );
+  }
+
+  const handleChange = (e) => {
+    setDirty(true);
+    if (isPhone) {
+      setDraft(handlePhoneInput(e.target.value));
+    } else {
+      setDraft(e.target.value);
+    }
+  };
+
+  const handleBlur = async () => {
+    let out;
+    if (isPhone) {
+      out = draft;
+    } else if (type === 'number') {
+      out = draft === '' || draft === null ? null : Number(draft);
+    } else {
+      out = draft;
+    }
+    setDirty(false);
+    try {
+      await autoSave(field, out);
+    } finally {
+      if (onBlur) onBlur(field);
+    }
+  };
+
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      {editing ? (
-        <input
-          type={type}
-          value={isPhone ? handlePhoneInput((value ?? '').replace(/\D/g, '')) : (value ?? '')}
-          onChange={(e) => isPhone ? onChange(field, handlePhoneInput(e.target.value)) : onChange(field, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
-          style={inputStyle}
-        />
-      ) : (
-        <div style={{ fontSize: '0.875rem' }}>{isPhone ? (formatPhone(value) || '—') : (value || '—')}</div>
-      )}
+      <input
+        type={type}
+        value={isPhone ? handlePhoneInput((draft ?? '').toString().replace(/\D/g, '')) : (draft ?? '')}
+        onChange={handleChange}
+        onFocus={() => { if (onFocus) onFocus(field); }}
+        onBlur={handleBlur}
+        style={inputStyle}
+      />
     </div>
   );
 }
@@ -2411,7 +2310,6 @@ const btnSignoff = { padding: '10px 20px', backgroundColor: '#1e40af', color: '#
 const btnPrint = { padding: '8px 16px', backgroundColor: '#4b5563', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const btnSchedule = { padding: '8px 16px', backgroundColor: '#0d9488', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const btnEditYellow = { padding: '8px 16px', backgroundColor: '#FFD700', color: '#000', border: '1px solid #ccaa00', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.875rem' };
-const btnSectionEdit = { padding: '4px 12px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 };
 const btnLink = { background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.875rem', padding: 0 };
 const btnFile = { padding: '8px 16px', backgroundColor: '#e2e8f0', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const overlayStyle = {

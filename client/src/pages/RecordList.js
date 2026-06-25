@@ -9,7 +9,7 @@ const STATUS_GROUPS = [
   {
     key: 'attention',
     label: 'Needs Attention',
-    statuses: ['estimate', 'awaiting_approval', 'on_hold'],
+    statuses: ['estimate', 'awaiting_approval', 'order_parts', 'on_hold'],
     bg: '#fff1f2', border: '#fecdd3', headerBg: '#ffe4e6', headerColor: '#9f1239',
   },
   {
@@ -21,7 +21,7 @@ const STATUS_GROUPS = [
   {
     key: 'active',
     label: 'Active Work',
-    statuses: ['approved', 'in_progress', 'awaiting_parts'],
+    statuses: ['approved', 'awaiting_parts', 'in_progress'],
     bg: '#eff6ff', border: '#bfdbfe', headerBg: '#dbeafe', headerColor: '#1e40af',
   },
   {
@@ -51,6 +51,7 @@ const STATUS_LABELS = {
   schedule_customer: 'Schedule Customer',
   scheduled: 'Scheduled',
   in_progress: 'In Progress',
+  order_parts: 'Order Parts',
   awaiting_parts: 'Awaiting Parts',
   awaiting_approval: 'Awaiting Approval',
   complete: 'Complete',
@@ -138,6 +139,7 @@ export default function RecordList() {
         {[r.year, r.make, r.model].filter(Boolean).join(' ') || '—'}
       </td>
       <td style={tdStyle}><StatusBadge status={r.status} /></td>
+      <td style={tdStyle}>{formatDate(r.intake_date || r.created_at)}</td>
       {showDueDate && (
         <td style={{ ...tdStyle, color: isPastDue(r) ? '#dc2626' : undefined, fontWeight: isPastDue(r) ? 600 : undefined }}>
           {formatDate(r.expected_completion_date)}
@@ -168,9 +170,29 @@ export default function RecordList() {
   const effectiveSort = (groupKey) =>
     groupSort[groupKey] || (groupKey === 'closed' ? { field: 'last_payment_date', dir: 'desc' } : null);
 
+  // Default ordering for the Active Work group: surface what to work on next.
+  // 1) workable jobs (in progress, not started) above jobs blocked on parts,
+  // 2) within each, overdue / soonest due date first (no due date last),
+  // 3) tie-break by status (in progress > not started > order parts > awaiting parts),
+  // 4) then newest work order first.
+  const ACTIVE_RANK = { in_progress: 0, approved: 1, order_parts: 2, awaiting_parts: 3 };
+  const isBlocked = (s) => s === 'order_parts' || s === 'awaiting_parts';
+  const smartActiveSort = (recs) => [...recs].sort((a, b) => {
+    const ba = isBlocked(a.status) ? 1 : 0;
+    const bb = isBlocked(b.status) ? 1 : 0;
+    if (ba !== bb) return ba - bb;
+    const da = a.expected_completion_date ? new Date(a.expected_completion_date).getTime() : Infinity;
+    const db = b.expected_completion_date ? new Date(b.expected_completion_date).getTime() : Infinity;
+    if (da !== db) return da - db;
+    const ra = ACTIVE_RANK[a.status] ?? 9;
+    const rb = ACTIVE_RANK[b.status] ?? 9;
+    if (ra !== rb) return ra - rb;
+    return (parseFloat(b.record_number) || 0) - (parseFloat(a.record_number) || 0);
+  });
+
   const sortGroupRecords = (recs, groupKey) => {
     const sort = effectiveSort(groupKey);
-    if (!sort) return recs;
+    if (!sort) return groupKey === 'active' ? smartActiveSort(recs) : recs;
     const { field, dir } = sort;
     return [...recs].sort((a, b) => {
       let va = a[field], vb = b[field];
@@ -226,6 +248,7 @@ export default function RecordList() {
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_name')}>Customer{sortArrow(groupKey, 'last_name')}</th>
           <th style={thStyle}>Unit</th>
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('status')}>Status{sortArrow(groupKey, 'status')}</th>
+          <th style={{ ...thStyle, ...sortable }} onClick={onClick('intake_date')}>Intake Date{sortArrow(groupKey, 'intake_date')}</th>
           {showDueDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('expected_completion_date')}>Due Date{sortArrow(groupKey, 'expected_completion_date')}</th>}
           {showPaidDate && <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_payment_date')}>Paid Date{sortArrow(groupKey, 'last_payment_date')}</th>}
           {canSeeFinancials && (

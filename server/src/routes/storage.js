@@ -1039,7 +1039,7 @@ router.get('/waitlist', async (req, res) => {
     } else {
       sql += ` AND w.status IN ('waiting', 'notified')`;
     }
-    sql += ` ORDER BY w.space_type, w.preferred_start ASC NULLS LAST, w.created_at ASC`;
+    sql += ` ORDER BY w.position ASC NULLS LAST, w.created_at ASC`;
     const { rows } = await pool.query(sql, params);
     // Return counts by type
     const countRes = await pool.query(
@@ -1109,12 +1109,13 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
       }
     }
 
-    // Auto-assign position (next in line for this type)
+    // Auto-assign position: land new signups at the end of the single
+    // combined waitlist (across both indoor and outdoor), so first-come
+    // first-served holds across the whole list.
     const posRes = await pool.query(
       `SELECT COALESCE(MAX(position), 0) + 1 AS next_pos
          FROM storage_waitlist
-        WHERE space_type = $1 AND status IN ('waiting', 'notified')`,
-      [space_type]
+        WHERE status IN ('waiting', 'notified')`
     );
     const position = posRes.rows[0].next_pos;
     const { rows } = await pool.query(
@@ -1128,7 +1129,50 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
        space_type, rv_year || null, rv_make || null, rv_model || null, rv_length_feet || null,
        preferred_start || null, budget_monthly || null, notes || null, position]
     );
-    res.status(201).json(rows[0]);
+    const entry = rows[0];
+
+    // Send a confirmation email so the person has something from us proving
+    // they are on the waitlist. Look up the customer email if only a
+    // customer_id was provided. Never let an email failure block the add.
+    let confirmEmail = contact_email || null;
+    let confirmName = (contact_name && contact_name.trim()) || null;
+    if ((!confirmEmail || !confirmName) && customer_id) {
+      try {
+        const { rows: cRows } = await pool.query(
+          'SELECT first_name, last_name, email_primary FROM customers WHERE id = $1', [customer_id]
+        );
+        if (cRows.length) {
+          confirmEmail = confirmEmail || cRows[0].email_primary;
+          confirmName = confirmName || [cRows[0].first_name, cRows[0].last_name].filter(Boolean).join(' ');
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+    let confirmationSent = false;
+    if (confirmEmail) {
+      const typeLabel = space_type === 'indoor' ? 'indoor' : 'outdoor';
+      const greet = (confirmName && confirmName.trim()) || 'there';
+      const confHtml = `<p>Hi ${greet},</p>
+<p>This confirms you are on the waitlist for <strong>${typeLabel} RV storage</strong> at Master Tech RV Repair &amp; Storage.</p>
+<p>RV storage is seasonal, so wait times vary, but we keep the list in order and will reach out by phone or email as soon as a spot opens for you.</p>
+<p>Questions in the meantime? Call us at <strong>(303) 557-2214</strong> or just reply to this email.</p>
+<p>Thank you,<br/>Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022</p>`;
+      const confText = `Hi ${greet},\n\nThis confirms you are on the waitlist for ${typeLabel} RV storage at Master Tech RV Repair & Storage.\n\nRV storage is seasonal, so wait times vary, but we keep the list in order and will reach out as soon as a spot opens.\n\nQuestions? Call (303) 557-2214 or reply to this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022`;
+      try {
+        const { sendEmail } = require('../services/email');
+        const mailRes = await sendEmail({
+          to: confirmEmail,
+          cc: 'service@mastertechrvrepair.com',
+          subject: `You're on the Master Tech RV Storage waitlist`,
+          html: confHtml,
+          text: confText,
+        });
+        confirmationSent = !!(mailRes && mailRes.success);
+        if (!confirmationSent) console.error('Waitlist confirmation email failed:', mailRes && mailRes.error);
+      } catch (mailErr) {
+        console.error('Waitlist confirmation email error:', mailErr.message);
+      }
+    }
+    res.status(201).json({ ...entry, confirmation_sent: confirmationSent });
   } catch (err) {
     console.error('POST /api/storage/waitlist error:', err);
     res.status(500).json({ error: err.message });
@@ -1136,12 +1180,18 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
 });
 
 // PATCH /api/storage/waitlist/:id — Update waitlist entry
+//
+// When a `position` value is supplied it is treated as "move this entry to
+// rank N" and ALL active (waiting/notified) entries are resequenced so their
+// positions stay contiguous 1..N with no gaps or duplicates. Other field
+// updates (contact info, status, etc.) still work when position is omitted.
 router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { id } = req.params;
+    // `position` is handled separately (resequencing) so it is NOT in this list.
     const fields = ['contact_name', 'contact_phone', 'contact_email', 'space_type',
                     'rv_year', 'rv_make', 'rv_model', 'rv_length_feet',
-                    'preferred_start', 'budget_monthly', 'notes', 'status', 'position', 'customer_id'];
+                    'preferred_start', 'budget_monthly', 'notes', 'status', 'customer_id'];
     const sets = [];
     const params = [];
     fields.forEach(f => {
@@ -1155,15 +1205,73 @@ router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician
     } else if (req.body.status === 'assigned') {
       sets.push(`assigned_at = NOW()`);
     }
-    if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
-    sets.push('updated_at = NOW()');
-    params.push(id);
-    const { rows } = await pool.query(
-      `UPDATE storage_waitlist SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
-      params
+
+    const wantsReorder = req.body.position !== undefined && req.body.position !== null && req.body.position !== '';
+
+    // Apply the non-position field updates (if any) first.
+    if (sets.length > 0) {
+      sets.push('updated_at = NOW()');
+      const upParams = [...params, id];
+      const { rows } = await pool.query(
+        `UPDATE storage_waitlist SET ${sets.join(', ')} WHERE id = $${upParams.length} RETURNING id`,
+        upParams
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    } else if (!wantsReorder) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    // Reorder: move this entry to rank N and resequence the whole active list
+    // so positions are contiguous 1..count. Done in a transaction.
+    if (wantsReorder) {
+      const targetRank = parseInt(req.body.position, 10);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // All active entries ordered by current manual position, created_at as
+        // tiebreak (and to give a deterministic order when positions are null).
+        const { rows: active } = await client.query(
+          `SELECT id FROM storage_waitlist
+            WHERE status IN ('waiting', 'notified')
+            ORDER BY position ASC NULLS LAST, created_at ASC`
+        );
+        const ids = active.map(r => String(r.id));
+        const targetId = String(id);
+        const fromIdx = ids.indexOf(targetId);
+        if (fromIdx === -1) {
+          // Target isn't active (e.g. it was just set to assigned/cancelled);
+          // nothing to resequence against it.
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Entry is not an active waitlist entry' });
+        }
+        // Remove target, clamp the requested rank into [1, count], reinsert.
+        ids.splice(fromIdx, 1);
+        let rank = isNaN(targetRank) ? ids.length + 1 : targetRank;
+        const count = ids.length + 1;
+        if (rank < 1) rank = 1;
+        if (rank > count) rank = count;
+        ids.splice(rank - 1, 0, targetId);
+        // Write contiguous positions 1..N for every active entry.
+        for (let i = 0; i < ids.length; i++) {
+          await client.query(
+            'UPDATE storage_waitlist SET position = $1, updated_at = NOW() WHERE id = $2',
+            [i + 1, ids[i]]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (txErr) {
+        await client.query('ROLLBACK');
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    }
+
+    const { rows: finalRows } = await pool.query(
+      'SELECT * FROM storage_waitlist WHERE id = $1', [id]
     );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    if (!finalRows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(finalRows[0]);
   } catch (err) {
     console.error('PATCH /api/storage/waitlist/:id error:', err);
     res.status(500).json({ error: err.message });

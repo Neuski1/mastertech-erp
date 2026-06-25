@@ -64,6 +64,20 @@ export default function Storage() {
 
   useEffect(() => { if (activeTab === 'waitlist') fetchWaitlist(); }, [activeTab, fetchWaitlist]);
 
+  // Move a waitlist person to a new rank. The backend resequences the whole
+  // active list to stay contiguous, so we just refetch afterward.
+  const handleRankChange = useCallback(async (entryId, currentRank, value) => {
+    const newRank = parseInt(value, 10);
+    if (isNaN(newRank) || newRank === currentRank) return;
+    try {
+      await api.updateWaitlistEntry(entryId, { position: newRank });
+      await fetchWaitlist();
+    } catch (err) {
+      setError(err.message);
+      fetchWaitlist();
+    }
+  }, [fetchWaitlist]);
+
   const fetchSpaces = useCallback(async () => {
     setLoading(true);
     try {
@@ -463,23 +477,23 @@ export default function Storage() {
                     const phone = entry.cust_phone || entry.contact_phone || '';
                     const emailAddr = entry.cust_email || entry.contact_email || '';
                     const rv = [entry.rv_year, entry.rv_make, entry.rv_model].filter(Boolean).join(' ') || '—';
-                    const prevType = idx > 0 ? waitlist[idx - 1].space_type : null;
-                    const showDivider = waitlistFilter === 'all' && prevType && prevType !== entry.space_type;
-                    const showSectionHeader = waitlistFilter === 'all' && (idx === 0 || prevType !== entry.space_type);
                     return (
                       <React.Fragment key={entry.id}>
-                      {showDivider && (
-                        <tr><td colSpan={11} style={{ padding: 0, borderBottom: 'none' }}>
-                          <hr style={{ border: 'none', borderTop: '3px solid #1e3a5f', margin: '12px 0 4px 0' }} />
-                        </td></tr>
-                      )}
-                      {showSectionHeader && (
-                        <tr><td colSpan={11} style={{ padding: '8px 12px', backgroundColor: entry.space_type === 'indoor' ? '#dbeafe' : '#fef3c7', fontWeight: 700, fontSize: '0.85rem', color: entry.space_type === 'indoor' ? '#1e40af' : '#92400e', borderBottom: '2px solid ' + (entry.space_type === 'indoor' ? '#93c5fd' : '#fcd34d') }}>
-                          {entry.space_type === 'indoor' ? '🏠 INDOOR STORAGE' : '☀️ OUTDOOR STORAGE'}
-                        </td></tr>
-                      )}
                       <tr style={{ cursor: 'pointer' }} onClick={() => setShowWaitlistDetail(entry)}>
-                        <td style={tdStyle}>{idx + 1}</td>
+                        <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                          {(isAdmin || canEditRecords) ? (
+                            <input
+                              type="number"
+                              min="1"
+                              defaultValue={idx + 1}
+                              key={`rank-${entry.id}-${idx + 1}`}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                              onBlur={(e) => handleRankChange(entry.id, idx + 1, e.target.value)}
+                              style={{ width: '44px', padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem', textAlign: 'center' }}
+                            />
+                          ) : (idx + 1)}
+                        </td>
                         <td style={{ ...tdStyle, fontWeight: 600 }}>{name}</td>
                         <td style={tdStyle}>
                           <div style={{ fontSize: '0.8rem' }}>{formatPhone(phone)}</div>

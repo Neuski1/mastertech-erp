@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
+const { pullsInventory } = require('../utils/inventoryStatus');
 
 // ---------------------------------------------------------------------------
 // GET /api/parts/search?q=<term> — Unified search across inventory + parts catalog
@@ -133,8 +134,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       // them (which flips is_estimate_line FALSE). 'filed' records and the
       // user's explicit "Order New" choice also skip the decrement.
       const lineIsEstimate = !!is_estimate_line;
-      if (!skip_deduct && !lineIsEstimate
-          && recRows[0].status !== 'estimate' && recRows[0].status !== 'filed') {
+      if (!skip_deduct && !lineIsEstimate && pullsInventory(recRows[0].status) && parseFloat(inv.qty_on_hand) >= parsedQty) {
         await client.query(
           'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
           [parsedQty, inv.id]
@@ -318,7 +318,7 @@ router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { description, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
+  const { description, part_number, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
 
   const client = await pool.connect();
   try {
@@ -375,7 +375,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       // estimate lines, not lines on an estimate-status record).
       if (existing.is_inventory_part && existing.inventory_id
           && !existing.is_estimate_line
-          && recordStatus !== 'estimate') {
+          && pullsInventory(recordStatus)
+          && !existing.order_status) {
         const qtyDiff = newQty - parseFloat(existing.quantity);
         if (qtyDiff !== 0) {
           await client.query(
@@ -389,10 +390,23 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       newPrice = parseFloat(sale_price_each);
       updates.push(`sale_price_each = $${idx++}`);
       values.push(newPrice);
+
+      // Also update the inventory catalog price so it stays current
+      // (mirrors how cost_each syncs back to inventory above).
+      if (existing.inventory_id && !isNaN(newPrice)) {
+        await client.query(
+          'UPDATE inventory SET sale_price_each = $1 WHERE id = $2',
+          [newPrice, existing.inventory_id]
+        );
+      }
     }
     if (taxable !== undefined) {
       updates.push(`taxable = $${idx++}`);
       values.push(taxable);
+    }
+    if (part_number !== undefined) {
+      updates.push(`part_number = $${idx++}`);
+      values.push(part_number || null);
     }
 
     // Recalc line_total if qty or price changed
@@ -425,7 +439,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     // Inventory transition: estimate <-> real WO line. Only matters for
     // inventory parts on records that aren't fully estimate-status.
     if (existing.is_inventory_part && existing.inventory_id
-        && recordStatus !== 'estimate' && recordStatus !== 'filed') {
+        && pullsInventory(recordStatus)
+        && !existing.order_status) {
       const qtyForInv = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
       if (existing.is_estimate_line && !finalIsEstimate) {
         // Promoting estimate -> real: pull stock now.
@@ -500,7 +515,7 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
 
     // Restore inventory if it was an inventory part (skip for estimates — nothing was deducted)
     const { rows: delRecRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
-    if (line.is_inventory_part && line.inventory_id && delRecRows[0]?.status !== 'estimate' && delRecRows[0]?.status !== 'filed') {
+    if (line.is_inventory_part && line.inventory_id && pullsInventory(delRecRows[0]?.status) && !line.order_status) {
       await client.query(
         'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
         [parseFloat(line.quantity), line.inventory_id]

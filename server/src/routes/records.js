@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { getSetting, recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
+const { pullsInventory } = require('../utils/inventoryStatus');
 
 // ---------------------------------------------------------------------------
 // Status transition rules
@@ -34,7 +35,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     is_insurance_job, insurance_company, insurance_contact_name,
     insurance_phone, insurance_email, claim_number, policy_number,
     estimate_valid_until, internal_notes, customer_notes,
-    deposit_amount, mileage_at_intake, expected_completion_date
+    deposit_amount, deductible_amount, mileage_at_intake, expected_completion_date
   } = req.body;
 
   if (!customer_id || !unit_id) {
@@ -68,8 +69,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
          claim_number, policy_number, estimate_valid_until,
          internal_notes, customer_notes, deposit_amount,
          mileage_at_intake, tax_rate, shop_supplies_exempt, cc_fee_applied, intake_date,
-         expected_completion_date
-       ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         expected_completion_date, deductible_amount
+       ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [recordNumber, customer_id, unit_id, key_number || null,
        job_description || null, is_insurance_job || false,
@@ -79,7 +80,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
        estimate_valid_until || null, internal_notes || null,
        customer_notes || null, deposit_amount || 0,
        mileage_at_intake || null, taxRate, shopSuppliesExempt, ccFeeApplied, today,
-       expected_completion_date || null]
+       expected_completion_date || null, deductible_amount || 0]
     );
 
     await client.query('COMMIT');
@@ -280,7 +281,7 @@ router.get('/', async (req, res) => {
     paramIdx++;
   }
 
-  const allowedSorts = ['record_number', 'created_at', 'status', 'amount_due'];
+  const allowedSorts = ['record_number', 'created_at', 'intake_date', 'status', 'amount_due'];
   const sortCol = allowedSorts.includes(sort) ? `r.${sort}` : 'r.record_number';
   const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
   const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -295,7 +296,7 @@ router.get('/', async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales, r.total_collected,
-              r.created_at, r.is_insurance_job, r.job_description,
+              r.created_at, r.intake_date, r.is_insurance_job, r.job_description,
               r.expected_completion_date,
               (SELECT MAX(p.payment_date) FROM payments p
                  WHERE p.record_id = r.id AND p.deleted_at IS NULL) AS last_payment_date,
@@ -507,7 +508,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
 
   const ALL_STATUSES = [
     'estimate', 'approved', 'schedule_customer', 'scheduled', 'in_progress',
-    'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending',
+    'order_parts', 'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending',
     'partial', 'paid', 'on_hold', 'void', 'filed',
   ];
 
@@ -583,17 +584,18 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
-    // When estimate/filed → active (non-estimate/filed): deduct inventory.
-    // Only the committed quote lines (is_estimate_line = FALSE). Inspection-
-    // finding lines (is_estimate_line = TRUE) stay as proposals until the
-    // customer approves them via the email link, which decrements separately.
-    const preCommit = (s) => s === 'estimate' || s === 'filed';
-    if (preCommit(record.status) && !preCommit(newStatus) && newStatus !== 'void') {
+    // Pull committed inventory only when the record ENTERS a work-active status
+    // (in_progress, awaiting_parts, complete, payment_pending, partial, paid).
+    // Pre-work / parked statuses (estimate, Not Started, schedule customer,
+    // scheduled, awaiting approval, order parts, on hold, filed) never hold
+    // stock. Only committed lines (is_estimate_line = FALSE) are pulled.
+    if (!pullsInventory(record.status) && pullsInventory(newStatus)) {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
            AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE`,
+           AND is_estimate_line = FALSE
+           AND order_status IS NULL`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -604,14 +606,15 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       }
     }
 
-    // When active → estimate/filed (revert) or → void: restore inventory for
-    // the committed lines only — same scoping as above.
-    if ((!preCommit(record.status) && preCommit(newStatus)) || (record.status !== 'void' && newStatus === 'void')) {
+    // Put stock back when the record LEAVES a work-active status (reverts to a
+    // pre-work status, or is voided). Same committed-line scoping as above.
+    if (pullsInventory(record.status) && !pullsInventory(newStatus)) {
       const { rows: invParts } = await client.query(
         `SELECT inventory_id, quantity FROM record_parts_lines
          WHERE record_id = $1 AND deleted_at IS NULL
            AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE`,
+           AND is_estimate_line = FALSE
+           AND order_status IS NULL`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -677,29 +680,6 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       );
     }
 
-    // Reverse inventory when voiding — restore qty for committed inventory
-    // lines only. Estimate (inspection-finding) lines never decremented stock
-    // in the first place, so they shouldn't be added back here.
-    if (newStatus === 'void' && record.status !== 'void') {
-      const { rows: invParts } = await client.query(
-        `SELECT id, inventory_id, quantity FROM record_parts_lines
-         WHERE record_id = $1 AND deleted_at IS NULL
-           AND is_inventory_part = true AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE`,
-        [req.params.id]
-      );
-      for (const part of invParts) {
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-          [parseFloat(part.quantity), part.inventory_id]
-        );
-        console.log(`Inventory reversal: +${part.quantity} units returned to inventory #${part.inventory_id} from voided record #${record.record_number}`);
-      }
-      if (invParts.length > 0) {
-        console.log(`Total: ${invParts.length} inventory items restored for voided record #${record.record_number}`);
-      }
-    }
-
     // Recalculate totals on status change (shop supplies calculated at complete)
     await recalculateTotals(req.params.id, client);
 
@@ -722,7 +702,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/send-reminder — Send payment reminder
 // ---------------------------------------------------------------------------
-router.post('/:id/send-reminder', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/send-reminder', requireRole('admin', 'service_writer', 'technician', 'bookkeeper'), async (req, res) => {
   try {
     const { sendPaymentReminder } = require('../services/paymentReminders');
     const { channel } = req.body || {};
@@ -743,6 +723,12 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
   try {
     await client.query('BEGIN');
 
+    const { rows: priorStatusRows } = await client.query(
+      'SELECT status FROM records WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    const priorStatus = priorStatusRows[0]?.status;
+
     const { rows } = await client.query(
       `UPDATE records SET deleted_at = NOW(), status = 'void'
        WHERE id = $1 AND deleted_at IS NULL
@@ -761,10 +747,11 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
       `SELECT id, inventory_id, quantity FROM record_parts_lines
        WHERE record_id = $1 AND deleted_at IS NULL
          AND is_inventory_part = true AND inventory_id IS NOT NULL
-         AND is_estimate_line = FALSE`,
+         AND is_estimate_line = FALSE
+         AND order_status IS NULL`,
       [req.params.id]
     );
-    for (const part of invParts) {
+    if (pullsInventory(priorStatus)) for (const part of invParts) {
       await client.query(
         'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
         [parseFloat(part.quantity), part.inventory_id]
@@ -773,7 +760,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
     }
 
     await client.query('COMMIT');
-    res.json({ message: 'Record voided', record: rows[0], inventory_restored: invParts.length });
+    res.json({ message: 'Record voided', record: rows[0], inventory_restored: pullsInventory(priorStatus) ? invParts.length : 0 });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('DELETE /api/records/:id error:', err);
@@ -822,6 +809,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         'UPDATE records SET approval_token = $1, approval_token_expires_at = $2 WHERE id = $3',
         [token, expires, r.id]
       );
+      // Keep the in-memory record in sync so the photo View/Download links
+      // below are built with the token we just saved (not the stale value).
+      r.approval_token = token;
       const backendUrl = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app';
       approvalUrl = `${backendUrl}/api/records/approve/${token}`;
       console.log('Approval URL generated:', approvalUrl);
@@ -888,6 +878,26 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${f.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">1</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(f.amount)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(f.amount)}</td></tr>`
     ).join('');
 
+    // Inspection findings = recommended items found during service that the
+    // customer has NOT yet approved (is_estimate_line = TRUE, not approved).
+    // Shown as a separate section so the full document includes them without
+    // affecting the charged totals / amount due.
+    const findingLabor = laborRes.rows.filter(l => l.is_estimate_line && !l.customer_approved);
+    const findingParts = partsRes.rows.filter(p => p.is_estimate_line && !p.customer_approved);
+    const findingTotal = [...findingLabor, ...findingParts].reduce((s, l) => s + (parseFloat(l.line_total) || 0), 0);
+    const findingLaborRows = findingLabor.map(l =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${l.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(l.hours||0).toFixed(2)} hr</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(l.line_total)}</td></tr>`
+    ).join('');
+    const findingPartsRows = findingParts.map(p =>
+      `<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${p.part_number ? p.part_number + ' \u2014 ' : ''}${p.description || ''}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${parseFloat(p.quantity||0)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${fmtCur(p.line_total)}</td></tr>`
+    ).join('');
+    const inspectionFindingsHtml = (findingLabor.length || findingParts.length) ? `
+    <h3 style="color:#92400e;font-size:14px;margin:24px 0 4px;border-bottom:2px solid #f59e0b;padding-bottom:4px;">INSPECTION FINDINGS &mdash; RECOMMENDED</h3>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 8px;">Additional items found during service. These are recommendations only and are NOT included in the Amount Due above until approved.</p>
+    ${findingLaborRows ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;"><thead><tr style="background:#fffbeb;"><th style="padding:6px 8px;text-align:left;">Recommended Labor</th><th style="padding:6px 8px;text-align:right;">Hours</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead><tbody>${findingLaborRows}</tbody></table>` : ''}
+    ${findingPartsRows ? `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;"><thead><tr style="background:#fffbeb;"><th style="padding:6px 8px;text-align:left;">Recommended Parts</th><th style="padding:6px 8px;text-align:right;">Qty</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead><tbody>${findingPartsRows}</tbody></table>` : ''}
+    <div style="text-align:right;font-size:13px;font-weight:bold;color:#92400e;">Recommended Total: ${fmtCur(findingTotal)}</div>
+    ` : '';
     const underWarranty = parseFloat(r.under_warranty_amount) || 0;
     const noCharge = parseFloat(r.no_charge_amount) || 0;
     const discount = parseFloat(r.discount_amount) || 0;
@@ -1064,6 +1074,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       </tbody>
     </table>` : ''}
 
+    ${inspectionFindingsHtml}
+
     ${(() => {
       const photos = photosRes.rows;
       if (photos.length === 0) return '';
@@ -1170,7 +1182,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/approve-estimate-lines — Batch approve/unapprove lines
 // ---------------------------------------------------------------------------
-router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer', 'technician', 'bookkeeper'), async (req, res) => {
   const { id } = req.params;
   const { labor_line_ids, parts_line_ids, approved } = req.body;
   // approved: true = approve, false = unapprove
@@ -1216,7 +1228,7 @@ router.post('/:id/approve-estimate-lines', requireRole('admin', 'service_writer'
 // ---------------------------------------------------------------------------
 // POST /api/records/:id/send-estimate-approval — Email estimate to customer
 // ---------------------------------------------------------------------------
-router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'), async (req, res) => {
+router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer', 'technician', 'bookkeeper'), async (req, res) => {
   const { id } = req.params;
   const { personalMessage } = req.body || {};
 
@@ -1346,7 +1358,7 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
         photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
         items.forEach(p => {
           // Token-protected public route — customers aren't logged in
-          const photoToken = record.approval_token || record.payment_token || '';
+          const photoToken = record.approval_token || token || record.payment_token || '';
           const url = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}`;
           const downloadUrl = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}&download=1`;
           photoBlock += `<div style="text-align:center;">
