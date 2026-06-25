@@ -151,6 +151,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
   const hoursNeedAttention = (line) => parseFloat(line.hours || 0) === 0;
 
   return (
+    <>
     <div style={sectionStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
         <h2 style={sectionTitle}>{isEstimate ? 'Estimate — Labor' : 'Labor Lines'}</h2>
@@ -446,6 +447,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
         </div>
       </div>
     )}
+    </>
   );
 }
 
