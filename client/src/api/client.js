@@ -56,6 +56,10 @@ export const api = {
   updateRecord: (id, data) => request(`/records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   updateRecordStatus: (id, status, manualOverride = false) => request(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, manual_override: manualOverride }) }),
   deleteRecord: (id) => request(`/records/${id}`, { method: 'DELETE' }),
+
+  // Leads
+  getLeads: () => request('/leads'),
+  updateLead: (id, data) => request(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
   sendReminder: (recordId, channel) => request(`/records/${recordId}/send-reminder`, { method: 'POST', body: JSON.stringify({ channel }) }),
   copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),

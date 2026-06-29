@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const { requireRole } = require('../middleware/auth');
+
+const STAFF_ROLES = ['admin', 'service_writer', 'bookkeeper', 'technician'];
+const VALID_LEAD_STATUSES = ['new', 'contacted', 'converted'];
 
 // ---------------------------------------------------------------------------
 // POST /api/leads — Website lead intake
@@ -97,17 +101,37 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/leads — List leads
-router.get('/', async (req, res) => {
+// GET /api/leads — List leads (staff only; previously leaked customer PII publicly)
+router.get('/', requireRole(...STAFF_ROLES), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last
+      `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
+              r.record_number AS record_number, r.status AS record_status
        FROM leads l
        LEFT JOIN customers c ON c.id = l.customer_id
+       LEFT JOIN records r ON r.id = l.record_id
        ORDER BY l.created_at DESC
        LIMIT 100`
     );
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/leads/:id — Update lead status (staff only)
+router.patch('/:id', requireRole(...STAFF_ROLES), async (req, res) => {
+  const { status } = req.body;
+  if (!VALID_LEAD_STATUSES.includes(status)) {
+    return res.status(400).json({ error: `status must be one of: ${VALID_LEAD_STATUSES.join(', ')}` });
+  }
+  try {
+    const { rows } = await pool.query(
+      'UPDATE leads SET status = $1 WHERE id = $2 RETURNING *',
+      [status, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Lead not found' });
+    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
