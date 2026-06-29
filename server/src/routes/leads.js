@@ -4,11 +4,13 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
 const STAFF_ROLES = ['admin', 'service_writer', 'bookkeeper', 'technician'];
-const VALID_LEAD_STATUSES = ['new', 'contacted', 'converted'];
+const VALID_LEAD_STATUSES = ['new', 'contacted', 'scheduled', 'converted'];
 
 // ---------------------------------------------------------------------------
-// POST /api/leads — Website lead intake
-// Matches existing customer by email/phone or creates new one, creates stub record
+// POST /api/leads — Website lead intake (PUBLIC, no auth)
+// Matches existing customer by email/phone or creates new one, then logs the
+// lead with record_id = NULL. No stub unit/record is created anymore; staff
+// decide what to do with the lead from the Records page.
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
   const { name, phone, email, message, source = 'website' } = req.body;
@@ -58,31 +60,11 @@ router.post('/', async (req, res) => {
       customerId = rows[0].id;
     }
 
-    // Create a stub unit (website leads don't always specify a unit)
-    const { rows: unitRows } = await client.query(
-      `INSERT INTO units (customer_id) VALUES ($1) RETURNING id`,
-      [customerId]
-    );
-    const unitId = unitRows[0].id;
-
-    // Create stub record (estimate)
-    const numRes = await client.query(
-      'SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records'
-    );
-    const recordNumber = numRes.rows[0].next_num;
-
-    const { rows: recRows } = await client.query(
-      `INSERT INTO records (record_number, customer_id, unit_id, status, job_description, tax_rate)
-       VALUES ($1, $2, $3, 'estimate', $4, 0.0975) RETURNING id`,
-      [recordNumber, customerId, unitId, message || 'Website inquiry']
-    );
-    const recordId = recRows[0].id;
-
-    // Log the lead
+    // Log the lead — no stub unit/record; record_id stays NULL until staff act.
     const { rows: leadRows } = await client.query(
       `INSERT INTO leads (customer_id, record_id, name, phone, email, message, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [customerId, recordId, name, phone || null, email || null, message || null, source]
+       VALUES ($1, NULL, $2, $3, $4, $5, $6) RETURNING *`,
+      [customerId, name, phone || null, email || null, message || null, source]
     );
 
     await client.query('COMMIT');
@@ -90,7 +72,6 @@ router.post('/', async (req, res) => {
     res.status(201).json({
       lead: leadRows[0],
       customer_id: customerId,
-      record_id: recordId,
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -101,7 +82,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/leads — List leads (staff only; previously leaked customer PII publicly)
+// GET /api/leads — List non-deleted leads (staff only)
 router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -110,6 +91,7 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
        FROM leads l
        LEFT JOIN customers c ON c.id = l.customer_id
        LEFT JOIN records r ON r.id = l.record_id
+       WHERE l.deleted_at IS NULL
        ORDER BY l.created_at DESC
        LIMIT 100`
     );
@@ -134,6 +116,81 @@ router.patch('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) 
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/leads/:id — Soft-delete a lead (staff only)
+router.delete('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'UPDATE leads SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id',
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Lead not found' });
+    res.json({ id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/leads/:id/create-estimate — Build an estimate record from a lead (staff only)
+router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: leadRows } = await client.query(
+      'SELECT * FROM leads WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (leadRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+    const lead = leadRows[0];
+
+    // Find an existing unit for the customer, else create a stub unit.
+    let unitId = null;
+    const { rows: unitRows } = await client.query(
+      'SELECT id FROM units WHERE customer_id = $1 ORDER BY id LIMIT 1',
+      [lead.customer_id]
+    );
+    if (unitRows.length > 0) {
+      unitId = unitRows[0].id;
+    } else {
+      const { rows: newUnit } = await client.query(
+        'INSERT INTO units (customer_id) VALUES ($1) RETURNING id',
+        [lead.customer_id]
+      );
+      unitId = newUnit[0].id;
+    }
+
+    // Next record number
+    const numRes = await client.query(
+      'SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records'
+    );
+    const recordNumber = numRes.rows[0].next_num;
+
+    const { rows: recRows } = await client.query(
+      `INSERT INTO records (record_number, customer_id, unit_id, status, job_description, tax_rate)
+       VALUES ($1, $2, $3, 'estimate', $4, 0.0975) RETURNING id`,
+      [recordNumber, lead.customer_id, unitId, lead.message || 'Website inquiry']
+    );
+    const recordId = recRows[0].id;
+
+    await client.query(
+      "UPDATE leads SET record_id = $1, status = 'converted' WHERE id = $2",
+      [recordId, lead.id]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ record_id: recordId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/leads/:id/create-estimate error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

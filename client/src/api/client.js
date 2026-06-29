@@ -60,6 +60,8 @@ export const api = {
   // Leads
   getLeads: () => request('/leads'),
   updateLead: (id, data) => request(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteLead: (id) => request(`/leads/${id}`, { method: 'DELETE' }),
+  createEstimateFromLead: (id) => request(`/leads/${id}/create-estimate`, { method: 'POST' }),
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
   sendReminder: (recordId, channel) => request(`/records/${recordId}/send-reminder`, { method: 'POST', body: JSON.stringify({ channel }) }),
   copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),
