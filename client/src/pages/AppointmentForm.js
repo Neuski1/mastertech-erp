@@ -70,6 +70,25 @@ export default function AppointmentForm() {
     api.getTechnicians().then(setTechnicians).catch(() => {});
   }, []);
 
+  // Prefill customer from navigation state (e.g. scheduling a website lead).
+  // Only in create/new mode; edit mode loads its own customer.
+  useEffect(() => {
+    if (isEdit) return;
+    const cid = location.state?.customerId;
+    if (!cid) return;
+    setForm(f => ({ ...f, customer_id: cid, unit_id: '', record_id: '' }));
+    setSelectedCustomer({
+      id: cid,
+      last_name: location.state?.customerName || '',
+      first_name: '',
+    });
+    if (location.state?.customerEmail) setCustomerEmail(location.state.customerEmail);
+    if (location.state?.customerPhone) setCustomerPhone(location.state.customerPhone);
+    setNotifyCustomer(!!location.state?.customerEmail);
+    api.getCustomerUnits(cid).then(setCustomerUnits).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit]);
+
   // Load existing appointment for edit
   useEffect(() => {
     if (!isEdit) return;

@@ -625,6 +625,14 @@ require('./db/pool').query("ALTER TYPE record_status_type ADD VALUE IF NOT EXIST
   .then(() => console.log('order_parts status ready'))
   .catch(err => console.error('order_parts enum migration error:', err.message));
 
+// Auto-migrate: leads workflow (scheduled status + soft-delete column)
+require('./db/pool').query("ALTER TYPE lead_status_type ADD VALUE IF NOT EXISTS 'scheduled'")
+  .then(() => console.log('lead scheduled status ready'))
+  .catch(err => console.error('lead scheduled enum migration error:', err.message));
+require('./db/pool').query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ')
+  .then(() => console.log('leads.deleted_at column ready'))
+  .catch(err => console.error('leads deleted_at migration error:', err.message));
+
 
 // Migration 043: Estimate line support
 require('./db/pool').query(`
