@@ -64,7 +64,7 @@ const STATUS_LABELS = {
 };
 
 export default function RecordList() {
-  const { canSeeFinancials, canEditRecords } = useAuth();
+  const { canSeeFinancials, canEditRecords, isAdmin } = useAuth();
   const [records, setRecords] = useState([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -75,6 +75,8 @@ export default function RecordList() {
   const [groupSort, setGroupSort] = useState({}); // { groupKey: { field, dir } }
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [leads, setLeads] = useState([]);
+  const showLeads = canEditRecords || isAdmin;
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -94,6 +96,37 @@ export default function RecordList() {
   }, [search, statusFilter, page]);
 
   useEffect(() => { fetchRecords(); }, [fetchRecords]);
+
+  const fetchLeads = useCallback(async () => {
+    if (!showLeads) return;
+    try {
+      const data = await api.getLeads();
+      setLeads(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load leads:', err);
+    }
+  }, [showLeads]);
+
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  const setLeadStatus = async (leadId, status) => {
+    try {
+      await api.updateLead(leadId, { status });
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to update lead:', err);
+    }
+  };
+
+  const openLeadRecord = async (lead) => {
+    if (!lead.record_id) return;
+    try {
+      if (lead.status !== 'converted') await api.updateLead(lead.id, { status: 'converted' });
+    } catch (err) {
+      console.error('Failed to convert lead:', err);
+    }
+    navigate(`/records/${lead.record_id}`);
+  };
 
   const formatCurrency = (val) => {
     const num = parseFloat(val) || 0;
@@ -278,6 +311,92 @@ export default function RecordList() {
           )}
         </div>
       </div>
+
+      {/* Leads */}
+      {showLeads && (() => {
+        const activeLeads = leads.filter(l => l.status === 'new' || l.status === 'contacted');
+        if (activeLeads.length === 0) return null;
+        const leadName = (l) => l.name || [l.customer_first, l.customer_last].filter(Boolean).join(' ') || 'Unknown';
+        return (
+          <div style={{ borderRadius: '8px', border: '1px solid #bbf7d0', overflow: 'hidden', marginBottom: '20px' }}>
+            <div style={{
+              padding: '10px 16px', backgroundColor: '#dcfce7', color: '#166534',
+              display: 'flex', alignItems: 'center', gap: '8px',
+              fontWeight: 700, fontSize: '0.875rem',
+            }}>
+              <span>New Leads</span>
+              <span style={{
+                backgroundColor: '#166534', color: '#fff', borderRadius: '999px',
+                padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700,
+              }}>{activeLeads.length}</span>
+            </div>
+            <div style={{ backgroundColor: '#f0fdf4' }}>
+              {activeLeads.map((l) => (
+                <div key={l.id} style={{
+                  padding: '12px 16px', borderTop: '1px solid #dcfce7',
+                  display: 'flex', flexWrap: 'wrap', gap: '12px',
+                  alignItems: 'flex-start', justifyContent: 'space-between',
+                }}>
+                  <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700 }}>{leadName(l)}</span>
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
+                        padding: '1px 6px', borderRadius: '4px',
+                        backgroundColor: l.status === 'new' ? '#bbf7d0' : '#fde68a',
+                        color: l.status === 'new' ? '#166534' : '#92400e',
+                      }}>{l.status}</span>
+                      {l.source && (
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>via {l.source}</span>
+                      )}
+                      {l.record_number && (
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>WO #{l.record_number}</span>
+                      )}
+                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                    </div>
+                    <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '4px' }}>
+                      {[l.phone, l.email].filter(Boolean).join(' \u00b7 ') || '\u2014'}
+                    </div>
+                    {l.message && (
+                      <div style={{
+                        fontSize: '0.8125rem', color: '#4b5563', marginTop: '4px',
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '520px',
+                      }} title={l.message}>{l.message}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {['new', 'contacted', 'converted'].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => setLeadStatus(l.id, st)}
+                        style={{
+                          padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
+                          fontSize: '0.75rem', fontWeight: 600, textTransform: 'capitalize',
+                          border: l.status === st ? '1px solid #166534' : '1px solid #d1d5db',
+                          backgroundColor: l.status === st ? '#166534' : '#fff',
+                          color: l.status === st ? '#fff' : '#374151',
+                        }}
+                      >{st}</button>
+                    ))}
+                    <button
+                      onClick={() => openLeadRecord(l)}
+                      disabled={!l.record_id}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px',
+                        cursor: l.record_id ? 'pointer' : 'not-allowed',
+                        fontSize: '0.75rem', fontWeight: 700,
+                        border: '1px solid #16a34a',
+                        backgroundColor: l.record_id ? '#16a34a' : '#e5e7eb',
+                        color: l.record_id ? '#fff' : '#9ca3af',
+                      }}
+                    >Open Record</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Filters */}
       <div style={{ marginBottom: '20px' }}>
