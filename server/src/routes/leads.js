@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { requireRole } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 const STAFF_ROLES = ['admin', 'service_writer', 'bookkeeper', 'technician'];
 const VALID_LEAD_STATUSES = ['new', 'contacted', 'converted'];
@@ -102,7 +102,7 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/leads — List leads (staff only; previously leaked customer PII publicly)
-router.get('/', requireRole(...STAFF_ROLES), async (req, res) => {
+router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
@@ -120,7 +120,7 @@ router.get('/', requireRole(...STAFF_ROLES), async (req, res) => {
 });
 
 // PATCH /api/leads/:id — Update lead status (staff only)
-router.patch('/:id', requireRole(...STAFF_ROLES), async (req, res) => {
+router.patch('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   const { status } = req.body;
   if (!VALID_LEAD_STATUSES.includes(status)) {
     return res.status(400).json({ error: `status must be one of: ${VALID_LEAD_STATUSES.join(', ')}` });
