@@ -830,7 +830,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       pool.query('SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY id', [r.id]),
       pool.query('SELECT * FROM payments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY payment_date, id', [r.id]),
       pool.query('SELECT * FROM record_photos WHERE record_id = $1 ORDER BY category, created_at', [r.id]),
-      pool.query('SELECT dropoff_notes, pickup_notes FROM appointments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY scheduled_at DESC LIMIT 1', [r.id]),
+      pool.query('SELECT a.dropoff_notes, a.pickup_notes, t.name AS technician_name FROM appointments a LEFT JOIN technicians t ON t.id = a.technician_id WHERE a.record_id = $1 AND a.deleted_at IS NULL ORDER BY a.scheduled_at DESC LIMIT 1', [r.id]),
     ]);
     const appt = apptRes.rows[0] || {};
 
@@ -856,7 +856,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
        ORDER BY t.name ASC`,
       [r.id]
     );
-    const techNames = techNamesRes.rows.map(row => row.name);
+    const techNames = [...new Set([...techNamesRes.rows.map(row => row.name), appt.technician_name].filter(Boolean))];
     const isEstimate = r.status === 'estimate';
 
     // Only include inspection-finding lines (is_estimate_line = TRUE) once the
