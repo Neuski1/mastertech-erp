@@ -182,6 +182,17 @@ export default function RecordList() {
     navigate(`/records/${lead.record_id}`);
   };
 
+  const addLeadToWaitlist = (lead) => {
+    const name = lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || 'Unknown';
+    navigate('/storage', { state: { addWaitlistFromLead: {
+      leadId: lead.id,
+      contactName: name,
+      contactPhone: lead.phone || '',
+      contactEmail: lead.email || '',
+      message: lead.message || '',
+    } } });
+  };
+
   const openFileLead = (lead) => {
     setFileLeadTarget(lead);
     setCustomerSearch(lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || '');
@@ -464,6 +475,9 @@ export default function RecordList() {
                     <button onClick={() => scheduleLead(l, leadName(l))}
                       style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
                     >Schedule</button>
+                    <button onClick={() => addLeadToWaitlist(l)}
+                      style={actionBtn({ border: '1px solid #0d9488', color: '#0d9488' })}
+                    >Add to Waitlist</button>
                     <button onClick={() => buildEstimateFromLead(l)}
                       style={actionBtn({ border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}
                     >Build Estimate</button>
