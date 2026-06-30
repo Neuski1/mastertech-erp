@@ -408,7 +408,6 @@ export default function RecordDetail() {
     ).join('');
 
     const underWarranty = parseFloat(r.under_warranty_amount) || 0;
-    const noCharge = parseFloat(r.no_charge_amount) || 0;
     const deposit = parseFloat(r.deposit_amount) || 0;
     const freightSub = parseFloat(r.freight_subtotal) || 0;
 
@@ -529,6 +528,7 @@ ${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_numbe
     <span>${r.insurance_company || '\u2014'}</span><br/>
     ${r.claim_number ? `<label>Claim #</label><span>${r.claim_number}</span><br/>` : ''}
     ${r.policy_number ? `<label>Policy #</label><span>${r.policy_number}</span><br/>` : ''}
+    ${r.authorization_number ? `<label>Authorization #</label><span>${r.authorization_number}</span><br/>` : ''}
     ${parseFloat(r.deductible_amount) > 0 ? `<label>Deductible</label><span>${fmtCur(r.deductible_amount)}</span>` : ''}
   </div>
   ${(r.insurance_contact_name || r.insurance_phone || r.insurance_email) ? `<div>
@@ -591,7 +591,6 @@ ${(pendingEstLabor.length + pendingEstParts.length) > 0 ? `
     ${deposit > 0 ? `<div class="row"><span>DEPOSIT RECEIVED</span><span>${fmtCur(deposit)}</span></div>` : ''}
     <div class="row bold divider"><span>TOTAL SALES</span><span>${fmtCur(r.total_sales)}</span></div>
     ${underWarranty > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Under Warranty</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
-    ${noCharge > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Not Covered</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
     ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Discount${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
     <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur(r.total_collected)}</span></div>
     <div class="row bold divider" style="color:${(parseFloat(r.amount_due) || 0) > 0 ? '#dc2626' : '#111'}"><span>AMOUNT DUE</span><span>${fmtCur(r.amount_due)}</span></div>
@@ -946,12 +945,12 @@ ${paymentDetailHtml}
                   <EditableField label="Policy #" field="policy_number" value={record.policy_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                   <EditableField label="Deductible" field="deductible_amount" value={record.deductible_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
                 </div>
-                {/* Row 2: Contact Name, Phone, Email, Not Covered Amount */}
+                {/* Row 2: Contact Name, Phone, Email, Authorization # */}
                 <div style={{ ...gridStyle, marginTop: '12px' }}>
                   <EditableField label="Contact Name" field="insurance_contact_name" value={record.insurance_contact_name || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                   <EditableField label="Phone" field="insurance_phone" value={record.insurance_phone || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                   <EditableField label="Email" field="insurance_email" value={record.insurance_email || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
-                  <EditableField label="Not Covered Amount" field="no_charge_amount" value={record.no_charge_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
+                  <EditableField label="Authorization #" field="authorization_number" value={record.authorization_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                 </div>
                 {/* Row 3: Under Warranty Amount, Mileage at Intake */}
                 <div style={{ ...gridStyle, marginTop: '12px' }}>
@@ -1178,7 +1177,6 @@ ${paymentDetailHtml}
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
               <TotalRow label="Total Sales" value={formatCurrency(record.total_sales)} bold />
               {parseFloat(record.under_warranty_amount) > 0 && <TotalRow label="Under Warranty" value={`-${formatCurrency(record.under_warranty_amount)}`} color="#dc2626" indent />}
-              {parseFloat(record.no_charge_amount) > 0 && <TotalRow label="Not Covered" value={`-${formatCurrency(record.no_charge_amount)}`} color="#dc2626" indent />}
               {parseFloat(record.discount_amount) > 0 && <TotalRow label={`Discount${record.discount_description ? ' — ' + record.discount_description : ''}`} value={`-${formatCurrency(record.discount_amount)}`} color="#dc2626" indent />}
               <TotalRow label="Total Collected" value={formatCurrency(record.total_collected)} />
               <TotalRow label="Amount Due" value={formatCurrency(record.amount_due)} bold color={parseFloat(record.amount_due) > 0 ? '#dc2626' : '#065f46'} />
