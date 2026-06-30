@@ -27,14 +27,14 @@ router.post('/', async (req, res) => {
     let customerId = null;
     if (email) {
       const { rows } = await client.query(
-        'SELECT id FROM customers WHERE email_primary = $1 AND deleted_at IS NULL LIMIT 1',
+        'SELECT id FROM customers WHERE LOWER(email_primary) = LOWER($1) AND deleted_at IS NULL LIMIT 1',
         [email]
       );
       if (rows.length > 0) customerId = rows[0].id;
     }
     if (!customerId && phone) {
       const { rows } = await client.query(
-        'SELECT id FROM customers WHERE phone_primary = $1 AND deleted_at IS NULL LIMIT 1',
+        "SELECT id FROM customers WHERE regexp_replace(COALESCE(phone_primary,''), '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND regexp_replace($1,'[^0-9]','','g') <> '' AND deleted_at IS NULL LIMIT 1",
         [phone]
       );
       if (rows.length > 0) customerId = rows[0].id;
@@ -210,14 +210,18 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
     }
     const lead = leadRows[0];
 
+    // The staff member may have picked an existing customer to file under.
+    const chosenCustomerId = req.body && req.body.customer_id ? req.body.customer_id : null;
+    const targetCustomerId = chosenCustomerId || lead.customer_id;
+
     const when = new Date(lead.created_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' });
     const contact = [lead.phone, lead.email].filter(Boolean).join(', ');
     const note = `[Lead ${when} via ${lead.source || 'website'}]` + (lead.message ? ` ${lead.message}` : '') + (contact ? ` | Contact: ${contact}` : '');
 
-    if (lead.customer_id) {
+    if (targetCustomerId) {
       await client.query(
         "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || E'\\n' || $1 END WHERE id = $2",
-        [note, lead.customer_id]
+        [note, targetCustomerId]
       );
     }
 
@@ -226,8 +230,43 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
       [lead.id]
     );
 
+    // DEDUPE: if the lead was filed under a different (existing) customer than
+    // the one it was auto-attached to, and the original attached customer is a
+    // bare auto-created stub (created from a website lead, with no records,
+    // units, or other live leads), soft-delete that stub.
+    if (
+      chosenCustomerId &&
+      lead.customer_id &&
+      String(chosenCustomerId) !== String(lead.customer_id)
+    ) {
+      const { rows: stubRows } = await client.query(
+        'SELECT id, lead_source FROM customers WHERE id = $1 AND deleted_at IS NULL',
+        [lead.customer_id]
+      );
+      if (stubRows.length > 0 && stubRows[0].lead_source !== null) {
+        const { rows: recCount } = await client.query(
+          'SELECT COUNT(*)::int AS n FROM records WHERE customer_id = $1 AND deleted_at IS NULL',
+          [lead.customer_id]
+        );
+        const { rows: unitCount } = await client.query(
+          'SELECT COUNT(*)::int AS n FROM units WHERE customer_id = $1 AND deleted_at IS NULL',
+          [lead.customer_id]
+        );
+        const { rows: leadCount } = await client.query(
+          'SELECT COUNT(*)::int AS n FROM leads WHERE customer_id = $1 AND id <> $2 AND deleted_at IS NULL',
+          [lead.customer_id, lead.id]
+        );
+        if (recCount[0].n === 0 && unitCount[0].n === 0 && leadCount[0].n === 0) {
+          await client.query(
+            'UPDATE customers SET deleted_at = NOW() WHERE id = $1',
+            [lead.customer_id]
+          );
+        }
+      }
+    }
+
     await client.query('COMMIT');
-    res.json({ filed: true, customer_id: lead.customer_id });
+    res.json({ filed: true, customer_id: targetCustomerId });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/leads/:id/file error:', err);
