@@ -625,6 +625,11 @@ require('./db/pool').query("ALTER TYPE record_status_type ADD VALUE IF NOT EXIST
   .then(() => console.log('order_parts status ready'))
   .catch(err => console.error('order_parts enum migration error:', err.message));
 
+// Auto-migrate: add authorization_number column (migration 049)
+require('./db/pool').query('ALTER TABLE records ADD COLUMN IF NOT EXISTS authorization_number VARCHAR(100)')
+  .then(() => console.log('records.authorization_number column ready'))
+  .catch(err => console.error('authorization_number migration error:', err.message));
+
 // Auto-migrate: leads workflow (scheduled status + soft-delete column)
 require('./db/pool').query("ALTER TYPE lead_status_type ADD VALUE IF NOT EXISTS 'scheduled'")
   .then(() => console.log('lead scheduled status ready'))
