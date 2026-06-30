@@ -101,16 +101,35 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   }
 });
 
-// PATCH /api/leads/:id — Update lead status (staff only)
+// PATCH /api/leads/:id — Update lead status and/or contacted_at (staff only)
 router.patch('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   const { status } = req.body;
-  if (!VALID_LEAD_STATUSES.includes(status)) {
+  const hasStatus = status !== undefined;
+  const hasContactedAt = Object.prototype.hasOwnProperty.call(req.body, 'contacted_at');
+
+  if (!hasStatus && !hasContactedAt) {
+    return res.status(400).json({ error: 'status or contacted_at is required' });
+  }
+  if (hasStatus && !VALID_LEAD_STATUSES.includes(status)) {
     return res.status(400).json({ error: `status must be one of: ${VALID_LEAD_STATUSES.join(', ')}` });
   }
+
+  const sets = [];
+  const params = [];
+  if (hasStatus) {
+    params.push(status);
+    sets.push(`status = $${params.length}`);
+  }
+  if (hasContactedAt) {
+    params.push(req.body.contacted_at);
+    sets.push(`contacted_at = $${params.length}`);
+  }
+  params.push(req.params.id);
+
   try {
     const { rows } = await pool.query(
-      'UPDATE leads SET status = $1 WHERE id = $2 RETURNING *',
-      [status, req.params.id]
+      `UPDATE leads SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Lead not found' });
     res.json(rows[0]);

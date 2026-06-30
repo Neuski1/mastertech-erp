@@ -143,6 +143,15 @@ export default function RecordList() {
     }
   };
 
+  const logLeadContact = async (lead) => {
+    try {
+      await api.updateLead(lead.id, { status: 'contacted', contacted_at: new Date().toISOString() });
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to log contact:', err);
+    }
+  };
+
   const scheduleLead = async (lead, leadName) => {
     try {
       await api.updateLead(lead.id, { status: 'scheduled' });
@@ -457,6 +466,9 @@ export default function RecordList() {
                         <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>WO #{l.record_number}</span>
                       )}
                       <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                      {l.contacted_at && (
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Contacted {formatDate(l.contacted_at)}</span>
+                      )}
                     </div>
                     <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '4px' }}>
                       {[l.phone, l.email].filter(Boolean).join(' \u00b7 ') || '\u2014'}
@@ -469,9 +481,15 @@ export default function RecordList() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={() => setLeadStatus(l.id, 'contacted')}
-                      style={actionBtn(l.status === 'contacted' ? { border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' } : {})}
-                    >Contacted</button>
+                    {l.phone && (
+                      <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
+                    )}
+                    {l.email && (
+                      <a href={`mailto:${l.email}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
+                    )}
+                    <button onClick={() => logLeadContact(l)}
+                      style={actionBtn({ border: '1px solid #166534', color: '#166534' })}
+                    >Log Call</button>
                     <button onClick={() => scheduleLead(l, leadName(l))}
                       style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
                     >Schedule</button>
@@ -479,7 +497,7 @@ export default function RecordList() {
                       style={actionBtn({ border: '1px solid #0d9488', color: '#0d9488' })}
                     >Add to Waitlist</button>
                     <button onClick={() => buildEstimateFromLead(l)}
-                      style={actionBtn({ border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}
+                      style={actionBtn({ border: '1px solid #16a34a', color: '#16a34a' })}
                     >Build Estimate</button>
                     <button onClick={() => openFileLead(l)} style={actionBtn({ border: '1px solid #6b7280', color: '#374151' })}>File</button>
                     <button onClick={() => removeLead(l)}

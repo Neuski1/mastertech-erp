@@ -637,6 +637,9 @@ require('./db/pool').query("ALTER TYPE lead_status_type ADD VALUE IF NOT EXISTS 
 require('./db/pool').query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ')
   .then(() => console.log('leads.deleted_at column ready'))
   .catch(err => console.error('leads deleted_at migration error:', err.message));
+require('./db/pool').query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_at TIMESTAMPTZ')
+  .then(() => console.log('leads.contacted_at column ready'))
+  .catch(err => console.error('leads contacted_at migration error:', err.message));
 
 
 // Migration 043: Estimate line support
