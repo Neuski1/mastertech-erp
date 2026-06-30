@@ -77,6 +77,11 @@ export default function RecordList() {
   const isMobile = useIsMobile();
   const [leads, setLeads] = useState([]);
   const showLeads = canEditRecords || isAdmin;
+  // File-lead modal: the lead being filed (null = closed) + customer search state
+  const [fileLeadTarget, setFileLeadTarget] = useState(null);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState([]);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -108,6 +113,26 @@ export default function RecordList() {
   }, [showLeads]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  // Debounced customer search for the File-lead modal
+  useEffect(() => {
+    if (!fileLeadTarget) return;
+    const term = customerSearch.trim();
+    if (!term) { setCustomerResults([]); return; }
+    setCustomerSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const data = await api.getCustomers({ search: term, limit: 20 });
+        setCustomerResults(Array.isArray(data.customers) ? data.customers : []);
+      } catch (err) {
+        console.error('Customer search failed:', err);
+        setCustomerResults([]);
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [customerSearch, fileLeadTarget]);
 
   const setLeadStatus = async (leadId, status) => {
     try {
@@ -157,10 +182,23 @@ export default function RecordList() {
     navigate(`/records/${lead.record_id}`);
   };
 
-  const fileLead = async (lead) => {
-    if (!window.confirm('File this lead onto the customer record and remove it from the list?')) return;
+  const openFileLead = (lead) => {
+    setFileLeadTarget(lead);
+    setCustomerSearch(lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || '');
+    setCustomerResults([]);
+  };
+
+  const closeFileLead = () => {
+    setFileLeadTarget(null);
+    setCustomerSearch('');
+    setCustomerResults([]);
+  };
+
+  const submitFileLead = async (customerId) => {
+    if (!fileLeadTarget) return;
     try {
-      await api.fileLead(lead.id);
+      await api.fileLead(fileLeadTarget.id, customerId ? { customer_id: customerId } : {});
+      closeFileLead();
       fetchLeads();
     } catch (err) {
       console.error('Failed to file lead:', err);
@@ -429,7 +467,7 @@ export default function RecordList() {
                     <button onClick={() => buildEstimateFromLead(l)}
                       style={actionBtn({ border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}
                     >Build Estimate</button>
-                    <button onClick={() => fileLead(l)} style={actionBtn({ border: '1px solid #6b7280', color: '#374151' })}>File</button>
+                    <button onClick={() => openFileLead(l)} style={actionBtn({ border: '1px solid #6b7280', color: '#374151' })}>File</button>
                     <button onClick={() => removeLead(l)}
                       style={actionBtn({ border: '1px solid #dc2626', color: '#dc2626' })}
                     >Delete</button>
@@ -555,6 +593,105 @@ export default function RecordList() {
           <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={btnSecondary}>Previous</button>
           <span style={{ padding: '8px', color: '#666' }}>Page {page} of {Math.ceil(total / 50)}</span>
           <button disabled={page >= Math.ceil(total / 50)} onClick={() => setPage(p => p + 1)} style={btnSecondary}>Next</button>
+        </div>
+      )}
+
+      {/* File Lead modal — pick an existing customer to file under, or file as-is */}
+      {fileLeadTarget && (
+        <div
+          onClick={closeFileLead}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+            padding: '40px 16px', zIndex: 1000, overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#fff', borderRadius: '10px', width: '100%',
+              maxWidth: '560px', boxShadow: '0 10px 40px rgba(0,0,0,0.25)',
+              display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+            }}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
+              <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700, color: '#1e3a5f' }}>
+                File Lead — {fileLeadTarget.name || [fileLeadTarget.customer_first, fileLeadTarget.customer_last].filter(Boolean).join(' ') || 'Unknown'}
+              </h3>
+              <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '6px' }}>
+                {[fileLeadTarget.phone, fileLeadTarget.email].filter(Boolean).join(' · ') || '—'}
+              </div>
+              {fileLeadTarget.message && (
+                <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '4px' }}>
+                  {fileLeadTarget.message}
+                </div>
+              )}
+              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '8px' }}>
+                Currently attached to:{' '}
+                <strong>
+                  {[fileLeadTarget.customer_first, fileLeadTarget.customer_last].filter(Boolean).join(' ') || 'a new/auto-created customer'}
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 20px', overflowY: 'auto' }}>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#374151' }}>
+                Search for the customer to file under
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                placeholder="Name, account #, phone, or email"
+                style={{ ...inputStyle, width: '100%', marginTop: '6px', boxSizing: 'border-box' }}
+              />
+
+              <div style={{ marginTop: '12px' }}>
+                {customerSearchLoading && (
+                  <div style={{ fontSize: '0.8125rem', color: '#6b7280', padding: '8px 0' }}>Searching…</div>
+                )}
+                {!customerSearchLoading && customerSearch.trim() && customerResults.length === 0 && (
+                  <div style={{ fontSize: '0.8125rem', color: '#6b7280', padding: '8px 0' }}>No matching customers.</div>
+                )}
+                {customerResults.map((c) => {
+                  const cname = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company_name || 'Unknown';
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => submitFileLead(c.id)}
+                      style={{
+                        padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px',
+                        marginBottom: '6px', cursor: 'pointer', backgroundColor: '#f9fafb',
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: '#111827' }}>
+                        {cname}
+                        {c.account_number && (
+                          <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '8px', fontSize: '0.8125rem' }}>
+                            #{c.account_number}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.8125rem', color: '#6b7280', marginTop: '2px' }}>
+                        {[c.phone_primary, c.email_primary].filter(Boolean).join(' · ') || '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{
+              padding: '14px 20px', borderTop: '1px solid #e5e7eb',
+              display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap',
+            }}>
+              <button onClick={closeFileLead} style={btnSecondary}>Cancel</button>
+              <button onClick={() => submitFileLead(null)} style={btnPrimary}>
+                File to current/new customer
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
