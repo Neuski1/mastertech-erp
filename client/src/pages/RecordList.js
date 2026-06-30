@@ -76,7 +76,6 @@ export default function RecordList() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [leads, setLeads] = useState([]);
-  const [showAllLeads, setShowAllLeads] = useState(false);
   const showLeads = canEditRecords || isAdmin;
 
   const fetchRecords = useCallback(async () => {
@@ -156,6 +155,16 @@ export default function RecordList() {
   const openLeadRecord = (lead) => {
     if (!lead.record_id) return;
     navigate(`/records/${lead.record_id}`);
+  };
+
+  const fileLead = async (lead) => {
+    if (!window.confirm('File this lead onto the customer record and remove it from the list?')) return;
+    try {
+      await api.fileLead(lead.id);
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to file lead:', err);
+    }
   };
 
   const formatCurrency = (val) => {
@@ -345,12 +354,9 @@ export default function RecordList() {
       {/* Leads */}
       {showLeads && (() => {
         const PIPELINE = ['new', 'contacted', 'scheduled'];
-        const visibleLeads = leads.filter(l =>
-          PIPELINE.includes(l.status) || (showAllLeads && l.status === 'converted')
-        );
+        const visibleLeads = leads.filter(l => PIPELINE.includes(l.status));
         const activeCount = leads.filter(l => PIPELINE.includes(l.status)).length;
-        const convertedCount = leads.filter(l => l.status === 'converted').length;
-        if (visibleLeads.length === 0 && convertedCount === 0) return null;
+        if (visibleLeads.length === 0) return null;
         const leadName = (l) => l.name || [l.customer_first, l.customer_last].filter(Boolean).join(' ') || 'Unknown';
         const STATUS_LABEL = { new: 'New', contacted: 'Contacted', scheduled: 'Scheduled', converted: 'Converted' };
         const pillColors = (status) => {
@@ -377,18 +383,6 @@ export default function RecordList() {
                 backgroundColor: '#166534', color: '#fff', borderRadius: '999px',
                 padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700,
               }}>{activeCount}</span>
-              {convertedCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllLeads(s => !s)}
-                  style={{
-                    marginLeft: 'auto', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer',
-                    fontSize: '0.75rem', fontWeight: 600,
-                    border: '1px solid #166534', backgroundColor: showAllLeads ? '#166534' : '#fff',
-                    color: showAllLeads ? '#fff' : '#166534',
-                  }}
-                >{showAllLeads ? 'Hide converted' : 'Show all'}</button>
-              )}
             </div>
             <div style={{ backgroundColor: '#f0fdf4' }}>
               {visibleLeads.map((l) => {
@@ -426,22 +420,19 @@ export default function RecordList() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    {l.status !== 'converted' && (
-                      <>
-                        <button onClick={() => setLeadStatus(l.id, 'contacted')}
-                          style={actionBtn(l.status === 'contacted' ? { border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' } : {})}
-                        >Contacted</button>
-                        <button onClick={() => scheduleLead(l, leadName(l))}
-                          style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
-                        >Schedule</button>
-                        <button onClick={() => buildEstimateFromLead(l)}
-                          style={actionBtn({ border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}
-                        >Build Estimate</button>
-                        <button onClick={() => removeLead(l)}
-                          style={actionBtn({ border: '1px solid #dc2626', color: '#dc2626' })}
-                        >Delete</button>
-                      </>
-                    )}
+                    <button onClick={() => setLeadStatus(l.id, 'contacted')}
+                      style={actionBtn(l.status === 'contacted' ? { border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' } : {})}
+                    >Contacted</button>
+                    <button onClick={() => scheduleLead(l, leadName(l))}
+                      style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
+                    >Schedule</button>
+                    <button onClick={() => buildEstimateFromLead(l)}
+                      style={actionBtn({ border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}
+                    >Build Estimate</button>
+                    <button onClick={() => fileLead(l)} style={actionBtn({ border: '1px solid #6b7280', color: '#374151' })}>File</button>
+                    <button onClick={() => removeLead(l)}
+                      style={actionBtn({ border: '1px solid #dc2626', color: '#dc2626' })}
+                    >Delete</button>
                     {l.record_id && (
                       <button onClick={() => openLeadRecord(l)}
                         style={actionBtn({ padding: '5px 12px', fontWeight: 700, border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}

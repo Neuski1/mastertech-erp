@@ -179,7 +179,7 @@ router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), as
     const recordId = recRows[0].id;
 
     await client.query(
-      "UPDATE leads SET record_id = $1, status = 'converted' WHERE id = $2",
+      "UPDATE leads SET record_id = $1, status = 'converted', deleted_at = NOW() WHERE id = $2",
       [recordId, lead.id]
     );
 
@@ -188,6 +188,49 @@ router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), as
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/leads/:id/create-estimate error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/leads/:id/file — File a lead's info onto the customer record and remove from the box (staff only)
+router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: leadRows } = await client.query(
+      'SELECT * FROM leads WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (leadRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+    const lead = leadRows[0];
+
+    const when = new Date(lead.created_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' });
+    const contact = [lead.phone, lead.email].filter(Boolean).join(', ');
+    const note = `[Lead ${when} via ${lead.source || 'website'}]` + (lead.message ? ` ${lead.message}` : '') + (contact ? ` | Contact: ${contact}` : '');
+
+    if (lead.customer_id) {
+      await client.query(
+        "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || E'\\n' || $1 END WHERE id = $2",
+        [note, lead.customer_id]
+      );
+    }
+
+    await client.query(
+      'UPDATE leads SET deleted_at = NOW() WHERE id = $1',
+      [lead.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ filed: true, customer_id: lead.customer_id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/leads/:id/file error:', err);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
