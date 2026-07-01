@@ -480,7 +480,7 @@ export default function RecordList() {
                     {l.message && (
                       <div style={{
                         fontSize: '0.8125rem', color: '#4b5563', marginTop: '4px',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '520px',
+                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                       }} title={l.message}>{l.message}</div>
                     )}
                   </div>
