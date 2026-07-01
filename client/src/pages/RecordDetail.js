@@ -2207,6 +2207,7 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
         onChange={handleChange}
         onFocus={() => { if (onFocus) onFocus(field); }}
         onBlur={handleBlur}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
         style={inputStyle}
       />
     </div>
