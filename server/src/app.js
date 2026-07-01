@@ -629,6 +629,9 @@ require('./db/pool').query("ALTER TYPE record_status_type ADD VALUE IF NOT EXIST
 require('./db/pool').query('ALTER TABLE records ADD COLUMN IF NOT EXISTS authorization_number VARCHAR(100)')
   .then(() => console.log('records.authorization_number column ready'))
   .catch(err => console.error('authorization_number migration error:', err.message));
+require('./db/pool').query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_date DATE')
+  .then(() => console.log('record_parts_lines.order_date column ready'))
+  .catch(err => console.error('parts order_date migration error:', err.message));
 
 // Auto-migrate: leads workflow (scheduled status + soft-delete column)
 require('./db/pool').query("ALTER TYPE lead_status_type ADD VALUE IF NOT EXISTS 'scheduled'")
