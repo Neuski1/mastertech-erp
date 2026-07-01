@@ -524,11 +524,10 @@ export default function RecordDetail() {
     <label>License Plate</label><span>${r.license_plate || '—'}</span><br/>
     <label>VIN</label><span>${r.vin || '—'}</span><br/>
     <label>Key #</label><span>${r.key_number || '—'}</span>
-    ${r.mileage_at_intake ? `<br/><label>Mileage at Intake</label><span>${r.mileage_at_intake}</span>` : ''}
     ${!isEstimate && techNames.length > 0 ? `<br/><label>Serviced By</label><span>${techNames.join(', ')}</span>` : ''}
   </div>
 </div>
-${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0 || r.authorization_number || parseFloat(r.under_warranty_amount) > 0) ? `<div class="info-block">
+${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0 || r.authorization_number || parseFloat(r.under_warranty_amount) > 0 || parseFloat(r.mileage_at_intake) > 0) ? `<div class="info-block">
   <div>
     <label>Insurance</label>
     <span>${r.insurance_company || '\u2014'}</span><br/>
@@ -536,7 +535,8 @@ ${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_numbe
     ${r.policy_number ? `<label>Policy #</label><span>${r.policy_number}</span><br/>` : ''}
     ${r.authorization_number ? `<label>Authorization #</label><span>${r.authorization_number}</span><br/>` : ''}
     ${parseFloat(r.deductible_amount) > 0 ? `<label>Deductible</label><span>${fmtCur(r.deductible_amount)}</span><br/>` : ''}
-    ${parseFloat(r.under_warranty_amount) > 0 ? `<label>Under Warranty</label><span>${fmtCur(r.under_warranty_amount)}</span>` : ''}
+    ${parseFloat(r.under_warranty_amount) > 0 ? `<label>Under Warranty</label><span>${fmtCur(r.under_warranty_amount)}</span><br/>` : ''}
+    ${r.mileage_at_intake ? `<label>Mileage at Intake</label><span>${r.mileage_at_intake}</span>` : ''}
   </div>
   ${(r.insurance_contact_name || r.insurance_phone || r.insurance_email) ? `<div>
     <label>Insurance Contact</label>
