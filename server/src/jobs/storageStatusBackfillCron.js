@@ -3,7 +3,7 @@ const pool = require('../db/pool');
 
 /**
  * Ensure every active storage_billing has a storage_payment_status row for the
- * current month. New rows default to 'unpaid' (source='manual') so Square
+ * current month. New rows default to 'unpaid' (source='auto') so the Square
  * sync can later flip them to 'paid' when an invoice closes. Existing rows
  * are never touched (ON CONFLICT DO NOTHING).
  *
@@ -18,7 +18,7 @@ async function ensureCurrentMonthStorageStatus() {
   const result = await pool.query(`
     INSERT INTO storage_payment_status
       (storage_billing_id, year, month, status, source, amount)
-    SELECT sb.id, $1, $2, 'unpaid', 'manual', sb.monthly_rate
+    SELECT sb.id, $1, $2, 'unpaid', 'auto', sb.monthly_rate
       FROM storage_billing sb
      WHERE sb.deleted_at IS NULL
        AND sb.billing_start_date <= (NOW() AT TIME ZONE 'America/Denver')::date
