@@ -16,7 +16,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const [saving, setSaving] = useState(false);
   const [addToInvLine, setAddToInvLine] = useState(null); // line to add to inventory
   const [orderEditId, setOrderEditId] = useState(null);
-  const [orderForm, setOrderForm] = useState({ order_status: 'ordered', order_eta: '', order_supplier: '', order_number: '', order_tracking: '' });
+  const [orderForm, setOrderForm] = useState({ order_status: 'ordered', order_eta: '', order_date: '', order_supplier: '', order_number: '', order_tracking: '' });
   const [allPartsFormVisible, setAllPartsFormVisible] = useState(false);
   const [pullFromStock, setPullFromStock] = useState(true);
   const [selectedItemQty, setSelectedItemQty] = useState(0);
@@ -44,6 +44,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     setOrderForm({
       order_status: line.order_status || 'ordered',
       order_eta: line.order_eta ? line.order_eta.toString().slice(0, 10) : '',
+      order_date: line.order_date ? String(line.order_date).slice(0, 10) : '',
       order_supplier: line.order_supplier || line.vendor || '',
       order_number: line.order_number || '',
       order_tracking: line.order_tracking || ''
@@ -799,6 +800,9 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                           placeholder="Order #" style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '100px' }} />
                         <input type="text" value={orderForm.order_tracking} onChange={(e) => setOrderForm({ ...orderForm, order_tracking: e.target.value })}
                           placeholder="Tracking #" style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '120px' }} />
+                        <label style={{ fontSize: '0.8rem', color: '#374151' }}>Ordered:</label>
+                        <input type="date" value={orderForm.order_date} onChange={(e) => setOrderForm({ ...orderForm, order_date: e.target.value })}
+                          style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
                         <label style={{ fontSize: '0.8rem', color: '#374151' }}>ETA:</label>
                         <input type="date" value={orderForm.order_eta} onChange={(e) => setOrderForm({ ...orderForm, order_eta: e.target.value })}
                           style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
@@ -817,6 +821,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                         {line.order_supplier && <span><strong>From:</strong> {line.order_supplier}</span>}
                         {line.order_number && <span><strong>Order#:</strong> {line.order_number}</span>}
                         {line.order_tracking && <span><strong>Tracking:</strong> {line.order_tracking}</span>}
+                        {line.order_date && <span><strong>Ordered:</strong> {(() => { const s = String(line.order_date); const safe = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00' : s; const d = new Date(safe); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</span>}
                         {line.order_eta && <span><strong>ETA:</strong> {(() => { const s = String(line.order_eta); const safe = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00' : s; const d = new Date(safe); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</span>}
                         {isEditable && (
                           <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 6px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', marginLeft: 'auto' }}>Edit</button>

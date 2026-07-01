@@ -318,7 +318,7 @@ router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { description, part_number, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
+  const { description, part_number, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_date, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
 
   const client = await pool.connect();
   try {
@@ -418,6 +418,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
 
     // Order tracking fields (customer-specific parts)
     if (order_status !== undefined) { updates.push(`order_status = $${idx++}`); values.push(order_status); }
+    if (order_status === 'ordered' && !existing.order_date) { updates.push('order_date = CURRENT_DATE'); }
+    if (order_date !== undefined) { updates.push(`order_date = $${idx++}`); values.push(order_date || null); }
     if (order_eta !== undefined) { updates.push(`order_eta = $${idx++}`); values.push(order_eta || null); }
     if (order_supplier !== undefined) { updates.push(`order_supplier = $${idx++}`); values.push(order_supplier || null); }
     if (order_number !== undefined) { updates.push(`order_number = $${idx++}`); values.push(order_number || null); }
