@@ -489,7 +489,7 @@ export default function RecordList() {
                       <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
                     )}
                     {l.email && (
-                      <a href={`mailto:${l.email}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
+                      <a href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(l.email)}`} target="_blank" rel="noopener noreferrer" style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
                     )}
                     {logCallFor === l.id ? (
                       <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
