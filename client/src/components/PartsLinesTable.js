@@ -845,9 +845,14 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               {(line.order_status === 'not_ordered' || (!line.order_status && !line.is_inventory_part)) && isEditable && orderEditId !== line.id && (
                 <tr key={`order-btn-${line.id}`}>
                   <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
-                    <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 8px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}>
-                      Mark as Ordered
-                    </button>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      {line.order_status === 'not_ordered' && (
+                        <span style={{ padding: '2px 8px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '3px', fontSize: '0.7rem', fontWeight: 600 }}>NOT ORDERED</span>
+                      )}
+                      <button onClick={() => openOrderEdit(line)} style={{ padding: '2px 8px', background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: '3px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 600 }}>
+                        Mark as Ordered
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )}
