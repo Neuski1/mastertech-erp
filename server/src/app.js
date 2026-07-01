@@ -537,6 +537,13 @@ const pool = require('./db/pool');
       ON CONFLICT (storage_billing_id, year, month) DO NOTHING
     `);
 
+    // Migration 056: allow source='auto' on storage_payment_status. The daily
+    // backfill cron stubs each active box's current month as unpaid; those
+    // stubs must be overwritable by the Square sync, so they can't be 'manual'
+    // (which the sync treats as a protected override). 'auto' = system stub.
+    await pool.query(`ALTER TABLE storage_payment_status DROP CONSTRAINT IF EXISTS storage_payment_status_source_check`);
+    await pool.query(`ALTER TABLE storage_payment_status ADD CONSTRAINT storage_payment_status_source_check CHECK (source IN ('square','manual','auto'))`);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
