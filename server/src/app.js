@@ -544,6 +544,12 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE storage_payment_status DROP CONSTRAINT IF EXISTS storage_payment_status_source_check`);
     await pool.query(`ALTER TABLE storage_payment_status ADD CONSTRAINT storage_payment_status_source_check CHECK (source IN ('square','manual','auto'))`);
 
+    // Migration 057: make bank-transaction sync idempotent + dedupe-safe. Adds
+    // a unique key on raw_transaction_id so re-syncing the same Plaid txn (or a
+    // pending txn that later posts) can UPSERT instead of inserting duplicate
+    // rows. No existing dupes (verified before ship).
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_raw_transaction_id ON transactions (raw_transaction_id)`);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
