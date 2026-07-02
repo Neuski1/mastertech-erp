@@ -230,6 +230,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 {canEdit ? (
                   <textarea
                     key={`desc-${line.id}-${line.updated_at || line.id}`}
+                    spellCheck={true}
                     defaultValue={line.description}
                     ref={(el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
                     onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
@@ -365,7 +366,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 >
                   🔍 Lookup Flat Rate
                 </button>
-                <textarea ref={descriptionRef} placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} autoFocus />
+                <textarea ref={descriptionRef} spellCheck={true} placeholder="Labor description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ ...inlineInput, minHeight: '80px', resize: 'vertical' }} rows={3} autoFocus />
               </td>
               <td style={tdStyle}>
                 <select value={form.technician_id} onChange={(e) => setForm({ ...form, technician_id: e.target.value })} style={inlineInput}>
