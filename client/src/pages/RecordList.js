@@ -420,6 +420,20 @@ export default function RecordList() {
         const activeCount = leads.filter(l => PIPELINE.includes(l.status)).length;
         if (visibleLeads.length === 0) return null;
         const leadName = (l) => l.name || [l.customer_first, l.customer_last].filter(Boolean).join(' ') || 'Unknown';
+        const leadEmailHref = (l) => {
+          const first = (l.customer_first || (l.name || '').trim().split(/\s+/)[0] || 'there');
+          const subject = 'Re: Your request to Master Tech RV Repair & Storage';
+          const when = l.created_at ? new Date(l.created_at).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' }) : '';
+          const quoted = (l.message || '(no message on file)').split('\n').map((ln) => '> ' + ln).join('\n');
+          const body = [
+            `Hi ${first},`, '',
+            'Thank you for reaching out to Master Tech RV Repair & Storage.', '', '',
+            '-----------------------------------------',
+            when ? `On ${when} you wrote:` : 'Your original request:',
+            quoted,
+          ].join('\n');
+          return `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(l.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        };
         const STATUS_LABEL = { new: 'New', contacted: 'Contacted', scheduled: 'Scheduled', converted: 'Converted' };
         const pillColors = (status) => {
           if (status === 'new') return { bg: '#bbf7d0', fg: '#166534' };
@@ -489,7 +503,7 @@ export default function RecordList() {
                       <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
                     )}
                     {l.email && (
-                      <a href={`https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(l.email)}`} target="_blank" rel="noopener noreferrer" style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
+                      <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
                     )}
                     {logCallFor === l.id ? (
                       <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
