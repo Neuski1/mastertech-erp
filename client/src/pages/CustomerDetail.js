@@ -440,6 +440,19 @@ export default function CustomerDetail() {
           {canEditRecords && !editing && (
             <button onClick={() => setEditing(true)} style={btnSecondary}>Edit</button>
           )}
+          {canEditRecords && !editing && customer.email_primary && (
+            <button
+              onClick={() => {
+                const first = customer.first_name || customer.company_name || 'there';
+                const subject = 'Master Tech RV Repair & Storage';
+                const body = [`Hi ${first},`, '', '', 'Thank you,', 'Master Tech RV Repair & Storage'].join('\n');
+                window.open(`https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(customer.email_primary)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank', 'noopener,noreferrer');
+              }}
+              style={{ ...btnSecondary, color: '#047857', borderColor: '#6ee7b7' }}
+            >
+              Email Customer
+            </button>
+          )}
           {editing && (
             <>
               <button onClick={() => { setEditing(false); setFormData(customer); }} style={btnSecondary}>Cancel</button>
