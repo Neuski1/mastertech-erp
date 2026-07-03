@@ -474,8 +474,8 @@ export default function RecordDetail() {
     const html = `<!DOCTYPE html><html><head><title>${docTitle} ${r.record_number}</title>
 <style>
   html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-  @media print { @page { margin: 0.5in; } html, body, * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 8px; }
+  @media print { @page { size: auto; margin: 0; } html, body, * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 0.5in; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; border-bottom: 3px solid #1a2a4a; padding-bottom: 8px; }
   .header-left { display: flex; align-items: flex-start; gap: 12px; }
   .header-left img { height: 90px; max-width: 220px; object-fit: contain; }

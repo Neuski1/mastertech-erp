@@ -294,8 +294,8 @@ export default function PartsSaleDetail() {
     const html = `<!DOCTYPE html><html><head><title>Parts Sale ${s.sale_number}</title>
 <style>
   html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  @media print { @page { margin: 0.5in; } }
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 20px; max-width: 500px; margin: 0 auto; }
+  @media print { @page { size: auto; margin: 0; } }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 0.5in; max-width: 500px; margin: 0 auto; }
   .header { text-align: center; border-bottom: 2px solid #1a2a4a; padding-bottom: 12px; margin-bottom: 16px; }
   .header h1 { color: #1a2a4a; margin: 0; font-size: 16px; }
   .header p { margin: 2px 0; font-size: 10px; color: #333; }
