@@ -298,6 +298,23 @@ export default function RecordDetail() {
     setShowEmailModal(true);
   };
 
+  // Open a Gmail compose to the customer from the service@ account, prefilled
+  // with the work order number so the customer knows which job it's about.
+  const emailCustomerGmail = () => {
+    const email = record.email_primary;
+    if (!email) { alert('No email address on file for this customer.'); return; }
+    const first = record.first_name || record.last_name || 'there';
+    const wo = record.record_number;
+    const subject = `Master Tech RV Repair & Storage \u2013 Work Order #${wo}`;
+    const body = [
+      `Hi ${first},`, '',
+      `Regarding your RV service with us (Work Order #${wo}):`, '', '',
+      'Thank you,', 'Master Tech RV Repair & Storage',
+    ].join('\n');
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const handleEmailDocument = async () => {
     setEmailing(true);
     setEmailMsg(null);
@@ -726,8 +743,13 @@ ${paymentDetailHtml}
           {saving && <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Saving...</span>}
           <button onClick={handlePrint} style={btnPrint}>Print</button>
           <button onClick={openEmailDialog} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
-            {emailing ? 'Sending...' : '\u2709 Email'}
+            {emailing ? 'Sending...' : '\u2709 Email Invoice'}
           </button>
+          {record.email_primary && (
+            <button onClick={emailCustomerGmail} style={{ ...btnPrint, backgroundColor: '#047857' }}>
+              {'\u2709 Email Customer'}
+            </button>
+          )}
           {canEditRecords && record.status !== 'void' && (
             <button onClick={() => setShowScheduleModal(true)} style={btnSchedule}>Add to Schedule</button>
           )}
