@@ -191,14 +191,16 @@ async function sendPaymentReminder(recordId, { isManual = false, sentByUserId = 
   if (emailSent) channels.push('email');
   if (smsSent) channels.push('sms');
 
-  if (channels.length > 0) {
+  // channel is a Postgres enum (email | sms | ...), so a combined 'email,sms'
+  // value is invalid. Log one row per channel actually sent.
+  for (const ch of channels) {
     await pool.query(
       `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id, sent_at)
        VALUES ($1, $2, $3, 'payment_reminder', $4, 'sent', $5, $6, NOW())`,
       [
         rec.customer_id,
         recordId,
-        channels.join(','),
+        ch,
         `Payment reminder #${newReminderCount} — $${amountDue.toFixed(2)} due on Invoice #${invoiceNumber}`,
         isManual,
         sentByUserId,
