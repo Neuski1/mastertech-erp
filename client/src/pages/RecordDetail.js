@@ -284,8 +284,10 @@ export default function RecordDetail() {
     setEmailPersonalMsg('');
     const partsTotal = parseFloat(record.parts_subtotal) || 0;
     const amountDue = parseFloat(record.amount_due) || 0;
-    const isEstimate = record.status === 'estimate';
-    const defaultType = isEstimate && partsTotal > 0 ? 'parts_deposit' : 'final_payment';
+    // Final payment is only offered once the work order is complete and has
+    // become an invoice. Before that, the only option is the parts deposit.
+    const isInvoice = ['complete', 'payment_pending', 'partial', 'paid'].includes(record.status);
+    const defaultType = isInvoice ? 'final_payment' : 'parts_deposit';
     const defaultAmount = defaultType === 'parts_deposit' ? partsTotal : amountDue;
     setEmailPayLinkType(defaultType);
     setEmailPayLinkAmount(defaultAmount > 0 ? defaultAmount.toFixed(2) : '');
@@ -1390,7 +1392,9 @@ ${paymentDetailHtml}
                         setEmailPayLinkAmount(e.target.value === 'parts_deposit' ? (p > 0 ? p.toFixed(2) : '') : (d > 0 ? d.toFixed(2) : ''));
                       }} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem' }}>
                         <option value="parts_deposit">Parts Deposit</option>
-                        <option value="final_payment">Final Payment</option>
+                        {['complete', 'payment_pending', 'partial', 'paid'].includes(record.status) && (
+                          <option value="final_payment">Final Payment</option>
+                        )}
                       </select>
                     </div>
                     <div style={{ width: '120px' }}>
@@ -2353,8 +2357,13 @@ const modalStyle = {
 function PaymentLinkModal({ recordId, record, onClose }) {
   const suggestedParts = parseFloat(record?.parts_subtotal || 0) || 0;
   const suggestedFinal = parseFloat(record?.amount_due || 0) || 0;
-  const [paymentType, setPaymentType] = useState('parts_deposit');
-  const [amount, setAmount] = useState(suggestedParts > 0 ? suggestedParts.toFixed(2) : '');
+  // Final payment is only available once the work order is complete (an invoice).
+  const isInvoice = ['complete', 'payment_pending', 'partial', 'paid'].includes(record?.status);
+  const [paymentType, setPaymentType] = useState(isInvoice ? 'final_payment' : 'parts_deposit');
+  const [amount, setAmount] = useState(() => {
+    const seed = isInvoice ? suggestedFinal : suggestedParts;
+    return seed > 0 ? seed.toFixed(2) : '';
+  });
   const [email, setEmail] = useState(record?.email_primary || '');
   const [link, setLink] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -2410,7 +2419,9 @@ function PaymentLinkModal({ recordId, record, onClose }) {
               <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Payment Type</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <TypeOption active={paymentType === 'parts_deposit'} onClick={() => handleTypeChange('parts_deposit')} title="Parts Deposit" desc="Customer not yet in. WO status unchanged." />
-                <TypeOption active={paymentType === 'final_payment'} onClick={() => handleTypeChange('final_payment')} title="Final Payment" desc="Work complete. Moves WO to Paid." />
+                {isInvoice && (
+                  <TypeOption active={paymentType === 'final_payment'} onClick={() => handleTypeChange('final_payment')} title="Final Payment" desc="Work complete. Moves WO to Paid." />
+                )}
               </div>
             </div>
 
