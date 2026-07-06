@@ -550,6 +550,18 @@ const pool = require('./db/pool');
     // rows. No existing dupes (verified before ship).
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_raw_transaction_id ON transactions (raw_transaction_id)`);
 
+    // Migration 058: lead call log — a running history of calls/contacts per
+    // lead (date + optional note), carried into the customer notes on convert.
+    await pool.query(`CREATE TABLE IF NOT EXISTS lead_contacts (
+      id SERIAL PRIMARY KEY,
+      lead_id INTEGER NOT NULL REFERENCES leads(id),
+      contacted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      note TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_lead_contacts_lead ON lead_contacts (lead_id)`);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
