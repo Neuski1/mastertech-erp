@@ -87,10 +87,16 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
-              r.record_number AS record_number, r.status AS record_status
+              r.record_number AS record_number, r.status AS record_status,
+              COALESCE(lc.contacts, '[]'::json) AS contacts
        FROM leads l
        LEFT JOIN customers c ON c.id = l.customer_id
        LEFT JOIN records r ON r.id = l.record_id
+       LEFT JOIN LATERAL (
+         SELECT json_agg(json_build_object('id', x.id, 'contacted_at', x.contacted_at, 'note', x.note)
+                         ORDER BY x.contacted_at DESC) AS contacts
+           FROM lead_contacts x WHERE x.lead_id = l.id
+       ) lc ON true
        WHERE l.deleted_at IS NULL
        ORDER BY l.created_at DESC
        LIMIT 100`
@@ -134,6 +140,31 @@ router.patch('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) 
     if (rows.length === 0) return res.status(404).json({ error: 'Lead not found' });
     res.json(rows[0]);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/leads/:id/contact — Log a call/contact with an optional note (staff only).
+// Appends to lead_contacts (a running history) and refreshes the lead summary.
+router.post('/:id/contact', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const { contacted_at, note } = req.body || {};
+  try {
+    const when = contacted_at || new Date().toISOString();
+    const { rows } = await pool.query(
+      `INSERT INTO lead_contacts (lead_id, contacted_at, note, created_by)
+       VALUES ($1, $2, $3, $4) RETURNING id, contacted_at, note`,
+      [req.params.id, when, (note || '').trim() || null, req.user.id]
+    );
+    await pool.query(
+      `UPDATE leads
+          SET contacted_at = $1,
+              status = CASE WHEN status = 'new' THEN 'contacted'::lead_status_type ELSE status END
+        WHERE id = $2`,
+      [when, req.params.id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/leads/:id/contact error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -197,6 +228,24 @@ router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), as
     );
     const recordId = recRows[0].id;
 
+    // Carry the lead's call history into the customer record so it isn't lost.
+    if (lead.customer_id) {
+      const { rows: cts } = await client.query(
+        'SELECT contacted_at, note FROM lead_contacts WHERE lead_id = $1 ORDER BY contacted_at',
+        [lead.id]
+      );
+      if (cts.length) {
+        const block = cts.map((ct) => {
+          const d = new Date(ct.contacted_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' });
+          return `[Call ${d}]` + (ct.note ? ` ${ct.note}` : '');
+        }).join('\n');
+        await client.query(
+          "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || CHR(10) || $1 END WHERE id = $2",
+          [block, lead.customer_id]
+        );
+      }
+    }
+
     await client.query(
       "UPDATE leads SET record_id = $1, status = 'converted', deleted_at = NOW() WHERE id = $2",
       [recordId, lead.id]
@@ -242,6 +291,20 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
         "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || E'\\n' || $1 END WHERE id = $2",
         [note, targetCustomerId]
       );
+      const { rows: cts } = await client.query(
+        'SELECT contacted_at, note FROM lead_contacts WHERE lead_id = $1 ORDER BY contacted_at',
+        [lead.id]
+      );
+      if (cts.length) {
+        const block = cts.map((ct) => {
+          const d = new Date(ct.contacted_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' });
+          return `[Call ${d}]` + (ct.note ? ` ${ct.note}` : '');
+        }).join('\n');
+        await client.query(
+          "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || CHR(10) || $1 END WHERE id = $2",
+          [block, targetCustomerId]
+        );
+      }
     }
 
     await client.query(

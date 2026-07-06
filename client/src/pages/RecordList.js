@@ -81,6 +81,7 @@ export default function RecordList() {
   const [fileLeadTarget, setFileLeadTarget] = useState(null);
   const [logCallFor, setLogCallFor] = useState(null);
   const [logCallDate, setLogCallDate] = useState('');
+  const [logCallNote, setLogCallNote] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
@@ -145,11 +146,12 @@ export default function RecordList() {
     }
   };
 
-  const logLeadContact = async (lead, dateStr) => {
+  const logLeadContact = async (lead, dateStr, note) => {
     try {
       const when = dateStr ? new Date(dateStr + 'T12:00:00').toISOString() : new Date().toISOString();
-      await api.updateLead(lead.id, { status: 'contacted', contacted_at: when });
+      await api.logLeadCall(lead.id, { contacted_at: when, note: note || '' });
       setLogCallFor(null);
+      setLogCallNote('');
       fetchLeads();
     } catch (err) {
       console.error('Failed to log contact:', err);
@@ -497,6 +499,15 @@ export default function RecordList() {
                         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                       }} title={l.message}>{l.message}</div>
                     )}
+                    {Array.isArray(l.contacts) && l.contacts.length > 0 && (
+                      <div style={{ marginTop: '6px', borderLeft: '2px solid #e5e7eb', paddingLeft: '8px' }}>
+                        {l.contacts.map((ct) => (
+                          <div key={ct.id} style={{ fontSize: '0.75rem', color: '#4b5563', marginBottom: '2px' }}>
+                            <span style={{ fontWeight: 600 }}>Call {formatDate(ct.contacted_at)}</span>{ct.note ? `: ${ct.note}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {l.phone && (
@@ -508,11 +519,12 @@ export default function RecordList() {
                     {logCallFor === l.id ? (
                       <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
                         <input type="date" value={logCallDate} onChange={(e) => setLogCallDate(e.target.value)} style={{ fontSize: '0.75rem', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
-                        <button onClick={() => logLeadContact(l, logCallDate)} style={actionBtn({ border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' })}>Save</button>
-                        <button onClick={() => setLogCallFor(null)} style={actionBtn({})}>Cancel</button>
+                        <input type="text" value={logCallNote} onChange={(e) => setLogCallNote(e.target.value)} placeholder="Note (optional)" style={{ fontSize: '0.75rem', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '6px', minWidth: '160px' }} />
+                        <button onClick={() => logLeadContact(l, logCallDate, logCallNote)} style={actionBtn({ border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' })}>Save</button>
+                        <button onClick={() => { setLogCallFor(null); setLogCallNote(''); }} style={actionBtn({})}>Cancel</button>
                       </span>
                     ) : (
-                      <button onClick={() => { setLogCallFor(l.id); setLogCallDate(new Date().toISOString().slice(0, 10)); }}
+                      <button onClick={() => { setLogCallFor(l.id); setLogCallDate(new Date().toISOString().slice(0, 10)); setLogCallNote(''); }}
                         style={actionBtn({ border: '1px solid #166534', color: '#166534' })}
                       >Log Call</button>
                     )}
