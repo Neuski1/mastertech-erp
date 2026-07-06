@@ -291,9 +291,9 @@ export default function RecordDetail() {
     const defaultAmount = defaultType === 'parts_deposit' ? partsTotal : amountDue;
     setEmailPayLinkType(defaultType);
     setEmailPayLinkAmount(defaultAmount > 0 ? defaultAmount.toFixed(2) : '');
-    // Default OFF — most work orders are sent for approval, not payment.
-    // User checks "Include Payment Link" when they actually want to collect.
-    setEmailIncludePayLink(false);
+    // Auto-check the payment link only for invoices (work complete). Plain
+    // work orders still go out unchecked since they are usually for approval.
+    setEmailIncludePayLink(isInvoice);
     setEmailTo(record.email_primary || '');
     setEmailCc(record.email_secondary || '');
     setEmailPersonalMsg('');
