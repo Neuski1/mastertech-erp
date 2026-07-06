@@ -21,12 +21,12 @@ router.get('/search', async (req, res) => {
     const invSQL = `
       SELECT id, part_number, description, vendor_part_number, vendor,
              qty_on_hand, cost_each, sale_price_each, location,
-             'inventory' AS source
+             CASE WHEN is_active THEN 'inventory' ELSE 'catalog' END AS source
       FROM inventory
-      WHERE deleted_at IS NULL AND is_active = TRUE
+      WHERE deleted_at IS NULL
         AND (description ILIKE $1 OR part_number ILIKE $1 OR vendor_part_number ILIKE $1 OR vendor ILIKE $1)
-      ORDER BY description
-      LIMIT 20`;
+      ORDER BY is_active DESC, description
+      LIMIT 40`;
 
     // Query 2: Parts catalog (non-inventory history)
     const catSQL = `
