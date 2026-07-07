@@ -101,6 +101,7 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
     const { rows } = await pool.query(
       `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
               r.record_number AS record_number, r.status AS record_status,
+              (r.id IS NOT NULL AND r.deleted_at IS NULL) AS record_open,
               COALESCE(lc.contacts, '[]'::json) AS contacts
        FROM leads l
        LEFT JOIN customers c ON c.id = l.customer_id

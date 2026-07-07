@@ -610,11 +610,14 @@ export default function RecordList() {
                       <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '3px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{l.message}</div>
                     )}
                   </div>
-                  {l.record_id && (
-                    <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', flexWrap: 'wrap' }}>
+                    {l.customer_id && (
+                      <button onClick={() => navigate(`/customers/${l.customer_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #6b7280', backgroundColor: '#fff', color: '#374151' }}>Open Customer</button>
+                    )}
+                    {l.record_open && (
                       <button onClick={() => navigate(`/records/${l.record_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #2563eb', backgroundColor: '#fff', color: '#2563eb' }}>Open Record</button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               );
             })}
