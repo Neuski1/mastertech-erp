@@ -67,6 +67,18 @@ router.post('/', async (req, res) => {
       [customerId, name, phone || null, email || null, message || null, source]
     );
 
+    // Document the request on the customer record immediately, so it is never
+    // lost even if the lead is later converted and that record is deleted.
+    if (message && message.trim() && customerId) {
+      const when = new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver' });
+      const contact = [phone, email].filter(Boolean).join(', ');
+      const note = `[Lead ${when} via ${source}] ${message.trim()}` + (contact ? ` | Contact: ${contact}` : '');
+      await client.query(
+        "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 WHEN position($1 in notes) > 0 THEN notes ELSE notes || CHR(10) || $1 END WHERE id = $2",
+        [note, customerId]
+      );
+    }
+
     await client.query('COMMIT');
 
     res.status(201).json({
@@ -288,7 +300,7 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
 
     if (targetCustomerId) {
       await client.query(
-        "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || E'\\n' || $1 END WHERE id = $2",
+        "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 WHEN position($1 in notes) > 0 THEN notes ELSE notes || CHR(10) || $1 END WHERE id = $2",
         [note, targetCustomerId]
       );
       const { rows: cts } = await client.query(
