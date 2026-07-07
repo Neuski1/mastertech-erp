@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import useIsMobile from '../utils/useIsMobile';
+import { parseLeadMessage } from '../utils/parseLead';
 
 const STATUS_GROUPS = [
   {
@@ -160,12 +161,15 @@ export default function RecordList() {
 
   const scheduleLead = async (lead, leadName) => {
     try {
-      await api.updateLead(lead.id, { status: 'scheduled' });
+      const p = parseLeadMessage(lead.message || '');
       navigate('/schedule/new', { state: {
         customerId: lead.customer_id,
         customerName: leadName,
         customerPhone: lead.phone,
         customerEmail: lead.email,
+        leadId: lead.id,
+        rvYear: p.rvYear, rvMake: p.rvMake, rvModel: p.rvModel,
+        jobDescription: [p.issue, p.services ? `Services: ${p.services}` : ''].filter(Boolean).join('\n\n'),
       } });
     } catch (err) {
       console.error('Failed to schedule lead:', err);
@@ -199,12 +203,17 @@ export default function RecordList() {
 
   const addLeadToWaitlist = (lead) => {
     const name = lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || 'Unknown';
+    const p = parseLeadMessage(lead.message || '');
     navigate('/storage', { state: { addWaitlistFromLead: {
       leadId: lead.id,
       contactName: name,
       contactPhone: lead.phone || '',
       contactEmail: lead.email || '',
       message: lead.message || '',
+      spaceType: p.spaceType,
+      rvYear: p.rvYear, rvMake: p.rvMake, rvModel: p.rvModel,
+      lengthFt: p.lengthFt, preferred: p.preferred,
+      notes: p.notes || p.issue || '',
     } } });
   };
 

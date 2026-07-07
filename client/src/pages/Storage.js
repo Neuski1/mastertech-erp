@@ -2277,8 +2277,8 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
 function AddWaitlistModal({ onClose, onAdded, prefill }) {
   const [form, setForm] = useState(() => ({
     contact_name: prefill?.contactName || '', contact_phone: prefill?.contactPhone || '', contact_email: prefill?.contactEmail || '',
-    space_type: 'indoor', rv_year: '', rv_make: '', rv_model: '',
-    rv_length_feet: '', preferred_start: '', budget_monthly: '', notes: prefill?.message || '',
+    space_type: prefill?.spaceType || 'indoor', rv_year: prefill?.rvYear || '', rv_make: prefill?.rvMake || '', rv_model: prefill?.rvModel || '',
+    rv_length_feet: prefill?.lengthFt || '', preferred_start: prefill?.preferred || '', budget_monthly: '', notes: prefill?.notes || prefill?.message || '',
   }));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
