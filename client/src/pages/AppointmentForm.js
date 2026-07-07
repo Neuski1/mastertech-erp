@@ -62,6 +62,7 @@ export default function AppointmentForm() {
   const [newUnitModel, setNewUnitModel] = useState('');
   const [emailWarning, setEmailWarning] = useState(null);
   const [creatingRecord, setCreatingRecord] = useState(false);
+  const [fromLeadId, setFromLeadId] = useState(null);
   const [resending, setResending] = useState(false);
   const [resendMsg, setResendMsg] = useState(null); // { type: 'success'|'warning'|'error', text }
 
@@ -85,6 +86,12 @@ export default function AppointmentForm() {
     if (location.state?.customerEmail) setCustomerEmail(location.state.customerEmail);
     if (location.state?.customerPhone) setCustomerPhone(location.state.customerPhone);
     setNotifyCustomer(!!location.state?.customerEmail);
+    // Prefill RV details and requested services from the originating lead.
+    if (location.state?.rvYear) setNewUnitYear(String(location.state.rvYear));
+    if (location.state?.rvMake) setNewUnitMake(location.state.rvMake);
+    if (location.state?.rvModel) setNewUnitModel(location.state.rvModel);
+    if (location.state?.jobDescription) setForm(f => ({ ...f, job_description: location.state.jobDescription }));
+    if (location.state?.leadId) setFromLeadId(location.state.leadId);
     api.getCustomerUnits(cid).then(setCustomerUnits).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit]);
@@ -214,6 +221,8 @@ export default function AppointmentForm() {
         await api.updateAppointment(id, payload);
       } else {
         const result = await api.createAppointment(payload);
+        // The lead is now scheduled: file it to the customer and drop it from the leads box.
+        if (fromLeadId) { try { await api.fileLead(fromLeadId); } catch (e) { /* non-blocking */ } }
         if (result.emailWarning) {
           setEmailWarning(result.emailWarning);
           // Show warning for 5 seconds before navigating
