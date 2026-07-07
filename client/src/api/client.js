@@ -58,7 +58,7 @@ export const api = {
   deleteRecord: (id) => request(`/records/${id}`, { method: 'DELETE' }),
 
   // Leads
-  getLeads: () => request('/leads'),
+  getLeads: (opts) => request('/leads' + (opts && opts.archived ? '?archived=true' : '')),
   updateLead: (id, data) => request(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   logLeadCall: (id, data) => request(`/leads/${id}/contact`, { method: 'POST', body: JSON.stringify(data) }),
   deleteLead: (id) => request(`/leads/${id}`, { method: 'DELETE' }),

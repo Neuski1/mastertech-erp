@@ -97,6 +97,7 @@ router.post('/', async (req, res) => {
 // GET /api/leads — List non-deleted leads (staff only)
 router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   try {
+    const archived = req.query.archived === 'true' || req.query.archived === '1';
     const { rows } = await pool.query(
       `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
               r.record_number AS record_number, r.status AS record_status,
@@ -109,8 +110,8 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
                          ORDER BY x.contacted_at DESC) AS contacts
            FROM lead_contacts x WHERE x.lead_id = l.id
        ) lc ON true
-       WHERE l.deleted_at IS NULL
-       ORDER BY l.created_at DESC
+       WHERE l.deleted_at IS ${archived ? 'NOT NULL' : 'NULL'}
+       ORDER BY ${archived ? 'l.deleted_at' : 'l.created_at'} DESC
        LIMIT 100`
     );
     res.json(rows);
