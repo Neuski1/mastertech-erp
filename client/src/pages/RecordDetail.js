@@ -399,7 +399,7 @@ export default function RecordDetail() {
     // Build labor rows
     const totalHours = laborLines.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0);
     const laborRows = laborLines.map((l, i) =>
-      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${l.no_charge ? '<span style="color:#9ca3af">'+fmtCur(l.rate)+'</span>' : fmtCur(l.rate)}</td><td style="text-align:right">${l.no_charge ? '$0.00' : fmtCur(l.line_total)}</td></tr>`
+      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}${l.technician_name ? '<div style="font-size:9px;color:#555;margin-top:1px">Tech: ' + l.technician_name + '</div>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${l.no_charge ? '<span style="color:#9ca3af">'+fmtCur(l.rate)+'</span>' : fmtCur(l.rate)}</td><td style="text-align:right">${l.no_charge ? '$0.00' : fmtCur(l.line_total)}</td></tr>`
     ).join('');
     const laborTotalRow = laborLines.length > 0 ? `
       <tr style="background:#f3f4f6"><td colspan="3" style="text-align:right;font-weight:bold;padding:6px 8px;border-top:2px solid #d1d5db">TOTAL HOURS:</td><td style="text-align:right;font-weight:bold;padding:6px 8px;border-top:2px solid #d1d5db">${totalHours.toFixed(2)} hrs</td><td></td><td></td></tr>
@@ -420,7 +420,7 @@ export default function RecordDetail() {
     pendingEstLabor.forEach(l => pendingEstTotal += parseFloat(l.line_total || 0));
     pendingEstParts.forEach(p => pendingEstTotal += parseFloat(p.line_total || 0));
     const pendingEstLaborRows = pendingEstLabor.map((l, i) =>
-      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
+      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.technician_name ? '<div style="font-size:9px;color:#555;margin-top:1px">Tech: ' + l.technician_name + '</div>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
     ).join('');
     const pendingEstPartsRows = pendingEstParts.map(p =>
       `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
