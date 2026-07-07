@@ -77,6 +77,9 @@ export default function RecordList() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [leads, setLeads] = useState([]);
+  const [showClosedLeads, setShowClosedLeads] = useState(false);
+  const [closedLeads, setClosedLeads] = useState([]);
+  const [closedLoading, setClosedLoading] = useState(false);
   const showLeads = canEditRecords || isAdmin;
   // File-lead modal: the lead being filed (null = closed) + customer search state
   const [fileLeadTarget, setFileLeadTarget] = useState(null);
@@ -117,6 +120,16 @@ export default function RecordList() {
   }, [showLeads]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
+  useEffect(() => {
+    if (!showClosedLeads) return;
+    let cancel = false;
+    setClosedLoading(true);
+    api.getLeads({ archived: true })
+      .then((d) => { if (!cancel) setClosedLeads(Array.isArray(d) ? d : []); })
+      .catch(() => {})
+      .finally(() => { if (!cancel) setClosedLoading(false); });
+    return () => { cancel = true; };
+  }, [showClosedLeads]);
 
   // Debounced customer search for the File-lead modal
   useEffect(() => {
@@ -416,6 +429,11 @@ export default function RecordList() {
               Print Work Orders
             </button>
           )}
+          {showLeads && !isMobile && (
+            <button onClick={() => setShowClosedLeads((v) => !v)} style={{ padding: '8px 16px', backgroundColor: showClosedLeads ? '#166534' : '#f3f4f6', color: showClosedLeads ? '#fff' : '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
+              {showClosedLeads ? 'Hide Closed Leads' : 'Closed Leads'}
+            </button>
+          )}
           {canEditRecords && !isMobile && (
             <button onClick={() => navigate('/records/new')} style={btnPrimary}>
               + New Record
@@ -563,6 +581,46 @@ export default function RecordList() {
           </div>
         );
       })()}
+
+      {showLeads && showClosedLeads && (
+        <div style={{ borderRadius: '8px', border: '1px solid #d1d5db', overflow: 'hidden', marginBottom: '20px' }}>
+          <div style={{ padding: '10px 16px', backgroundColor: '#e5e7eb', color: '#374151', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.875rem' }}>
+            <span>Closed Leads</span>
+            <span style={{ backgroundColor: '#6b7280', color: '#fff', borderRadius: '999px', padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700 }}>{closedLeads.length}</span>
+            {closedLoading && <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>Loading...</span>}
+          </div>
+          <div style={{ backgroundColor: '#fafafa' }}>
+            {!closedLoading && closedLeads.length === 0 && (
+              <div style={{ padding: '12px 16px', color: '#9ca3af', fontSize: '0.85rem' }}>No closed leads.</div>
+            )}
+            {closedLeads.map((l) => {
+              const cname = l.name || [l.customer_first, l.customer_last].filter(Boolean).join(' ') || 'Unknown';
+              return (
+                <div key={l.id} style={{ padding: '10px 16px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: '0.875rem' }}>{cname}</strong>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: '999px', backgroundColor: l.record_number ? '#bfdbfe' : '#e5e7eb', color: l.record_number ? '#1e40af' : '#374151' }}>
+                        {l.record_number ? `Converted \u00b7 WO #${l.record_number}` : (l.status === 'converted' ? 'Converted' : 'Closed')}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                    </div>
+                    <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '3px' }}>{[l.phone, l.email].filter(Boolean).join(' \u00b7 ') || '\u2014'}</div>
+                    {l.message && (
+                      <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '3px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{l.message}</div>
+                    )}
+                  </div>
+                  {l.record_id && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                      <button onClick={() => navigate(`/records/${l.record_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #2563eb', backgroundColor: '#fff', color: '#2563eb' }}>Open Record</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div style={{ marginBottom: '20px' }}>
