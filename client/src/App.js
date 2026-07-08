@@ -28,6 +28,7 @@ import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
 import Reports from './pages/Reports';
 import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
+import PartsOnOrder from './pages/PartsOnOrder';
 import PayOnline from './pages/PayOnline';
 import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
 import QBStatusDot from './components/QBStatusDot';
@@ -79,6 +80,7 @@ function AppLayout() {
     { to: '/customers', label: 'Customers' },
     { to: '/records', label: 'Records' },
     { to: '/inventory', label: 'Inventory' },
+    { to: '/parts-on-order', label: 'Parts on Order' },
     { to: '/suppliers', label: 'Suppliers' },
     { to: '/schedule', label: 'Schedule' },
     { to: '/parts-sales', label: 'Parts Sale' },
@@ -198,6 +200,7 @@ function AppLayout() {
           <Route path="/records/:id" element={<RecordDetail />} />
           <Route path="/suppliers" element={<Suppliers />} />
           <Route path="/inventory" element={<InventoryList />} />
+          <Route path="/parts-on-order" element={<PartsOnOrder />} />
           <Route path="/inventory/new" element={<InventoryForm />} />
           <Route path="/inventory/:id" element={<InventoryForm />} />
           <Route path="/schedule" element={<Schedule />} />

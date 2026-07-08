@@ -465,6 +465,24 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       }
     }
 
+    // Auto-assign our internal PO number the first time a line is marked
+    // ordered. Format MT-<record_number>-<2-digit seq>. This is the key the
+    // supplier confirmation email echoes back so we can match it later.
+    const becomingOrdered = order_status !== undefined && ['ordered', 'backordered'].includes(order_status);
+    if (becomingOrdered && !existing.po_number) {
+      const { rows: recNoRows } = await client.query('SELECT record_number FROM records WHERE id = $1', [recordId]);
+      const recNo = recNoRows[0]?.record_number;
+      if (recNo) {
+        const { rows: cntRows } = await client.query(
+          'SELECT COUNT(*) AS c FROM record_parts_lines WHERE record_id = $1 AND po_number IS NOT NULL AND deleted_at IS NULL',
+          [recordId]
+        );
+        const seq = String(parseInt(cntRows[0].c, 10) + 1).padStart(2, '0');
+        updates.push(`po_number = $${idx++}`);
+        values.push(`MT-${recNo}-${seq}`);
+      }
+    }
+
     if (updates.length === 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'No valid fields to update' });

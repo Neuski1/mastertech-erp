@@ -132,6 +132,10 @@ export const api = {
   deletePart: (recordId, lineId) => request(`/parts/${recordId}/${lineId}`, { method: 'DELETE' }),
   markAllPartsReceived: (recordId, data = {}) => request(`/parts/${recordId}/mark-all-received`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // Parts on Order dashboard
+  getPartsOnOrder: () => request('/parts-on-order'),
+  getUnmatchedOrderEmails: () => request('/parts-on-order/unmatched-emails'),
+
   // Freight lines
   getFreightLines: (recordId) => request(`/records/${recordId}/freight`),
   addFreightLine: (recordId, data) => request(`/records/${recordId}/freight`, { method: 'POST', body: JSON.stringify(data) }),

@@ -68,6 +68,7 @@ app.use('/api/records', requireAuth, require('./routes/records'));
 app.use('/api/records', requireAuth, require('./routes/freight'));
 app.use('/api/labor', requireAuth, require('./routes/labor'));
 app.use('/api/parts', requireAuth, require('./routes/parts'));
+app.use('/api/parts-on-order', requireAuth, require('./routes/partsOnOrder'));
 app.use('/api/payments/online', require('./routes/poyntPayments')); // public link routes + admin (auth inside)
 app.use('/api/payments', requireAuth, require('./routes/payments'));
 app.use('/api/customers', requireAuth, require('./routes/customers'));
@@ -553,6 +554,25 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_review_request_at TIMESTAMPTZ');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_records_review_pending ON records (status, paid_at) WHERE review_request_sent_at IS NULL');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_records_review_sms_pending ON records (review_request_sent_at) WHERE review_request_sms_sent_at IS NULL AND review_request_sent_at IS NOT NULL');
+
+    // Migration 059: parts order tracking + email auto-fill (Parts on Order dashboard)
+    await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS po_number VARCHAR(50)');
+    await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_confirmed_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_email_msg_id VARCHAR(255)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_parts_po_number ON record_parts_lines (po_number)');
+    await pool.query(`CREATE TABLE IF NOT EXISTS order_email_log (
+      id SERIAL PRIMARY KEY,
+      gmail_msg_id VARCHAR(255) UNIQUE NOT NULL,
+      received_at TIMESTAMPTZ,
+      from_addr VARCHAR(255),
+      subject VARCHAR(500),
+      parsed_po VARCHAR(50),
+      parsed_json JSONB,
+      match_status VARCHAR(20) NOT NULL DEFAULT 'unmatched',
+      matched_line_id INTEGER REFERENCES record_parts_lines(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_order_email_log_status ON order_email_log (match_status)');
 
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
