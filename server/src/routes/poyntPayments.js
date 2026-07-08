@@ -22,7 +22,6 @@ const {
   listDevices,
   pushToTerminal,
   findTransactionByReference,
-  listTransactions,
 } = require('../services/poynt');
 
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
