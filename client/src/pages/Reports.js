@@ -314,7 +314,7 @@ export default function Reports() {
           {report.bankDeposits && (
           <div className="print-section" style={sectionStyle}>
             <h2 style={sectionTitle}>Bank Deposit Reconciliation</h2>
-            <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 8px' }}>Actual money deposited to the bank this period, by source (bank truth). Card amounts are net of processing fees (fees are taken out before the deposit lands). It runs higher than recognized income because it also includes sales tax collected and customer prepayments on open work orders.</p>
+            <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 8px' }}>Actual money deposited to the bank this period, by source (bank truth). This includes sales tax collected, customer prepayments on open orders, and card gross before fees, so it runs higher than recognized income.</p>
             <table style={tableStyle}>
               <tbody>
                 {report.bankDeposits.bySource.filter(x => x.source !== 'Internal transfer').map((x) => (
@@ -328,7 +328,7 @@ export default function Reports() {
                 <Row label="Delta (deposits \u2212 report)" value={fmtCur(report.bankDeposits.received - cashToBank)} bold border color="#b45309" />
               </tbody>
             </table>
-            <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '6px 0 0' }}>Delta reflects sales tax collected (a pass-through, remitted to the state) and customer deposits on open work orders (received but not yet earned), plus deposit timing across months. A positive delta is expected.</p>
+            <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '6px 0 0' }}>Delta reflects sales tax collected, customer deposits on open work orders, processing fees netted at settlement, and non-sales inflows (refunds, owner deposits). A positive delta is expected.</p>
           </div>
           )}
 
