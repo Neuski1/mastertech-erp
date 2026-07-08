@@ -376,36 +376,6 @@ function findTransactionByReference({ referenceId, minutesBack = 30 } = {}) {
   });
 }
 
-function listTransactions({ startAt, endAt, limit = 200 } = {}) {
-  return new Promise((resolve, reject) => {
-    let c;
-    try { c = getClient(); } catch (err) { return reject(err); }
-    c.getTransactions(
-      {
-        businessId: process.env.POYNT_BUSINESS_ID,
-        storeId: process.env.POYNT_STORE_ID,
-        startAt,
-        endAt,
-        limit,
-      },
-      (err, result) => {
-        if (err) return reject(err);
-        const txns = result?.transactions || result?.items || [];
-        const norm = txns.map((t) => ({
-          id: t.id || t.transactionId || null,
-          referenceId: t.referenceId || t.context?.referenceId || (t.references && t.references[0] && t.references[0].id) || null,
-          status: t.status || null,
-          action: t.action || null,
-          amountCents: (t.amounts && (t.amounts.transactionAmount ?? t.amounts.orderAmount)) ?? t.amount ?? null,
-          createdAt: t.createdAt || t.processedAt || null,
-          last4: t.fundingSource?.card?.numberLast4 || null,
-        }));
-        resolve(norm);
-      }
-    );
-  });
-}
-
 module.exports = {
   chargeNonce,
   isPoyntConfigured,
@@ -415,5 +385,4 @@ module.exports = {
   listDevices,
   pushToTerminal,
   findTransactionByReference,
-  listTransactions,
 };
