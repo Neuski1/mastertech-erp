@@ -549,10 +549,10 @@ export default function Storage() {
                         </td>
                         <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: '4px' }}>
-                            {entry.status === 'waiting' && (
+                            {(entry.status === 'waiting' || entry.status === 'notified') && (
                               <button onClick={() => setNotifyEntry(entry)}
                                       style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
-                                Notify
+                                {entry.status === 'notified' ? 'Re-notify' : 'Notify'}
                               </button>
                             )}
                             <button onClick={async () => {
