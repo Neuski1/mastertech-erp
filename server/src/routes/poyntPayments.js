@@ -74,6 +74,53 @@ router.get('/health', requireAuth, requireRole('admin'), (_req, res) => {
 // ADMIN: POST /links — create a new payment link for a record
 // Body: { record_id, amount_cents | amount_dollars, payment_type, customer_email? }
 // ---------------------------------------------------------------------------
+// ADMIN: GET /reconciliation?from=YYYY-MM-DD&to=YYYY-MM-DD
+// Pulls GoDaddy/Poynt card transactions for the period and matches each to the
+// ERP's captured online_payments (by Poynt transaction id or reference token).
+// Read-only: surfaces the payments the ERP never recorded so they can be
+// reconciled against the bank. Does not write payments.
+router.get('/reconciliation', requireAuth, requireRole('admin', 'bookkeeper'), async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
+  if (!isPoyntConfigured()) return res.status(503).json({ error: 'Poynt (GoDaddy) is not configured' });
+  try {
+    const startAt = new Date(`${from}T00:00:00.000Z`).toISOString();
+    const endAt = new Date(`${to}T23:59:59.999Z`).toISOString();
+    const txns = await listTransactions({ startAt, endAt });
+    const sales = txns.filter((t) => (t.status === 'CAPTURED' || t.status === 'AUTHORIZED') && (t.amountCents || 0) > 0);
+    const ids = sales.map((t) => t.id).filter(Boolean);
+    const refs = sales.map((t) => t.referenceId).filter(Boolean);
+    const { rows: opRows } = await pool.query(
+      `SELECT transaction_id, payment_token FROM online_payments
+        WHERE (transaction_id = ANY($1) OR payment_token = ANY($2))`,
+      [ids, refs]
+    );
+    const matchedTxn = new Set(opRows.map((r) => r.transaction_id).filter(Boolean));
+    const matchedRef = new Set(opRows.map((r) => String(r.payment_token)).filter(Boolean));
+    const matched = [], unmatched = [];
+    for (const t of sales) {
+      const hit = (t.id && matchedTxn.has(t.id)) || (t.referenceId && matchedRef.has(String(t.referenceId)));
+      (hit ? matched : unmatched).push(t);
+    }
+    const sum = (arr) => Math.round(arr.reduce((a, t) => a + (t.amountCents || 0), 0)) / 100;
+    res.json({
+      dateRange: { from, to },
+      poynt: { count: sales.length, total: sum(sales) },
+      matched: { count: matched.length, total: sum(matched) },
+      unmatched: {
+        count: unmatched.length,
+        total: sum(unmatched),
+        items: unmatched
+          .map((t) => ({ id: t.id, referenceId: t.referenceId, amount: (t.amountCents || 0) / 100, createdAt: t.createdAt, last4: t.last4 }))
+          .sort((a, b) => b.amount - a.amount),
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/payments/online/reconciliation error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
 router.post('/links', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
   const { record_id, payment_type, customer_email } = req.body || {};
   let amountCents = req.body.amount_cents;
