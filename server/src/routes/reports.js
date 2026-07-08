@@ -125,7 +125,7 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
         COUNT(*) AS n
       FROM transactions t
       JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
-      WHERE pa.is_active = TRUE AND t.amount < 0
+      WHERE pa.is_active = TRUE AND pa.account_type = 'depository' AND t.amount < 0
         AND t.txn_date BETWEEN $1 AND $2
       GROUP BY 1
       ORDER BY total DESC
