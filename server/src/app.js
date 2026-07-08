@@ -538,6 +538,31 @@ const pool = require('./db/pool');
       ON CONFLICT (storage_billing_id, year, month) DO NOTHING
     `);
 
+    // Migration 056: allow source='auto' on storage_payment_status. The daily
+    // backfill cron stubs each active box's current month as unpaid; those
+    // stubs must be overwritable by the Square sync, so they can't be 'manual'
+    // (which the sync treats as a protected override). 'auto' = system stub.
+    await pool.query(`ALTER TABLE storage_payment_status DROP CONSTRAINT IF EXISTS storage_payment_status_source_check`);
+    await pool.query(`ALTER TABLE storage_payment_status ADD CONSTRAINT storage_payment_status_source_check CHECK (source IN ('square','manual','auto'))`);
+
+    // Migration 057: make bank-transaction sync idempotent + dedupe-safe. Adds
+    // a unique key on raw_transaction_id so re-syncing the same Plaid txn (or a
+    // pending txn that later posts) can UPSERT instead of inserting duplicate
+    // rows. No existing dupes (verified before ship).
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_raw_transaction_id ON transactions (raw_transaction_id)`);
+
+    // Migration 058: lead call log — a running history of calls/contacts per
+    // lead (date + optional note), carried into the customer notes on convert.
+    await pool.query(`CREATE TABLE IF NOT EXISTS lead_contacts (
+      id SERIAL PRIMARY KEY,
+      lead_id INTEGER NOT NULL REFERENCES leads(id),
+      contacted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      note TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_lead_contacts_lead ON lead_contacts (lead_id)`);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
@@ -644,6 +669,25 @@ require('./db/pool').query(`
 require('./db/pool').query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'order_parts'")
   .then(() => console.log('order_parts status ready'))
   .catch(err => console.error('order_parts enum migration error:', err.message));
+
+// Auto-migrate: add authorization_number column (migration 049)
+require('./db/pool').query('ALTER TABLE records ADD COLUMN IF NOT EXISTS authorization_number VARCHAR(100)')
+  .then(() => console.log('records.authorization_number column ready'))
+  .catch(err => console.error('authorization_number migration error:', err.message));
+require('./db/pool').query('ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_date DATE')
+  .then(() => console.log('record_parts_lines.order_date column ready'))
+  .catch(err => console.error('parts order_date migration error:', err.message));
+
+// Auto-migrate: leads workflow (scheduled status + soft-delete column)
+require('./db/pool').query("ALTER TYPE lead_status_type ADD VALUE IF NOT EXISTS 'scheduled'")
+  .then(() => console.log('lead scheduled status ready'))
+  .catch(err => console.error('lead scheduled enum migration error:', err.message));
+require('./db/pool').query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ')
+  .then(() => console.log('leads.deleted_at column ready'))
+  .catch(err => console.error('leads deleted_at migration error:', err.message));
+require('./db/pool').query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_at TIMESTAMPTZ')
+  .then(() => console.log('leads.contacted_at column ready'))
+  .catch(err => console.error('leads contacted_at migration error:', err.message));
 
 
 // Migration 043: Estimate line support

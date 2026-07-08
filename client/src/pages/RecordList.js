@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import useIsMobile from '../utils/useIsMobile';
+import { parseLeadMessage } from '../utils/parseLead';
 
 const STATUS_GROUPS = [
   {
@@ -64,7 +65,7 @@ const STATUS_LABELS = {
 };
 
 export default function RecordList() {
-  const { canSeeFinancials, canEditRecords } = useAuth();
+  const { canSeeFinancials, canEditRecords, isAdmin } = useAuth();
   const [records, setRecords] = useState([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -75,6 +76,19 @@ export default function RecordList() {
   const [groupSort, setGroupSort] = useState({}); // { groupKey: { field, dir } }
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [leads, setLeads] = useState([]);
+  const [showClosedLeads, setShowClosedLeads] = useState(false);
+  const [closedLeads, setClosedLeads] = useState([]);
+  const [closedLoading, setClosedLoading] = useState(false);
+  const showLeads = canEditRecords || isAdmin;
+  // File-lead modal: the lead being filed (null = closed) + customer search state
+  const [fileLeadTarget, setFileLeadTarget] = useState(null);
+  const [logCallFor, setLogCallFor] = useState(null);
+  const [logCallDate, setLogCallDate] = useState('');
+  const [logCallNote, setLogCallNote] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState([]);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -94,6 +108,150 @@ export default function RecordList() {
   }, [search, statusFilter, page]);
 
   useEffect(() => { fetchRecords(); }, [fetchRecords]);
+
+  const fetchLeads = useCallback(async () => {
+    if (!showLeads) return;
+    try {
+      const data = await api.getLeads();
+      setLeads(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load leads:', err);
+    }
+  }, [showLeads]);
+
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+  useEffect(() => {
+    if (!showClosedLeads) return;
+    let cancel = false;
+    setClosedLoading(true);
+    api.getLeads({ archived: true })
+      .then((d) => { if (!cancel) setClosedLeads(Array.isArray(d) ? d : []); })
+      .catch(() => {})
+      .finally(() => { if (!cancel) setClosedLoading(false); });
+    return () => { cancel = true; };
+  }, [showClosedLeads]);
+
+  // Debounced customer search for the File-lead modal
+  useEffect(() => {
+    if (!fileLeadTarget) return;
+    const term = customerSearch.trim();
+    if (!term) { setCustomerResults([]); return; }
+    setCustomerSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const data = await api.getCustomers({ search: term, limit: 20 });
+        setCustomerResults(Array.isArray(data.customers) ? data.customers : []);
+      } catch (err) {
+        console.error('Customer search failed:', err);
+        setCustomerResults([]);
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [customerSearch, fileLeadTarget]);
+
+  const setLeadStatus = async (leadId, status) => {
+    try {
+      await api.updateLead(leadId, { status });
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to update lead:', err);
+    }
+  };
+
+  const logLeadContact = async (lead, dateStr, note) => {
+    try {
+      const when = dateStr ? new Date(dateStr + 'T12:00:00').toISOString() : new Date().toISOString();
+      await api.logLeadCall(lead.id, { contacted_at: when, note: note || '' });
+      setLogCallFor(null);
+      setLogCallNote('');
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to log contact:', err);
+    }
+  };
+
+  const scheduleLead = async (lead, leadName) => {
+    try {
+      const p = parseLeadMessage(lead.message || '');
+      navigate('/schedule/new', { state: {
+        customerId: lead.customer_id,
+        customerName: leadName,
+        customerPhone: lead.phone,
+        customerEmail: lead.email,
+        leadId: lead.id,
+        rvYear: p.rvYear, rvMake: p.rvMake, rvModel: p.rvModel,
+        jobDescription: [p.issue, p.services ? `Services: ${p.services}` : ''].filter(Boolean).join('\n\n'),
+      } });
+    } catch (err) {
+      console.error('Failed to schedule lead:', err);
+      fetchLeads();
+    }
+  };
+
+  const buildEstimateFromLead = async (lead) => {
+    try {
+      const r = await api.createEstimateFromLead(lead.id);
+      navigate(`/records/${r.record_id}`);
+    } catch (err) {
+      console.error('Failed to build estimate from lead:', err);
+    }
+  };
+
+  const removeLead = async (lead) => {
+    if (!window.confirm('Delete this lead? This cannot be undone.')) return;
+    try {
+      await api.deleteLead(lead.id);
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to delete lead:', err);
+    }
+  };
+
+  const openLeadRecord = (lead) => {
+    if (!lead.record_id) return;
+    navigate(`/records/${lead.record_id}`);
+  };
+
+  const addLeadToWaitlist = (lead) => {
+    const name = lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || 'Unknown';
+    const p = parseLeadMessage(lead.message || '');
+    navigate('/storage', { state: { addWaitlistFromLead: {
+      leadId: lead.id,
+      contactName: name,
+      contactPhone: lead.phone || '',
+      contactEmail: lead.email || '',
+      message: lead.message || '',
+      spaceType: p.spaceType,
+      rvYear: p.rvYear, rvMake: p.rvMake, rvModel: p.rvModel,
+      lengthFt: p.lengthFt, preferred: p.preferred,
+      notes: p.notes || p.issue || '',
+    } } });
+  };
+
+  const openFileLead = (lead) => {
+    setFileLeadTarget(lead);
+    setCustomerSearch(lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || '');
+    setCustomerResults([]);
+  };
+
+  const closeFileLead = () => {
+    setFileLeadTarget(null);
+    setCustomerSearch('');
+    setCustomerResults([]);
+  };
+
+  const submitFileLead = async (customerId) => {
+    if (!fileLeadTarget) return;
+    try {
+      await api.fileLead(fileLeadTarget.id, customerId ? { customer_id: customerId } : {});
+      closeFileLead();
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to file lead:', err);
+    }
+  };
 
   const formatCurrency = (val) => {
     const num = parseFloat(val) || 0;
@@ -271,6 +429,11 @@ export default function RecordList() {
               Print Work Orders
             </button>
           )}
+          {showLeads && !isMobile && (
+            <button onClick={() => setShowClosedLeads((v) => !v)} style={{ padding: '8px 16px', backgroundColor: showClosedLeads ? '#166534' : '#f3f4f6', color: showClosedLeads ? '#fff' : '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
+              {showClosedLeads ? 'Hide Closed Leads' : 'Closed Leads'}
+            </button>
+          )}
           {canEditRecords && !isMobile && (
             <button onClick={() => navigate('/records/new')} style={btnPrimary}>
               + New Record
@@ -278,6 +441,189 @@ export default function RecordList() {
           )}
         </div>
       </div>
+
+      {/* Leads */}
+      {showLeads && (() => {
+        const PIPELINE = ['new', 'contacted', 'scheduled'];
+        const visibleLeads = leads.filter(l => PIPELINE.includes(l.status));
+        const activeCount = leads.filter(l => PIPELINE.includes(l.status)).length;
+        if (visibleLeads.length === 0) return null;
+        const leadName = (l) => l.name || [l.customer_first, l.customer_last].filter(Boolean).join(' ') || 'Unknown';
+        const leadEmailHref = (l) => {
+          const first = (l.customer_first || (l.name || '').trim().split(/\s+/)[0] || 'there');
+          const subject = 'Re: Your request to Master Tech RV Repair & Storage';
+          const when = l.created_at ? new Date(l.created_at).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' }) : '';
+          const quoted = (l.message || '(no message on file)').split('\n').map((ln) => '> ' + ln).join('\n');
+          const body = [
+            `Hi ${first},`, '',
+            'Thank you for reaching out to Master Tech RV Repair & Storage.', '', '',
+            '-----------------------------------------',
+            when ? `On ${when} you wrote:` : 'Your original request:',
+            quoted,
+          ].join('\n');
+          return `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(l.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        };
+        const STATUS_LABEL = { new: 'New', contacted: 'Contacted', scheduled: 'Scheduled', converted: 'Converted' };
+        const pillColors = (status) => {
+          if (status === 'new') return { bg: '#bbf7d0', fg: '#166534' };
+          if (status === 'contacted') return { bg: '#fde68a', fg: '#92400e' };
+          if (status === 'scheduled') return { bg: '#bfdbfe', fg: '#1e40af' };
+          return { bg: '#e5e7eb', fg: '#374151' };
+        };
+        const actionBtn = (extra) => ({
+          padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
+          fontSize: '0.75rem', fontWeight: 600,
+          border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151',
+          ...extra,
+        });
+        return (
+          <div style={{ borderRadius: '8px', border: '1px solid #bbf7d0', overflow: 'hidden', marginBottom: '20px' }}>
+            <div style={{
+              padding: '10px 16px', backgroundColor: '#dcfce7', color: '#166534',
+              display: 'flex', alignItems: 'center', gap: '8px',
+              fontWeight: 700, fontSize: '0.875rem',
+            }}>
+              <span>Leads</span>
+              <span style={{
+                backgroundColor: '#166534', color: '#fff', borderRadius: '999px',
+                padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700,
+              }}>{activeCount}</span>
+            </div>
+            <div style={{ backgroundColor: '#f0fdf4' }}>
+              {visibleLeads.map((l) => {
+                const pc = pillColors(l.status);
+                return (
+                <div key={l.id} style={{
+                  padding: '12px 16px', borderTop: '1px solid #dcfce7',
+                  display: 'flex', flexWrap: 'wrap', gap: '12px',
+                  alignItems: 'flex-start', justifyContent: 'space-between',
+                }}>
+                  <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700 }}>{leadName(l)}</span>
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
+                        padding: '1px 6px', borderRadius: '4px',
+                        backgroundColor: pc.bg, color: pc.fg,
+                      }}>{STATUS_LABEL[l.status] || l.status}</span>
+                      {l.source && (
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>via {l.source}</span>
+                      )}
+                      {l.record_number && (
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>WO #{l.record_number}</span>
+                      )}
+                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                      {l.contacted_at && (
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Contacted {formatDate(l.contacted_at)}</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '4px' }}>
+                      {[l.phone, l.email].filter(Boolean).join(' \u00b7 ') || '\u2014'}
+                    </div>
+                    {l.message && (
+                      <div style={{
+                        fontSize: '0.8125rem', color: '#4b5563', marginTop: '4px',
+                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      }} title={l.message}>{l.message}</div>
+                    )}
+                    {Array.isArray(l.contacts) && l.contacts.length > 0 && (
+                      <div style={{ marginTop: '6px', borderLeft: '2px solid #e5e7eb', paddingLeft: '8px' }}>
+                        {l.contacts.map((ct) => (
+                          <div key={ct.id} style={{ fontSize: '0.75rem', color: '#4b5563', marginBottom: '2px' }}>
+                            <span style={{ fontWeight: 600 }}>Call {formatDate(ct.contacted_at)}</span>{ct.note ? `: ${ct.note}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {l.phone && (
+                      <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
+                    )}
+                    {l.email && (
+                      <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
+                    )}
+                    {logCallFor === l.id ? (
+                      <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                        <input type="date" value={logCallDate} onChange={(e) => setLogCallDate(e.target.value)} style={{ fontSize: '0.75rem', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+                        <input type="text" value={logCallNote} onChange={(e) => setLogCallNote(e.target.value)} placeholder="Note (optional)" style={{ fontSize: '0.75rem', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '6px', minWidth: '160px' }} />
+                        <button onClick={() => logLeadContact(l, logCallDate, logCallNote)} style={actionBtn({ border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' })}>Save</button>
+                        <button onClick={() => { setLogCallFor(null); setLogCallNote(''); }} style={actionBtn({})}>Cancel</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => { setLogCallFor(l.id); setLogCallDate(new Date().toISOString().slice(0, 10)); setLogCallNote(''); }}
+                        style={actionBtn({ border: '1px solid #166534', color: '#166534' })}
+                      >Log Call</button>
+                    )}
+                    <button onClick={() => scheduleLead(l, leadName(l))}
+                      style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
+                    >Schedule</button>
+                    <button onClick={() => addLeadToWaitlist(l)}
+                      style={actionBtn({ border: '1px solid #0d9488', color: '#0d9488' })}
+                    >Add to Waitlist</button>
+                    <button onClick={() => buildEstimateFromLead(l)}
+                      style={actionBtn({ border: '1px solid #16a34a', color: '#16a34a' })}
+                    >Build Estimate</button>
+                    <button onClick={() => openFileLead(l)} style={actionBtn({ border: '1px solid #6b7280', color: '#374151' })}>File</button>
+                    <button onClick={() => removeLead(l)}
+                      style={actionBtn({ border: '1px solid #dc2626', color: '#dc2626' })}
+                    >Delete</button>
+                    {l.record_id && (
+                      <button onClick={() => openLeadRecord(l)}
+                        style={actionBtn({ padding: '5px 12px', fontWeight: 700, border: '1px solid #16a34a', backgroundColor: '#16a34a', color: '#fff' })}
+                      >Open Record</button>
+                    )}
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {showLeads && showClosedLeads && (
+        <div style={{ borderRadius: '8px', border: '1px solid #d1d5db', overflow: 'hidden', marginBottom: '20px' }}>
+          <div style={{ padding: '10px 16px', backgroundColor: '#e5e7eb', color: '#374151', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.875rem' }}>
+            <span>Closed Leads</span>
+            <span style={{ backgroundColor: '#6b7280', color: '#fff', borderRadius: '999px', padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700 }}>{closedLeads.length}</span>
+            {closedLoading && <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>Loading...</span>}
+          </div>
+          <div style={{ backgroundColor: '#fafafa' }}>
+            {!closedLoading && closedLeads.length === 0 && (
+              <div style={{ padding: '12px 16px', color: '#9ca3af', fontSize: '0.85rem' }}>No closed leads.</div>
+            )}
+            {closedLeads.map((l) => {
+              const cname = l.name || [l.customer_first, l.customer_last].filter(Boolean).join(' ') || 'Unknown';
+              return (
+                <div key={l.id} style={{ padding: '10px 16px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: '0.875rem' }}>{cname}</strong>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: '999px', backgroundColor: l.record_number ? '#bfdbfe' : '#e5e7eb', color: l.record_number ? '#1e40af' : '#374151' }}>
+                        {l.record_number ? `Converted \u00b7 WO #${l.record_number}` : (l.status === 'converted' ? 'Converted' : 'Closed')}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                    </div>
+                    <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '3px' }}>{[l.phone, l.email].filter(Boolean).join(' \u00b7 ') || '\u2014'}</div>
+                    {l.message && (
+                      <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '3px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{l.message}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', flexWrap: 'wrap' }}>
+                    {l.customer_id && (
+                      <button onClick={() => navigate(`/customers/${l.customer_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #6b7280', backgroundColor: '#fff', color: '#374151' }}>Open Customer</button>
+                    )}
+                    {l.record_open && (
+                      <button onClick={() => navigate(`/records/${l.record_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #2563eb', backgroundColor: '#fff', color: '#2563eb' }}>Open Record</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div style={{ marginBottom: '20px' }}>
@@ -387,6 +733,105 @@ export default function RecordList() {
           <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={btnSecondary}>Previous</button>
           <span style={{ padding: '8px', color: '#666' }}>Page {page} of {Math.ceil(total / 50)}</span>
           <button disabled={page >= Math.ceil(total / 50)} onClick={() => setPage(p => p + 1)} style={btnSecondary}>Next</button>
+        </div>
+      )}
+
+      {/* File Lead modal — pick an existing customer to file under, or file as-is */}
+      {fileLeadTarget && (
+        <div
+          onClick={closeFileLead}
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+            padding: '40px 16px', zIndex: 1000, overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#fff', borderRadius: '10px', width: '100%',
+              maxWidth: '560px', boxShadow: '0 10px 40px rgba(0,0,0,0.25)',
+              display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+            }}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
+              <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700, color: '#1e3a5f' }}>
+                File Lead — {fileLeadTarget.name || [fileLeadTarget.customer_first, fileLeadTarget.customer_last].filter(Boolean).join(' ') || 'Unknown'}
+              </h3>
+              <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '6px' }}>
+                {[fileLeadTarget.phone, fileLeadTarget.email].filter(Boolean).join(' · ') || '—'}
+              </div>
+              {fileLeadTarget.message && (
+                <div style={{ fontSize: '0.8125rem', color: '#4b5563', marginTop: '4px' }}>
+                  {fileLeadTarget.message}
+                </div>
+              )}
+              <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '8px' }}>
+                Currently attached to:{' '}
+                <strong>
+                  {[fileLeadTarget.customer_first, fileLeadTarget.customer_last].filter(Boolean).join(' ') || 'a new/auto-created customer'}
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 20px', overflowY: 'auto' }}>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#374151' }}>
+                Search for the customer to file under
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                placeholder="Name, account #, phone, or email"
+                style={{ ...inputStyle, width: '100%', marginTop: '6px', boxSizing: 'border-box' }}
+              />
+
+              <div style={{ marginTop: '12px' }}>
+                {customerSearchLoading && (
+                  <div style={{ fontSize: '0.8125rem', color: '#6b7280', padding: '8px 0' }}>Searching…</div>
+                )}
+                {!customerSearchLoading && customerSearch.trim() && customerResults.length === 0 && (
+                  <div style={{ fontSize: '0.8125rem', color: '#6b7280', padding: '8px 0' }}>No matching customers.</div>
+                )}
+                {customerResults.map((c) => {
+                  const cname = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company_name || 'Unknown';
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => submitFileLead(c.id)}
+                      style={{
+                        padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '6px',
+                        marginBottom: '6px', cursor: 'pointer', backgroundColor: '#f9fafb',
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: '#111827' }}>
+                        {cname}
+                        {c.account_number && (
+                          <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '8px', fontSize: '0.8125rem' }}>
+                            #{c.account_number}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.8125rem', color: '#6b7280', marginTop: '2px' }}>
+                        {[c.phone_primary, c.email_primary].filter(Boolean).join(' · ') || '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{
+              padding: '14px 20px', borderTop: '1px solid #e5e7eb',
+              display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap',
+            }}>
+              <button onClick={closeFileLead} style={btnSecondary}>Cancel</button>
+              <button onClick={() => submitFileLead(null)} style={btnPrimary}>
+                File to current/new customer
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

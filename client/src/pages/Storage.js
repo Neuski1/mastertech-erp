@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import NewCustomerModal from '../components/NewCustomerModal';
@@ -7,6 +8,8 @@ import { formatDate, formatDateTime } from '../utils/dateFormat';
 
 export default function Storage() {
   const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
+  const location = useLocation();
+  const [waitlistPrefill, setWaitlistPrefill] = useState(null);
   const [spaces, setSpaces] = useState([]);
   const [summary, setSummary] = useState(null);
   const [rates, setRates] = useState({});
@@ -63,6 +66,16 @@ export default function Storage() {
   }, [waitlistFilter]);
 
   useEffect(() => { if (activeTab === 'waitlist') fetchWaitlist(); }, [activeTab, fetchWaitlist]);
+  useEffect(() => {
+    const fromLead = location.state?.addWaitlistFromLead;
+    if (fromLead) {
+      setActiveTab('waitlist');
+      setWaitlistPrefill(fromLead);
+      setShowAddWaitlist(true);
+      window.history.replaceState({}, document.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Move a waitlist person to a new rank. The backend resequences the whole
   // active list to stay contiguous, so we just refetch afterward.
@@ -536,10 +549,10 @@ export default function Storage() {
                         </td>
                         <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: '4px' }}>
-                            {entry.status === 'waiting' && (
+                            {(entry.status === 'waiting' || entry.status === 'notified') && (
                               <button onClick={() => setNotifyEntry(entry)}
                                       style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
-                                Notify
+                                {entry.status === 'notified' ? 'Re-notify' : 'Notify'}
                               </button>
                             )}
                             <button onClick={async () => {
@@ -590,8 +603,17 @@ export default function Storage() {
       {/* Add to Waitlist Modal */}
       {showAddWaitlist && (
         <AddWaitlistModal
-          onClose={() => setShowAddWaitlist(false)}
-          onAdded={() => { setShowAddWaitlist(false); setActionMsg('Added to waitlist'); fetchWaitlist(); }}
+          prefill={waitlistPrefill}
+          onClose={() => { setShowAddWaitlist(false); setWaitlistPrefill(null); }}
+          onAdded={async () => {
+            setShowAddWaitlist(false);
+            setActionMsg('Added to waitlist');
+            fetchWaitlist();
+            if (waitlistPrefill?.leadId) {
+              try { await api.deleteLead(waitlistPrefill.leadId); } catch (e) {}
+            }
+            setWaitlistPrefill(null);
+          }}
         />
       )}
 
@@ -2252,12 +2274,12 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
   );
 }
 
-function AddWaitlistModal({ onClose, onAdded }) {
-  const [form, setForm] = useState({
-    contact_name: '', contact_phone: '', contact_email: '',
-    space_type: 'indoor', rv_year: '', rv_make: '', rv_model: '',
-    rv_length_feet: '', preferred_start: '', budget_monthly: '', notes: '',
-  });
+function AddWaitlistModal({ onClose, onAdded, prefill }) {
+  const [form, setForm] = useState(() => ({
+    contact_name: prefill?.contactName || '', contact_phone: prefill?.contactPhone || '', contact_email: prefill?.contactEmail || '',
+    space_type: prefill?.spaceType || 'indoor', rv_year: prefill?.rvYear || '', rv_make: prefill?.rvMake || '', rv_model: prefill?.rvModel || '',
+    rv_length_feet: prefill?.lengthFt || '', preferred_start: prefill?.preferred || '', budget_monthly: '', notes: prefill?.notes || prefill?.message || '',
+  }));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   // Customer search

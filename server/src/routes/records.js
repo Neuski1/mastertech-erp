@@ -399,7 +399,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     'expected_completion_date', 'mileage_at_intake',
     'is_insurance_job', 'insurance_company', 'insurance_contact_name',
     'insurance_phone', 'insurance_email', 'claim_number', 'policy_number',
-    'estimate_valid_until', 'authorization_signed_at',
+    'estimate_valid_until', 'authorization_signed_at', 'authorization_number',
     'internal_notes', 'customer_notes',
     'actual_completion_date',
     'under_warranty_amount', 'no_charge_amount', 'deductible_amount', 'deposit_amount',
@@ -830,7 +830,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       pool.query('SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY id', [r.id]),
       pool.query('SELECT * FROM payments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY payment_date, id', [r.id]),
       pool.query('SELECT * FROM record_photos WHERE record_id = $1 ORDER BY category, created_at', [r.id]),
-      pool.query('SELECT dropoff_notes, pickup_notes FROM appointments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY scheduled_at DESC LIMIT 1', [r.id]),
+      pool.query('SELECT a.dropoff_notes, a.pickup_notes, t.name AS technician_name FROM appointments a LEFT JOIN technicians t ON t.id = a.technician_id WHERE a.record_id = $1 AND a.deleted_at IS NULL ORDER BY a.scheduled_at DESC LIMIT 1', [r.id]),
     ]);
     const appt = apptRes.rows[0] || {};
 
@@ -856,7 +856,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
        ORDER BY t.name ASC`,
       [r.id]
     );
-    const techNames = techNamesRes.rows.map(row => row.name);
+    const techNames = [...new Set([...techNamesRes.rows.map(row => row.name), appt.technician_name].filter(Boolean))];
     const isEstimate = r.status === 'estimate';
 
     // Only include inspection-finding lines (is_estimate_line = TRUE) once the
@@ -899,7 +899,6 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     <div style="text-align:right;font-size:13px;font-weight:bold;color:#92400e;">Recommended Total: ${fmtCur(findingTotal)}</div>
     ` : '';
     const underWarranty = parseFloat(r.under_warranty_amount) || 0;
-    const noCharge = parseFloat(r.no_charge_amount) || 0;
     const discount = parseFloat(r.discount_amount) || 0;
     const amountDue = parseFloat(r.amount_due) || 0;
     const partsTotal = parseFloat(r.parts_subtotal) || 0;
@@ -998,9 +997,16 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     <div style="margin:16px 0;padding:16px;background:#f0f7ff;border-left:4px solid #1a2a4a;border-radius:4px;">
       <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.6;white-space:pre-wrap;">${personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
     </div>` : ''}
-    ${r.insurance_company ? `
-    <div style="margin-bottom:12px;padding:8px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;font-size:12px;">
-      <strong>Insurance:</strong> ${r.insurance_company}${r.claim_number ? ' &nbsp; <strong>Claim #:</strong> ' + r.claim_number : ''}${r.policy_number ? ' &nbsp; <strong>Policy #:</strong> ' + r.policy_number : ''}
+    ${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.authorization_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0) ? `
+    <div style="margin-bottom:12px;padding:8px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;font-size:12px;line-height:1.6;">
+      ${r.insurance_company ? `<strong>Insurance:</strong> ${r.insurance_company}<br/>` : ''}
+      ${r.claim_number ? `<strong>Claim #:</strong> ${r.claim_number}<br/>` : ''}
+      ${r.policy_number ? `<strong>Policy #:</strong> ${r.policy_number}<br/>` : ''}
+      ${r.authorization_number ? `<strong>Authorization #:</strong> ${r.authorization_number}<br/>` : ''}
+      ${parseFloat(r.deductible_amount) > 0 ? `<strong>Deductible:</strong> ${fmtCur(r.deductible_amount)}<br/>` : ''}
+      ${r.insurance_contact_name ? `<strong>Contact:</strong> ${r.insurance_contact_name}<br/>` : ''}
+      ${r.insurance_phone ? `<strong>Phone:</strong> ${r.insurance_phone}<br/>` : ''}
+      ${r.insurance_email ? `<strong>Email:</strong> ${r.insurance_email}` : ''}
     </div>` : ''}
 
     ${r.job_description ? `
@@ -1058,7 +1064,6 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         <tr><td style="padding:3px 12px;color:#6b7280;">Tax</td><td style="padding:3px 12px;text-align:right;">${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</td></tr>
         <tr style="border-top:2px solid #1e3a5f;"><td style="padding:6px 12px;font-weight:bold;color:#1e3a5f;">Total Sales</td><td style="padding:6px 12px;text-align:right;font-weight:bold;">${fmtCur(r.total_sales)}</td></tr>
         ${underWarranty > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Under Warranty</td><td style="padding:3px 12px;text-align:right;color:#dc2626;">-${fmtCur(underWarranty)}</td></tr>` : ''}
-        ${noCharge > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Not Covered</td><td style="padding:3px 12px;text-align:right;color:#dc2626;">-${fmtCur(noCharge)}</td></tr>` : ''}
         ${discount > 0 ? `<tr><td style="padding:3px 12px;color:#dc2626;">Discount${r.discount_description ? ' — ' + r.discount_description : ''}</td><td style="padding:3px 12px;text-align:right;color:#dc2626;">-${fmtCur(discount)}</td></tr>` : ''}
         <tr><td style="padding:3px 12px;color:#6b7280;">Total Collected</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.total_collected)}</td></tr>
         <tr style="border-top:2px solid #1e3a5f;"><td style="padding:8px 12px;font-weight:bold;font-size:15px;color:${amountDue > 0 ? '#dc2626' : '#065f46'};">AMOUNT DUE</td><td style="padding:8px 12px;text-align:right;font-weight:bold;font-size:15px;color:${amountDue > 0 ? '#dc2626' : '#065f46'};">${fmtCur(amountDue)}</td></tr>

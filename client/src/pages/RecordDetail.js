@@ -284,18 +284,37 @@ export default function RecordDetail() {
     setEmailPersonalMsg('');
     const partsTotal = parseFloat(record.parts_subtotal) || 0;
     const amountDue = parseFloat(record.amount_due) || 0;
-    const isEstimate = record.status === 'estimate';
-    const defaultType = isEstimate && partsTotal > 0 ? 'parts_deposit' : 'final_payment';
+    // Final payment is only offered once the work order is complete and has
+    // become an invoice. Before that, the only option is the parts deposit.
+    const isInvoice = ['complete', 'payment_pending', 'partial', 'paid'].includes(record.status);
+    const defaultType = isInvoice ? 'final_payment' : 'parts_deposit';
     const defaultAmount = defaultType === 'parts_deposit' ? partsTotal : amountDue;
     setEmailPayLinkType(defaultType);
     setEmailPayLinkAmount(defaultAmount > 0 ? defaultAmount.toFixed(2) : '');
-    // Default OFF — most work orders are sent for approval, not payment.
-    // User checks "Include Payment Link" when they actually want to collect.
-    setEmailIncludePayLink(false);
+    // Auto-check the payment link only for invoices (work complete). Plain
+    // work orders still go out unchecked since they are usually for approval.
+    setEmailIncludePayLink(isInvoice);
     setEmailTo(record.email_primary || '');
     setEmailCc(record.email_secondary || '');
     setEmailPersonalMsg('');
     setShowEmailModal(true);
+  };
+
+  // Open a Gmail compose to the customer from the service@ account, prefilled
+  // with the work order number so the customer knows which job it's about.
+  const emailCustomerGmail = () => {
+    const email = record.email_primary;
+    if (!email) { alert('No email address on file for this customer.'); return; }
+    const first = record.first_name || record.last_name || 'there';
+    const wo = record.record_number;
+    const subject = `Master Tech RV Repair & Storage \u2013 Work Order #${wo}`;
+    const body = [
+      `Hi ${first},`, '',
+      `Regarding your RV service with us (Work Order #${wo}):`, '', '',
+      'Thank you,', 'Master Tech RV Repair & Storage',
+    ].join('\n');
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleEmailDocument = async () => {
@@ -369,13 +388,18 @@ export default function RecordDetail() {
     // Otherwise the printed totals (from the DB) won't match the printed rows.
     const isCommitted = (line) => !line.is_estimate_line || line.customer_approved;
     const laborLines = (r.labor_lines || []).filter(isCommitted);
-    const techNames = [...new Set(laborLines.map(l => l.technician_name).filter(Boolean))].sort();
+    let apptTechNames = [];
+    try {
+      const apptData = await api.getAppointments({ record_id: id });
+      apptTechNames = (apptData.appointments || []).map(a => a.technician_name).filter(Boolean);
+    } catch (e) { /* non-fatal */ }
+    const techNames = [...new Set([...laborLines.map(l => l.technician_name), ...apptTechNames].filter(Boolean))].sort();
     const isEstimate = r.status === 'estimate';
 
     // Build labor rows
     const totalHours = laborLines.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0);
     const laborRows = laborLines.map((l, i) =>
-      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${l.no_charge ? '<span style="color:#9ca3af">'+fmtCur(l.rate)+'</span>' : fmtCur(l.rate)}</td><td style="text-align:right">${l.no_charge ? '$0.00' : fmtCur(l.line_total)}</td></tr>`
+      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}${l.technician_name ? '<div style="font-size:9px;color:#555;margin-top:1px">Tech: ' + l.technician_name + '</div>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${l.no_charge ? '<span style="color:#9ca3af">'+fmtCur(l.rate)+'</span>' : fmtCur(l.rate)}</td><td style="text-align:right">${l.no_charge ? '$0.00' : fmtCur(l.line_total)}</td></tr>`
     ).join('');
     const laborTotalRow = laborLines.length > 0 ? `
       <tr style="background:#f3f4f6"><td colspan="3" style="text-align:right;font-weight:bold;padding:6px 8px;border-top:2px solid #d1d5db">TOTAL HOURS:</td><td style="text-align:right;font-weight:bold;padding:6px 8px;border-top:2px solid #d1d5db">${totalHours.toFixed(2)} hrs</td><td></td><td></td></tr>
@@ -396,7 +420,7 @@ export default function RecordDetail() {
     pendingEstLabor.forEach(l => pendingEstTotal += parseFloat(l.line_total || 0));
     pendingEstParts.forEach(p => pendingEstTotal += parseFloat(p.line_total || 0));
     const pendingEstLaborRows = pendingEstLabor.map((l, i) =>
-      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
+      `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.technician_name ? '<div style="font-size:9px;color:#555;margin-top:1px">Tech: ' + l.technician_name + '</div>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
     ).join('');
     const pendingEstPartsRows = pendingEstParts.map(p =>
       `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
@@ -408,7 +432,6 @@ export default function RecordDetail() {
     ).join('');
 
     const underWarranty = parseFloat(r.under_warranty_amount) || 0;
-    const noCharge = parseFloat(r.no_charge_amount) || 0;
     const deposit = parseFloat(r.deposit_amount) || 0;
     const freightSub = parseFloat(r.freight_subtotal) || 0;
 
@@ -453,8 +476,8 @@ export default function RecordDetail() {
     const html = `<!DOCTYPE html><html><head><title>${docTitle} ${r.record_number}</title>
 <style>
   html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-  @media print { @page { margin: 0.5in; } html, body, * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 8px; }
+  @media print { @page { size: auto; margin: 0.5in; } html, body, * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 0; padding: 0; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; border-bottom: 3px solid #1a2a4a; padding-bottom: 8px; }
   .header-left { display: flex; align-items: flex-start; gap: 12px; }
   .header-left img { height: 90px; max-width: 220px; object-fit: contain; }
@@ -523,13 +546,16 @@ export default function RecordDetail() {
     ${!isEstimate && techNames.length > 0 ? `<br/><label>Serviced By</label><span>${techNames.join(', ')}</span>` : ''}
   </div>
 </div>
-${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0) ? `<div class="info-block">
+${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0 || r.authorization_number || parseFloat(r.under_warranty_amount) > 0 || parseFloat(r.mileage_at_intake) > 0) ? `<div class="info-block">
   <div>
     <label>Insurance</label>
     <span>${r.insurance_company || '\u2014'}</span><br/>
     ${r.claim_number ? `<label>Claim #</label><span>${r.claim_number}</span><br/>` : ''}
     ${r.policy_number ? `<label>Policy #</label><span>${r.policy_number}</span><br/>` : ''}
-    ${parseFloat(r.deductible_amount) > 0 ? `<label>Deductible</label><span>${fmtCur(r.deductible_amount)}</span>` : ''}
+    ${r.authorization_number ? `<label>Authorization #</label><span>${r.authorization_number}</span><br/>` : ''}
+    ${parseFloat(r.deductible_amount) > 0 ? `<label>Deductible</label><span>${fmtCur(r.deductible_amount)}</span><br/>` : ''}
+    ${parseFloat(r.under_warranty_amount) > 0 ? `<label>Under Warranty</label><span>${fmtCur(r.under_warranty_amount)}</span><br/>` : ''}
+    ${r.mileage_at_intake ? `<label>Mileage at Intake</label><span>${r.mileage_at_intake}</span>` : ''}
   </div>
   ${(r.insurance_contact_name || r.insurance_phone || r.insurance_email) ? `<div>
     <label>Insurance Contact</label>
@@ -591,7 +617,6 @@ ${(pendingEstLabor.length + pendingEstParts.length) > 0 ? `
     ${deposit > 0 ? `<div class="row"><span>DEPOSIT RECEIVED</span><span>${fmtCur(deposit)}</span></div>` : ''}
     <div class="row bold divider"><span>TOTAL SALES</span><span>${fmtCur(r.total_sales)}</span></div>
     ${underWarranty > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Under Warranty</span><span>(${fmtCur(underWarranty)})</span></div>` : ''}
-    ${noCharge > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Not Covered</span><span>(${fmtCur(noCharge)})</span></div>` : ''}
     ${(parseFloat(r.discount_amount) || 0) > 0 ? `<div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Discount${r.discount_description ? ' — ' + r.discount_description : ''}</span><span>-${fmtCur(r.discount_amount)}</span></div>` : ''}
     <div class="row"><span>TOTAL COLLECTED</span><span>${fmtCur(r.total_collected)}</span></div>
     <div class="row bold divider" style="color:${(parseFloat(r.amount_due) || 0) > 0 ? '#dc2626' : '#111'}"><span>AMOUNT DUE</span><span>${fmtCur(r.amount_due)}</span></div>
@@ -720,8 +745,13 @@ ${paymentDetailHtml}
           {saving && <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Saving...</span>}
           <button onClick={handlePrint} style={btnPrint}>Print</button>
           <button onClick={openEmailDialog} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
-            {emailing ? 'Sending...' : '\u2709 Email'}
+            {emailing ? 'Sending...' : '\u2709 Email Invoice'}
           </button>
+          {record.email_primary && (
+            <button onClick={emailCustomerGmail} style={{ ...btnPrint, backgroundColor: '#047857' }}>
+              {'\u2709 Email Customer'}
+            </button>
+          )}
           {canEditRecords && record.status !== 'void' && (
             <button onClick={() => setShowScheduleModal(true)} style={btnSchedule}>Add to Schedule</button>
           )}
@@ -946,12 +976,12 @@ ${paymentDetailHtml}
                   <EditableField label="Policy #" field="policy_number" value={record.policy_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                   <EditableField label="Deductible" field="deductible_amount" value={record.deductible_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
                 </div>
-                {/* Row 2: Contact Name, Phone, Email, Not Covered Amount */}
+                {/* Row 2: Contact Name, Phone, Email, Authorization # */}
                 <div style={{ ...gridStyle, marginTop: '12px' }}>
                   <EditableField label="Contact Name" field="insurance_contact_name" value={record.insurance_contact_name || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                   <EditableField label="Phone" field="insurance_phone" value={record.insurance_phone || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                   <EditableField label="Email" field="insurance_email" value={record.insurance_email || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
-                  <EditableField label="Not Covered Amount" field="no_charge_amount" value={record.no_charge_amount || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="number" />
+                  <EditableField label="Authorization #" field="authorization_number" value={record.authorization_number || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />
                 </div>
                 {/* Row 3: Under Warranty Amount, Mileage at Intake */}
                 <div style={{ ...gridStyle, marginTop: '12px' }}>
@@ -1178,7 +1208,6 @@ ${paymentDetailHtml}
             <div style={{ borderTop: '2px solid #1e3a5f', marginTop: '8px', paddingTop: '8px' }}>
               <TotalRow label="Total Sales" value={formatCurrency(record.total_sales)} bold />
               {parseFloat(record.under_warranty_amount) > 0 && <TotalRow label="Under Warranty" value={`-${formatCurrency(record.under_warranty_amount)}`} color="#dc2626" indent />}
-              {parseFloat(record.no_charge_amount) > 0 && <TotalRow label="Not Covered" value={`-${formatCurrency(record.no_charge_amount)}`} color="#dc2626" indent />}
               {parseFloat(record.discount_amount) > 0 && <TotalRow label={`Discount${record.discount_description ? ' — ' + record.discount_description : ''}`} value={`-${formatCurrency(record.discount_amount)}`} color="#dc2626" indent />}
               <TotalRow label="Total Collected" value={formatCurrency(record.total_collected)} />
               <TotalRow label="Amount Due" value={formatCurrency(record.amount_due)} bold color={parseFloat(record.amount_due) > 0 ? '#dc2626' : '#065f46'} />
@@ -1363,7 +1392,9 @@ ${paymentDetailHtml}
                         setEmailPayLinkAmount(e.target.value === 'parts_deposit' ? (p > 0 ? p.toFixed(2) : '') : (d > 0 ? d.toFixed(2) : ''));
                       }} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem' }}>
                         <option value="parts_deposit">Parts Deposit</option>
-                        <option value="final_payment">Final Payment</option>
+                        {['complete', 'payment_pending', 'partial', 'paid'].includes(record.status) && (
+                          <option value="final_payment">Final Payment</option>
+                        )}
                       </select>
                     </div>
                     <div style={{ width: '120px' }}>
@@ -2202,6 +2233,7 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
         onChange={handleChange}
         onFocus={() => { if (onFocus) onFocus(field); }}
         onBlur={handleBlur}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
         style={inputStyle}
       />
     </div>
@@ -2325,8 +2357,13 @@ const modalStyle = {
 function PaymentLinkModal({ recordId, record, onClose }) {
   const suggestedParts = parseFloat(record?.parts_subtotal || 0) || 0;
   const suggestedFinal = parseFloat(record?.amount_due || 0) || 0;
-  const [paymentType, setPaymentType] = useState('parts_deposit');
-  const [amount, setAmount] = useState(suggestedParts > 0 ? suggestedParts.toFixed(2) : '');
+  // Final payment is only available once the work order is complete (an invoice).
+  const isInvoice = ['complete', 'payment_pending', 'partial', 'paid'].includes(record?.status);
+  const [paymentType, setPaymentType] = useState(isInvoice ? 'final_payment' : 'parts_deposit');
+  const [amount, setAmount] = useState(() => {
+    const seed = isInvoice ? suggestedFinal : suggestedParts;
+    return seed > 0 ? seed.toFixed(2) : '';
+  });
   const [email, setEmail] = useState(record?.email_primary || '');
   const [link, setLink] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -2382,7 +2419,9 @@ function PaymentLinkModal({ recordId, record, onClose }) {
               <label style={{ display: 'block', fontSize: '0.8rem', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Payment Type</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <TypeOption active={paymentType === 'parts_deposit'} onClick={() => handleTypeChange('parts_deposit')} title="Parts Deposit" desc="Customer not yet in. WO status unchanged." />
-                <TypeOption active={paymentType === 'final_payment'} onClick={() => handleTypeChange('final_payment')} title="Final Payment" desc="Work complete. Moves WO to Paid." />
+                {isInvoice && (
+                  <TypeOption active={paymentType === 'final_payment'} onClick={() => handleTypeChange('final_payment')} title="Final Payment" desc="Work complete. Moves WO to Paid." />
+                )}
               </div>
             </div>
 

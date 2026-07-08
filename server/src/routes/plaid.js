@@ -175,14 +175,57 @@ async function upsertTransaction(client, txn) {
   // is_transfer rows).
   const isTransfer = /\bsquare\b/i.test(`${txn.merchant_name || ''} ${txn.name || ''}`);
 
+  // Pending -> posted merge. When a pending transaction posts, Plaid assigns a
+  // NEW transaction_id and points back to the old one via pending_transaction_id.
+  // Retire the superseded pending row so it is not double-counted, carrying
+  // forward any manual categorization / review the bookkeeper applied to it.
+  let glId = category.gl_id;
+  let catSource = category.source;
+  let transfer = isTransfer;
+  if (txn.pending_transaction_id) {
+    const prior = await client.query(
+      `SELECT t.id, t.category_gl_id, t.categorization_source, t.is_transfer
+         FROM transactions t
+         JOIN raw_transactions r ON r.id = t.raw_transaction_id
+        WHERE r.plaid_transaction_id = $1
+        ORDER BY t.id DESC
+        LIMIT 1`,
+      [txn.pending_transaction_id]
+    );
+    if (prior.rows.length) {
+      const prev = prior.rows[0];
+      const manual = prev.category_gl_id
+        && !String(prev.categorization_source || '').startsWith('rule')
+        && prev.categorization_source !== 'unmatched';
+      if (manual) { glId = prev.category_gl_id; catSource = prev.categorization_source; }
+      if (prev.is_transfer) transfer = true;
+      await client.query(
+        `UPDATE transactions
+            SET status = 'excluded',
+                notes = COALESCE(notes, '') || ' [superseded by posted txn ' || $2 || ']'
+          WHERE id = $1 AND status <> 'excluded'`,
+        [prev.id, txn.transaction_id]
+      );
+    }
+  }
+
+  // Idempotent upsert keyed on raw_transaction_id (unique). Re-syncing a
+  // transaction refreshes only the bank-truth fields; it never clobbers a
+  // categorization or review a human already made.
   await client.query(
     `INSERT INTO transactions
        (raw_transaction_id, plaid_account_id, txn_date, posted_date, amount,
         merchant_name, description, category_gl_id, categorization_source, status, is_transfer)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10)
-     ON CONFLICT DO NOTHING`,
+     ON CONFLICT (raw_transaction_id) DO UPDATE
+       SET txn_date = EXCLUDED.txn_date,
+           posted_date = EXCLUDED.posted_date,
+           amount = EXCLUDED.amount,
+           merchant_name = EXCLUDED.merchant_name,
+           description = EXCLUDED.description,
+           updated_at = NOW()`,
     [rawId, plaidAccountDbId, txn.date, txn.authorized_date, txn.amount,
-     txn.merchant_name || txn.name, txn.name, category.gl_id, category.source, isTransfer]
+     txn.merchant_name || txn.name, txn.name, glId, catSource, transfer]
   );
 }
 
