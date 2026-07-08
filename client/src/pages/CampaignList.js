@@ -26,11 +26,6 @@ export default function CampaignList() {
     const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
   };
 
-  const formatDate = (d) => {
-    if (!d) return '—';
-    return formatDate(d);
-  };
-
   const statusBadge = (status) => {
     const colors = {
       draft: { bg: '#f3f4f6', color: '#374151' },
