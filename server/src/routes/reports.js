@@ -108,38 +108,8 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
       LIMIT 10
     `, [from, to]);
 
-    // Actual bank deposits for the period (bank truth): money IN (amount < 0)
-    // on active accounts, bucketed by source. Internal Square Savings <-> Checking
-    // transfers are separated so they don't inflate money actually received.
-    const { rows: bankRows } = await pool.query(`
-      SELECT
-        CASE
-          WHEN t.description ILIKE '%square fin svcs transfer%' OR t.merchant_name ILIKE '%square fin svcs%' THEN 'Internal transfer'
-          WHEN t.merchant_name ILIKE 'godaddy%' THEN 'GoDaddy (online card)'
-          WHEN t.merchant_name ILIKE 'square%' OR t.description ILIKE 'square%' THEN 'Square (card)'
-          WHEN t.description ILIKE '%zelle from%' THEN 'Zelle'
-          WHEN t.description ILIKE '%mobile deposit%' THEN 'Checks / Mobile Deposit'
-          ELSE 'Other deposits'
-        END AS source,
-        ROUND(-SUM(t.amount), 2) AS total,
-        COUNT(*) AS n
-      FROM transactions t
-      JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
-      WHERE pa.is_active = TRUE AND pa.account_type = 'depository' AND t.amount < 0
-        AND t.txn_date BETWEEN $1 AND $2
-      GROUP BY 1
-      ORDER BY total DESC
-    `, [from, to]);
-    const bankReceived = bankRows.filter(x => x.source !== 'Internal transfer').reduce((sum, x) => sum + parseFloat(x.total), 0);
-    const bankTransfers = bankRows.filter(x => x.source === 'Internal transfer').reduce((sum, x) => sum + parseFloat(x.total), 0);
-
     res.json({
       dateRange: { from, to },
-      bankDeposits: {
-        received: bankReceived,
-        transfers: bankTransfers,
-        bySource: bankRows.map(x => ({ source: x.source, total: parseFloat(x.total), count: parseInt(x.n) })),
-      },
       revenue: {
         labor: parseFloat(revenue.labor),
         parts: parseFloat(revenue.parts),
