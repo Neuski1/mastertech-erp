@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { getSetting } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
 const { syncChargeToLedger } = require('../services/storageLedger');
+const { sendSMS } = require('../services/sms');
 // Square billing removed — Square handles recurring billing automatically
 
 // ===========================================================================
@@ -1349,23 +1350,16 @@ ${personalBlock}
       }
     }
 
-    // Send SMS notification (if Twilio is configured). If Carol typed a
-    // personal message, that becomes the SMS body; otherwise use the canned
-    // copy. SMS is plain text so no HTML escape needed.
-    if (phone && process.env.TWILIO_ACCOUNT_SID) {
+    // Send SMS via the app's SMS provider (Dialpad). sendSMS handles phone
+    // normalization, opt-out checks, and provider config; results.sms only
+    // says 'sent' when the text actually went out.
+    if (phone) {
+      const smsBody = personalMessage
+        ? `${personalMessage}\n\n— Master Tech RV (303) 557-2214`
+        : `Hi ${name}! An ${typeLabel} storage space is now available at Master Tech RV. Call us at (303) 557-2214 to reserve your spot before it's taken!`;
       try {
-        const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-        const cleanPhone = phone.replace(/\D/g, '');
-        const toPhone = cleanPhone.length === 10 ? `+1${cleanPhone}` : `+${cleanPhone}`;
-        const smsBody = personalMessage
-          ? `${personalMessage}\n\n— Master Tech RV (303) 557-2214`
-          : `Hi ${name}! An ${typeLabel} storage space is now available at Master Tech RV. Call us at (303) 557-2214 to reserve your spot before it's taken!`;
-        await twilio.messages.create({
-          body: smsBody,
-          from: process.env.TWILIO_FROM_NUMBER,
-          to: toPhone
-        });
-        results.sms = 'sent';
+        const smsResult = await sendSMS(phone, smsBody);
+        results.sms = smsResult.success ? 'sent' : ('not sent: ' + (smsResult.skipped || smsResult.error || 'unknown'));
       } catch (smsErr) {
         console.error('Waitlist SMS error:', smsErr);
         results.sms = 'failed: ' + smsErr.message;
