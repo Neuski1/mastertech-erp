@@ -104,6 +104,34 @@ export const api = {
   deleteRecordPhoto: (recordId, photoId) => request(`/records/${recordId}/photos/${photoId}`, { method: 'DELETE' }),
   updateRecordPhoto: (recordId, photoId, data) => request(`/records/${recordId}/photos/${photoId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   emailRecordPhotos: (recordId, data = {}) => request(`/records/${recordId}/photos/email`, { method: 'POST', body: JSON.stringify(data) }),
+  getRecordDocuments: (recordId) => request(`/records/${recordId}/documents`),
+  uploadRecordDocument: (recordId, file, docType, title) => {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      const blob = new Blob([file], { type: file.type || 'application/octet-stream' });
+      formData.append('document', blob, file.name || 'document');
+      formData.append('doc_type', docType || 'other');
+      if (title) formData.append('title', title);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/records/${recordId}/documents`);
+      if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      xhr.onload = () => {
+        if (xhr.status === 401) { localStorage.removeItem('erp_token'); authToken = null; window.location.href = '/login'; return reject(new Error('Session expired')); }
+        try { const data = JSON.parse(xhr.responseText); if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(new Error(data.error || `Upload failed (${xhr.status})`)); }
+        catch (e) { reject(new Error(`Upload failed (${xhr.status})`)); }
+      };
+      xhr.onerror = () => reject(new Error('Network error — check your connection and try again'));
+      xhr.send(formData);
+    });
+  },
+  downloadRecordDocument: async (recordId, docId) => {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/records/${recordId}/documents/${docId}/download`, { headers });
+    if (!res.ok) throw new Error('Download failed');
+    return res.blob();
+  },
+  deleteRecordDocument: (recordId, docId) => request(`/records/${recordId}/documents/${docId}`, { method: 'DELETE' }),
 
   // Customers
   getCustomers: (params = {}) => {
