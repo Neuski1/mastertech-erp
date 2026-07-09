@@ -8,6 +8,7 @@ import LaborLinesTable from '../components/LaborLinesTable';
 import PartsLinesTable from '../components/PartsLinesTable';
 import CommunicationLog from '../components/CommunicationLog';
 import PhotoLinksSection from '../components/PhotoLinksSection';
+import RecordDocumentsSection from '../components/RecordDocumentsSection';
 import SquarePayment from '../components/SquarePayment';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
@@ -1485,6 +1486,9 @@ ${paymentDetailHtml}
 
       {/* Photos */}
       <PhotoLinksSection recordId={record.id} isEditable={isEditable} />
+
+      {/* Insurance & Warranty Documents */}
+      <RecordDocumentsSection recordId={record.id} isEditable={isEditable} />
 
       <CommunicationLog customerId={record.customer_id} recordId={record.id} />
     </div>

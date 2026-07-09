@@ -92,6 +92,7 @@ app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
+app.use('/api/records', requireAuth, require('./routes/recordDocuments'));
 app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
 app.use('/api/reports', requireAuth, require('./routes/reports'));
 app.use('/api/bookkeeper-adjustments', requireAuth, require('./routes/bookkeeperAdjustments'));
@@ -571,6 +572,20 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS photo_data BYTEA');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS thumbnail_data BYTEA');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_record_photos_record ON record_photos (record_id)');
+    // Migration 059: record_documents — insurance/warranty/other files on a WO.
+    await pool.query(`CREATE TABLE IF NOT EXISTS record_documents (
+      id SERIAL PRIMARY KEY,
+      record_id INTEGER NOT NULL REFERENCES records(id),
+      doc_type VARCHAR(30) NOT NULL DEFAULT 'other',
+      title VARCHAR(255),
+      file_data BYTEA,
+      mime_type VARCHAR(100),
+      file_size INTEGER DEFAULT 0,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_record_documents_record ON record_documents (record_id)');
 
     // Migration 052: review request tracking (Day-3-after-paid Google review automation)
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_sent_at TIMESTAMPTZ');
