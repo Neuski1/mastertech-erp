@@ -1062,6 +1062,14 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           rows={2}
           style={{ ...inputStyleFull, fontFamily: 'inherit', resize: 'vertical', marginTop: '4px' }}
         />
+        <label style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginTop: '10px' }}>
+          Lease Start Date
+        </label>
+        <input type="date"
+          defaultValue={space.billing_start_date ? (String(space.billing_start_date).includes('T') ? String(space.billing_start_date).split('T')[0] : space.billing_start_date) : ''}
+          onBlur={(e) => e.target.value && saveBilling({ billing_start_date: e.target.value }, 'lease start date')}
+          style={{ ...inputStyleFull, marginTop: '4px' }} />
+        <div style={{ fontSize: '0.68rem', color: '#9ca3af', margin: '2px 0 4px' }}>Edit before sending — this is the start date printed on the contract. Saves automatically.</div>
         <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           <button onClick={async () => {
             const w = window.open('about:blank', '_blank');
