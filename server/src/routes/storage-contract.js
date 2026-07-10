@@ -195,6 +195,7 @@ router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async
 
     const emailResult = await sendEmail({
       to: email,
+      cc: 'service@mastertechrvrepair.com',
       subject: `Your Storage Lease Agreement — Master Tech RV (Space ${spaceLabel})`,
       html: `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
