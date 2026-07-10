@@ -179,13 +179,11 @@ router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async
     let token = r.contract_token;
     if (!token) {
       const tokenRes = await pool.query(
-        `UPDATE storage_billing SET contract_token = gen_random_uuid(), contract_sent_at = NOW()
+        `UPDATE storage_billing SET contract_token = gen_random_uuid()
          WHERE id = $1 RETURNING contract_token`,
         [billing_id]
       );
       token = tokenRes.rows[0].contract_token;
-    } else {
-      await pool.query('UPDATE storage_billing SET contract_sent_at = NOW() WHERE id = $1', [billing_id]);
     }
 
     const baseUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
@@ -195,7 +193,7 @@ router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async
     const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || 'Valued Customer';
     const spaceLabel = r.label || r.space_type;
 
-    await sendEmail({
+    const emailResult = await sendEmail({
       to: email,
       subject: `Your Storage Lease Agreement — Master Tech RV (Space ${spaceLabel})`,
       html: `
@@ -229,6 +227,13 @@ router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async
 </div>`,
       text: `Hello ${customerName}, please review and accept your Storage Lease Agreement for Space ${spaceLabel} at: ${viewUrl}`,
     });
+
+    // Only mark the contract as sent once the email actually went out — do not
+    // report success (or set contract_sent_at) if the send failed.
+    if (!emailResult || emailResult.success === false) {
+      return res.status(502).json({ error: 'Email failed to send: ' + ((emailResult && emailResult.error) || 'unknown error') });
+    }
+    await pool.query('UPDATE storage_billing SET contract_sent_at = NOW() WHERE id = $1', [billing_id]);
 
     // Log
     try {
