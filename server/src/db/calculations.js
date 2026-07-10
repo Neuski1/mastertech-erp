@@ -68,13 +68,8 @@ async function recalculateTotals(recordId, client) {
     ? 0
     : parseFloat((laborSubtotal * shopSuppliesRate).toFixed(2));
 
-  const ccFeeRate = await getSetting('cc_fee_rate');
-  const ccFeeAmount = rec.cc_fee_applied
-    ? parseFloat(((laborSubtotal + partsSubtotal + freightSubtotal + shopSuppliesAmount) * ccFeeRate).toFixed(2))
-    : 0;
-
-  const subtotalOthers = parseFloat((shopSuppliesAmount + ccFeeAmount).toFixed(2));
-
+  // Tax is computed BEFORE the credit-card fee because the fee is grossed up
+  // on the full pre-fee total, which includes tax.
   let taxAmount = 0;
   if (!rec.tax_exempt && !rec.tax_waived) {
     const taxRes = await db.query(
@@ -88,6 +83,19 @@ async function recalculateTotals(recordId, client) {
     // Tax applies to taxable parts + shop supplies
     taxAmount = parseFloat(((taxableTotal + shopSuppliesAmount) * parseFloat(rec.tax_rate)).toFixed(2));
   }
+
+  // Credit-card surcharge. The processor takes its % of the ENTIRE amount
+  // charged to the card — which includes the surcharge itself and the tax —
+  // so a flat base*rate leaves us short (a fee-on-fee gap). Gross it up:
+  //   fee = base * rate / (1 - rate),  base = pre-fee total incl tax.
+  // e.g. rate 3%: base * 0.03/0.97, so 3% of (base+fee) exactly equals the fee.
+  const ccFeeRate = await getSetting('cc_fee_rate');
+  const ccFeeBase = laborSubtotal + partsSubtotal + freightSubtotal + shopSuppliesAmount + taxAmount;
+  const ccFeeAmount = (rec.cc_fee_applied && ccFeeRate != null && ccFeeRate < 1)
+    ? parseFloat((ccFeeBase * (ccFeeRate / (1 - ccFeeRate))).toFixed(2))
+    : 0;
+
+  const subtotalOthers = parseFloat((shopSuppliesAmount + ccFeeAmount).toFixed(2));
 
   const totalSales = parseFloat(
     (laborSubtotal + partsSubtotal + freightSubtotal + subtotalOthers + taxAmount).toFixed(2)
