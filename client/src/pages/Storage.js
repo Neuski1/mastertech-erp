@@ -1034,10 +1034,11 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           </div>
           {(space.contract_sent_at || space.contract_accepted_at) && (
             <button onClick={async () => {
+              const w = window.open('about:blank', '_blank');
               try {
                 const { viewUrl } = await api.getStorageContractPreviewUrl(space.billing_id);
-                window.open(viewUrl, '_blank', 'noopener');
-              } catch (err) { flash('Error: ' + err.message); }
+                if (w) w.location.href = viewUrl; else window.open(viewUrl, '_blank', 'noopener');
+              } catch (err) { if (w) w.close(); flash('Error: ' + err.message); }
             }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', textDecoration: 'underline', fontSize: '0.72rem', fontWeight: 600, padding: 0 }}>
               View Contract
             </button>
@@ -1063,11 +1064,12 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
         />
         <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           <button onClick={async () => {
+            const w = window.open('about:blank', '_blank');
             try {
               const { viewUrl } = await api.getStorageContractPreviewUrl(space.billing_id);
-              window.open(viewUrl, '_blank', 'noopener');
+              if (w) w.location.href = viewUrl; else window.open(viewUrl, '_blank', 'noopener');
               flash('Preview opened in a new tab');
-            } catch (err) { flash('Error: ' + err.message); }
+            } catch (err) { if (w) w.close(); flash('Error: ' + err.message); }
           }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#f3f4f6', color: '#1e3a5f', border: '1px solid #d1d5db' }}>
             Preview Contract
           </button>
@@ -1187,20 +1189,10 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
       const billingId = result?.id;
       if (billingId) {
         if (sendContract) {
-          try {
-            const { viewUrl } = await api.getStorageContractPreviewUrl(billingId);
-            window.open(viewUrl, '_blank', 'noopener');
-            const shouldSend = window.confirm(
-              'Contract preview opened in a new tab.\n\n' +
-              'Review it now. Click OK to email the contract to the customer, ' +
-              'or Cancel to keep it as a draft (you can send later from the box).'
-            );
-            if (shouldSend) {
-              await api.emailStorageContract(billingId);
-            }
-          } catch (err) {
-            console.error('Contract preview/send error:', err);
-          }
+          // Prepare the lease as a draft (ensure its token exists) but do NOT
+          // email it, so it can be reviewed first. Review with "Preview
+          // Contract" and send with "Email Contract" from the space box.
+          try { await api.getStorageContractPreviewUrl(billingId); } catch (e) { /* token ensured */ }
         }
         if (sendGuidelines) api.sendStorageGuidelines({ billing_id: billingId }).catch(err => console.error('Guidelines email error:', err));
       }
@@ -1344,7 +1336,7 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '8px', textTransform: 'uppercase' }}>After Assignment</div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px', fontSize: '0.85rem', color: '#374151' }}>
               <input type="checkbox" checked={sendContract} onChange={(e) => setSendContract(e.target.checked)} />
-              Email Storage Contract (with digital accept link)
+              Prepare Storage Contract (review, then send from the space box)
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', color: '#374151' }}>
               <input type="checkbox" checked={sendGuidelines} onChange={(e) => setSendGuidelines(e.target.checked)} />
@@ -2013,20 +2005,10 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
       const billingId = result?.id;
       if (billingId) {
         if (sendContract) {
-          try {
-            const { viewUrl } = await api.getStorageContractPreviewUrl(billingId);
-            window.open(viewUrl, '_blank', 'noopener');
-            const shouldSend = window.confirm(
-              'Contract preview opened in a new tab.\n\n' +
-              'Review it now. Click OK to email the contract to the customer, ' +
-              'or Cancel to keep it as a draft (you can send later from the Storage page).'
-            );
-            if (shouldSend) {
-              await api.emailStorageContract(billingId);
-            }
-          } catch (e) {
-            console.error('Contract preview/send error:', e);
-          }
+          // Prepare the lease as a draft (ensure its token exists) but do NOT
+          // email it, so it can be reviewed first. Review and send it from the
+          // Storage page (Preview Contract, then Email Contract).
+          try { await api.getStorageContractPreviewUrl(billingId); } catch (e) { /* token ensured */ }
         }
         if (sendGuidelines) api.sendStorageGuidelines({ billing_id: billingId }).catch(e => console.error('Guidelines email error:', e));
       }
@@ -2228,7 +2210,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
                   </div>
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={sendContract} onChange={(e) => setSendContract(e.target.checked)} /> Email contract to customer
+                      <input type="checkbox" checked={sendContract} onChange={(e) => setSendContract(e.target.checked)} /> Prepare contract (review before sending)
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer', marginTop: '6px' }}>
                       <input type="checkbox" checked={sendGuidelines} onChange={(e) => setSendGuidelines(e.target.checked)} /> Email storage guidelines
