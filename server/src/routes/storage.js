@@ -7,6 +7,23 @@ const { syncChargeToLedger } = require('../services/storageLedger');
 const { sendSMS } = require('../services/sms');
 // Square billing removed — Square handles recurring billing automatically
 
+// Log a waitlist-related touch onto the customer record so it shows up in the
+// customer's Marketing & Notes log (marketing_contacts table). Best-effort:
+// wrapped in try/catch so a logging hiccup never blocks or fails the caller.
+// userId may be null for system-triggered logs.
+async function logCustomerContact({ customerId, channel, campaign, notes, userId }) {
+  if (!customerId) return;
+  try {
+    await pool.query(
+      `INSERT INTO marketing_contacts (customer_id, campaign_name, channel, notes, logged_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+      [customerId, campaign || null, channel || null, notes || null, userId || null]
+    );
+  } catch (e) {
+    console.error('logCustomerContact failed:', e.message);
+  }
+}
+
 // ===========================================================================
 // PAYMENT GRID HELPERS
 // ===========================================================================
@@ -1173,6 +1190,20 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
         console.error('Waitlist confirmation email error:', mailErr.message);
       }
     }
+
+    // Record the signup on the customer's Marketing & Notes log so there is a
+    // permanent trail even after the waitlist entry is later removed.
+    await logCustomerContact({
+      customerId: customer_id,
+      channel: confirmationSent ? 'Email' : 'Note',
+      campaign: 'Storage waitlist signup',
+      notes: `Added to ${space_type === 'indoor' ? 'indoor' : 'outdoor'} storage waitlist (position ${position}).`
+        + (confirmationSent ? ' Confirmation email sent.'
+           : confirmEmail ? ' Confirmation email attempted but failed to send.'
+           : ' No email on file, no confirmation sent.'),
+      userId: req.user && req.user.id,
+    });
+
     res.status(201).json({ ...entry, confirmation_sent: confirmationSent });
   } catch (err) {
     console.error('POST /api/storage/waitlist error:', err);
@@ -1288,6 +1319,18 @@ router.delete('/waitlist/:id', requireRole('admin', 'service_writer', 'technicia
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
+
+    // Note the removal on the customer record so the history is preserved even
+    // though the waitlist row is now hidden from the active list.
+    const removed = rows[0];
+    await logCustomerContact({
+      customerId: removed.customer_id,
+      channel: 'Note',
+      campaign: 'Storage waitlist',
+      notes: `Removed from ${removed.space_type === 'indoor' ? 'indoor' : 'outdoor'} storage waitlist.`,
+      userId: req.user && req.user.id,
+    });
+
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/storage/waitlist/:id error:', err);
@@ -1371,6 +1414,23 @@ ${personalBlock}
       `UPDATE storage_waitlist SET status = 'notified', notified_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
+
+    // Log the outreach on the customer record (Marketing & Notes) so Carol can
+    // see exactly what went out and when, straight from the customer's card.
+    const sentChannels = [];
+    if (results.email === 'sent') sentChannels.push('Email');
+    if (results.sms === 'sent') sentChannels.push('SMS');
+    const bodyForLog = personalMessage
+      || `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} storage space available — reserve by calling (303) 557-2214.`;
+    await logCustomerContact({
+      customerId: entry.customer_id,
+      channel: sentChannels.length ? sentChannels.join(' + ') : 'Attempted',
+      campaign: 'Storage availability notification',
+      notes: sentChannels.length
+        ? `Availability notice sent via ${sentChannels.join(' and ')}. Message: "${bodyForLog}"`
+        : `Availability notice attempted but nothing delivered (email: ${results.email || 'none'}, SMS: ${results.sms || 'none'}). Message: "${bodyForLog}"`,
+      userId: req.user && req.user.id,
+    });
 
     res.json({ success: true, results });
   } catch (err) {
