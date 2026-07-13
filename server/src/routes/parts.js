@@ -362,6 +362,21 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
         );
       }
     }
+    // A parts line "holds" stock when it is an inventory-linked, non-estimate
+    // line on a record that pulls inventory, AND its status says the part came
+    // off our shelf rather than being ordered in. 'inventory' is the explicit
+    // way to say that; a legacy NULL status means the same thing (those lines
+    // were already decremented at creation via the "Pull from Stock" path).
+    // Treating the two identically is what keeps us from double-deducting.
+    const isStockPullStatus = (s) => !s || s === 'inventory';
+    const invEligible = !!(existing.is_inventory_part && existing.inventory_id
+                           && !existing.is_estimate_line
+                           && pullsInventory(recordStatus));
+    const nextStatus = order_status !== undefined ? order_status : existing.order_status;
+    const wasHoldingStock = invEligible && isStockPullStatus(existing.order_status);
+    const nowHoldingStock = invEligible && isStockPullStatus(nextStatus);
+    const stockStateChanged = wasHoldingStock !== nowHoldingStock;
+
     if (quantity !== undefined) {
       newQty = parseFloat(quantity);
       if (isNaN(newQty) || newQty <= 0) {
@@ -372,11 +387,11 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       values.push(newQty);
 
       // Adjust inventory only for real WO lines (not inspection-finding
-      // estimate lines, not lines on an estimate-status record).
-      if (existing.is_inventory_part && existing.inventory_id
-          && !existing.is_estimate_line
-          && pullsInventory(recordStatus)
-          && !existing.order_status) {
+      // estimate lines, not lines on an estimate-status record). Skipped when
+      // the stock-pull state itself is flipping in this same request - that
+      // case is settled below against the final quantity, so doing it here too
+      // would move stock twice.
+      if (wasHoldingStock && !stockStateChanged) {
         const qtyDiff = newQty - parseFloat(existing.quantity);
         if (qtyDiff !== 0) {
           await client.query(
@@ -385,6 +400,15 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
           );
         }
       }
+    }
+
+    // Status flipped into or out of "From Inventory": move the stock to match.
+    if (stockStateChanged) {
+      const qtyForStock = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
+      await client.query(
+        `UPDATE inventory SET qty_on_hand = qty_on_hand ${nowHoldingStock ? '-' : '+'} $1 WHERE id = $2`,
+        [qtyForStock, existing.inventory_id]
+      );
     }
     if (sale_price_each !== undefined) {
       newPrice = parseFloat(sale_price_each);
@@ -449,7 +473,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     // inventory parts on records that aren't fully estimate-status.
     if (existing.is_inventory_part && existing.inventory_id
         && pullsInventory(recordStatus)
-        && !existing.order_status) {
+        && isStockPullStatus(existing.order_status)
+        && !stockStateChanged) {
       const qtyForInv = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
       if (existing.is_estimate_line && !finalIsEstimate) {
         // Promoting estimate -> real: pull stock now.

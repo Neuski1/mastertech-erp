@@ -11,7 +11,16 @@ const ORDER_STATUS_STYLE = {
   ordered:     { backgroundColor: '#fef3c7', color: '#92400e' },
   backordered: { backgroundColor: '#fee2e2', color: '#991b1b' },
   received:    { backgroundColor: '#d1fae5', color: '#065f46' },
+  inventory:   { backgroundColor: '#e0f2fe', color: '#075985' },
 };
+
+// A line linked to an inventory item can be marked "From Inventory", which
+// pulls the quantity off the shelf. Lines with no inventory link cannot be --
+// there would be no stock item to deduct from. Legacy lines carry a NULL
+// status, which on an inventory-linked line already means "came from stock".
+const isInventoryLine = (line) => !!(line.is_inventory_part && line.inventory_id);
+const displayOrderStatus = (line) =>
+  line.order_status || (isInventoryLine(line) ? 'inventory' : 'not_ordered');
 
 export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate, isEstimate = false, showApproval = false }) {
   const { canSeeFinancials } = useAuth();
@@ -77,7 +86,10 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   // assign the same column twice in one UPDATE.
   const [statusSavingId, setStatusSavingId] = useState(null);
   const saveOrderStatus = async (line, next) => {
-    if (next === (line.order_status || 'not_ordered')) return;
+    // Compare against what the dropdown is actually showing. A legacy NULL on an
+    // inventory line already displays as "From Inventory", so re-picking it is a
+    // no-op -- importantly, that means we never re-deduct stock it already took.
+    if (next === displayOrderStatus(line)) return;
     setStatusSavingId(line.id);
     try {
       await api.updatePart(recordId, line.id, { order_status: next });
@@ -805,9 +817,12 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 {isEditable && (
                   <td style={{ ...tdStyle, textAlign: 'center' }}>
                     <select
-                      value={line.order_status || 'not_ordered'}
+                      value={displayOrderStatus(line)}
                       onChange={(e) => saveOrderStatus(line, e.target.value)}
                       disabled={statusSavingId === line.id}
+                      title={isInventoryLine(line)
+                        ? 'From Inventory pulls this quantity off the shelf'
+                        : 'Link this line to an inventory item (+Inv) to pull it from stock'}
                       style={{
                         fontSize: '0.75rem',
                         fontWeight: 600,
@@ -815,9 +830,12 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                         borderRadius: '4px',
                         border: '1px solid #d1d5db',
                         cursor: 'pointer',
-                        ...(ORDER_STATUS_STYLE[line.order_status || 'not_ordered'] || {}),
+                        ...(ORDER_STATUS_STYLE[displayOrderStatus(line)] || {}),
                       }}
                     >
+                      {/* Only offer stock-pull on lines that actually point at an
+                          inventory item -- otherwise there is nothing to deduct. */}
+                      {isInventoryLine(line) && <option value="inventory">From Inventory</option>}
                       <option value="not_ordered">Not Ordered</option>
                       <option value="ordered">Ordered</option>
                       <option value="backordered">Backordered</option>
