@@ -40,6 +40,17 @@ export default function Suppliers() {
   const [createPoModalOpen, setCreatePoModalOpen] = useState(false);
   const [poDetailModalOpen, setPoDetailModalOpen] = useState(false);
   const [selectedPo, setSelectedPo] = useState(null);
+  // Supplier detail modal (Phase 1: tabs for open POs / order history / parts)
+  const [supplierDetailOpen, setSupplierDetailOpen] = useState(false);
+  const [supplierDetail, setSupplierDetail] = useState(null); // { loading, supplier, pos, parts }
+  const [supplierDetailTab, setSupplierDetailTab] = useState('open_pos');
+  const [supplierTypeFilter, setSupplierTypeFilter] = useState('all'); // all | inventory | misc
+  // PO detail actions (Phase 2)
+  const [poReceiveMode, setPoReceiveMode] = useState(false);
+  const [poReceiveQtys, setPoReceiveQtys] = useState({});
+  const [poSubmitMode, setPoSubmitMode] = useState(false);
+  const [poSubmitForm, setPoSubmitForm] = useState({});
+  const [placeOrderText, setPlaceOrderText] = useState('');
   const [newPo, setNewPo] = useState({
     vendor: '',
     order_date: new Date().toISOString().split('T')[0],
@@ -88,7 +99,7 @@ export default function Suppliers() {
     setLoadingPos(true);
     try {
       const filters = {};
-      if (poStatusFilter !== 'All') filters.status = poStatusFilter.toLowerCase();
+      if (poStatusFilter !== 'All') filters.status = poStatusFilter;
       if (poVendorFilter) filters.vendor = poVendorFilter;
       const result = await api.getPurchaseOrders(filters);
       setPurchaseOrders(result.orders || []);
@@ -148,9 +159,35 @@ export default function Suppliers() {
       account_number: vendor.account_number || '',
       notes: vendor.notes || '',
       supplier_type: vendor.supplier_type || 'inventory',
-      subcategory: vendor.subcategory || ''
+      subcategory: vendor.subcategory || '',
+      order_method: vendor.order_method || '',
+      default_ship_days: vendor.default_ship_days || ''
     });
     setEditModalOpen(true);
+  };
+
+  // Open the supplier detail modal. Ensures a suppliers-table row exists (so we
+  // have an id) then loads POs + parts from the /api/suppliers/:id endpoints.
+  const handleViewSupplier = async (vendor) => {
+    try {
+      let id = vendor.id;
+      if (!id) {
+        const row = await api.updateVendorDetails(vendor.name, { supplier_type: vendor.supplier_type || 'inventory' });
+        id = row.id;
+        fetchVendors();
+      }
+      setSupplierDetail({ loading: true, supplier: { ...vendor, id }, pos: null, parts: null });
+      setSupplierDetailTab('open_pos');
+      setSupplierDetailOpen(true);
+      const [full, pos, parts] = await Promise.all([
+        api.getSupplier(id),
+        api.getSupplierPurchaseOrders(id),
+        api.getSupplierParts(id),
+      ]);
+      setSupplierDetail({ loading: false, supplier: full, pos, parts });
+    } catch (e) {
+      setSupplierDetail({ loading: false, supplier: vendor, pos: { open: [], history: [] }, parts: { inventory: [], catalog: [] }, error: e.message });
+    }
   };
 
   const handleAddMiscSupplier = async () => {
@@ -325,15 +362,16 @@ export default function Suppliers() {
     }
   };
 
+  // Quick full-receive from the PO list rows (receives every outstanding qty).
   const handleMarkReceived = async (poId) => {
-    if (!window.confirm('Mark this purchase order as received? This will update inventory quantities for matched items.')) return;
+    if (!window.confirm('Receive this purchase order in full? This updates inventory quantities for matched items and marks linked customer parts as received.')) return;
     try {
-      await api.receivePurchaseOrder(poId);
+      await api.receivePurchaseOrderLines(poId, null);
       await fetchPurchaseOrders();
       setPoDetailModalOpen(false);
     } catch (error) {
-      console.error('Error marking PO as received:', error);
-      alert('Error: ' + (error.message || 'Could not mark as received'));
+      console.error('Error receiving PO:', error);
+      alert('Error: ' + (error.message || 'Could not receive'));
     }
   };
 
@@ -341,9 +379,90 @@ export default function Suppliers() {
     try {
       const full = await api.getPurchaseOrder(po.id);
       setSelectedPo(full);
+      setPoReceiveMode(false);
+      setPoReceiveQtys({});
+      setPoSubmitMode(false);
+      setPoSubmitForm({
+        order_number: full.order_number || '',
+        order_date: (full.order_date || new Date().toISOString().split('T')[0]).split('T')[0],
+        expected_date: full.expected_date ? full.expected_date.split('T')[0] : '',
+        tracking_number: full.tracking_number || '',
+      });
+      setPlaceOrderText('');
       setPoDetailModalOpen(true);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const refreshSelectedPo = async () => {
+    const full = await api.getPurchaseOrder(selectedPo.id);
+    setSelectedPo(full);
+    await fetchPurchaseOrders();
+  };
+
+  // "Mark as Ordered" — captures the supplier's confirmation number / dates and
+  // flips the draft to submitted (generates the PO number server-side).
+  const handleSubmitPO = async () => {
+    try {
+      await api.submitPurchaseOrder(selectedPo.id, poSubmitForm);
+      await refreshSelectedPo();
+      setPoSubmitMode(false);
+    } catch (e) {
+      alert('Error: ' + (e.message || 'Could not mark as ordered'));
+    }
+  };
+
+  // Receive full or partial. receiveAll=true receives every outstanding qty.
+  const handleReceiveLines = async (receiveAll) => {
+    try {
+      let lines = null;
+      if (!receiveAll) {
+        lines = Object.entries(poReceiveQtys)
+          .map(([line_id, qty]) => ({ line_id: Number(line_id), qty_received: parseFloat(qty) }))
+          .filter(l => l.qty_received > 0);
+        if (!lines.length) { alert('Enter a quantity to receive on at least one line.'); return; }
+      }
+      await api.receivePurchaseOrderLines(selectedPo.id, lines);
+      await refreshSelectedPo();
+      setPoReceiveMode(false);
+      setPoReceiveQtys({});
+    } catch (e) {
+      alert('Error: ' + (e.message || 'Could not receive'));
+    }
+  };
+
+  // Convenience: open the supplier website and produce a copyable
+  // part-number + qty list to paste into their cart. No order is emailed.
+  const handlePlaceOrder = () => {
+    const details = detailsByName.get((selectedPo.vendor || '').toLowerCase());
+    const website = details?.website || selectedPo.website;
+    const list = (selectedPo.line_items || [])
+      .map(li => `${li.vendor_part_number || li.description}\t${li.qty}`)
+      .join('\n');
+    setPlaceOrderText(list);
+    try { if (navigator.clipboard) navigator.clipboard.writeText(list); } catch (e) { /* ignore */ }
+    if (website) window.open(website, '_blank', 'noopener');
+    else alert('No website on file for this supplier — add one on the supplier record.');
+  };
+
+  // Attach an inbound order confirmation (manual entry fallback).
+  const handleFindConfirmation = async () => {
+    const order_number = window.prompt('Confirmation / order number from the supplier email:', selectedPo.order_number || '');
+    if (order_number === null) return;
+    const tracking_number = window.prompt('Tracking number (optional):', selectedPo.tracking_number || '');
+    if (tracking_number === null) return;
+    const expected_date = window.prompt('Expected delivery date (YYYY-MM-DD, optional):', selectedPo.expected_date ? selectedPo.expected_date.split('T')[0] : '');
+    if (expected_date === null) return;
+    try {
+      await api.findPOConfirmation(selectedPo.id, {
+        order_number: order_number || null,
+        tracking_number: tracking_number || null,
+        expected_date: expected_date || null,
+      });
+      await refreshSelectedPo();
+    } catch (e) {
+      alert('Error: ' + (e.message || 'Could not save confirmation'));
     }
   };
 
@@ -414,10 +533,14 @@ export default function Suppliers() {
   const modalStyle = { background: '#fff', borderRadius: '8px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
 
   const badgeStyle = (status) => {
+    const base = { padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, textTransform: 'capitalize' };
     const styles = {
-      pending: { background: '#fef3c7', color: '#92400e', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 },
-      received: { background: '#d1fae5', color: '#065f46', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 },
-      cancelled: { background: '#e5e7eb', color: '#374151', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }
+      pending: { ...base, background: '#fef3c7', color: '#92400e' },
+      draft: { ...base, background: '#e0e7ff', color: '#3730a3' },
+      submitted: { ...base, background: '#fef3c7', color: '#92400e' },
+      partially_received: { ...base, background: '#fed7aa', color: '#9a3412' },
+      received: { ...base, background: '#d1fae5', color: '#065f46' },
+      cancelled: { ...base, background: '#e5e7eb', color: '#374151' }
     };
     return styles[status] || styles.pending;
   };
@@ -527,6 +650,14 @@ export default function Suppliers() {
                 <button onClick={() => { setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
                   + Add Misc. Supplier
                 </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280' }}>Type</label>
+                  <select value={supplierTypeFilter} onChange={(e) => setSupplierTypeFilter(e.target.value)} style={{ ...inputStyle, width: '150px' }}>
+                    <option value="all">All suppliers</option>
+                    <option value="inventory">Inventory only</option>
+                    <option value="misc">Misc only</option>
+                  </select>
+                </div>
               </>
             ) : (
               <>
@@ -553,6 +684,7 @@ export default function Suppliers() {
           ) : (
             <>
               {/* ═══════════ SECTION 1: INVENTORY SUPPLIERS ═══════════ */}
+              {supplierTypeFilter !== 'misc' && (<>
               <div style={{ background: '#1e3a5f', color: '#fff', padding: '10px 16px', borderRadius: '8px 8px 0 0', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Inventory Suppliers</span>
                 <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({mergedVendors.length})</span>
@@ -572,6 +704,7 @@ export default function Suppliers() {
                           <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.name}</h3>
                         </div>
                         <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          <button onClick={() => handleViewSupplier(vendor)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>View</button>
                           <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
                           <button onClick={() => handleMoveToMisc(vendor)} style={{ ...btnSmall, background: '#f0fdfa', color: '#0d9488', border: '1px solid #99f6e4' }} title="Move to Misc Suppliers">Misc</button>
                           <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
@@ -605,6 +738,8 @@ export default function Suppliers() {
                           <span>{vendor.website ? <a href={vendor.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{vendor.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Account #</span>
                           <span>{vendor.account_number || <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Order Via</span>
+                          <span style={{ textTransform: 'capitalize' }}>{vendor.order_method || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Contact</span>
                           <span>{vendor.contact_name || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Email</span>
@@ -628,7 +763,10 @@ export default function Suppliers() {
                 </div>
               )}
 
+              </>)}
+
               {/* ═══════════ SECTION 2: MISC. SUPPLIERS ═══════════ */}
+              {supplierTypeFilter !== 'inventory' && (<>
               <div style={{ background: '#0d9488', color: '#fff', padding: '10px 16px', borderRadius: '8px 8px 0 0', marginTop: '30px', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Misc. Suppliers</span>
                 <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({miscSuppliers.length}) — Customer-specific parts</span>
@@ -653,8 +791,9 @@ export default function Suppliers() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                               <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1f2937' }}>{s.name}</div>
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap' }}>
+                                <button onClick={() => handleViewSupplier(s)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>View</button>
                                 <button onClick={() => handleEditVendor(s)} style={btnSmall}>Edit</button>
-                                <button onClick={() => handleMoveToInventory(s.name)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }} title="Move to Inventory Suppliers">Inventory</button>
+                                <button onClick={() => handleMoveToInventory(s.name)} style={{ ...btnSmall, background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }} title="Move to Inventory Suppliers">Inventory</button>
                                 <button onClick={() => handleDeleteMiscSupplier(s.name)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
                               </div>
                             </div>
@@ -687,6 +826,7 @@ export default function Suppliers() {
                   ))}
                 </div>
               )}
+              </>)}
             </>
           )}
         </div>
@@ -699,11 +839,13 @@ export default function Suppliers() {
           <div style={{ ...cardStyle, marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '5px' }}>Status</label>
-              <select value={poStatusFilter} onChange={(e) => setPoStatusFilter(e.target.value)} style={{ ...inputStyle, width: '150px' }}>
-                <option>All</option>
-                <option>Pending</option>
-                <option>Received</option>
-                <option>Cancelled</option>
+              <select value={poStatusFilter} onChange={(e) => setPoStatusFilter(e.target.value)} style={{ ...inputStyle, width: '160px' }}>
+                <option value="All">All</option>
+                <option value="draft">Draft</option>
+                <option value="submitted">Submitted</option>
+                <option value="partially_received">Partially received</option>
+                <option value="received">Received</option>
+                <option value="cancelled">Cancelled</option>
               </select>
             </div>
             <div>
@@ -749,7 +891,7 @@ export default function Suppliers() {
                       <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
                       <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
                       <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
-                        {po.status === 'pending' && (
+                        {['draft','submitted','partially_received','pending'].includes(po.status) && (
                           <button onClick={() => handleMarkReceived(po.id)} style={{ ...btnSmall, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
                             Receive
                           </button>
@@ -827,7 +969,7 @@ export default function Suppliers() {
                 </div>
                 <div style={cardStyle}>
                   <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Pending</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706', marginTop: '8px' }}>{importPOs.filter(p => p.status === 'pending').length}</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706', marginTop: '8px' }}>{importPOs.filter(p => ['pending', 'draft'].includes(p.status)).length}</div>
                 </div>
                 <div style={cardStyle}>
                   <div style={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Received</div>
@@ -985,7 +1127,7 @@ export default function Suppliers() {
                           <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(po.total)}</td>
                           <td style={tdStyle}><span style={badgeStyle(po.status)}>{po.status}</span></td>
                           <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
-                            {po.status === 'pending' && (
+                            {['draft','submitted','partially_received','pending'].includes(po.status) && (
                               <button onClick={() => handleMarkReceived(po.id)} style={{ ...btnSmall, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>
                                 Receive
                               </button>
@@ -1049,6 +1191,20 @@ export default function Suppliers() {
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Account Number</label>
               <input type="text" value={editFormData.account_number} onChange={(e) => setEditFormData({ ...editFormData, account_number: e.target.value })} style={inputStyle} />
             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Order Method</label>
+                <select value={editFormData.order_method || ''} onChange={(e) => setEditFormData({ ...editFormData, order_method: e.target.value })} style={inputStyle}>
+                  <option value="">—</option>
+                  <option value="website">Website</option>
+                  <option value="phone">Phone</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Default Ship Days</label>
+                <input type="number" min="0" value={editFormData.default_ship_days} onChange={(e) => setEditFormData({ ...editFormData, default_ship_days: e.target.value })} style={inputStyle} placeholder="e.g. 5" />
+              </div>
+            </div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Notes</label>
               <textarea value={editFormData.notes} onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })} style={{ ...inputStyle, minHeight: '80px', fontFamily: 'inherit' }} />
@@ -1056,6 +1212,83 @@ export default function Suppliers() {
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button onClick={() => setEditModalOpen(false)} style={btnSecondary}>Cancel</button>
               <button onClick={handleSaveVendor} style={btnPrimary}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPPLIER DETAIL MODAL */}
+      {supplierDetailOpen && supplierDetail && (
+        <div style={modalOverlayStyle} onClick={() => setSupplierDetailOpen(false)}>
+          <div style={{ ...modalStyle, maxWidth: '820px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: '#1e3a5f' }}>{supplierDetail.supplier?.name}</h2>
+                <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                  {supplierDetail.supplier?.supplier_type && <span style={{ textTransform: 'capitalize' }}>{supplierDetail.supplier.supplier_type}</span>}
+                  {supplierDetail.supplier?.order_method && <span>Order via: <strong style={{ textTransform: 'capitalize' }}>{supplierDetail.supplier.order_method}</strong></span>}
+                  {supplierDetail.supplier?.account_number && <span>Acct #: <strong>{supplierDetail.supplier.account_number}</strong></span>}
+                  {supplierDetail.supplier?.default_ship_days != null && supplierDetail.supplier?.default_ship_days !== '' && <span>Ships in ~{supplierDetail.supplier.default_ship_days}d</span>}
+                </div>
+              </div>
+              <button onClick={() => setSupplierDetailOpen(false)} style={btnSecondary}>Close</button>
+            </div>
+
+            {/* Contact strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', padding: '10px', background: '#f0f4f8', borderRadius: '6px', marginBottom: '14px', fontSize: '0.82rem' }}>
+              <div><span style={{ color: '#6b7280' }}>Website: </span>{supplierDetail.supplier?.website ? <a href={supplierDetail.supplier.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>{supplierDetail.supplier.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> : '—'}</div>
+              <div><span style={{ color: '#6b7280' }}>Contact: </span>{supplierDetail.supplier?.contact_name || '—'}</div>
+              <div><span style={{ color: '#6b7280' }}>Email: </span>{supplierDetail.supplier?.contact_email ? <a href={`mailto:${supplierDetail.supplier.contact_email}`} style={{ color: '#2563eb' }}>{supplierDetail.supplier.contact_email}</a> : '—'}</div>
+              <div><span style={{ color: '#6b7280' }}>Phone: </span>{supplierDetail.supplier?.contact_phone || '—'}</div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+              {[['open_pos', `Open POs${supplierDetail.pos ? ` (${supplierDetail.pos.open.length})` : ''}`], ['history', `Order History${supplierDetail.pos ? ` (${supplierDetail.pos.history.length})` : ''}`], ['parts', 'Parts Supplied']].map(([key, label]) => (
+                <button key={key} onClick={() => setSupplierDetailTab(key)} style={{ padding: '8px 14px', border: 'none', borderBottom: supplierDetailTab === key ? '2px solid #1e3a5f' : '2px solid transparent', background: 'none', cursor: 'pointer', fontWeight: supplierDetailTab === key ? 700 : 500, color: supplierDetailTab === key ? '#1e3a5f' : '#6b7280' }}>{label}</button>
+              ))}
+            </div>
+
+            <div style={{ maxHeight: '48vh', overflowY: 'auto' }}>
+              {supplierDetail.loading ? (
+                <div style={{ textAlign: 'center', color: '#6b7280', padding: '30px' }}>Loading…</div>
+              ) : supplierDetailTab === 'parts' ? (
+                <>
+                  <h4 style={{ margin: '4px 0 8px', color: '#374151' }}>In Inventory ({supplierDetail.parts?.inventory?.length || 0})</h4>
+                  {supplierDetail.parts?.inventory?.length ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginBottom: '16px' }}>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '4px' }}>Part #</th><th style={{ padding: '4px' }}>Description</th><th style={{ padding: '4px', textAlign: 'right' }}>On Hand</th><th style={{ padding: '4px', textAlign: 'right' }}>Cost</th></tr></thead>
+                      <tbody>{supplierDetail.parts.inventory.map(p => (<tr key={`i${p.id}`} style={{ borderTop: '1px solid #f3f4f6' }}><td style={{ padding: '4px' }}>{p.vendor_part_number || p.part_number || '—'}</td><td style={{ padding: '4px' }}>{p.description}</td><td style={{ padding: '4px', textAlign: 'right' }}>{p.qty_on_hand}</td><td style={{ padding: '4px', textAlign: 'right' }}>{formatCurrency(p.cost_each || 0)}</td></tr>))}</tbody>
+                    </table>
+                  ) : <div style={{ color: '#9ca3af', marginBottom: '16px' }}>No inventory items.</div>}
+                  <h4 style={{ margin: '4px 0 8px', color: '#374151' }}>Parts Catalog / History ({supplierDetail.parts?.catalog?.length || 0})</h4>
+                  {supplierDetail.parts?.catalog?.length ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '4px' }}>Part #</th><th style={{ padding: '4px' }}>Description</th><th style={{ padding: '4px', textAlign: 'right' }}>Last Cost</th><th style={{ padding: '4px', textAlign: 'right' }}>Used</th></tr></thead>
+                      <tbody>{supplierDetail.parts.catalog.map(p => (<tr key={`c${p.id}`} style={{ borderTop: '1px solid #f3f4f6' }}><td style={{ padding: '4px' }}>{p.vendor_part_number || '—'}</td><td style={{ padding: '4px' }}>{p.description}</td><td style={{ padding: '4px', textAlign: 'right' }}>{p.last_cost != null ? formatCurrency(p.last_cost) : '—'}</td><td style={{ padding: '4px', textAlign: 'right' }}>{p.times_used || 0}×</td></tr>))}</tbody>
+                    </table>
+                  ) : <div style={{ color: '#9ca3af' }}>No catalog history.</div>}
+                </>
+              ) : (
+                (() => {
+                  const list = supplierDetailTab === 'open_pos' ? supplierDetail.pos?.open : supplierDetail.pos?.history;
+                  if (!list || !list.length) return <div style={{ color: '#9ca3af', padding: '20px', textAlign: 'center' }}>No {supplierDetailTab === 'open_pos' ? 'open' : 'historical'} purchase orders.</div>;
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '6px' }}>PO / Order #</th><th style={{ padding: '6px' }}>Status</th><th style={{ padding: '6px' }}>Date</th><th style={{ padding: '6px', textAlign: 'right' }}>Items</th><th style={{ padding: '6px', textAlign: 'right' }}>Total</th></tr></thead>
+                      <tbody>{list.map(po => (
+                        <tr key={po.id} style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer' }} onClick={() => { setSupplierDetailOpen(false); handleViewPoDetail(po); }}>
+                          <td style={{ padding: '6px' }}>{po.po_number || po.order_number || `#${po.id}`}</td>
+                          <td style={{ padding: '6px' }}><span style={badgeStyle(po.status)}>{po.status}</span></td>
+                          <td style={{ padding: '6px' }}>{po.order_date ? formatDate(po.order_date) : '—'}</td>
+                          <td style={{ padding: '6px', textAlign: 'right' }}>{po.item_count || 0}</td>
+                          <td style={{ padding: '6px', textAlign: 'right' }}>{formatCurrency(po.total || 0)}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  );
+                })()
+              )}
             </div>
           </div>
         </div>
@@ -1156,7 +1389,7 @@ export default function Suppliers() {
         <div style={modalOverlayStyle} onClick={() => setPoDetailModalOpen(false)}>
           <div style={{ ...modalStyle, maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#1f2937' }}>Purchase Order #{selectedPo.id}</h2>
+              <h2 style={{ margin: 0, color: '#1f2937' }}>{selectedPo.po_number || `Purchase Order #${selectedPo.id}`}</h2>
               <span style={badgeStyle(selectedPo.status)}>{selectedPo.status}</span>
             </div>
 
@@ -1176,6 +1409,10 @@ export default function Suppliers() {
               {selectedPo.tracking_number && <div>
                 <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Tracking #</div>
                 <div style={{ fontSize: '1rem', color: '#1f2937' }}>{selectedPo.tracking_number}</div>
+              </div>}
+              {selectedPo.expected_date && <div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Expected</div>
+                <div style={{ fontSize: '1rem', color: '#1f2937' }}>{formatDate(selectedPo.expected_date + 'T00:00:00')}</div>
               </div>}
               <div>
                 <div style={{ fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>Total</div>
@@ -1202,39 +1439,99 @@ export default function Suppliers() {
                       <th style={thStyle}>Description</th>
                       <th style={thStyle}>Part #</th>
                       <th style={thStyle}>Qty</th>
+                      <th style={thStyle}>Received</th>
                       <th style={thStyle}>Cost</th>
                       <th style={thStyle}>Total</th>
-                      <th style={thStyle}>Matched</th>
+                      {poReceiveMode && <th style={thStyle}>Receive</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedPo.line_items.map((item) => (
+                    {selectedPo.line_items.map((item) => {
+                      const outstanding = parseFloat(item.qty) - parseFloat(item.qty_received || 0);
+                      return (
                       <tr key={item.id}>
                         <td style={tdStyle}>{item.description}</td>
                         <td style={tdStyle}>{item.vendor_part_number || '—'}</td>
                         <td style={tdStyle}>{item.qty}</td>
+                        <td style={tdStyle}>{parseFloat(item.qty_received || 0)}{outstanding <= 0 ? ' ✓' : ''}</td>
                         <td style={tdStyle}>{formatCurrency(item.cost_each)}</td>
                         <td style={{ ...tdStyle, fontWeight: 600 }}>{formatCurrency(item.line_total)}</td>
-                        <td style={tdStyle}>
-                          {item.matched ? (
-                            <span style={{ color: '#065f46', fontWeight: 600 }}>Yes</span>
-                          ) : (
-                            <span style={{ color: '#9ca3af' }}>No</span>
-                          )}
-                        </td>
+                        {poReceiveMode && (
+                          <td style={tdStyle}>
+                            {outstanding > 0 ? (
+                              <input type="number" min="0" max={outstanding} step="0.01" style={{ ...inputStyle, width: '70px', padding: '4px' }}
+                                value={poReceiveQtys[item.id] ?? ''} placeholder={String(outstanding)}
+                                onChange={(e) => setPoReceiveQtys({ ...poReceiveQtys, [item.id]: e.target.value })} />
+                            ) : <span style={{ color: '#065f46' }}>done</span>}
+                          </td>
+                        )}
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            {/* Place Order helper output */}
+            {placeOrderText && (
+              <div style={{ marginBottom: '16px', padding: '10px', background: '#eff6ff', borderRadius: '6px' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e40af', marginBottom: '6px' }}>
+                  Part #s + qty copied to clipboard — paste into the supplier's cart:
+                </div>
+                <textarea readOnly value={placeOrderText} style={{ ...inputStyle, minHeight: '80px', fontFamily: 'monospace', fontSize: '0.8rem' }} onFocus={(e) => e.target.select()} />
+              </div>
+            )}
+
+            {/* Mark as Ordered form */}
+            {poSubmitMode && (
+              <div style={{ marginBottom: '16px', padding: '14px', background: '#f9fafb', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+                <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: '10px' }}>Mark as Ordered</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#6b7280', marginBottom: '3px' }}>Confirmation / Order #</label>
+                    <input type="text" value={poSubmitForm.order_number} onChange={(e) => setPoSubmitForm({ ...poSubmitForm, order_number: e.target.value })} style={inputStyle} placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#6b7280', marginBottom: '3px' }}>Order Date</label>
+                    <input type="date" value={poSubmitForm.order_date} onChange={(e) => setPoSubmitForm({ ...poSubmitForm, order_date: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#6b7280', marginBottom: '3px' }}>Expected Date</label>
+                    <input type="date" value={poSubmitForm.expected_date} onChange={(e) => setPoSubmitForm({ ...poSubmitForm, expected_date: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#6b7280', marginBottom: '3px' }}>Tracking #</label>
+                    <input type="text" value={poSubmitForm.tracking_number} onChange={(e) => setPoSubmitForm({ ...poSubmitForm, tracking_number: e.target.value })} style={inputStyle} placeholder="Optional" />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setPoSubmitMode(false)} style={btnSecondary}>Cancel</button>
+                  <button onClick={handleSubmitPO} style={{ ...btnPrimary, background: '#b45309' }}>Confirm Ordered</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button onClick={() => setPoDetailModalOpen(false)} style={btnSecondary}>Close</button>
-              {selectedPo.status === 'pending' && (
-                <button onClick={() => handleMarkReceived(selectedPo.id)} style={{ ...btnPrimary, background: '#065f46' }}>
-                  Mark Received
-                </button>
+              {selectedPo.status === 'draft' && (
+                <button onClick={handlePlaceOrder} style={{ ...btnSecondary, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }} title="Open supplier website and copy the cart list">Place Order</button>
+              )}
+              {selectedPo.status === 'draft' && !poSubmitMode && (
+                <button onClick={() => setPoSubmitMode(true)} style={{ ...btnPrimary, background: '#b45309' }}>Mark as Ordered</button>
+              )}
+              {['submitted', 'partially_received'].includes(selectedPo.status) && (
+                <button onClick={handleFindConfirmation} style={{ ...btnSecondary, background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }}>Find Confirmation</button>
+              )}
+              {['draft', 'submitted', 'partially_received', 'pending'].includes(selectedPo.status) && (
+                poReceiveMode ? (
+                  <>
+                    <button onClick={() => { setPoReceiveMode(false); setPoReceiveQtys({}); }} style={btnSecondary}>Cancel Receive</button>
+                    <button onClick={() => handleReceiveLines(false)} style={{ ...btnPrimary, background: '#047857' }}>Receive Entered</button>
+                    <button onClick={() => handleReceiveLines(true)} style={{ ...btnPrimary, background: '#065f46' }}>Receive All</button>
+                  </>
+                ) : (
+                  <button onClick={() => setPoReceiveMode(true)} style={{ ...btnPrimary, background: '#065f46' }}>Receive</button>
+                )
               )}
             </div>
           </div>

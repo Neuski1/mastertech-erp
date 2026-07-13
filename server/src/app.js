@@ -77,6 +77,7 @@ app.use('/api/technicians', requireAuth, require('./routes/technicians'));
 app.use('/api/inventory', requireAuth, require('./routes/inventory'));
 app.use('/api/inventory-categories', requireAuth, require('./routes/inventoryCategories'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
+app.use('/api/suppliers', requireAuth, require('./routes/suppliers'));
 app.use('/api/appointments', requireAuth, require('./routes/appointments'));
 app.use('/api/communications', requireAuth, require('./routes/communications'));
 app.use('/api/square/pos', require('./routes/square-pos')); // POS checkout — callback is public, other routes use requireRole internally
@@ -355,7 +356,7 @@ const pool = require('./db/pool');
       id SERIAL PRIMARY KEY,
       vendor VARCHAR(255) NOT NULL,
       order_date DATE NOT NULL DEFAULT CURRENT_DATE,
-      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      status VARCHAR(30) NOT NULL DEFAULT 'draft',
       subtotal NUMERIC(10,2) DEFAULT 0,
       shipping_cost NUMERIC(10,2) DEFAULT 0,
       total NUMERIC(10,2) DEFAULT 0,
@@ -384,26 +385,75 @@ const pool = require('./db/pool');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_po_line_items_po ON po_line_items (po_id)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_po_line_items_inventory ON po_line_items (inventory_item_id)');
 
-    // Migration 047: vendor_details table (website URLs, contact info for suppliers)
-    await pool.query(`CREATE TABLE IF NOT EXISTS vendor_details (
+    // Migration 053 (Phase 2): PO engine columns. The status CHECK constraint,
+    // pending->draft migration and FK constraints are authored in
+    // 053_po_engine.sql; here we only guarantee the columns exist and the
+    // default is 'draft' so the app never boots short a column.
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS expected_date DATE`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS order_email_msg_id VARCHAR(255)`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(50)`);
+    await pool.query(`ALTER TABLE purchase_orders ALTER COLUMN status SET DEFAULT 'draft'`);
+    await pool.query(`ALTER TABLE po_line_items ADD COLUMN IF NOT EXISTS record_parts_line_id INTEGER`);
+    await pool.query(`ALTER TABLE po_line_items ADD COLUMN IF NOT EXISTS qty_received NUMERIC(10,2) NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE po_line_items ADD COLUMN IF NOT EXISTS source VARCHAR(20)`);
+
+    // Migration 052 (Phase 1): suppliers table. Formerly `vendor_details`;
+    // renamed and consolidated with `vendors`. The heavy one-time data merge
+    // (folding in `vendors`, adding supplier_id FKs, backfilling) lives in the
+    // numbered migration 052_suppliers_consolidation.sql. This inline block
+    // only guarantees the table + columns exist so the app never boots against
+    // a missing/stale schema.
+    await pool.query(`DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'vendor_details')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'suppliers') THEN
+          ALTER TABLE vendor_details RENAME TO suppliers;
+        END IF;
+      END $$;`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS suppliers (
       id SERIAL PRIMARY KEY,
-      vendor_name VARCHAR(255) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL UNIQUE,
       website VARCHAR(500),
       contact_name VARCHAR(255),
       contact_email VARCHAR(255),
       contact_phone VARCHAR(50),
       account_number VARCHAR(100),
       notes TEXT,
+      supplier_type VARCHAR(20) NOT NULL DEFAULT 'inventory',
+      subcategory VARCHAR(100),
+      default_ship_days INTEGER,
+      order_method VARCHAR(20),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
+    await pool.query(`DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'suppliers' AND column_name = 'vendor_name')
+           AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'suppliers' AND column_name = 'name') THEN
+          ALTER TABLE suppliers RENAME COLUMN vendor_name TO name;
+        END IF;
+      END $$;`);
+    await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS supplier_type VARCHAR(20) NOT NULL DEFAULT 'inventory'`);
+    await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100)`);
+    await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS default_ship_days INTEGER`);
+    await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS order_method VARCHAR(20)`);
+    await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
+    // supplier_id FKs on the consuming tables (columns only; constraints +
+    // backfill are handled in migration 052 so the app stays functional even
+    // if the numbered migration hasn't been run yet).
+    await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS supplier_id INTEGER`);
+    await pool.query(`ALTER TABLE parts_catalog ADD COLUMN IF NOT EXISTS supplier_id INTEGER`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_id INTEGER`);
+    await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS supplier_id INTEGER`);
 
     // Seed known suppliers
-    await pool.query(`INSERT INTO vendor_details (vendor_name, website) VALUES
+    await pool.query(`INSERT INTO suppliers (name, website) VALUES
       ('NTP/Stag', 'https://www.viantp.com'),
       ('Amazon Business', 'https://www.amazon.com'),
       ('etrailer', 'https://www.etrailer.com')
-      ON CONFLICT (vendor_name) DO NOTHING`);
+      ON CONFLICT (name) DO NOTHING`);
 
     // Migration 048: parts-on-order tracking fields for customer-specific parts
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_status VARCHAR(20) DEFAULT 'not_ordered'`);
@@ -412,11 +462,8 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_number VARCHAR(100)`);
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_tracking VARCHAR(255)`);
 
-    // Migration 049: supplier_type and subcategory on vendor_details
-    await pool.query(`ALTER TABLE vendor_details ADD COLUMN IF NOT EXISTS supplier_type VARCHAR(20) NOT NULL DEFAULT 'inventory'`);
-    await pool.query(`ALTER TABLE vendor_details ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100)`);
-    // Mark the 3 seeded suppliers as inventory type
-    await pool.query(`UPDATE vendor_details SET supplier_type = 'inventory' WHERE vendor_name IN ('NTP/Stag', 'Amazon Business', 'etrailer') AND supplier_type IS NULL`);
+    // Migration 049 (supplier_type + subcategory) folded into the suppliers
+    // block above; the 3 seeded suppliers already default to supplier_type='inventory'.
 
     // Migration 050: reorder tracking on inventory
     await pool.query(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reorder_status VARCHAR(20) DEFAULT NULL`);

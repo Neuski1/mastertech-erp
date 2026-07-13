@@ -430,6 +430,21 @@ export const api = {
   importSupplierOrders: (vendor, orders) => request('/purchase-orders/supplier-import', { method: 'POST', body: JSON.stringify({ vendor, orders }) }),
   getSupplierImported: (vendor) => request(`/purchase-orders/supplier-imported?vendor=${encodeURIComponent(vendor)}`),
 
+  // Suppliers (consolidated vendors + vendor_details)
+  getSuppliers: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/suppliers${qs ? `?${qs}` : ''}`);
+  },
+  getSupplier: (id) => request(`/suppliers/${id}`),
+  getSupplierPurchaseOrders: (id) => request(`/suppliers/${id}/purchase-orders`),
+  getSupplierParts: (id) => request(`/suppliers/${id}/parts`),
+  updateSupplier: (id, data) => request(`/suppliers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Purchase Order engine (Phase 2)
+  submitPurchaseOrder: (id, data) => request(`/purchase-orders/${id}/submit`, { method: 'POST', body: JSON.stringify(data) }),
+  receivePurchaseOrderLines: (id, lines) => request(`/purchase-orders/${id}/receive`, { method: 'POST', body: JSON.stringify({ lines }) }),
+  findPOConfirmation: (id, data) => request(`/purchase-orders/${id}/find-confirmation`, { method: 'POST', body: JSON.stringify(data || {}) }),
+
   // Online payments (Poynt / GoDaddy Payments)
   createOnlinePaymentLink: (data) => request('/payments/online/links', { method: 'POST', body: JSON.stringify(data) }),
   getOnlinePaymentLinks: (recordId) => request(`/payments/online/links${recordId ? `?record_id=${recordId}` : ''}`),
