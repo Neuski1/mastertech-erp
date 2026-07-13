@@ -8,7 +8,6 @@ import LaborLinesTable from '../components/LaborLinesTable';
 import PartsLinesTable from '../components/PartsLinesTable';
 import CommunicationLog from '../components/CommunicationLog';
 import PhotoLinksSection from '../components/PhotoLinksSection';
-import RecordDocumentsSection from '../components/RecordDocumentsSection';
 import SquarePayment from '../components/SquarePayment';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
@@ -672,7 +671,33 @@ ${paymentDetailHtml}
 
     printWindow.document.write(html);
     printWindow.document.close();
-    printWindow.onload = () => { printWindow.print(); };
+
+    // Fire the print dialog exactly once, on the FIRST click.
+    // document.close() can finish parsing (and fire `load`) before an onload
+    // handler assigned afterwards is ever attached, so the old code silently
+    // missed the event and nothing printed until you clicked Print again.
+    // Attach the handler AND a readyState check, guarded by a flag so the two
+    // paths can never open two print dialogs.
+    let printed = false;
+    const doPrint = () => {
+      if (printed) return;
+      printed = true;
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch (e) {
+        /* window was closed before printing — nothing to do */
+      }
+    };
+    printWindow.onload = doPrint;
+    if (printWindow.document.readyState === 'complete') {
+      // `load` already fired before we could attach the handler above.
+      // Short delay lets the logo and styles paint before the dialog opens.
+      setTimeout(doPrint, 300);
+    } else {
+      // Safety net in case `load` never fires (blocked image, etc.).
+      setTimeout(doPrint, 1500);
+    }
   };
 
   const handleDeletePayment = async (paymentId) => {
@@ -1486,9 +1511,6 @@ ${paymentDetailHtml}
 
       {/* Photos */}
       <PhotoLinksSection recordId={record.id} isEditable={isEditable} />
-
-      {/* Insurance & Warranty Documents */}
-      <RecordDocumentsSection recordId={record.id} isEditable={isEditable} />
 
       <CommunicationLog customerId={record.customer_id} recordId={record.id} />
     </div>
