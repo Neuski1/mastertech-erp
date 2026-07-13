@@ -1396,10 +1396,24 @@ export default function Suppliers() {
       {poDetailModalOpen && selectedPo && (
         <div style={modalOverlayStyle} onClick={() => setPoDetailModalOpen(false)}>
           <div style={{ ...modalStyle, maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <h2 style={{ margin: 0, color: '#1f2937' }}>{selectedPo.po_number || `Purchase Order #${selectedPo.id}`}</h2>
               <span style={badgeStyle(selectedPo.status)}>{selectedPo.status}</span>
             </div>
+
+            {/* Customer/job name Carol entered in the supplier's PO field, parsed
+                from notes (e.g. "PO: MT-1234 | Imported via email agent"). */}
+            {(() => {
+              const m = (selectedPo.notes || '').match(/(?:^|\|\s*)PO:\s*([^|]+)/i);
+              const poName = m ? m[1].trim() : '';
+              if (!poName) return null;
+              return (
+                <div style={{ marginBottom: '16px', padding: '8px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: '#4338ca', letterSpacing: '0.04em' }}>Customer / Job (PO)</span>
+                  <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1e1b4b' }}>{poName}</span>
+                </div>
+              );
+            })()}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px', padding: '15px', background: '#f9fafb', borderRadius: '6px' }}>
               <div>
