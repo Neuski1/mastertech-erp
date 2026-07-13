@@ -1271,20 +1271,28 @@ export default function Suppliers() {
                 </>
               ) : (
                 (() => {
-                  const list = supplierDetailTab === 'open_pos' ? supplierDetail.pos?.open : supplierDetail.pos?.history;
-                  if (!list || !list.length) return <div style={{ color: '#9ca3af', padding: '20px', textAlign: 'center' }}>No {supplierDetailTab === 'open_pos' ? 'open' : 'historical'} purchase orders.</div>;
+                  const isOpen = supplierDetailTab === 'open_pos';
+                  const list = isOpen ? supplierDetail.pos?.open : supplierDetail.pos?.history;
+                  if (!list || !list.length) return <div style={{ color: '#9ca3af', padding: '20px', textAlign: 'center' }}>No {isOpen ? 'open orders' : 'order history'} for this supplier.</div>;
+                  const srcChip = (bg, color, text) => <span style={{ background: bg, color, padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 700 }}>{text}</span>;
                   return (
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '6px' }}>PO / Order #</th><th style={{ padding: '6px' }}>Status</th><th style={{ padding: '6px' }}>Date</th><th style={{ padding: '6px', textAlign: 'right' }}>Items</th><th style={{ padding: '6px', textAlign: 'right' }}>Total</th></tr></thead>
-                      <tbody>{list.map(po => (
-                        <tr key={po.id} style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer' }} onClick={() => { setSupplierDetailOpen(false); handleViewPoDetail(po); }}>
-                          <td style={{ padding: '6px' }}>{po.po_number || po.order_number || `#${po.id}`}</td>
-                          <td style={{ padding: '6px' }}><span style={badgeStyle(po.status)}>{po.status}</span></td>
-                          <td style={{ padding: '6px' }}>{po.order_date ? formatDate(po.order_date) : '—'}</td>
-                          <td style={{ padding: '6px', textAlign: 'right' }}>{po.item_count || 0}</td>
-                          <td style={{ padding: '6px', textAlign: 'right' }}>{formatCurrency(po.total || 0)}</td>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '6px' }}>Ref #</th><th style={{ padding: '6px' }}>Source</th><th style={{ padding: '6px' }}>Status</th><th style={{ padding: '6px' }}>Date</th><th style={{ padding: '6px' }}>Detail</th><th style={{ padding: '6px', textAlign: 'right' }}>Total</th></tr></thead>
+                      <tbody>{list.map(row => {
+                        const isPo = row.source === 'po';
+                        const onClick = isPo
+                          ? () => { setSupplierDetailOpen(false); handleViewPoDetail(row); }
+                          : () => { setSupplierDetailOpen(false); navigate(`/records/${row.record_id}`); };
+                        return (
+                        <tr key={`${row.source}-${row.id}`} style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer' }} onClick={onClick}>
+                          <td style={{ padding: '6px' }}>{isPo ? (row.po_number || row.order_number || `#${row.id}`) : (row.order_number || <span style={{ color: '#2563eb', textDecoration: 'underline' }}>WO #{row.record_id}</span>)}</td>
+                          <td style={{ padding: '6px' }}>{isPo ? srcChip('#e0e7ff', '#3730a3', 'PO') : (isOpen ? srcChip('#fef3c7', '#92400e', 'On Order (WO)') : srcChip('#f0fdfa', '#0f766e', 'Work Order'))}</td>
+                          <td style={{ padding: '6px' }}><span style={badgeStyle(row.status)}>{row.status}</span></td>
+                          <td style={{ padding: '6px' }}>{row.order_date ? formatDate(row.order_date) : '—'}</td>
+                          <td style={{ padding: '6px' }}>{isPo ? `${row.item_count || 0} item${(row.item_count || 0) === 1 ? '' : 's'}` : <span title={row.description}>{(row.description || '').slice(0, 40)}{(row.description || '').length > 40 ? '…' : ''}{row.quantity != null ? ` ×${row.quantity}` : ''}</span>}</td>
+                          <td style={{ padding: '6px', textAlign: 'right' }}>{formatCurrency((isPo ? row.total : row.line_total) || 0)}</td>
                         </tr>
-                      ))}</tbody>
+                      );})}</tbody>
                     </table>
                   );
                 })()

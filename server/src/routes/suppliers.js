@@ -70,18 +70,74 @@ router.get('/:id/purchase-orders', async (req, res) => {
     const { rows: sup } = await pool.query('SELECT name FROM suppliers WHERE id = $1', [req.params.id]);
     if (!sup.length) return res.status(404).json({ error: 'Supplier not found' });
 
+    const name = sup[0].name;
+
     const { rows } = await pool.query(
       `SELECT po.*,
         (SELECT COUNT(*) FROM po_line_items li WHERE li.po_id = po.id) AS item_count
        FROM purchase_orders po
        WHERE po.supplier_id = $1 OR LOWER(TRIM(po.vendor)) = LOWER(TRIM($2))
        ORDER BY po.created_at DESC`,
-      [req.params.id, sup[0].name]
+      [req.params.id, name]
     );
 
+    // Real ordering history also lives on record_parts_lines (years of it),
+    // matched by supplier_id or a case-insensitive order_supplier/vendor text
+    // match. Include lines that were actually ordered/received or carry an
+    // order number/date.
+    const { rows: lines } = await pool.query(
+      `SELECT rpl.id, rpl.record_id, rpl.order_number, rpl.order_date, rpl.order_eta,
+              rpl.order_status, rpl.description, rpl.quantity, rpl.line_total, rpl.po_number
+         FROM record_parts_lines rpl
+        WHERE rpl.deleted_at IS NULL
+          AND (rpl.supplier_id = $1
+               OR LOWER(TRIM(rpl.order_supplier)) = LOWER(TRIM($2))
+               OR LOWER(TRIM(rpl.vendor)) = LOWER(TRIM($2)))
+          AND (rpl.order_status IN ('ordered', 'received')
+               OR rpl.order_number IS NOT NULL
+               OR rpl.order_date IS NOT NULL)
+        ORDER BY COALESCE(rpl.order_date, rpl.order_eta) DESC NULLS LAST`,
+      [req.params.id, name]
+    );
+
+    // IDs of record lines already tracked by a purchase order — exclude these
+    // from the standalone "On Order (Work Order)" bucket to avoid double-count.
+    const { rows: linkedRows } = await pool.query(
+      `SELECT DISTINCT record_parts_line_id FROM po_line_items WHERE record_parts_line_id IS NOT NULL`
+    );
+    const linkedLineIds = new Set(linkedRows.map(r => r.record_parts_line_id));
+
+    const poItems = rows.map(po => ({ ...po, source: 'po', sort_date: po.order_date || po.created_at }));
+    const lineItems = lines.map(l => ({
+      source: 'work_order',
+      id: l.id,
+      record_id: l.record_id,
+      order_number: l.order_number,
+      order_date: l.order_date || l.order_eta,
+      status: l.order_status,
+      description: l.description,
+      quantity: l.quantity,
+      line_total: l.line_total,
+      po_number: l.po_number,
+      sort_date: l.order_date || l.order_eta,
+    }));
+
+    const byDateDesc = (a, b) => {
+      const da = a.sort_date ? new Date(a.sort_date).getTime() : 0;
+      const db = b.sort_date ? new Date(b.sort_date).getTime() : 0;
+      return db - da;
+    };
+
     const openStatuses = new Set(['draft', 'submitted', 'partially_received', 'pending']);
-    const open = rows.filter(r => openStatuses.has(r.status));
-    const history = rows.filter(r => !openStatuses.has(r.status));
+
+    // Open: open POs + still-on-order work-order lines that have no PO of their own.
+    const openWorkOrderLines = lineItems.filter(l =>
+      l.status === 'ordered' && !l.po_number && !linkedLineIds.has(l.id));
+    const open = [...poItems.filter(p => openStatuses.has(p.status)), ...openWorkOrderLines].sort(byDateDesc);
+
+    // History: received/cancelled POs + every matched work-order line.
+    const history = [...poItems.filter(p => !openStatuses.has(p.status)), ...lineItems].sort(byDateDesc);
+
     res.json({ open, history });
   } catch (err) {
     console.error('GET /api/suppliers/:id/purchase-orders error:', err);
