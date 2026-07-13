@@ -83,9 +83,6 @@ export default function RecordList() {
   const showLeads = canEditRecords || isAdmin;
   // File-lead modal: the lead being filed (null = closed) + customer search state
   const [fileLeadTarget, setFileLeadTarget] = useState(null);
-  const [logCallFor, setLogCallFor] = useState(null);
-  const [logCallDate, setLogCallDate] = useState('');
-  const [logCallNote, setLogCallNote] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
@@ -160,15 +157,19 @@ export default function RecordList() {
     }
   };
 
-  const logLeadContact = async (lead, dateStr, note) => {
+  // Auto-log the outreach the moment Call or Email is clicked. Replaces the old
+  // manual "Log Call" button — the contact history now writes itself, so nobody
+  // has to remember to log after picking up the phone. Fire-and-forget: a
+  // logging failure must never get in the way of actually placing the call.
+  const autoLogContact = async (lead, channel) => {
     try {
-      const when = dateStr ? new Date(dateStr + 'T12:00:00').toISOString() : new Date().toISOString();
-      await api.logLeadCall(lead.id, { contacted_at: when, note: note || '' });
-      setLogCallFor(null);
-      setLogCallNote('');
+      await api.logLeadCall(lead.id, {
+        contacted_at: new Date().toISOString(),
+        note: channel === 'email' ? 'Emailed (auto-logged)' : 'Called (auto-logged)',
+      });
       fetchLeads();
     } catch (err) {
-      console.error('Failed to log contact:', err);
+      console.error('Failed to auto-log lead contact:', err);
     }
   };
 
@@ -538,22 +539,10 @@ export default function RecordList() {
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {l.phone && (
-                      <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
+                      <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} onClick={() => autoLogContact(l, 'call')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
                     )}
                     {l.email && (
-                      <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
-                    )}
-                    {logCallFor === l.id ? (
-                      <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
-                        <input type="date" value={logCallDate} onChange={(e) => setLogCallDate(e.target.value)} style={{ fontSize: '0.75rem', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
-                        <input type="text" value={logCallNote} onChange={(e) => setLogCallNote(e.target.value)} placeholder="Note (optional)" style={{ fontSize: '0.75rem', padding: '3px 6px', border: '1px solid #d1d5db', borderRadius: '6px', minWidth: '160px' }} />
-                        <button onClick={() => logLeadContact(l, logCallDate, logCallNote)} style={actionBtn({ border: '1px solid #166534', backgroundColor: '#166534', color: '#fff' })}>Save</button>
-                        <button onClick={() => { setLogCallFor(null); setLogCallNote(''); }} style={actionBtn({})}>Cancel</button>
-                      </span>
-                    ) : (
-                      <button onClick={() => { setLogCallFor(l.id); setLogCallDate(new Date().toISOString().slice(0, 10)); setLogCallNote(''); }}
-                        style={actionBtn({ border: '1px solid #166534', color: '#166534' })}
-                      >Log Call</button>
+                      <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" onClick={() => autoLogContact(l, 'email')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
                     )}
                     <button onClick={() => scheduleLead(l, leadName(l))}
                       style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
