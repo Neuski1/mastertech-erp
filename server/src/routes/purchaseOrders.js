@@ -35,12 +35,33 @@ async function applyInventoryReceiving(client, poId) {
   return lineItems.length;
 }
 
+// Find-or-create the single open DRAFT purchase order for a supplier. The
+// record-driven and restock-driven flows (Phases 3-4) both funnel into this so
+// a supplier only ever has one open draft to append to at a time.
+async function findOrCreateDraftPO(client, supplierId) {
+  const { rows: sup } = await client.query('SELECT id, name FROM suppliers WHERE id = $1', [supplierId]);
+  if (!sup.length) throw new Error('Supplier not found');
+
+  const { rows: existing } = await client.query(
+    `SELECT * FROM purchase_orders WHERE supplier_id = $1 AND status = 'draft' ORDER BY created_at ASC LIMIT 1`,
+    [supplierId]
+  );
+  if (existing.length) return existing[0];
+
+  const { rows } = await client.query(
+    `INSERT INTO purchase_orders (vendor, supplier_id, status, order_date)
+     VALUES ($1, $2, 'draft', CURRENT_DATE) RETURNING *`,
+    [sup[0].name, supplierId]
+  );
+  return rows[0];
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/purchase-orders — List all purchase orders (optional filters)
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   try {
-    const { status, vendor, limit = 50, offset = 0 } = req.query;
+    const { status, vendor, supplier_id, limit = 50, offset = 0 } = req.query;
     const conditions = [];
     const params = [];
     let paramIdx = 1;
@@ -52,6 +73,10 @@ router.get('/', async (req, res) => {
     if (vendor) {
       conditions.push(`LOWER(po.vendor) = LOWER($${paramIdx++})`);
       params.push(vendor);
+    }
+    if (supplier_id) {
+      conditions.push(`po.supplier_id = $${paramIdx++}`);
+      params.push(supplier_id);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -231,7 +256,7 @@ router.get('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
   try {
-    const { vendor, order_date, order_number, tracking_number, shipping_cost, notes, line_items } = req.body;
+    const { vendor, supplier_id, order_date, order_number, tracking_number, shipping_cost, notes, line_items } = req.body;
 
     if (!vendor) return res.status(400).json({ error: 'Vendor is required' });
 
@@ -247,10 +272,10 @@ router.post('/', async (req, res) => {
       const total = subtotal + (parseFloat(shipping_cost) || 0);
 
       const { rows } = await client.query(
-        `INSERT INTO purchase_orders (vendor, order_date, order_number, tracking_number, shipping_cost, subtotal, total, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO purchase_orders (vendor, supplier_id, order_date, order_number, tracking_number, shipping_cost, subtotal, total, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING *`,
-        [vendor, order_date || new Date(), order_number || null, tracking_number || null, shipping_cost || 0, subtotal, total, notes || null]
+        [vendor, supplier_id || null, order_date || new Date(), order_number || null, tracking_number || null, shipping_cost || 0, subtotal, total, notes || null]
       );
 
       const po = rows[0];
@@ -260,9 +285,9 @@ router.post('/', async (req, res) => {
         for (const item of line_items) {
           const lineTotal = (item.qty || 1) * (item.cost_each || 0);
           await client.query(
-            `INSERT INTO po_line_items (po_id, inventory_item_id, description, vendor_part_number, qty, cost_each, line_total, matched)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [po.id, item.inventory_item_id || null, item.description, item.vendor_part_number || null, item.qty || 1, item.cost_each || 0, lineTotal, !!item.inventory_item_id]
+            `INSERT INTO po_line_items (po_id, inventory_item_id, record_parts_line_id, description, vendor_part_number, qty, cost_each, line_total, matched, source)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [po.id, item.inventory_item_id || null, item.record_parts_line_id || null, item.description, item.vendor_part_number || null, item.qty || 1, item.cost_each || 0, lineTotal, !!item.inventory_item_id, item.source || 'manual']
           );
         }
       }
@@ -294,13 +319,15 @@ router.post('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
   try {
-    const { vendor, order_date, order_number, tracking_number, shipping_cost, notes, status } = req.body;
+    const { vendor, supplier_id, order_date, expected_date, order_number, tracking_number, shipping_cost, notes, status } = req.body;
     const updates = [];
     const params = [];
     let paramIdx = 1;
 
     if (vendor !== undefined) { updates.push(`vendor = $${paramIdx++}`); params.push(vendor); }
+    if (supplier_id !== undefined) { updates.push(`supplier_id = $${paramIdx++}`); params.push(supplier_id || null); }
     if (order_date !== undefined) { updates.push(`order_date = $${paramIdx++}`); params.push(order_date); }
+    if (expected_date !== undefined) { updates.push(`expected_date = $${paramIdx++}`); params.push(expected_date || null); }
     if (order_number !== undefined) { updates.push(`order_number = $${paramIdx++}`); params.push(order_number); }
     if (tracking_number !== undefined) { updates.push(`tracking_number = $${paramIdx++}`); params.push(tracking_number); }
     if (shipping_cost !== undefined) { updates.push(`shipping_cost = $${paramIdx++}`); params.push(shipping_cost); }
@@ -325,69 +352,218 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/purchase-orders/:id/receive — Mark PO as received, update inventory
-// ---------------------------------------------------------------------------
-router.post('/:id/receive', async (req, res) => {
+// Best-effort audit_log write inside a transaction. Wrapped in a savepoint so a
+// missing audit_log table can't abort the surrounding receive/submit.
+async function auditLog(client, { table, rowId, action, by, oldValue, newValue }) {
   try {
+    await client.query('SAVEPOINT sp_audit');
+    await client.query(
+      `INSERT INTO audit_log (table_name, row_id, action, changed_by, old_value, new_value, changed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [table, rowId, action, by || null,
+       oldValue == null ? null : JSON.stringify(oldValue),
+       newValue == null ? null : JSON.stringify(newValue)]
+    );
+    await client.query('RELEASE SAVEPOINT sp_audit');
+  } catch {
+    await client.query('ROLLBACK TO SAVEPOINT sp_audit');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/purchase-orders/:id/submit — "Mark as Ordered"
+// Captures the supplier's order/confirmation number, order_date, expected_date
+// and tracking (all optional, editable later), generates a PO number
+// (PO-YYYY-<padded id>), and flips the PO to 'submitted'.
+// ---------------------------------------------------------------------------
+router.post('/:id/submit', async (req, res) => {
+  try {
+    const { order_number, order_date, expected_date, tracking_number, order_email_msg_id } = req.body || {};
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
-      // Get the PO
-      const { rows: poRows } = await client.query(
-        'SELECT * FROM purchase_orders WHERE id = $1',
-        [req.params.id]
-      );
+      const { rows: poRows } = await client.query('SELECT * FROM purchase_orders WHERE id = $1', [req.params.id]);
       if (!poRows.length) {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Purchase order not found' });
       }
-      if (poRows[0].status === 'received') {
+      const po = poRows[0];
+      if (po.status === 'cancelled') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Cannot submit a cancelled purchase order' });
+      }
+
+      // Generate the PO number on first submit only (keep it stable afterwards).
+      const poNumber = po.po_number || `PO-${new Date().getFullYear()}-${String(po.id).padStart(5, '0')}`;
+
+      const { rows } = await client.query(
+        `UPDATE purchase_orders SET
+           status = 'submitted',
+           submitted_at = COALESCE(submitted_at, NOW()),
+           po_number = $1,
+           order_number = COALESCE($2, order_number),
+           order_date = COALESCE($3, order_date),
+           expected_date = COALESCE($4, expected_date),
+           tracking_number = COALESCE($5, tracking_number),
+           order_email_msg_id = COALESCE($6, order_email_msg_id),
+           updated_at = NOW()
+         WHERE id = $7
+         RETURNING *`,
+        [poNumber, order_number || null, order_date || null, expected_date || null,
+         tracking_number || null, order_email_msg_id || null, req.params.id]
+      );
+
+      await auditLog(client, { table: 'purchase_orders', rowId: po.id, action: 'submit',
+        by: req.user?.id, oldValue: { status: po.status }, newValue: { status: 'submitted', po_number: poNumber } });
+
+      await client.query('COMMIT');
+      res.json(rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('POST /api/purchase-orders/:id/submit error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/purchase-orders/:id/receive — Receive a PO (full or partial).
+// Body (optional): { lines: [{ line_id, qty_received }] }. If omitted, every
+// line's outstanding quantity is received. In ONE transaction this:
+//   (a) increments inventory.qty_on_hand (+ weighted-avg cost) for lines with
+//       an inventory_item_id, and clears reorder_status once qty > reorder_level;
+//   (b) flips linked record_parts_lines.order_status to 'received';
+//   (c) sets PO status to 'received' or 'partially_received';
+//   (d) writes audit_log entries.
+// ---------------------------------------------------------------------------
+router.post('/:id/receive', async (req, res) => {
+  try {
+    const requested = Array.isArray(req.body?.lines) ? req.body.lines : null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const { rows: poRows } = await client.query('SELECT * FROM purchase_orders WHERE id = $1', [req.params.id]);
+      if (!poRows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Purchase order not found' });
+      }
+      const po = poRows[0];
+      if (po.status === 'received') {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Purchase order already received' });
       }
+      if (po.status === 'cancelled') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Cannot receive a cancelled purchase order' });
+      }
 
-      // Get matched line items
       const { rows: lineItems } = await client.query(
-        'SELECT * FROM po_line_items WHERE po_id = $1 AND matched = true AND inventory_item_id IS NOT NULL',
+        'SELECT * FROM po_line_items WHERE po_id = $1 ORDER BY id',
         [req.params.id]
       );
 
-      // Update inventory quantities and weighted average cost for matched items
-      for (const item of lineItems) {
-        // Fetch current inventory to calculate weighted average cost
-        const { rows: invRows } = await client.query(
-          'SELECT qty_on_hand, cost_each FROM inventory WHERE id = $1',
-          [item.inventory_item_id]
-        );
-        const currentQty = parseFloat(invRows[0]?.qty_on_hand || 0);
-        const currentCost = parseFloat(invRows[0]?.cost_each || 0);
-        const incomingQty = parseFloat(item.qty);
-        const incomingCost = parseFloat(item.cost_each || 0);
-
-        // Weighted average: (existing_value + incoming_value) / total_qty
-        const totalQty = currentQty + incomingQty;
-        let newCost = currentCost;
-        if (totalQty > 0 && incomingCost > 0) {
-          newCost = ((currentQty * currentCost) + (incomingQty * incomingCost)) / totalQty;
-          newCost = Math.round(newCost * 100) / 100; // round to cents
+      // Map of line_id -> qty to receive this call.
+      const receiveByLine = new Map();
+      if (requested) {
+        for (const r of requested) {
+          const q = parseFloat(r.qty_received);
+          if (r.line_id != null && q > 0) receiveByLine.set(Number(r.line_id), q);
         }
-
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1, cost_each = $2 WHERE id = $3',
-          [incomingQty, newCost, item.inventory_item_id]
-        );
+      } else {
+        // Receive the outstanding quantity on every line.
+        for (const li of lineItems) {
+          const outstanding = parseFloat(li.qty) - parseFloat(li.qty_received || 0);
+          if (outstanding > 0) receiveByLine.set(li.id, outstanding);
+        }
       }
 
-      // Mark PO as received
+      let linesReceived = 0;
+      for (const li of lineItems) {
+        const recvNow = receiveByLine.get(li.id);
+        if (!recvNow || recvNow <= 0) continue;
+
+        const alreadyReceived = parseFloat(li.qty_received || 0);
+        const ordered = parseFloat(li.qty);
+        const cappedRecv = Math.min(recvNow, ordered - alreadyReceived);
+        if (cappedRecv <= 0) continue;
+        const newReceived = alreadyReceived + cappedRecv;
+        linesReceived++;
+
+        // (a) Move stock for inventory-linked lines (weighted-average cost).
+        if (li.inventory_item_id) {
+          const { rows: invRows } = await client.query(
+            'SELECT qty_on_hand, cost_each, reorder_level, reorder_status FROM inventory WHERE id = $1',
+            [li.inventory_item_id]
+          );
+          if (invRows.length) {
+            const currentQty = parseFloat(invRows[0].qty_on_hand || 0);
+            const currentCost = parseFloat(invRows[0].cost_each || 0);
+            const incomingCost = parseFloat(li.cost_each || 0);
+            const totalQty = currentQty + cappedRecv;
+            let newCost = currentCost;
+            if (totalQty > 0 && incomingCost > 0) {
+              newCost = Math.round((((currentQty * currentCost) + (cappedRecv * incomingCost)) / totalQty) * 100) / 100;
+            }
+            await client.query(
+              'UPDATE inventory SET qty_on_hand = qty_on_hand + $1, cost_each = $2 WHERE id = $3',
+              [cappedRecv, newCost, li.inventory_item_id]
+            );
+            // Clear reorder flag once we're back above the reorder level.
+            const reorderLevel = parseFloat(invRows[0].reorder_level || 0);
+            if (invRows[0].reorder_status && totalQty > reorderLevel) {
+              await client.query(
+                `UPDATE inventory SET reorder_status = NULL WHERE id = $1`,
+                [li.inventory_item_id]
+              );
+            }
+          }
+        }
+
+        // (b) Flip the linked customer parts line to received once fully in.
+        if (li.record_parts_line_id && newReceived >= ordered) {
+          await client.query(
+            `UPDATE record_parts_lines
+                SET order_status = 'received', order_confirmed_at = COALESCE(order_confirmed_at, NOW())
+              WHERE id = $1`,
+            [li.record_parts_line_id]
+          );
+        }
+
+        await client.query('UPDATE po_line_items SET qty_received = $1 WHERE id = $2', [newReceived, li.id]);
+
+        await auditLog(client, { table: 'po_line_items', rowId: li.id, action: 'receive',
+          by: req.user?.id, oldValue: { qty_received: alreadyReceived }, newValue: { qty_received: newReceived } });
+      }
+
+      // (c) Recompute PO status from the (now updated) line receipts.
+      const { rows: fresh } = await client.query(
+        'SELECT qty, qty_received FROM po_line_items WHERE po_id = $1',
+        [req.params.id]
+      );
+      const allReceived = fresh.length > 0 && fresh.every(l => parseFloat(l.qty_received || 0) >= parseFloat(l.qty));
+      const anyReceived = fresh.some(l => parseFloat(l.qty_received || 0) > 0);
+      const newStatus = allReceived ? 'received' : (anyReceived ? 'partially_received' : po.status);
+
       await client.query(
-        'UPDATE purchase_orders SET status = $1, received_at = NOW(), updated_at = NOW() WHERE id = $2',
-        ['received', req.params.id]
+        `UPDATE purchase_orders
+            SET status = $1,
+                received_at = CASE WHEN $1 = 'received' THEN NOW() ELSE received_at END,
+                updated_at = NOW()
+          WHERE id = $2`,
+        [newStatus, req.params.id]
       );
 
+      // (d) PO-level audit entry.
+      await auditLog(client, { table: 'purchase_orders', rowId: po.id, action: 'receive',
+        by: req.user?.id, oldValue: { status: po.status }, newValue: { status: newStatus } });
+
       await client.query('COMMIT');
-      res.json({ message: 'Purchase order received', items_updated: lineItems.length });
+      res.json({ message: 'Purchase order received', status: newStatus, lines_received: linesReceived });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -397,6 +573,109 @@ router.post('/:id/receive', async (req, res) => {
   } catch (err) {
     console.error('POST /api/purchase-orders/:id/receive error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/purchase-orders/draft-for-supplier — find-or-create the open draft
+// PO for a supplier_id. Used by the record- and restock-driven flows.
+// ---------------------------------------------------------------------------
+router.post('/draft-for-supplier', async (req, res) => {
+  const { supplier_id } = req.body || {};
+  if (!supplier_id) return res.status(400).json({ error: 'supplier_id is required' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const po = await findOrCreateDraftPO(client, supplier_id);
+    await client.query('COMMIT');
+    res.json(po);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/purchase-orders/draft-for-supplier error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/purchase-orders/:id/find-confirmation — Ingest an INBOUND order
+// confirmation. Master Tech places orders on supplier websites / by phone and a
+// confirmation email arrives afterward; this attaches that confirmation to the
+// PO and its linked customer parts lines, and logs the match in order_email_log.
+//
+// TODO: automated Gmail search is not wired server-side yet (inbound Gmail is
+// scanned client-side today, and this app has no server-side inbound mailbox
+// reader). For now this endpoint accepts manually-entered confirmation details
+// as a fallback. When a server-side Gmail reader exists, add: search connected
+// Gmail for order confirmation / shipping emails matching the supplier domain +
+// order number, auto-fill order_number/tracking/ETA, and store the Gmail
+// message id in order_email_msg_id.
+// ---------------------------------------------------------------------------
+router.post('/:id/find-confirmation', async (req, res) => {
+  const { order_number, tracking_number, expected_date, gmail_msg_id, from_addr, subject } = req.body || {};
+  if (!order_number && !tracking_number && !expected_date && !gmail_msg_id) {
+    return res.status(400).json({
+      error: 'Automated Gmail confirmation search is not available server-side yet. ' +
+             'Enter the confirmation order number, tracking and/or ETA manually.',
+      manual_entry_required: true,
+    });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: poRows } = await client.query('SELECT * FROM purchase_orders WHERE id = $1', [req.params.id]);
+    if (!poRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Purchase order not found' });
+    }
+
+    const { rows } = await client.query(
+      `UPDATE purchase_orders SET
+         order_number = COALESCE($1, order_number),
+         tracking_number = COALESCE($2, tracking_number),
+         expected_date = COALESCE($3, expected_date),
+         order_email_msg_id = COALESCE($4, order_email_msg_id),
+         updated_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [order_number || null, tracking_number || null, expected_date || null, gmail_msg_id || null, req.params.id]
+    );
+
+    // Sync the confirmation onto linked customer parts lines (ETA + tracking).
+    await client.query(
+      `UPDATE record_parts_lines rpl SET
+         order_eta = COALESCE($1, rpl.order_eta),
+         order_tracking = COALESCE($2, rpl.order_tracking),
+         order_number = COALESCE($3, rpl.order_number),
+         order_email_msg_id = COALESCE($4, rpl.order_email_msg_id)
+       FROM po_line_items li
+       WHERE li.po_id = $5 AND li.record_parts_line_id = rpl.id`,
+      [expected_date || null, tracking_number || null, order_number || null, gmail_msg_id || null, req.params.id]
+    );
+
+    // Log the inbound match (order_email_log). gmail_msg_id is UNIQUE.
+    if (gmail_msg_id) {
+      await client.query(
+        `INSERT INTO order_email_log (gmail_msg_id, from_addr, subject, parsed_po, parsed_json, match_status)
+         VALUES ($1, $2, $3, $4, $5, 'matched')
+         ON CONFLICT (gmail_msg_id) DO UPDATE SET
+           parsed_po = EXCLUDED.parsed_po, parsed_json = EXCLUDED.parsed_json, match_status = 'matched'`,
+        [gmail_msg_id, from_addr || null, subject || null, rows[0].po_number || String(req.params.id),
+         JSON.stringify({ po_id: Number(req.params.id), order_number, tracking_number, expected_date })]
+      );
+    }
+
+    await auditLog(client, { table: 'purchase_orders', rowId: Number(req.params.id), action: 'find_confirmation',
+      by: req.user?.id, newValue: { order_number, tracking_number, expected_date } });
+
+    await client.query('COMMIT');
+    res.json({ po: rows[0], source: 'manual' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/purchase-orders/:id/find-confirmation error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -589,7 +868,7 @@ router.post('/amazon-import', async (req, res) => {
             subtotal,
             total,
             poNotes,
-            order.status === 'delivered' ? 'received' : 'pending'
+            order.status === 'delivered' ? 'received' : 'draft'
           ]
         );
 
@@ -748,7 +1027,7 @@ router.post('/supplier-import', async (req, res) => {
             subtotal,
             total,
             poNotes,
-            (order.status === 'delivered' || order.status === 'shipped') ? 'received' : 'pending'
+            (order.status === 'delivered' || order.status === 'shipped') ? 'received' : 'draft'
           ]
         );
 

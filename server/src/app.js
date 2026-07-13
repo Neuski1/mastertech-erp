@@ -356,7 +356,7 @@ const pool = require('./db/pool');
       id SERIAL PRIMARY KEY,
       vendor VARCHAR(255) NOT NULL,
       order_date DATE NOT NULL DEFAULT CURRENT_DATE,
-      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      status VARCHAR(30) NOT NULL DEFAULT 'draft',
       subtotal NUMERIC(10,2) DEFAULT 0,
       shipping_cost NUMERIC(10,2) DEFAULT 0,
       total NUMERIC(10,2) DEFAULT 0,
@@ -384,6 +384,19 @@ const pool = require('./db/pool');
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_po_line_items_po ON po_line_items (po_id)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_po_line_items_inventory ON po_line_items (inventory_item_id)');
+
+    // Migration 053 (Phase 2): PO engine columns. The status CHECK constraint,
+    // pending->draft migration and FK constraints are authored in
+    // 053_po_engine.sql; here we only guarantee the columns exist and the
+    // default is 'draft' so the app never boots short a column.
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS expected_date DATE`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS order_email_msg_id VARCHAR(255)`);
+    await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(50)`);
+    await pool.query(`ALTER TABLE purchase_orders ALTER COLUMN status SET DEFAULT 'draft'`);
+    await pool.query(`ALTER TABLE po_line_items ADD COLUMN IF NOT EXISTS record_parts_line_id INTEGER`);
+    await pool.query(`ALTER TABLE po_line_items ADD COLUMN IF NOT EXISTS qty_received NUMERIC(10,2) NOT NULL DEFAULT 0`);
+    await pool.query(`ALTER TABLE po_line_items ADD COLUMN IF NOT EXISTS source VARCHAR(20)`);
 
     // Migration 052 (Phase 1): suppliers table. Formerly `vendor_details`;
     // renamed and consolidated with `vendors`. The heavy one-time data merge
