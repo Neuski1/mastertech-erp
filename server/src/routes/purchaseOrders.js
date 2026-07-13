@@ -86,14 +86,14 @@ router.get('/', async (req, res) => {
 router.get('/vendors/details', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT vd.*,
-        (SELECT COUNT(*) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.vendor_name)
+      `SELECT vd.*, vd.name AS vendor_name,
+        (SELECT COUNT(*) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.name)
           AND (i.qty_on_hand > 0 OR COALESCE(i.reorder_level, 0) > 0)) AS item_count,
-        (SELECT COALESCE(SUM(i.qty_on_hand * i.cost_each), 0) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.vendor_name)
+        (SELECT COALESCE(SUM(i.qty_on_hand * i.cost_each), 0) FROM inventory i WHERE i.deleted_at IS NULL AND LOWER(i.vendor) = LOWER(vd.name)
           AND (i.qty_on_hand > 0 OR COALESCE(i.reorder_level, 0) > 0)) AS total_value,
-        (SELECT COUNT(*) FROM purchase_orders po WHERE LOWER(po.vendor) = LOWER(vd.vendor_name)) AS po_count
-       FROM vendor_details vd
-       ORDER BY vd.vendor_name`
+        (SELECT COUNT(*) FROM purchase_orders po WHERE LOWER(po.vendor) = LOWER(vd.name)) AS po_count
+       FROM suppliers vd
+       ORDER BY vd.name`
     );
     res.json(rows);
   } catch (err) {
@@ -107,11 +107,11 @@ router.get('/vendors/details', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.put('/vendors/details/:name', async (req, res) => {
   try {
-    const { website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory } = req.body;
+    const { website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory, order_method, default_ship_days, is_active } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO vendor_details (vendor_name, website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (vendor_name) DO UPDATE SET
+      `INSERT INTO suppliers (name, website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory, order_method, default_ship_days, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, TRUE))
+       ON CONFLICT (name) DO UPDATE SET
          website = EXCLUDED.website,
          contact_name = EXCLUDED.contact_name,
          contact_email = EXCLUDED.contact_email,
@@ -120,9 +120,12 @@ router.put('/vendors/details/:name', async (req, res) => {
          notes = EXCLUDED.notes,
          supplier_type = EXCLUDED.supplier_type,
          subcategory = EXCLUDED.subcategory,
+         order_method = EXCLUDED.order_method,
+         default_ship_days = EXCLUDED.default_ship_days,
+         is_active = EXCLUDED.is_active,
          updated_at = NOW()
-       RETURNING *`,
-      [req.params.name, website || null, contact_name || null, contact_email || null, contact_phone || null, account_number || null, notes || null, supplier_type || 'inventory', subcategory || null]
+       RETURNING *, name AS vendor_name`,
+      [req.params.name, website || null, contact_name || null, contact_email || null, contact_phone || null, account_number || null, notes || null, supplier_type || 'inventory', subcategory || null, order_method || null, default_ship_days || null, is_active === undefined ? null : !!is_active]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -170,7 +173,7 @@ router.get('/supplier-imported', async (req, res) => {
 router.get('/vendors/subcategories', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT DISTINCT subcategory FROM vendor_details WHERE subcategory IS NOT NULL AND subcategory != '' ORDER BY subcategory`
+      `SELECT DISTINCT subcategory FROM suppliers WHERE subcategory IS NOT NULL AND subcategory != '' ORDER BY subcategory`
     );
     res.json(rows.map(r => r.subcategory));
   } catch (err) {
@@ -185,7 +188,7 @@ router.get('/vendors/subcategories', async (req, res) => {
 router.delete('/vendors/details/:name', requireRole('admin', 'service_writer'), async (req, res) => {
   try {
     const { rowCount } = await pool.query(
-      `DELETE FROM vendor_details WHERE vendor_name = $1 AND supplier_type = 'misc'`,
+      `DELETE FROM suppliers WHERE name = $1 AND supplier_type = 'misc'`,
       [req.params.name]
     );
     if (rowCount === 0) return res.status(404).json({ error: 'Misc supplier not found (inventory suppliers cannot be deleted here)' });

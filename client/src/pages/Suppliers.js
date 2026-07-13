@@ -40,6 +40,11 @@ export default function Suppliers() {
   const [createPoModalOpen, setCreatePoModalOpen] = useState(false);
   const [poDetailModalOpen, setPoDetailModalOpen] = useState(false);
   const [selectedPo, setSelectedPo] = useState(null);
+  // Supplier detail modal (Phase 1: tabs for open POs / order history / parts)
+  const [supplierDetailOpen, setSupplierDetailOpen] = useState(false);
+  const [supplierDetail, setSupplierDetail] = useState(null); // { loading, supplier, pos, parts }
+  const [supplierDetailTab, setSupplierDetailTab] = useState('open_pos');
+  const [supplierTypeFilter, setSupplierTypeFilter] = useState('all'); // all | inventory | misc
   const [newPo, setNewPo] = useState({
     vendor: '',
     order_date: new Date().toISOString().split('T')[0],
@@ -148,9 +153,35 @@ export default function Suppliers() {
       account_number: vendor.account_number || '',
       notes: vendor.notes || '',
       supplier_type: vendor.supplier_type || 'inventory',
-      subcategory: vendor.subcategory || ''
+      subcategory: vendor.subcategory || '',
+      order_method: vendor.order_method || '',
+      default_ship_days: vendor.default_ship_days || ''
     });
     setEditModalOpen(true);
+  };
+
+  // Open the supplier detail modal. Ensures a suppliers-table row exists (so we
+  // have an id) then loads POs + parts from the /api/suppliers/:id endpoints.
+  const handleViewSupplier = async (vendor) => {
+    try {
+      let id = vendor.id;
+      if (!id) {
+        const row = await api.updateVendorDetails(vendor.name, { supplier_type: vendor.supplier_type || 'inventory' });
+        id = row.id;
+        fetchVendors();
+      }
+      setSupplierDetail({ loading: true, supplier: { ...vendor, id }, pos: null, parts: null });
+      setSupplierDetailTab('open_pos');
+      setSupplierDetailOpen(true);
+      const [full, pos, parts] = await Promise.all([
+        api.getSupplier(id),
+        api.getSupplierPurchaseOrders(id),
+        api.getSupplierParts(id),
+      ]);
+      setSupplierDetail({ loading: false, supplier: full, pos, parts });
+    } catch (e) {
+      setSupplierDetail({ loading: false, supplier: vendor, pos: { open: [], history: [] }, parts: { inventory: [], catalog: [] }, error: e.message });
+    }
   };
 
   const handleAddMiscSupplier = async () => {
@@ -414,10 +445,14 @@ export default function Suppliers() {
   const modalStyle = { background: '#fff', borderRadius: '8px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' };
 
   const badgeStyle = (status) => {
+    const base = { padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, textTransform: 'capitalize' };
     const styles = {
-      pending: { background: '#fef3c7', color: '#92400e', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 },
-      received: { background: '#d1fae5', color: '#065f46', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 },
-      cancelled: { background: '#e5e7eb', color: '#374151', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }
+      pending: { ...base, background: '#fef3c7', color: '#92400e' },
+      draft: { ...base, background: '#e0e7ff', color: '#3730a3' },
+      submitted: { ...base, background: '#fef3c7', color: '#92400e' },
+      partially_received: { ...base, background: '#fed7aa', color: '#9a3412' },
+      received: { ...base, background: '#d1fae5', color: '#065f46' },
+      cancelled: { ...base, background: '#e5e7eb', color: '#374151' }
     };
     return styles[status] || styles.pending;
   };
@@ -527,6 +562,14 @@ export default function Suppliers() {
                 <button onClick={() => { setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
                   + Add Misc. Supplier
                 </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280' }}>Type</label>
+                  <select value={supplierTypeFilter} onChange={(e) => setSupplierTypeFilter(e.target.value)} style={{ ...inputStyle, width: '150px' }}>
+                    <option value="all">All suppliers</option>
+                    <option value="inventory">Inventory only</option>
+                    <option value="misc">Misc only</option>
+                  </select>
+                </div>
               </>
             ) : (
               <>
@@ -553,6 +596,7 @@ export default function Suppliers() {
           ) : (
             <>
               {/* ═══════════ SECTION 1: INVENTORY SUPPLIERS ═══════════ */}
+              {supplierTypeFilter !== 'misc' && (<>
               <div style={{ background: '#1e3a5f', color: '#fff', padding: '10px 16px', borderRadius: '8px 8px 0 0', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Inventory Suppliers</span>
                 <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({mergedVendors.length})</span>
@@ -572,6 +616,7 @@ export default function Suppliers() {
                           <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e3a5f' }}>{vendor.name}</h3>
                         </div>
                         <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          <button onClick={() => handleViewSupplier(vendor)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>View</button>
                           <button onClick={() => handleEditVendor(vendor)} style={btnSmall}>Edit</button>
                           <button onClick={() => handleMoveToMisc(vendor)} style={{ ...btnSmall, background: '#f0fdfa', color: '#0d9488', border: '1px solid #99f6e4' }} title="Move to Misc Suppliers">Misc</button>
                           <button onClick={() => handleDeleteVendor(vendor)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
@@ -605,6 +650,8 @@ export default function Suppliers() {
                           <span>{vendor.website ? <a href={vendor.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{vendor.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Account #</span>
                           <span>{vendor.account_number || <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span style={{ color: '#6b7280', fontWeight: 600 }}>Order Via</span>
+                          <span style={{ textTransform: 'capitalize' }}>{vendor.order_method || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Contact</span>
                           <span>{vendor.contact_name || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Email</span>
@@ -628,7 +675,10 @@ export default function Suppliers() {
                 </div>
               )}
 
+              </>)}
+
               {/* ═══════════ SECTION 2: MISC. SUPPLIERS ═══════════ */}
+              {supplierTypeFilter !== 'inventory' && (<>
               <div style={{ background: '#0d9488', color: '#fff', padding: '10px 16px', borderRadius: '8px 8px 0 0', marginTop: '30px', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Misc. Suppliers</span>
                 <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>({miscSuppliers.length}) — Customer-specific parts</span>
@@ -653,8 +703,9 @@ export default function Suppliers() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                               <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1f2937' }}>{s.name}</div>
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0, flexWrap: 'wrap' }}>
+                                <button onClick={() => handleViewSupplier(s)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }}>View</button>
                                 <button onClick={() => handleEditVendor(s)} style={btnSmall}>Edit</button>
-                                <button onClick={() => handleMoveToInventory(s.name)} style={{ ...btnSmall, background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe' }} title="Move to Inventory Suppliers">Inventory</button>
+                                <button onClick={() => handleMoveToInventory(s.name)} style={{ ...btnSmall, background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe' }} title="Move to Inventory Suppliers">Inventory</button>
                                 <button onClick={() => handleDeleteMiscSupplier(s.name)} style={{ ...btnSmall, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Delete</button>
                               </div>
                             </div>
@@ -687,6 +738,7 @@ export default function Suppliers() {
                   ))}
                 </div>
               )}
+              </>)}
             </>
           )}
         </div>
@@ -1049,6 +1101,20 @@ export default function Suppliers() {
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Account Number</label>
               <input type="text" value={editFormData.account_number} onChange={(e) => setEditFormData({ ...editFormData, account_number: e.target.value })} style={inputStyle} />
             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Order Method</label>
+                <select value={editFormData.order_method || ''} onChange={(e) => setEditFormData({ ...editFormData, order_method: e.target.value })} style={inputStyle}>
+                  <option value="">—</option>
+                  <option value="website">Website</option>
+                  <option value="phone">Phone</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Default Ship Days</label>
+                <input type="number" min="0" value={editFormData.default_ship_days} onChange={(e) => setEditFormData({ ...editFormData, default_ship_days: e.target.value })} style={inputStyle} placeholder="e.g. 5" />
+              </div>
+            </div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Notes</label>
               <textarea value={editFormData.notes} onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })} style={{ ...inputStyle, minHeight: '80px', fontFamily: 'inherit' }} />
@@ -1056,6 +1122,83 @@ export default function Suppliers() {
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button onClick={() => setEditModalOpen(false)} style={btnSecondary}>Cancel</button>
               <button onClick={handleSaveVendor} style={btnPrimary}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPPLIER DETAIL MODAL */}
+      {supplierDetailOpen && supplierDetail && (
+        <div style={modalOverlayStyle} onClick={() => setSupplierDetailOpen(false)}>
+          <div style={{ ...modalStyle, maxWidth: '820px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: '#1e3a5f' }}>{supplierDetail.supplier?.name}</h2>
+                <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '4px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                  {supplierDetail.supplier?.supplier_type && <span style={{ textTransform: 'capitalize' }}>{supplierDetail.supplier.supplier_type}</span>}
+                  {supplierDetail.supplier?.order_method && <span>Order via: <strong style={{ textTransform: 'capitalize' }}>{supplierDetail.supplier.order_method}</strong></span>}
+                  {supplierDetail.supplier?.account_number && <span>Acct #: <strong>{supplierDetail.supplier.account_number}</strong></span>}
+                  {supplierDetail.supplier?.default_ship_days != null && supplierDetail.supplier?.default_ship_days !== '' && <span>Ships in ~{supplierDetail.supplier.default_ship_days}d</span>}
+                </div>
+              </div>
+              <button onClick={() => setSupplierDetailOpen(false)} style={btnSecondary}>Close</button>
+            </div>
+
+            {/* Contact strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', padding: '10px', background: '#f0f4f8', borderRadius: '6px', marginBottom: '14px', fontSize: '0.82rem' }}>
+              <div><span style={{ color: '#6b7280' }}>Website: </span>{supplierDetail.supplier?.website ? <a href={supplierDetail.supplier.website} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>{supplierDetail.supplier.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> : '—'}</div>
+              <div><span style={{ color: '#6b7280' }}>Contact: </span>{supplierDetail.supplier?.contact_name || '—'}</div>
+              <div><span style={{ color: '#6b7280' }}>Email: </span>{supplierDetail.supplier?.contact_email ? <a href={`mailto:${supplierDetail.supplier.contact_email}`} style={{ color: '#2563eb' }}>{supplierDetail.supplier.contact_email}</a> : '—'}</div>
+              <div><span style={{ color: '#6b7280' }}>Phone: </span>{supplierDetail.supplier?.contact_phone || '—'}</div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+              {[['open_pos', `Open POs${supplierDetail.pos ? ` (${supplierDetail.pos.open.length})` : ''}`], ['history', `Order History${supplierDetail.pos ? ` (${supplierDetail.pos.history.length})` : ''}`], ['parts', 'Parts Supplied']].map(([key, label]) => (
+                <button key={key} onClick={() => setSupplierDetailTab(key)} style={{ padding: '8px 14px', border: 'none', borderBottom: supplierDetailTab === key ? '2px solid #1e3a5f' : '2px solid transparent', background: 'none', cursor: 'pointer', fontWeight: supplierDetailTab === key ? 700 : 500, color: supplierDetailTab === key ? '#1e3a5f' : '#6b7280' }}>{label}</button>
+              ))}
+            </div>
+
+            <div style={{ maxHeight: '48vh', overflowY: 'auto' }}>
+              {supplierDetail.loading ? (
+                <div style={{ textAlign: 'center', color: '#6b7280', padding: '30px' }}>Loading…</div>
+              ) : supplierDetailTab === 'parts' ? (
+                <>
+                  <h4 style={{ margin: '4px 0 8px', color: '#374151' }}>In Inventory ({supplierDetail.parts?.inventory?.length || 0})</h4>
+                  {supplierDetail.parts?.inventory?.length ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', marginBottom: '16px' }}>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '4px' }}>Part #</th><th style={{ padding: '4px' }}>Description</th><th style={{ padding: '4px', textAlign: 'right' }}>On Hand</th><th style={{ padding: '4px', textAlign: 'right' }}>Cost</th></tr></thead>
+                      <tbody>{supplierDetail.parts.inventory.map(p => (<tr key={`i${p.id}`} style={{ borderTop: '1px solid #f3f4f6' }}><td style={{ padding: '4px' }}>{p.vendor_part_number || p.part_number || '—'}</td><td style={{ padding: '4px' }}>{p.description}</td><td style={{ padding: '4px', textAlign: 'right' }}>{p.qty_on_hand}</td><td style={{ padding: '4px', textAlign: 'right' }}>{formatCurrency(p.cost_each || 0)}</td></tr>))}</tbody>
+                    </table>
+                  ) : <div style={{ color: '#9ca3af', marginBottom: '16px' }}>No inventory items.</div>}
+                  <h4 style={{ margin: '4px 0 8px', color: '#374151' }}>Parts Catalog / History ({supplierDetail.parts?.catalog?.length || 0})</h4>
+                  {supplierDetail.parts?.catalog?.length ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '4px' }}>Part #</th><th style={{ padding: '4px' }}>Description</th><th style={{ padding: '4px', textAlign: 'right' }}>Last Cost</th><th style={{ padding: '4px', textAlign: 'right' }}>Used</th></tr></thead>
+                      <tbody>{supplierDetail.parts.catalog.map(p => (<tr key={`c${p.id}`} style={{ borderTop: '1px solid #f3f4f6' }}><td style={{ padding: '4px' }}>{p.vendor_part_number || '—'}</td><td style={{ padding: '4px' }}>{p.description}</td><td style={{ padding: '4px', textAlign: 'right' }}>{p.last_cost != null ? formatCurrency(p.last_cost) : '—'}</td><td style={{ padding: '4px', textAlign: 'right' }}>{p.times_used || 0}×</td></tr>))}</tbody>
+                    </table>
+                  ) : <div style={{ color: '#9ca3af' }}>No catalog history.</div>}
+                </>
+              ) : (
+                (() => {
+                  const list = supplierDetailTab === 'open_pos' ? supplierDetail.pos?.open : supplierDetail.pos?.history;
+                  if (!list || !list.length) return <div style={{ color: '#9ca3af', padding: '20px', textAlign: 'center' }}>No {supplierDetailTab === 'open_pos' ? 'open' : 'historical'} purchase orders.</div>;
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                      <thead><tr style={{ textAlign: 'left', color: '#6b7280' }}><th style={{ padding: '6px' }}>PO / Order #</th><th style={{ padding: '6px' }}>Status</th><th style={{ padding: '6px' }}>Date</th><th style={{ padding: '6px', textAlign: 'right' }}>Items</th><th style={{ padding: '6px', textAlign: 'right' }}>Total</th></tr></thead>
+                      <tbody>{list.map(po => (
+                        <tr key={po.id} style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer' }} onClick={() => { setSupplierDetailOpen(false); handleViewPoDetail(po); }}>
+                          <td style={{ padding: '6px' }}>{po.po_number || po.order_number || `#${po.id}`}</td>
+                          <td style={{ padding: '6px' }}><span style={badgeStyle(po.status)}>{po.status}</span></td>
+                          <td style={{ padding: '6px' }}>{po.order_date ? formatDate(po.order_date) : '—'}</td>
+                          <td style={{ padding: '6px', textAlign: 'right' }}>{po.item_count || 0}</td>
+                          <td style={{ padding: '6px', textAlign: 'right' }}>{formatCurrency(po.total || 0)}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  );
+                })()
+              )}
             </div>
           </div>
         </div>
