@@ -72,18 +72,15 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
 
   // Inline order-status dropdown on each parts line. Saves the moment it
   // changes, so flipping "Not Ordered" to "Ordered" no longer means opening the
-  // Edit form. Stamps order_date on the first flip to Ordered, since that's the
-  // date the order tracking row shows.
+  // Edit form. Only order_status is sent — the server auto-stamps order_date
+  // the first time a line is marked ordered, so sending it here too would
+  // assign the same column twice in one UPDATE.
   const [statusSavingId, setStatusSavingId] = useState(null);
   const saveOrderStatus = async (line, next) => {
     if (next === (line.order_status || 'not_ordered')) return;
     setStatusSavingId(line.id);
     try {
-      const patch = { order_status: next };
-      if (next === 'ordered' && !line.order_date) {
-        patch.order_date = new Date().toISOString().slice(0, 10);
-      }
-      await api.updatePart(recordId, line.id, patch);
+      await api.updatePart(recordId, line.id, { order_status: next });
       onUpdate();
     } catch (err) {
       console.error('Save order status error:', err);
