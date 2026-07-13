@@ -4,6 +4,15 @@ import { useAuth } from '../context/AuthContext';
 import VendorSelect from './VendorSelect';
 import { formatDate } from '../utils/dateFormat';
 
+// Colors for the inline order-status dropdown so the state of every parts line
+// is readable at a glance without opening anything.
+const ORDER_STATUS_STYLE = {
+  not_ordered: { backgroundColor: '#fef2f2', color: '#b91c1c' },
+  ordered:     { backgroundColor: '#fef3c7', color: '#92400e' },
+  backordered: { backgroundColor: '#fee2e2', color: '#991b1b' },
+  received:    { backgroundColor: '#d1fae5', color: '#065f46' },
+};
+
 export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate, isEstimate = false, showApproval = false }) {
   const { canSeeFinancials } = useAuth();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -58,6 +67,28 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       onUpdate();
     } catch (err) {
       console.error('Save order error:', err);
+    }
+  };
+
+  // Inline order-status dropdown on each parts line. Saves the moment it
+  // changes, so flipping "Not Ordered" to "Ordered" no longer means opening the
+  // Edit form. Stamps order_date on the first flip to Ordered, since that's the
+  // date the order tracking row shows.
+  const [statusSavingId, setStatusSavingId] = useState(null);
+  const saveOrderStatus = async (line, next) => {
+    if (next === (line.order_status || 'not_ordered')) return;
+    setStatusSavingId(line.id);
+    try {
+      const patch = { order_status: next };
+      if (next === 'ordered' && !line.order_date) {
+        patch.order_date = new Date().toISOString().slice(0, 10);
+      }
+      await api.updatePart(recordId, line.id, patch);
+      onUpdate();
+    } catch (err) {
+      console.error('Save order status error:', err);
+    } finally {
+      setStatusSavingId(null);
     }
   };
 
@@ -629,6 +660,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Cost</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Markup</th>}
+            {isEditable && <th style={{ ...thStyle, textAlign: 'center', width: '120px' }}>Order Status</th>}
             {isEditable && <th style={{ ...thStyle, width: '120px' }}></th>}
           </tr>
         </thead>
@@ -668,6 +700,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 <td style={tdStyle}>
                   <input type="number" step="1" value={form.markup} onChange={(e) => handleMarkupChange(e.target.value)} placeholder="%" style={{ ...inlineInput, width: '55px', textAlign: 'right' }} />
                 </td>
+                <td style={tdStyle}></td>
                 <td style={tdStyle}>
                   <button onClick={handleSaveEdit} disabled={saving} style={btnTiny}>Save</button>
                   <button onClick={() => { setEditingId(null); resetForm(); }} style={btnTinyGray}>Cancel</button>
@@ -773,6 +806,29 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   </td>
                 )}
                 {isEditable && (
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <select
+                      value={line.order_status || 'not_ordered'}
+                      onChange={(e) => saveOrderStatus(line, e.target.value)}
+                      disabled={statusSavingId === line.id}
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        padding: '3px 6px',
+                        borderRadius: '4px',
+                        border: '1px solid #d1d5db',
+                        cursor: 'pointer',
+                        ...(ORDER_STATUS_STYLE[line.order_status || 'not_ordered'] || {}),
+                      }}
+                    >
+                      <option value="not_ordered">Not Ordered</option>
+                      <option value="ordered">Ordered</option>
+                      <option value="backordered">Backordered</option>
+                      <option value="received">Received</option>
+                    </select>
+                  </td>
+                )}
+                {isEditable && (
                   <td style={tdStyle}>
                     <button onClick={() => handleEdit(line)} style={btnTinyGray}>Edit</button>
                     {!line.is_inventory_part && !line.inventory_id && (
@@ -785,7 +841,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               {/* Order tracking row for parts that are ordered or received */}
               {(line.order_status === 'ordered' || line.order_status === 'received' || orderEditId === line.id) && (
                 <tr key={`order-${line.id}`} style={{ backgroundColor: line.order_status === 'received' ? '#f0fdf4' : '#fffbeb' }}>
-                  <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                  <td colSpan={canSeeFinancials ? 11 : 5} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
                     {orderEditId === line.id ? (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <select value={orderForm.order_status} onChange={(e) => setOrderForm({ ...orderForm, order_status: e.target.value })}
