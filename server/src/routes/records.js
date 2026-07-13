@@ -595,7 +595,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
          WHERE record_id = $1 AND deleted_at IS NULL
            AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
            AND is_estimate_line = FALSE
-           AND order_status IS NULL`,
+           AND (order_status IS NULL OR order_status = 'inventory')`,
         [req.params.id]
       );
       for (const p of invParts) {
@@ -614,7 +614,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
          WHERE record_id = $1 AND deleted_at IS NULL
            AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
            AND is_estimate_line = FALSE
-           AND order_status IS NULL`,
+           AND (order_status IS NULL OR order_status = 'inventory')`,
         [req.params.id]
       );
       for (const p of invParts) {
