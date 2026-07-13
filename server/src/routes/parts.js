@@ -418,8 +418,15 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
 
     // Order tracking fields (customer-specific parts)
     if (order_status !== undefined) { updates.push(`order_status = $${idx++}`); values.push(order_status); }
-    if (order_status === 'ordered' && !existing.order_date) { updates.push('order_date = CURRENT_DATE'); }
-    if (order_date !== undefined) { updates.push(`order_date = $${idx++}`); values.push(order_date || null); }
+    // order_date: an explicit (non-empty) value wins; otherwise auto-stamp
+    // today the first time a line is marked ordered. These branches are
+    // mutually exclusive so order_date is never assigned twice in one UPDATE
+    // (Postgres rejects "multiple assignments to same column").
+    if (order_date !== undefined && order_date !== '' && order_date !== null) {
+      updates.push(`order_date = $${idx++}`); values.push(order_date);
+    } else if (order_status === 'ordered' && !existing.order_date) {
+      updates.push('order_date = CURRENT_DATE');
+    }
     if (order_eta !== undefined) { updates.push(`order_eta = $${idx++}`); values.push(order_eta || null); }
     if (order_supplier !== undefined) { updates.push(`order_supplier = $${idx++}`); values.push(order_supplier || null); }
     if (order_number !== undefined) { updates.push(`order_number = $${idx++}`); values.push(order_number || null); }
