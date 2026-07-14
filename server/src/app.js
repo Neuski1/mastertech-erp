@@ -108,6 +108,10 @@ app.use('/api/cowork-admin', require('./routes/cowork-admin')); // API-key auth,
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/partners', requireAuth, require('./routes/partners'));
+// Automated order import (X-Cowork-Key auth, like cowork-admin). Mounted BEFORE
+// the JWT-protected router so /import-parsed uses the agent key; all other
+// /api/purchase-orders/* paths fall through unchanged.
+app.use('/api/purchase-orders', require('./routes/purchaseOrdersImport'));
 app.use('/api/purchase-orders', requireAuthOrApiKey, require('./routes/purchaseOrders'));
 app.use('/api/leads', require('./routes/leads')); // No auth — public endpoint for website webhook
 app.use('/api/dialpad', require('./routes/dialpadWebhook')); // No auth — Dialpad calls directly
