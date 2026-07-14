@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../utils/dateFormat';
@@ -394,6 +394,23 @@ export default function Suppliers() {
       console.error(err);
     }
   };
+
+  // Deep link: /suppliers?po=<po_number> (or numeric id) opens that PO — used by
+  // the PO badge on a record's parts line.
+  const location = useLocation();
+  useEffect(() => {
+    const poParam = new URLSearchParams(location.search).get('po');
+    if (!poParam) return;
+    (async () => {
+      setActiveTab('purchase_orders');
+      try {
+        const res = await api.getPurchaseOrders({ limit: 500 });
+        const match = (res.orders || []).find(o => o.po_number === poParam || String(o.id) === poParam);
+        if (match) await handleViewPoDetail(match);
+      } catch (e) { console.error(e); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
   const refreshSelectedPo = async () => {
     const full = await api.getPurchaseOrder(selectedPo.id);
