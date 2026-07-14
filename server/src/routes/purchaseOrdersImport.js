@@ -84,22 +84,52 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
     );
     if (existing.length) {
       const prev = existing[0];
+
+      // The supplier's confirmation email is the authoritative source for what
+      // was actually ordered and what it actually cost. A PO seeded earlier
+      // from a work-order estimate carries QUOTED pricing and may be missing
+      // lines the buyer added at checkout. Previously this branch only
+      // refreshed tracking/ETA, so those POs kept estimate pricing forever and
+      // po_name was silently dropped. Reconcile the money and the lines here.
+      const notes = mergePoNameIntoNotes(prev.notes, po_name);
+
       const { rows: updated } = await client.query(
         `UPDATE purchase_orders SET
            tracking_number = COALESCE($1, tracking_number),
            expected_date = COALESCE($2, expected_date),
            order_email_msg_id = COALESCE($3, order_email_msg_id),
+           subtotal = COALESCE($4, subtotal),
+           shipping_cost = COALESCE($5, shipping_cost),
+           total = COALESCE($6, total),
+           notes = $7,
            updated_at = NOW()
-         WHERE id = $4 RETURNING *`,
-        [tracking_number || null, expected_date || null, source_email_msg_id || null, prev.id]
+         WHERE id = $8 RETURNING *`,
+        [
+          tracking_number || null, expected_date || null, source_email_msg_id || null,
+          subtotal ?? null, shipping_cost ?? null, total ?? null,
+          notes, prev.id,
+        ]
       );
+
+      // Reconcile line items against the confirmation. Match on
+      // vendor_part_number when present, else on description. Update the cost
+      // of lines we already have (estimate -> actual) and insert lines the
+      // email lists that the PO is missing. Never delete: a line that exists
+      // in the ERP but not in this email may have come from a partial
+      // shipment or a second confirmation.
+      const reconciled = await reconcileLineItems(client, prev.id, items);
+
       if (source_email_msg_id) {
-        await logInboundEmail(client, source_email_msg_id, prev, { order_number, po_name, vendor_name });
+        await logInboundEmail(client, source_email_msg_id, updated[0], { order_number, po_name, vendor_name });
       }
       await auditLog(client, { rowId: prev.id, action: 'import_parsed_update',
-        newValue: { order_number, tracking_number, expected_date } });
+        newValue: {
+          order_number, po_name: po_name || null, tracking_number, expected_date,
+          total_before: prev.total, total_after: updated[0].total,
+          lines_updated: reconciled.updated, lines_inserted: reconciled.inserted,
+        } });
       await client.query('COMMIT');
-      return res.json({ updated: true, po: updated[0] });
+      return res.json({ updated: true, po: updated[0], lines: reconciled });
     }
 
     // (2) Match supplier by case-insensitive name — create nothing. If there's
@@ -112,10 +142,7 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
 
     // (3) Notes: store po_name verbatim (never guess a record link, even if it
     // looks like MT-<digits>) plus the import provenance.
-    const notesParts = [];
-    if (po_name && String(po_name).trim()) notesParts.push(`PO: ${String(po_name).trim()}`);
-    notesParts.push('Imported via email agent');
-    const notes = notesParts.join(' | ');
+    const notes = mergePoNameIntoNotes(null, po_name);
 
     const { rows: poRows } = await client.query(
       `INSERT INTO purchase_orders
@@ -187,6 +214,82 @@ async function logInboundEmail(client, msgId, po, { order_number, po_name, vendo
   } catch {
     await client.query('ROLLBACK TO SAVEPOINT sp_email');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Build/refresh the notes string, preserving any existing operator notes and
+// adding "PO: <po_name>" exactly once (idempotent across repeat imports).
+// ---------------------------------------------------------------------------
+function mergePoNameIntoNotes(existingNotes, poName) {
+  const parts = [];
+  const name = poName == null ? '' : String(poName).trim();
+  if (name) parts.push(`PO: ${name}`);
+
+  const prior = (existingNotes || '')
+    .split('|')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    // Drop the bits we regenerate so repeat imports don't duplicate them.
+    .filter((s) => !/^PO:\s/i.test(s))
+    .filter((s) => s !== 'Imported via email agent');
+
+  parts.push(...prior);
+  parts.push('Imported via email agent');
+  return parts.join(' | ');
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile po_line_items against the supplier confirmation. Update costs on
+// lines we can match, insert lines the email has that the PO does not. Never
+// deletes. Returns { updated, inserted }.
+// ---------------------------------------------------------------------------
+async function reconcileLineItems(client, poId, items) {
+  const result = { updated: 0, inserted: 0 };
+  if (!Array.isArray(items) || items.length === 0) return result;
+
+  const { rows: current } = await client.query(
+    'SELECT id, description, vendor_part_number FROM po_line_items WHERE po_id = $1',
+    [poId]
+  );
+
+  const norm = (v) => (v == null ? '' : String(v).trim().toLowerCase());
+  const claimed = new Set();
+
+  for (const item of items) {
+    const qty = parseFloat(item.qty) || 1;
+    const costEach = parseFloat(item.cost_each) || 0;
+    const lineTotal = Math.round(qty * costEach * 100) / 100;
+    const vpn = norm(item.vendor_part_number);
+    const desc = norm(item.description);
+
+    // Prefer an exact vendor_part_number match; fall back to description.
+    const match = current.find(
+      (c) =>
+        !claimed.has(c.id) &&
+        ((vpn && norm(c.vendor_part_number) === vpn) ||
+          (!vpn && desc && norm(c.description) === desc))
+    );
+
+    if (match) {
+      claimed.add(match.id);
+      await client.query(
+        `UPDATE po_line_items
+            SET qty = $1, cost_each = $2, line_total = $3, source = 'email'
+          WHERE id = $4`,
+        [qty, costEach, lineTotal, match.id]
+      );
+      result.updated += 1;
+    } else {
+      await client.query(
+        `INSERT INTO po_line_items
+           (po_id, description, vendor_part_number, qty, cost_each, line_total, matched, source)
+         VALUES ($1, $2, $3, $4, $5, $6, false, 'email')`,
+        [poId, item.description || 'Imported item', item.vendor_part_number || null, qty, costEach, lineTotal]
+      );
+      result.inserted += 1;
+    }
+  }
+  return result;
 }
 
 module.exports = router;
