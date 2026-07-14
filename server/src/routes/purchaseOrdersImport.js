@@ -94,12 +94,16 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
         [tracking_number || null, expected_date || null, source_email_msg_id || null, prev.id]
       );
       if (source_email_msg_id) {
-        await logInboundEmail(client, source_email_msg_id, prev, { order_number, po_name, vendor_name });
+        await logInboundEmail(client, source_email_msg_id, updated[0], { order_number, po_name, vendor_name });
       }
+      // Keep already-linked record lines in sync, then try to link any items
+      // that weren't linkable before.
+      await syncLinkedRecordLines(client, updated[0]);
+      const linked = await autoLinkImportedPO(client, updated[0], po_name);
       await auditLog(client, { rowId: prev.id, action: 'import_parsed_update',
-        newValue: { order_number, tracking_number, expected_date } });
+        newValue: { order_number, tracking_number, expected_date, newly_linked: linked } });
       await client.query('COMMIT');
-      return res.json({ updated: true, po: updated[0] });
+      return res.json({ updated: true, po: updated[0], linked });
     }
 
     // (2) Match supplier by case-insensitive name — create nothing. If there's
@@ -156,12 +160,15 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
       await logInboundEmail(client, source_email_msg_id, po, { order_number, po_name, vendor_name });
     }
 
+    // Auto-link imported line items back to the work-order parts lines.
+    const linked = await autoLinkImportedPO(client, po, po_name);
+
     // (7) Audit.
     await auditLog(client, { rowId: po.id, action: 'import_parsed',
-      newValue: { order_number, po_name: po_name || null, vendor_name, supplier_id: supplierId, item_count: items.length } });
+      newValue: { order_number, po_name: po_name || null, vendor_name, supplier_id: supplierId, item_count: items.length, linked } });
 
     await client.query('COMMIT');
-    res.status(201).json({ created: true, po });
+    res.status(201).json({ created: true, po, linked });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/purchase-orders/import-parsed error:', err);
@@ -170,6 +177,149 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
     client.release();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Auto-linking: connect an imported PO's line items back to the work-order
+// parts lines that ordered them. Priority order (never guess beyond these):
+//   (1) record_parts_lines with the same order_number and no existing PO link;
+//   (2) a record id parsed from po_name (MT-1420 / #1420 / bare active id) —
+//       its 'ordered'/'not_ordered' lines matched by part number or description;
+//   (3) same supplier + exact vendor_part_number on 'ordered' lines with no
+//       order_number.
+// For each match: set po_line_items.record_parts_line_id and copy po_number,
+// order_number, tracking and ETA onto the record line.
+// ---------------------------------------------------------------------------
+const norm = (s) => (s == null ? '' : String(s)).toLowerCase().replace(/\s+/g, ' ').trim();
+const vpEq = (a, b) => !!norm(a) && norm(a) === norm(b);
+const descClose = (a, b) => {
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  return na === nb || (na.length >= 6 && nb.length >= 6 && (na.includes(nb) || nb.includes(na)));
+};
+
+function extractRecordId(poName) {
+  if (!poName) return null;
+  const s = String(poName);
+  let m = s.match(/\bMT-?(\d{1,7})\b/i);
+  if (m) return parseInt(m[1], 10);
+  m = s.match(/#\s*(\d{1,7})/);
+  if (m) return parseInt(m[1], 10);
+  m = s.match(/^\s*(\d{1,7})\s*$/);
+  if (m) return parseInt(m[1], 10);
+  return null;
+}
+
+// Update a record parts line with the PO's tracking info and link one PO line.
+async function linkPair(client, po, recordLineId, poItemId) {
+  await client.query('UPDATE po_line_items SET record_parts_line_id = $1 WHERE id = $2', [recordLineId, poItemId]);
+  await client.query(
+    `UPDATE record_parts_lines SET
+       po_number = COALESCE($1, po_number),
+       order_number = COALESCE($2, order_number),
+       order_tracking = COALESCE($3, order_tracking),
+       order_eta = COALESCE($4, order_eta),
+       updated_at = NOW()
+     WHERE id = $5`,
+    [po.po_number || null, po.order_number || null, po.tracking_number || null, po.expected_date || null, recordLineId]
+  );
+}
+
+// Keep already-linked record lines in sync with the (possibly updated) PO.
+async function syncLinkedRecordLines(client, po) {
+  await client.query(
+    `UPDATE record_parts_lines rpl SET
+       po_number = COALESCE($1, rpl.po_number),
+       order_number = COALESCE($2, rpl.order_number),
+       order_tracking = COALESCE($3, rpl.order_tracking),
+       order_eta = COALESCE($4, rpl.order_eta),
+       updated_at = NOW()
+     FROM po_line_items li
+     WHERE li.po_id = $5 AND li.record_parts_line_id = rpl.id`,
+    [po.po_number || null, po.order_number || null, po.tracking_number || null, po.expected_date || null, po.id]
+  );
+}
+
+async function autoLinkImportedPO(client, po, po_name) {
+  // Unused (still-unlinked) line items on this PO.
+  const { rows: poItems } = await client.query(
+    'SELECT id, vendor_part_number, description FROM po_line_items WHERE po_id = $1 AND record_parts_line_id IS NULL ORDER BY id',
+    [po.id]
+  );
+  const unused = [...poItems];
+  const linkedRecordIds = new Set();
+  let linked = 0;
+
+  const takeItemFor = (recLine, allowAny) => {
+    let i = unused.findIndex(pi => vpEq(pi.vendor_part_number, recLine.vendor_part_number));
+    if (i < 0) i = unused.findIndex(pi => descClose(pi.description, recLine.description));
+    if (i < 0 && allowAny) i = 0;
+    return i;
+  };
+  const linkLine = async (recLine, allowAny) => {
+    if (!unused.length || linkedRecordIds.has(recLine.id)) return;
+    const i = takeItemFor(recLine, allowAny);
+    if (i < 0) return;
+    const poItem = unused.splice(i, 1)[0];
+    await linkPair(client, po, recLine.id, poItem.id);
+    linkedRecordIds.add(recLine.id);
+    linked++;
+  };
+
+  // (1) Same order_number, no existing PO link. Strong signal → allow any item.
+  if (po.order_number) {
+    const { rows } = await client.query(
+      `SELECT id, vendor_part_number, description FROM record_parts_lines
+        WHERE deleted_at IS NULL AND po_number IS NULL
+          AND order_number IS NOT NULL AND LOWER(TRIM(order_number)) = LOWER(TRIM($1))`,
+      [po.order_number]
+    );
+    for (const rl of rows) { if (!unused.length) break; await linkLine(rl, true); }
+  }
+
+  // (2) Record id parsed from po_name → match its ordered/not_ordered lines by
+  //     part number or close description (require a field match, never guess).
+  const recId = extractRecordId(po_name);
+  if (recId && unused.length) {
+    const { rows: rec } = await client.query('SELECT id FROM records WHERE id = $1 AND deleted_at IS NULL', [recId]);
+    if (rec.length) {
+      const { rows } = await client.query(
+        `SELECT id, vendor_part_number, description FROM record_parts_lines
+          WHERE record_id = $1 AND deleted_at IS NULL AND po_number IS NULL
+            AND order_status IN ('ordered', 'not_ordered')`,
+        [recId]
+      );
+      for (const rl of rows) { if (!unused.length) break; await linkLine(rl, false); }
+    }
+  }
+
+  // (3) Same supplier + exact vendor_part_number on 'ordered' lines with no
+  //     order_number. Iterate the remaining unused items.
+  for (const poItem of [...unused]) {
+    if (!poItem.vendor_part_number) continue;
+    const supCond = po.supplier_id ? 'rpl.supplier_id = $2' : 'LOWER(TRIM(rpl.vendor)) = LOWER(TRIM($2))';
+    const supVal = po.supplier_id || po.vendor;
+    const { rows } = await client.query(
+      `SELECT id, vendor_part_number, description FROM record_parts_lines rpl
+        WHERE deleted_at IS NULL AND po_number IS NULL
+          AND order_status = 'ordered' AND order_number IS NULL
+          AND LOWER(TRIM(vendor_part_number)) = LOWER(TRIM($1))
+          AND ${supCond}
+        ORDER BY id LIMIT 1`,
+      [poItem.vendor_part_number, supVal]
+    );
+    if (rows.length && !linkedRecordIds.has(rows[0].id)) {
+      const idx = unused.findIndex(u => u.id === poItem.id);
+      if (idx >= 0) {
+        const chosen = unused.splice(idx, 1)[0];
+        await linkPair(client, po, rows[0].id, chosen.id);
+        linkedRecordIds.add(rows[0].id);
+        linked++;
+      }
+    }
+  }
+
+  return linked;
+}
 
 // Log to order_email_log (gmail_msg_id is UNIQUE) — best-effort match record.
 async function logInboundEmail(client, msgId, po, { order_number, po_name, vendor_name }) {
