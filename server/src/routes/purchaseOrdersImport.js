@@ -125,16 +125,18 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
       // Keep already-linked record lines in sync, then try to link any items
       // that weren't linkable before.
       await syncLinkedRecordLines(client, updated[0]);
-      const linked = await autoLinkImportedPO(client, updated[0], po_name);
+      const { linked, ambiguousPoName } = await autoLinkImportedPO(client, updated[0], po_name);
       await auditLog(client, { rowId: prev.id, action: 'import_parsed_update',
         newValue: {
           order_number, po_name: po_name || null, tracking_number, expected_date,
           total_before: prev.total, total_after: updated[0].total,
           lines_updated: reconciled.updated, lines_inserted: reconciled.inserted,
-          newly_linked: linked,
+          newly_linked: linked, ambiguous_po_name: ambiguousPoName,
         } });
       await client.query('COMMIT');
-      return res.json({ updated: true, po: updated[0], lines: reconciled, linked });
+      const resp = { updated: true, po: updated[0], lines: reconciled, linked };
+      if (ambiguousPoName) resp.ambiguous_po_name = true;
+      return res.json(resp);
     }
 
     // (2) Match supplier by case-insensitive name — create nothing. If there's
@@ -189,14 +191,16 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
     }
 
     // Auto-link imported line items back to the work-order parts lines.
-    const linked = await autoLinkImportedPO(client, po, po_name);
+    const { linked, ambiguousPoName } = await autoLinkImportedPO(client, po, po_name);
 
     // (7) Audit.
     await auditLog(client, { rowId: po.id, action: 'import_parsed',
-      newValue: { order_number, po_name: po_name || null, vendor_name, supplier_id: supplierId, item_count: items.length, linked } });
+      newValue: { order_number, po_name: po_name || null, vendor_name, supplier_id: supplierId, item_count: items.length, linked, ambiguous_po_name: ambiguousPoName } });
 
     await client.query('COMMIT');
-    res.status(201).json({ created: true, po, linked });
+    const resp = { created: true, po, linked };
+    if (ambiguousPoName) resp.ambiguous_po_name = true;
+    res.status(201).json(resp);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/purchase-orders/import-parsed error:', err);
@@ -212,6 +216,8 @@ router.post('/import-parsed', requireCoworkKey, async (req, res) => {
 //   (1) record_parts_lines with the same order_number and no existing PO link;
 //   (2) a record id parsed from po_name (MT-1420 / #1420 / bare active id) —
 //       its 'ordered'/'not_ordered' lines matched by part number or description;
+//   (2.5) po_name matching a customer last name / company name on exactly one
+//       active work order with orderable lines from this supplier (or none set);
 //   (3) same supplier + exact vendor_part_number on 'ordered' lines with no
 //       order_number.
 // For each match: set po_line_items.record_parts_line_id and copy po_number,
@@ -276,6 +282,7 @@ async function autoLinkImportedPO(client, po, po_name) {
   const unused = [...poItems];
   const linkedRecordIds = new Set();
   let linked = 0;
+  let ambiguousPoName = false;
 
   const takeItemFor = (recLine, allowAny) => {
     let i = unused.findIndex(pi => vpEq(pi.vendor_part_number, recLine.vendor_part_number));
@@ -320,6 +327,51 @@ async function autoLinkImportedPO(client, po, po_name) {
     }
   }
 
+  // (2.5) po_name matches a customer last name / company name on an ACTIVE work
+  //     order (status not finished/billed) that has orderable lines from this
+  //     supplier (or with no supplier set). Only link when EXACTLY ONE record
+  //     matches; if several customers match the name, don't link and flag
+  //     ambiguity so the email agent can surface it to Carol.
+  //
+  //     NOTE: record_status_type has no literal 'closed'/'invoiced' values, so
+  //     "not closed/invoiced" is implemented as excluding the finished/billed
+  //     statuses paid/filed/void ('complete' stays eligible — it may still be
+  //     awaiting payment).
+  const poNameTrim = (po_name == null ? '' : String(po_name)).trim();
+  if (poNameTrim && unused.length) {
+    const supCond = po.supplier_id
+      ? '(rpl.supplier_id = $2 OR rpl.supplier_id IS NULL)'
+      : 'rpl.supplier_id IS NULL';
+    const matchParams = po.supplier_id ? [poNameTrim, po.supplier_id] : [poNameTrim];
+    const { rows: matchRecs } = await client.query(
+      `SELECT DISTINCT r.id
+         FROM records r
+         JOIN customers c ON c.id = r.customer_id
+         JOIN record_parts_lines rpl ON rpl.record_id = r.id AND rpl.deleted_at IS NULL
+        WHERE r.deleted_at IS NULL
+          AND r.status NOT IN ('paid', 'filed', 'void')
+          AND rpl.order_status IN ('ordered', 'not_ordered')
+          AND rpl.po_number IS NULL
+          AND ${supCond}
+          AND (LOWER(TRIM(c.last_name)) = LOWER($1) OR LOWER(TRIM(c.company_name)) = LOWER($1))`,
+      matchParams
+    );
+    if (matchRecs.length > 1) {
+      ambiguousPoName = true;
+    } else if (matchRecs.length === 1) {
+      const lineSupCond = po.supplier_id ? '(supplier_id = $2 OR supplier_id IS NULL)' : 'supplier_id IS NULL';
+      const lineParams = po.supplier_id ? [matchRecs[0].id, po.supplier_id] : [matchRecs[0].id];
+      const { rows } = await client.query(
+        `SELECT id, vendor_part_number, description FROM record_parts_lines
+          WHERE record_id = $1 AND deleted_at IS NULL AND po_number IS NULL
+            AND order_status IN ('ordered', 'not_ordered')
+            AND ${lineSupCond}`,
+        lineParams
+      );
+      for (const rl of rows) { if (!unused.length) break; await linkLine(rl, false); }
+    }
+  }
+
   // (3) Same supplier + exact vendor_part_number on 'ordered' lines with no
   //     order_number. Iterate the remaining unused items.
   for (const poItem of [...unused]) {
@@ -346,7 +398,7 @@ async function autoLinkImportedPO(client, po, po_name) {
     }
   }
 
-  return linked;
+  return { linked, ambiguousPoName };
 }
 
 // Log to order_email_log (gmail_msg_id is UNIQUE) — best-effort match record.
