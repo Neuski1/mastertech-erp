@@ -2259,7 +2259,19 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
         onChange={handleChange}
         onFocus={() => { if (onFocus) onFocus(field); }}
         onBlur={handleBlur}
-        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            // Defer blur to the next tick so React has committed the latest
+            // keystroke into draft before handleBlur/autoSave runs. Blurring
+            // synchronously inside keydown could fire the save against a stale
+            // draft, whose no-change guard then skipped the save entirely --
+            // Enter appeared to lose the value while Tab (a native post-commit
+            // blur) worked. Customer/unit fields were hit hardest.
+            const el = e.currentTarget;
+            setTimeout(() => el.blur(), 0);
+          }
+        }}
         style={inputStyle}
       />
     </div>
