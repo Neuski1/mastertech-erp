@@ -687,6 +687,9 @@ startReviewRequestCron();
 const { startStorageStatusBackfillCron } = require('./jobs/storageStatusBackfillCron');
 startStorageStatusBackfillCron();
 
+const { startDbBackupCron } = require('./jobs/dbBackupCron');
+startDbBackupCron();
+
 // Auto-migrate: create storage_waitlist if missing
 require('./db/pool').query(`
   CREATE TABLE IF NOT EXISTS storage_waitlist (

@@ -182,4 +182,17 @@ router.get('/health', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/run-backup  - run the nightly DB backup on demand
+// (same job the 2 AM cron runs). Lets us verify the email pipeline without
+// waiting for the schedule.
+router.post('/run-backup', requireCoworkKey, async (req, res) => {
+  try {
+    const { runDatabaseBackup } = require('../jobs/dbBackupCron');
+    const result = await runDatabaseBackup();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
