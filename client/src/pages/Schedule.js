@@ -255,6 +255,19 @@ export default function Schedule() {
     }
   };
 
+  // Clear a pending reschedule request without changing the time (e.g. after
+  // handling it by phone). Optimistic, like the status change above.
+  const dismissReschedule = async (apptId) => {
+    const prev = appointments;
+    setAppointments(curr => curr.map(a => a.id === apptId ? { ...a, reschedule_status: null } : a));
+    try {
+      await api.updateAppointment(apptId, { reschedule_status: null });
+    } catch (err) {
+      setAppointments(prev);
+      alert('Failed to clear request: ' + err.message);
+    }
+  };
+
   // Fetch cancelled appointments
   const fetchCancelled = async () => {
     setCancelledLoading(true);
@@ -435,6 +448,38 @@ export default function Schedule() {
           {bulkResult.failed > 0 && ` ${bulkResult.failed} failed.`}
         </div>
       )}
+
+      {/* Pending reschedule requests from the customer 'Request a Different Time' button */}
+      {(() => {
+        const reqs = (appointments || []).filter(a => a.reschedule_status === 'requested' && a.status !== 'cancelled');
+        if (reqs.length === 0) return null;
+        const fmtReq = (a) => {
+          if (!a.reschedule_requested_date) return 'a new time';
+          const t = (a.reschedule_requested_time || '').slice(0, 5);
+          try {
+            return new Date(`${a.reschedule_requested_date}T${t || '00:00'}:00`).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+          } catch { return `${a.reschedule_requested_date} ${t}`; }
+        };
+        return (
+          <div style={{ marginBottom: '16px', border: '1px solid #fcd34d', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ background: '#fffbeb', padding: '10px 14px', fontWeight: 700, color: '#92400e', fontSize: '0.9rem' }}>
+              &#8635; {reqs.length} reschedule request{reqs.length > 1 ? 's' : ''} from customers
+            </div>
+            {reqs.map(a => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderTop: '1px solid #fde68a', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: '220px', fontSize: '0.85rem' }}>
+                  <strong>{[a.first_name, a.last_name].filter(Boolean).join(' ') || 'Customer'}</strong>
+                  <span style={{ color: '#6b7280' }}> — currently {formatTime(a.scheduled_at)}</span>
+                  <div style={{ color: '#1e3a5f' }}>Wants: <strong>{fmtReq(a)}</strong> (Mountain)</div>
+                  {a.reschedule_note && <div style={{ color: '#6b7280', fontStyle: 'italic', marginTop: '2px' }}>&ldquo;{a.reschedule_note}&rdquo;</div>}
+                </div>
+                <button onClick={() => navigate(`/schedule/${a.id}`)} style={{ padding: '6px 14px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Open</button>
+                <button onClick={() => dismissReschedule(a.id)} style={{ padding: '6px 12px', background: '#fff', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer' }}>Dismiss</button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '8px' }}>

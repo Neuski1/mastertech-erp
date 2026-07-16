@@ -165,6 +165,7 @@ async function sendAppointmentConfirmation({
   notes,
   revised = false,
   bcc = null,
+  rescheduleToken = null,
 }) {
   if (!useResend && !transporter) {
     console.error('No email transport configured');
@@ -290,6 +291,16 @@ async function sendAppointmentConfirmation({
         ` : ''}
       </div>
 
+      ${rescheduleToken ? `
+      <div style="text-align:center;margin:0 0 24px;">
+        <p style="margin:0 0 10px;color:#374151;font-size:14px;">Need a different time?</p>
+        <a href="${(process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app'))}/api/appointments/reschedule/${rescheduleToken}" target="_blank" style="display:inline-block;padding:12px 28px;background-color:#1e3a5f;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">
+          Request a Different Time
+        </a>
+        <p style="margin:10px 0 0;color:#9ca3af;font-size:12px;">Your appointment stays booked until we confirm any change.</p>
+      </div>
+      ` : ''}
+
       <p style="color:#374151;font-size:14px;">
         If you need to reschedule or cancel, please contact us:
       </p>
@@ -329,7 +340,7 @@ Add to Your Calendar:
   Google Calendar: ${googleCalUrl}
   Apple Calendar / Outlook: Open the attached appointment.ics file
 
-If you need to reschedule or cancel, please contact us:
+${rescheduleToken ? 'Request a different time: ' + (process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app')) + '/api/appointments/reschedule/' + rescheduleToken + '\n\n' : ''}If you need to reschedule or cancel, please contact us:
   Phone: (303) 557-2214
   Email: service@mastertechrvrepair.com
   Web: https://mastertechrvrepair.com/
