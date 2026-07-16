@@ -48,8 +48,11 @@ export default function BookkeepingBalanceSheet() {
       {items.map(renderRow)}
     </>
   );
-  const totalRow = (label, val, bg='#fce4ec') => (
-    <tr style={{ background: bg }}><td style={{ ...td, fontWeight: 700 }}>{label}</td><td style={{ ...tdRight, fontWeight: 700 }}>${fmt(val)}</td></tr>
+  const totalRow = (label, val, bg='#fce4ec', color, rowClass) => (
+    <tr className={rowClass} style={{ background: bg }}>
+      <td style={{ ...td, fontWeight: 700, ...(color ? { color } : {}) }}>{label}</td>
+      <td style={{ ...tdRight, fontWeight: 700, ...(color ? { color } : {}) }}>${fmt(val)}</td>
+    </tr>
   );
 
   return (
@@ -99,7 +102,7 @@ export default function BookkeepingBalanceSheet() {
             <tr style={{ background: '#dde7f5' }}><td style={{ ...td, fontWeight: 800, fontSize: '1.05rem' }} colSpan={2}>EQUITY</td></tr>
             {renderGroup('Equity', sections['Equity'])}
             {totalRow('TOTAL EQUITY', totalEquity, '#c8e6c9')}
-            {totalRow('TOTAL LIABILITIES + EQUITY', totalLiabs + totalEquity, '#1a2a4a')}
+            {totalRow('TOTAL LIABILITIES + EQUITY', totalLiabs + totalEquity, '#1a2a4a', '#ffffff', 'bs-grand-total')}
           </tbody>
         </table>
       )}

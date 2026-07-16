@@ -65,4 +65,8 @@ code {
   .print-header .company { font-size: 22pt; font-weight: 700; }
   .print-header .subtitle { font-size: 14pt; margin-top: 2pt; }
   .print-header .meta { font-size: 10pt; color: #444; margin-top: 4pt; }
+
+  /* Balance Sheet grand-total row: white-on-navy on screen, but print
+     black-on-white since the navy fill is dropped when printing. */
+  .bs-grand-total td { color: #000 !important; background: #fff !important; }
 }
