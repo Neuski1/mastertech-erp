@@ -382,18 +382,11 @@ export default function RecordDetail() {
       return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
     };
 
-    // Collect distinct technician names for "Serviced By"
     // Only print lines that are committed work — exclude inspection-finding
     // estimate lines unless the customer has explicitly approved them.
     // Otherwise the printed totals (from the DB) won't match the printed rows.
     const isCommitted = (line) => !line.is_estimate_line || line.customer_approved;
     const laborLines = (r.labor_lines || []).filter(isCommitted);
-    let apptTechNames = [];
-    try {
-      const apptData = await api.getAppointments({ record_id: id });
-      apptTechNames = (apptData.appointments || []).map(a => a.technician_name).filter(Boolean);
-    } catch (e) { /* non-fatal */ }
-    const techNames = [...new Set([...laborLines.map(l => l.technician_name), ...apptTechNames].filter(Boolean))].sort();
     const isEstimate = r.status === 'estimate';
 
     // Build labor rows
@@ -543,7 +536,6 @@ export default function RecordDetail() {
     <label>License Plate</label><span>${r.license_plate || '—'}</span><br/>
     <label>VIN</label><span>${r.vin || '—'}</span><br/>
     <label>Key #</label><span>${r.key_number || '—'}</span>
-    ${!isEstimate && techNames.length > 0 ? `<br/><label>Serviced By</label><span>${techNames.join(', ')}</span>` : ''}
   </div>
 </div>
 ${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_number || r.insurance_contact_name || r.insurance_phone || r.insurance_email || parseFloat(r.deductible_amount) > 0 || r.authorization_number || parseFloat(r.under_warranty_amount) > 0 || parseFloat(r.mileage_at_intake) > 0) ? `<div class="info-block">
