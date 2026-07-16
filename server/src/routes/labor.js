@@ -159,7 +159,7 @@ router.post('/:recordId/assign-technician', requireRole('admin', 'service_writer
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { technician_id, description, hours, no_charge, contractor_cost, is_estimate_line, customer_approved } = req.body;
+  const { technician_id, description, hours, no_charge, contractor_cost, is_estimate_line, customer_approved, rate } = req.body;
 
   console.log(`PATCH labor/${recordId}/${lineId} body:`, JSON.stringify(req.body));
 
@@ -218,23 +218,32 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       ? (no_charge !== undefined ? !!no_charge : !!lineRows[0].no_charge)
       : false;
 
+    let parsedHours;
     if (hours !== undefined) {
-      const parsedHours = parseFloat(hours);
+      parsedHours = parseFloat(hours);
       if (isNaN(parsedHours) || parsedHours < 0) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'hours cannot be negative' });
       }
-      const rate = parseFloat(lineRows[0].rate);
-      const lineTotal = effectiveNoCharge ? 0 : parseFloat((parsedHours * rate).toFixed(2));
       updates.push(`hours = $${idx++}`);
       values.push(parsedHours);
-      updates.push(`line_total = $${idx++}`);
-      values.push(lineTotal);
-    } else if (no_charge !== undefined && hasNcCol) {
-      // no_charge toggled but hours not sent — recalculate line_total from existing hours
-      const currentHours = parseFloat(lineRows[0].hours);
-      const rate = parseFloat(lineRows[0].rate);
-      const lineTotal = effectiveNoCharge ? 0 : parseFloat((currentHours * rate).toFixed(2));
+    }
+    // Rate is now editable per line (copied lines can carry an old rate).
+    let parsedRate;
+    if (rate !== undefined) {
+      parsedRate = parseFloat(rate);
+      if (isNaN(parsedRate) || parsedRate < 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'rate cannot be negative' });
+      }
+      updates.push(`rate = $${idx++}`);
+      values.push(parsedRate);
+    }
+    // Recompute the line total whenever any of its drivers changed.
+    if (hours !== undefined || rate !== undefined || (no_charge !== undefined && hasNcCol)) {
+      const effHours = hours !== undefined ? parsedHours : parseFloat(lineRows[0].hours);
+      const effRate = rate !== undefined ? parsedRate : parseFloat(lineRows[0].rate);
+      const lineTotal = effectiveNoCharge ? 0 : parseFloat((effHours * effRate).toFixed(2));
       updates.push(`line_total = $${idx++}`);
       values.push(lineTotal);
     }
@@ -301,6 +310,39 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('DELETE labor error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/labor/:recordId/apply-current-rate — set EVERY labor line on this
+// record to the current system labor rate and recompute line totals. Fixes
+// lines copied from another record that carried an old rate.
+// ---------------------------------------------------------------------------
+router.post('/:recordId/apply-current-rate', requireRole('admin', 'service_writer'), async (req, res) => {
+  const { recordId } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const rate = await getLaborRate();
+    const hasNcCol = await hasNoChargeColumn();
+    const ncExpr = hasNcCol ? 'no_charge' : 'FALSE';
+    const { rowCount } = await client.query(
+      `UPDATE record_labor_lines
+          SET rate = $1,
+              line_total = CASE WHEN ${ncExpr} THEN 0 ELSE ROUND(hours * $1, 2) END,
+              updated_at = NOW()
+        WHERE record_id = $2 AND deleted_at IS NULL`,
+      [rate, recordId]
+    );
+    await recalculateTotals(recordId, client);
+    await client.query('COMMIT');
+    res.json({ updated: rowCount, rate });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('apply-current-rate error:', err.message);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();

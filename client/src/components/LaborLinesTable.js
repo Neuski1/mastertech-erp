@@ -74,6 +74,27 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     }
   };
 
+  // Bump every labor line on this record to the current system labor rate.
+  // Fixes lines copied from another record that carried an old rate.
+  const [rateSaving, setRateSaving] = useState(false);
+  const handleApplyCurrentRate = async () => {
+    if (!window.confirm('Set every labor line on this work order to the current shop labor rate?')) return;
+    setRateSaving(true);
+    setError('');
+    try {
+      const res = await api.applyCurrentLaborRate(recordId);
+      onUpdate();
+      if (res && res.rate != null) {
+        setError('');
+        window.alert(`Updated ${res.updated} labor line${res.updated === 1 ? '' : 's'} to $${parseFloat(res.rate).toFixed(2)}/hr.`);
+      }
+    } catch (err) {
+      setError('Could not update rate: ' + err.message);
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
   const handleFlatRateSelect = (job) => {
     setForm(prev => ({
       ...prev,
@@ -132,6 +153,7 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     if (field === 'no_charge') data.no_charge = value;
     if (field === 'contractor_cost') data.contractor_cost = value;
     if (field === 'customer_approved') data.customer_approved = value;
+    if (field === 'rate') data.rate = value === '' || value === null ? undefined : parseFloat(value);
 
     // Fire the save — this fetch runs to completion regardless of component unmount
     sendLaborUpdate(recordId, lineId, data)
@@ -177,6 +199,16 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
                 </button>
               )}
             </div>
+          )}
+          {canEdit && canSeeFinancials && (laborLines || []).length >= 1 && (
+            <button
+              onClick={handleApplyCurrentRate}
+              disabled={rateSaving}
+              title="Reset every labor line on this work order to the current shop labor rate"
+              style={{ padding: '5px 12px', backgroundColor: '#fff', color: '#1e3a5f', border: '1px solid #1e3a5f', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem' }}
+            >
+              {rateSaving ? 'Updating...' : 'Set all to current rate'}
+            </button>
           )}
           {canEdit && !showAddForm && (
             <button onClick={() => { setShowAddForm(true); resetForm(); }} style={btnSmallPrimary}>
@@ -294,7 +326,23 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
 
               {canSeeFinancials && (
                 <td style={{ ...tdStyle, textAlign: 'right', color: line.no_charge ? '#9ca3af' : undefined }}>
-                  {formatCurrency(line.rate)}
+                  {canEdit ? (
+                    <input
+                      key={`rate-${line.id}-${line.rate}`}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      defaultValue={parseFloat(line.rate).toFixed(2)}
+                      onBlur={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (!isNaN(v) && v !== parseFloat(line.rate)) handleInlineSave(line.id, 'rate', e.target.value);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                      style={{ ...inlineEditable, width: '80px', textAlign: 'right' }}
+                    />
+                  ) : (
+                    formatCurrency(line.rate)
+                  )}
                 </td>
               )}
               {canSeeFinancials && (
