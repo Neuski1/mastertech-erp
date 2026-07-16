@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import VendorSelect from './VendorSelect';
@@ -25,7 +24,6 @@ const displayOrderStatus = (line) =>
 
 export default function PartsLinesTable({ recordId, partsLines, isEditable, onUpdate, isEstimate = false, showApproval = false }) {
   const { canSeeFinancials } = useAuth();
-  const navigate = useNavigate();
   const [showAddForm, setShowAddForm] = useState(false);
   const [isInventory, setIsInventory] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -893,15 +891,6 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                         </span>
                         {line.order_supplier && <span><strong>From:</strong> {line.order_supplier}</span>}
                         {line.order_number && <span><strong>Order#:</strong> {line.order_number}</span>}
-                        {line.po_number && (
-                          <span
-                            onClick={() => navigate(`/suppliers?po=${encodeURIComponent(line.po_number)}`)}
-                            title="View the linked purchase order"
-                            style={{ padding: '2px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', cursor: 'pointer' }}
-                          >
-                            PO {line.po_number}
-                          </span>
-                        )}
                         {line.order_tracking && <span><strong>Tracking:</strong> {line.order_tracking}</span>}
                         {line.order_date && <span><strong>Ordered:</strong> {(() => { const s = String(line.order_date); const safe = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00' : s; const d = new Date(safe); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</span>}
                         {line.order_eta && <span><strong>ETA:</strong> {(() => { const s = String(line.order_eta); const safe = /^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T12:00:00' : s; const d = new Date(safe); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(); })()}</span>}
