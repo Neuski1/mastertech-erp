@@ -122,22 +122,18 @@ function generateICS({ appointmentDate, appointmentTime, durationMinutes, appoin
   const duration = parseInt(durationMinutes) || 60;
   const typeLabel = formatApptTypeLabel(appointmentType);
 
-  // Convert Mountain Time to UTC for .ics (which expects UTC when using Z suffix)
-  // Build a Date in Mountain Time using Intl to find the correct UTC offset
-  const localStr = `${appointmentDate}T${appointmentTime}:00`;
-  const mtFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', timeZoneName: 'shortOffset' });
-  const parts = mtFormatter.formatToParts(new Date(localStr));
-  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT-6';
-  const offsetMatch = tzPart.match(/GMT([+-])(\d+)/);
-  const offsetHours = offsetMatch ? parseInt(offsetMatch[1] + offsetMatch[2]) : -6;
-  // Create proper UTC date: Mountain Time = UTC + offset (offset is negative, so subtract)
-  const utcDate = new Date(`${appointmentDate}T${appointmentTime}:00Z`);
-  utcDate.setHours(utcDate.getHours() - offsetHours);
+  // Emit the appointment as a floating LOCAL time -- the exact Mountain wall
+  // clock the shop scheduled (e.g. 12:00). No UTC anchor and no offset math, so
+  // every calendar app shows the same clock time regardless of the device's
+  // timezone. A customer whose phone was set to another zone had been seeing a
+  // UTC-anchored invite shifted (noon Mountain rendered as 1 PM on his phone).
+  const [icsY, icsMo, icsD] = appointmentDate.split('-').map(Number);
+  const [icsH, icsMin] = appointmentTime.split(':').map(Number);
 
   const event = {
-    start: [utcDate.getUTCFullYear(), utcDate.getUTCMonth() + 1, utcDate.getUTCDate(), utcDate.getUTCHours(), utcDate.getUTCMinutes()],
-    startInputType: 'utc',
-    startOutputType: 'utc',
+    start: [icsY, icsMo, icsD, icsH, icsMin],
+    startInputType: 'local',
+    startOutputType: 'local',
     duration: { hours: Math.floor(duration / 60), minutes: duration % 60 },
     title: `${typeLabel} — Master Tech RV Repair & Storage`,
     description: `Appointment Type: ${typeLabel}${notes ? '\\n' + notes : ''}\\n\\nQuestions? Call (303) 557-2214 or email service@mastertechrvrepair.com`,
@@ -205,20 +201,17 @@ async function sendAppointmentConfirmation({
   const hour12 = hour % 12 || 12;
   const timeFormatted = `${hour12}:${m} ${ampm}`;
 
-  // Build Google Calendar URL — must be UTC (Z suffix) for correct timezone handling
+  // Google Calendar link: use LOCAL (no Z) times so Google shows the Mountain
+  // clock time the shop set, on any device -- matching the floating .ics above.
   const pad = (n) => String(n).padStart(2, '0');
-  const gcalLocalStr = `${appointmentDate}T${appointmentTime}:00`;
-  const gcalMtParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Denver', timeZoneName: 'shortOffset' })
-    .formatToParts(new Date(gcalLocalStr));
-  const gcalTzPart = gcalMtParts.find(p => p.type === 'timeZoneName')?.value || 'GMT-6';
-  const gcalOffsetMatch = gcalTzPart.match(/GMT([+-])(\d+)/);
-  const gcalOffsetHours = gcalOffsetMatch ? parseInt(gcalOffsetMatch[1] + gcalOffsetMatch[2]) : -6;
-  const gcalUtcStart = new Date(`${appointmentDate}T${appointmentTime}:00Z`);
-  gcalUtcStart.setHours(gcalUtcStart.getHours() - gcalOffsetHours);
   const dur = parseInt(durationMinutes) || 60;
-  const gcalUtcEnd = new Date(gcalUtcStart.getTime() + dur * 60000);
-  const gcalStart = `${gcalUtcStart.getUTCFullYear()}${pad(gcalUtcStart.getUTCMonth()+1)}${pad(gcalUtcStart.getUTCDate())}T${pad(gcalUtcStart.getUTCHours())}${pad(gcalUtcStart.getUTCMinutes())}00Z`;
-  const gcalEnd = `${gcalUtcEnd.getUTCFullYear()}${pad(gcalUtcEnd.getUTCMonth()+1)}${pad(gcalUtcEnd.getUTCDate())}T${pad(gcalUtcEnd.getUTCHours())}${pad(gcalUtcEnd.getUTCMinutes())}00Z`;
+  const [gY, gMo, gD] = appointmentDate.split('-').map(Number);
+  const [gH, gMin] = appointmentTime.split(':').map(Number);
+  const gStartDate = new Date(gY, gMo - 1, gD, gH, gMin);
+  const gEndDate = new Date(gStartDate.getTime() + dur * 60000);
+  const fmtLocal = (dt) => `${dt.getFullYear()}${pad(dt.getMonth()+1)}${pad(dt.getDate())}T${pad(dt.getHours())}${pad(dt.getMinutes())}00`;
+  const gcalStart = fmtLocal(gStartDate);
+  const gcalEnd = fmtLocal(gEndDate);
   const gcalParams = new URLSearchParams({
     action: 'TEMPLATE',
     text: `${typeLabel} — Master Tech RV`,
