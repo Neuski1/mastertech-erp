@@ -60,6 +60,7 @@ app.use('/api/auth', require('./routes/auth'));
 
 // Public routes (no auth)
 app.use('/api/records/approve', require('./routes/estimate-approval')); // Customer clicks from email
+app.use('/api/appointments/reschedule', require('./routes/appointmentReschedule')); // Public reschedule-request form from confirmation email
 app.use('/api/estimate-lines/approve', require('./routes/estimate-line-approval')); // Line-level approval from email
 app.use('/api/public/records', require('./routes/publicPhotos')); // Token-protected photo links in customer emails
 
@@ -156,6 +157,15 @@ const pool = require('./db/pool');
 (async () => {
   try {
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS job_description TEXT');
+    // Reschedule-request flow (customer 'Request a Different Time' button)
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_token UUID DEFAULT gen_random_uuid()');
+    await pool.query('UPDATE appointments SET reschedule_token = gen_random_uuid() WHERE reschedule_token IS NULL');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_appt_reschedule_token ON appointments(reschedule_token)');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_status VARCHAR(20)');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_requested_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_requested_date DATE');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_requested_time TIME');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reschedule_note TEXT');
     await pool.query("ALTER TYPE appointment_status_type ADD VALUE IF NOT EXISTS 'arrived'");
     // Migration 025: fix appointment type enum
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'drop_off'");

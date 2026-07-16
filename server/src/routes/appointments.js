@@ -220,6 +220,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
         appointmentType: appointment_type,
         durationMinutes: duration_minutes,
         notes: job_description || dropoff_notes,
+        rescheduleToken: full[0].reschedule_token,
       };
 
       console.log(`[Appt ${apptId}] Sending email to: ${emailAddr}`);
@@ -289,7 +290,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     customer_id, unit_id, record_id, appointment_type,
     scheduled_date, scheduled_time, duration_minutes,
     technician_id, status, dropoff_notes, pickup_notes, internal_notes, job_description,
-    customer_email, customer_phone, notify_customer
+    customer_email, customer_phone, notify_customer, reschedule_status
   } = req.body;
 
   const updates = [];
@@ -321,6 +322,14 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   if (customer_email !== undefined) { updates.push(`customer_email = $${idx++}`); values.push(customer_email || null); }
   if (customer_phone !== undefined) { updates.push(`customer_phone = $${idx++}`); values.push(customer_phone || null); }
   if (notify_customer !== undefined) { updates.push(`notify_customer = $${idx++}`); values.push(notify_customer); }
+  // Approving/adjusting the time clears any pending reschedule request; otherwise
+  // allow an explicit dismiss. Kept mutually exclusive so the column is never
+  // assigned twice in one UPDATE.
+  if (scheduled_date !== undefined || scheduled_time !== undefined) {
+    updates.push('reschedule_status = NULL');
+  } else if (reschedule_status !== undefined) {
+    updates.push(`reschedule_status = $${idx++}`); values.push(reschedule_status || null);
+  }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });
@@ -392,6 +401,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
           durationMinutes: appt.duration_minutes || 60,
           notes: appt.job_description || appt.dropoff_notes || '',
           revised: true,
+          rescheduleToken: appt.reschedule_token,
         }).then(result => {
           console.log(`[Appt ${appt.id}] Revised confirmation sent to ${emailAddr}:`, result.success);
         }).catch(err => {
@@ -461,6 +471,7 @@ router.post('/:id/resend-confirmation', requireRole('admin', 'service_writer', '
       appointmentType: appt.appointment_type,
       durationMinutes: appt.duration_minutes,
       notes: appt.dropoff_notes,
+      rescheduleToken: appt.reschedule_token,
     });
 
     if (result.success) {
@@ -513,6 +524,7 @@ router.post('/bulk-resend', requireRole('admin'), async (req, res) => {
           appointmentType: appt.appointment_type,
           durationMinutes: appt.duration_minutes,
           notes: appt.dropoff_notes,
+          rescheduleToken: appt.reschedule_token,
         });
         if (result.success) {
           sent++;
