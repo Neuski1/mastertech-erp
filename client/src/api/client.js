@@ -161,6 +161,7 @@ export const api = {
   updateLabor: (recordId, lineId, data) => request(`/labor/${recordId}/${lineId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteLabor: (recordId, lineId) => request(`/labor/${recordId}/${lineId}`, { method: 'DELETE' }),
   assignTechnicianAll: (recordId, data) => request(`/labor/${recordId}/assign-technician`, { method: 'POST', body: JSON.stringify(data) }),
+  applyCurrentLaborRate: (recordId) => request(`/labor/${recordId}/apply-current-rate`, { method: 'POST' }),
 
   // Parts lines
   addPart: (recordId, data) => request(`/parts/${recordId}`, { method: 'POST', body: JSON.stringify(data) }),
