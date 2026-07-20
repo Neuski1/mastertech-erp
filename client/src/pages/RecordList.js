@@ -110,6 +110,15 @@ export default function RecordList() {
 
   // Holds the latest fetchLeads (defined below) so the auto-refresh can call
   // it without a circular dependency between the two callbacks.
+  // Signature to drop into lead reply emails. Gmail omits the account
+  // signature whenever the body is pre-filled via URL, so we supply our own.
+  const [leadSignature, setLeadSignature] = useState('');
+  useEffect(() => {
+    api.getLeadEmailSignature()
+      .then(d => setLeadSignature((d && d.signature) || ''))
+      .catch(() => {});
+  }, []);
+
   const fetchLeadsRef = React.useRef(null);
 
   // Keep the records list and leads current without a manual refresh.
@@ -471,6 +480,7 @@ export default function RecordList() {
           const body = [
             `Hi ${first},`, '',
             'Thank you for reaching out to Master Tech RV Repair & Storage.', '', '',
+            ...(leadSignature ? [leadSignature, ''] : []),
             '-----------------------------------------',
             when ? `On ${when} you wrote:` : 'Your original request:',
             quoted,

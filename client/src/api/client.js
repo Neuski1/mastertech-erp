@@ -255,6 +255,8 @@ export const api = {
 
   // QuickBooks
   getReminderSettings: () => request('/admin/reminder-settings'),
+  getLeadEmailSignature: () => request('/admin/lead-email-signature'),
+  updateLeadEmailSignature: (signature) => request('/admin/lead-email-signature', { method: 'POST', body: JSON.stringify({ signature }) }),
   updateReminderSettings: (data) => request('/admin/reminder-settings', { method: 'POST', body: JSON.stringify(data) }),
 
   qbGetStatus: () => request('/quickbooks/status'),
