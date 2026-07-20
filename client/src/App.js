@@ -109,7 +109,12 @@ function AppLayout() {
       {/* Header — fixed to top on all screen sizes */}
       <header className="print-hide" style={{
         backgroundColor: '#1e3a5f',
-        padding: isMobile ? '8px 12px' : '0 24px',
+        // iOS renders this app under the status bar / notch (black-translucent),
+        // so pad by the safe-area insets or the top of the header gets clipped.
+        paddingTop: isMobile ? 'calc(8px + env(safe-area-inset-top, 0px))' : 'env(safe-area-inset-top, 0px)',
+        paddingBottom: isMobile ? '8px' : '0px',
+        paddingLeft: isMobile ? 'calc(12px + env(safe-area-inset-left, 0px))' : 'calc(24px + env(safe-area-inset-left, 0px))',
+        paddingRight: isMobile ? 'calc(12px + env(safe-area-inset-right, 0px))' : 'calc(24px + env(safe-area-inset-right, 0px))',
         display: 'flex', alignItems: isMobile ? 'flex-start' : 'center',
         flexWrap: 'wrap',
         minHeight: isMobile ? '48px' : '56px',
@@ -190,7 +195,13 @@ function AppLayout() {
       </header>
 
       {/* Content — padded below fixed header */}
-      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px', paddingTop: isMobile ? '60px' : '80px' }}>
+      <main style={{
+        maxWidth: '1200px', margin: '0 auto',
+        paddingTop: isMobile ? 'calc(60px + env(safe-area-inset-top, 0px))' : 'calc(80px + env(safe-area-inset-top, 0px))',
+        paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+        paddingLeft: 'calc(24px + env(safe-area-inset-left, 0px))',
+        paddingRight: 'calc(24px + env(safe-area-inset-right, 0px))',
+      }}>
         <Routes>
           <Route path="/" element={<Navigate to="/records" />} />
           <Route path="/customers" element={<CustomerList />} />
