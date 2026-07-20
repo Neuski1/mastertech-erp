@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
 import useIsMobile from '../utils/useIsMobile';
@@ -87,8 +88,9 @@ export default function RecordList() {
   const [customerResults, setCustomerResults] = useState([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
 
-  const fetchRecords = useCallback(async () => {
-    setLoading(true);
+  const fetchRecords = useCallback(async (opts) => {
+    const silent = !!(opts && opts.silent === true);
+    if (!silent) setLoading(true);
     try {
       // When no filter, fetch large batch for grouping
       const params = { page, limit: statusFilter || search ? 50 : 500 };
@@ -100,11 +102,21 @@ export default function RecordList() {
     } catch (err) {
       console.error('Failed to load records:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [search, statusFilter, page]);
 
   useEffect(() => { fetchRecords(); }, [fetchRecords]);
+
+  // Holds the latest fetchLeads (defined below) so the auto-refresh can call
+  // it without a circular dependency between the two callbacks.
+  const fetchLeadsRef = React.useRef(null);
+
+  // Keep the records list and leads current without a manual refresh.
+  const autoRefreshRecords = useCallback(async () => {
+    await Promise.all([fetchRecords({ silent: true }), fetchLeadsRef.current && fetchLeadsRef.current()]);
+  }, [fetchRecords]);
+  useAutoRefresh(autoRefreshRecords);
 
   const fetchLeads = useCallback(async () => {
     if (!showLeads) return;
@@ -117,6 +129,7 @@ export default function RecordList() {
   }, [showLeads]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
+  fetchLeadsRef.current = fetchLeads;
   useEffect(() => {
     if (!showClosedLeads) return;
     let cancel = false;

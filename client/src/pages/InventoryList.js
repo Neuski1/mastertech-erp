@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import useIsMobile from '../utils/useIsMobile';
 import { formatDate } from '../utils/dateFormat';
@@ -288,8 +289,9 @@ export default function InventoryList() {
     printWindow.onload = () => { printWindow.print(); };
   };
 
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
+  const fetchItems = useCallback(async (opts) => {
+    const silent = !!(opts && opts.silent === true);
+    if (!silent) setLoading(true);
     try {
       const params = { page, limit: 50, sort: sortField, order: sortDirection };
       if (search) params.search = search;
@@ -303,9 +305,12 @@ export default function InventoryList() {
     } catch (err) {
       console.error('Failed to load inventory:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [search, vendor, category, location, lowStockOnly, page, sortField, sortDirection]);
+
+  const autoRefreshInventory = useCallback(() => fetchItems({ silent: true }), [fetchItems]);
+  useAutoRefresh(autoRefreshInventory);
 
   const fetchReorderCount = useCallback(async () => {
     try {

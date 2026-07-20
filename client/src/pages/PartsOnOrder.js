@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 import { formatDate } from '../utils/dateFormat';
 
 const NAVY = '#1e3a5f';
@@ -34,8 +35,9 @@ export default function PartsOnOrder() {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts) => {
+    const silent = !!(opts && opts.silent === true);
+    if (!silent) setLoading(true);
     try {
       const [data, em] = await Promise.all([
         api.getPartsOnOrder(),
@@ -47,9 +49,12 @@ export default function PartsOnOrder() {
     } catch (err) {
       setError(err.message || 'Failed to load');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
+
+  const autoRefreshParts = useCallback(() => load({ silent: true }), [load]);
+  useAutoRefresh(autoRefreshParts);
 
   useEffect(() => { load(); }, [load]);
 

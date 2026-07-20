@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api/client';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
@@ -132,6 +133,9 @@ export default function Storage() {
   const refreshSpaces = useCallback(async () => {
     await Promise.all([fetchSpaces(), fetchGrid()]);
   }, [fetchSpaces, fetchGrid]);
+
+  // Keep spaces/payment grid current across computers without a manual refresh.
+  useAutoRefresh(refreshSpaces);
 
   const handleSyncSquare = async () => {
     setGridSyncing(true);

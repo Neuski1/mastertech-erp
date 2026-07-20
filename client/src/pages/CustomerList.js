@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 import NewCustomerModal from '../components/NewCustomerModal';
 import { formatPhone } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
@@ -68,8 +69,9 @@ export default function CustomerList() {
     setPage(1);
   };
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true);
+  const fetchCustomers = useCallback(async (opts) => {
+    const silent = !!(opts && opts.silent === true);
+    if (!silent) setLoading(true);
     try {
       const params = { page, limit: 50 };
       if (searchTerm) params.search = searchTerm;
@@ -88,11 +90,14 @@ export default function CustomerList() {
     } catch (err) {
       console.error('Failed to load customers:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, searchTerm, isStorage, hasOpenRecords, hasOpenEstimate, lastServiceFrom, lastServiceTo, unitMake, unitModel, city, zip]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+
+  const autoRefreshCustomers = useCallback(() => fetchCustomers({ silent: true }), [fetchCustomers]);
+  useAutoRefresh(autoRefreshCustomers);
 
   const buildFilterParams = () => {
     const params = { page: 1, limit: 10000 };
