@@ -197,7 +197,7 @@ function AppLayout() {
       {/* Content — padded below fixed header */}
       <main style={{
         maxWidth: '1200px', margin: '0 auto',
-        paddingTop: isMobile ? 'calc(60px + env(safe-area-inset-top, 0px))' : 'calc(80px + env(safe-area-inset-top, 0px))',
+        paddingTop: isMobile ? 'calc(76px + env(safe-area-inset-top, 0px))' : 'calc(80px + env(safe-area-inset-top, 0px))',
         paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
         paddingLeft: 'calc(24px + env(safe-area-inset-left, 0px))',
         paddingRight: 'calc(24px + env(safe-area-inset-right, 0px))',
