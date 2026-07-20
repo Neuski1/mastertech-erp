@@ -336,8 +336,63 @@ export default function Settings() {
       {/* Payment Reminders */}
       <PaymentRemindersSection onMessage={setActionMsg} />
 
+      <LeadEmailSignatureSection onMessage={setActionMsg} />
+
       {/* Square Terminal Setup */}
       <SquareDevicesSection onMessage={setActionMsg} />
+    </div>
+  );
+}
+
+function LeadEmailSignatureSection({ onMessage }) {
+  const [signature, setSignature] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.getLeadEmailSignature()
+      .then(d => setSignature((d && d.signature) || ''))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.updateLeadEmailSignature(signature);
+      onMessage('Lead email signature saved');
+    } catch (err) {
+      onMessage('Could not save signature: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={sectionStyle}>
+      <h2 style={sectionTitle}>Lead Email Signature</h2>
+      <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: 0 }}>
+        Added to the bottom of your message when you click <strong>Email</strong> on a new lead.
+        Gmail leaves out its own signature on these, so this one is used instead.
+      </p>
+      {loading ? <p>Loading...</p> : (
+        <>
+          <textarea
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            rows={8}
+            placeholder="Thank you,&#10;&#10;Carol Neu&#10;Master Tech RV Repair & Storage&#10;(303) 557-2214"
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '10px',
+              border: '1px solid #d1d5db', borderRadius: '6px',
+              fontSize: '0.9rem', fontFamily: 'inherit', resize: 'vertical',
+            }}
+          />
+          <button onClick={save} disabled={saving} style={{ ...btnAddTech, marginTop: '10px', cursor: 'pointer' }}>
+            {saving ? 'Saving...' : 'Save Signature'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
