@@ -744,7 +744,10 @@ ${paymentDetailHtml}
       {/* Top nav — sticky below fixed header */}
       <div style={{
         position: 'sticky',
-        top: isMobile ? '48px' : '56px',
+        // Must equal the real fixed-header height or this bar tucks under it and
+        // the Back button becomes unclickable. Mobile header = 48px min-height
+        // + 8px top + 8px bottom padding = 64px, plus the iOS safe-area inset.
+        top: isMobile ? 'calc(64px + env(safe-area-inset-top, 0px))' : 'calc(56px + env(safe-area-inset-top, 0px))',
         zIndex: 999,
         backgroundColor: '#fff',
         borderBottom: '1px solid #e5e7eb',
