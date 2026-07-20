@@ -202,8 +202,11 @@ export default function Schedule() {
     }).catch(() => {});
   }, []);
 
-  const fetchAppointments = useCallback(async () => {
-    setLoading(true);
+  const fetchAppointments = useCallback(async (opts) => {
+    // opts.silent = background auto-refresh: skip the loading state so the
+    // calendar doesn't flash every poll.
+    const silent = !!(opts && opts.silent === true);
+    if (!silent) setLoading(true);
     try {
       let params;
       if (view === 'week') {
@@ -236,11 +239,43 @@ export default function Schedule() {
     } catch (err) {
       console.error('Failed to load appointments:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [view, weekStart, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+
+  // Auto-refresh: appointments booked on another computer show up on their own,
+  // no manual page refresh. Polls only while the tab is visible, and refreshes
+  // immediately when you switch back to the tab.
+  useEffect(() => {
+    const REFRESH_MS = 30000;
+    let timer = null;
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const start = () => {
+      stop();
+      timer = setInterval(() => {
+        if (document.visibilityState === 'visible') fetchAppointments({ silent: true });
+      }, REFRESH_MS);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchAppointments({ silent: true });
+        start();
+      } else {
+        stop();
+      }
+    };
+    const onFocus = () => fetchAppointments({ silent: true });
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [fetchAppointments]);
 
   // One-click status change from any calendar view — saves immediately
   const handleStatusChange = async (apptId, newStatus) => {
