@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../utils/dateFormat';
+import { handlePhoneInput, telHref } from '../utils/formatPhone';
 
 export default function Suppliers() {
   const { user } = useAuth();
@@ -567,12 +568,6 @@ export default function Suppliers() {
     return `$${parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  const formatPhone = (value) => {
-    const digits = (value || '').replace(/\D/g, '');
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-  };
 
   return (
     <div style={{ padding: '20px', background: '#f9fafb', minHeight: '100vh' }}>
@@ -762,7 +757,7 @@ export default function Suppliers() {
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Email</span>
                           <span>{vendor.contact_email ? <a href={`mailto:${vendor.contact_email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{vendor.contact_email}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                           <span style={{ color: '#6b7280', fontWeight: 600 }}>Phone</span>
-                          <span>{vendor.contact_phone ? <a href={`tel:${vendor.contact_phone.replace(/\D/g, '')}`} style={{ color: '#374151', textDecoration: 'none' }}>{vendor.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                          <span>{vendor.contact_phone ? <a href={telHref(vendor.contact_phone)} style={{ color: '#374151', textDecoration: 'none' }}>{vendor.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                         </div>
                         {vendor.notes ? (
                           <div style={{ marginTop: '8px', padding: '8px', background: '#fffbeb', borderRadius: '4px', fontSize: '0.78rem', color: '#92400e' }}>
@@ -822,7 +817,7 @@ export default function Suppliers() {
                               <span style={{ color: '#6b7280', fontWeight: 600 }}>Email</span>
                               <span>{s.contact_email ? <a href={`mailto:${s.contact_email}`} style={{ color: '#2563eb', textDecoration: 'none' }}>{s.contact_email}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                               <span style={{ color: '#6b7280', fontWeight: 600 }}>Phone</span>
-                              <span>{s.contact_phone ? <a href={`tel:${s.contact_phone.replace(/\D/g, '')}`} style={{ color: '#374151', textDecoration: 'none' }}>{s.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
+                              <span>{s.contact_phone ? <a href={telHref(s.contact_phone)} style={{ color: '#374151', textDecoration: 'none' }}>{s.contact_phone}</a> : <span style={{ color: '#d1d5db' }}>—</span>}</span>
                               <span style={{ color: '#6b7280', fontWeight: 600 }}>Account</span>
                               <span>{s.account_number || <span style={{ color: '#d1d5db' }}>—</span>}</span>
                             </div>
@@ -1202,7 +1197,7 @@ export default function Suppliers() {
             </div>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Phone</label>
-              <input type="tel" value={editFormData.contact_phone} onChange={(e) => setEditFormData({ ...editFormData, contact_phone: formatPhone(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
+              <input type="tel" value={editFormData.contact_phone} onChange={(e) => setEditFormData({ ...editFormData, contact_phone: handlePhoneInput(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
             </div>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Account Number</label>
@@ -1608,7 +1603,7 @@ export default function Suppliers() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Phone</label>
-                <input type="tel" value={miscForm.contact_phone} onChange={(e) => setMiscForm({ ...miscForm, contact_phone: formatPhone(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
+                <input type="tel" value={miscForm.contact_phone} onChange={(e) => setMiscForm({ ...miscForm, contact_phone: handlePhoneInput(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
               </div>
             </div>
             <div style={{ marginBottom: '20px' }}>

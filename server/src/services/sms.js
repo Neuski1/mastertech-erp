@@ -19,10 +19,13 @@ function isTwilioConfigured() {
 // Normalize US phone number to E.164
 function normalizePhone(raw) {
   if (!raw) return null;
-  const digits = String(raw).replace(/\D/g, '');
+  // Drop any extension first ("(303) 557-2214 x205") so it cannot be mashed
+  // into the dialed number.
+  const trimmed = String(raw).split(/ext\.?|[x#]/i)[0];
+  const digits = trimmed.replace(/\D/g, '');
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  if (String(raw).trim().startsWith('+')) return String(raw).trim();
+  if (String(raw).trim().startsWith('+')) return trimmed.trim() || String(raw).trim();
   return null;
 }
 
