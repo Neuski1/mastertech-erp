@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
+import { telHref } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
 import { parseLeadMessage } from '../utils/parseLead';
 
@@ -562,7 +563,7 @@ export default function RecordList() {
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {l.phone && (
-                      <a href={`tel:${(l.phone || '').replace(/\D/g, '')}`} onClick={() => autoLogContact(l, 'call')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
+                      <a href={telHref(l.phone)} onClick={() => autoLogContact(l, 'call')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
                     )}
                     {l.email && (
                       <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" onClick={() => autoLogContact(l, 'email')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
