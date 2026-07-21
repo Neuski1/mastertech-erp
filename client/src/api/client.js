@@ -297,6 +297,8 @@ export const api = {
   getStorageSpaceHistory: (spaceId) => request(`/storage/spaces/${spaceId}/history`),
   createStorageSpace: (data) => request('/storage/spaces', { method: 'POST', body: JSON.stringify(data) }),
   assignStorage: (data) => request('/storage/assign', { method: 'POST', body: JSON.stringify(data) }),
+  previewStorageRateIncrease: (per_foot) => request('/storage/rate-increase/preview', { method: 'POST', body: JSON.stringify({ per_foot }) }),
+  applyStorageRateIncrease: (per_foot, include_waitlist) => request('/storage/rate-increase/apply', { method: 'POST', body: JSON.stringify({ per_foot, include_waitlist }) }),
   updateStorage: (id, data) => request(`/storage/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   endStorage: (id, data = {}) => request(`/storage/${id}`, { method: 'DELETE', body: JSON.stringify(data) }),
   getBillingPreview: () => request('/storage/billing-preview'),

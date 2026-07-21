@@ -169,6 +169,10 @@ router.get('/', async (req, res) => {
     // Fetch rates from system settings
     const outdoorRate = await getSetting('outdoor_monthly_rate') || '150.00';
     const indoorRate = await getSetting('indoor_monthly_rate') || '250.00';
+    // Per-linear-foot base rates used when assigning a new unit. Managed here so
+    // a rate increase can raise them without a code change.
+    const indoorPerFoot = parseFloat(await getSetting('indoor_per_foot') || '22');
+    const outdoorPerFoot = parseFloat(await getSetting('outdoor_per_foot') || '6');
 
     const outdoor = spaces.filter(s => s.space_type === 'outdoor');
     const indoor = spaces.filter(s => s.space_type === 'indoor');
@@ -183,6 +187,8 @@ router.get('/', async (req, res) => {
       rates: {
         outdoor_monthly: parseFloat(outdoorRate),
         indoor_monthly: parseFloat(indoorRate),
+        indoor_per_foot: indoorPerFoot,
+        outdoor_per_foot: outdoorPerFoot,
       },
     });
   } catch (err) {
@@ -1436,6 +1442,138 @@ ${personalBlock}
   } catch (err) {
     console.error('POST /api/storage/waitlist/:id/notify error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Storage rate increase — raise every active space (and optionally the
+// waitlist) by a per-linear-foot amount. Preview first, then apply.
+//   linear feet source: storage_billing.linear_feet, else the unit, else the space.
+// ---------------------------------------------------------------------------
+async function buildRateIncrease(perFoot) {
+  const inc = parseFloat(perFoot);
+  const { rows: spaces } = await pool.query(
+    `SELECT sb.id AS billing_id,
+            sb.monthly_rate::numeric AS current_rate,
+            COALESCE(sb.linear_feet, u.linear_feet, ss.linear_feet)::numeric AS linear_feet,
+            ss.label, ss.space_type,
+            TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer
+       FROM storage_billing sb
+       JOIN customers c ON c.id = sb.customer_id
+       LEFT JOIN units u ON u.id = sb.unit_id
+       LEFT JOIN storage_spaces ss ON ss.id = sb.space_id
+      WHERE sb.deleted_at IS NULL
+      ORDER BY ss.space_type, ss.label`
+  );
+  const spaceRows = spaces.map(r => {
+    const lf = r.linear_feet != null ? parseFloat(r.linear_feet) : null;
+    const cur = parseFloat(r.current_rate) || 0;
+    const bump = lf != null ? Math.round(lf * inc * 100) / 100 : 0;
+    return { billing_id: r.billing_id, label: r.label, space_type: r.space_type,
+             customer: r.customer, linear_feet: lf, current_rate: cur,
+             new_rate: Math.round((cur + bump) * 100) / 100, no_linear_feet: lf == null };
+  });
+
+  const { rows: wl } = await pool.query(
+    `SELECT id, COALESCE(contact_name, '') AS contact_name, space_type,
+            rv_length_feet::numeric AS lf, budget_monthly::numeric AS budget
+       FROM storage_waitlist
+      WHERE status IN ('waiting','notified')
+      ORDER BY position ASC NULLS LAST, created_at ASC`
+  );
+  const waitRows = wl.map(r => {
+    const lf = r.lf != null ? parseFloat(r.lf) : null;
+    const cur = r.budget != null ? parseFloat(r.budget) : null;
+    const bump = lf != null ? Math.round(lf * inc * 100) / 100 : 0;
+    return { id: r.id, contact_name: r.contact_name, space_type: r.space_type,
+             linear_feet: lf, current_budget: cur,
+             new_budget: cur != null ? Math.round((cur + bump) * 100) / 100 : null,
+             no_data: lf == null || cur == null };
+  });
+
+  const curTotal = spaceRows.reduce((a, r) => a + r.current_rate, 0);
+  const newTotal = spaceRows.reduce((a, r) => a + r.new_rate, 0);
+  return {
+    per_foot: inc,
+    spaces: spaceRows,
+    waitlist: waitRows,
+    summary: {
+      space_count: spaceRows.length,
+      spaces_without_linear_feet: spaceRows.filter(r => r.no_linear_feet).length,
+      current_monthly_total: Math.round(curTotal * 100) / 100,
+      new_monthly_total: Math.round(newTotal * 100) / 100,
+      monthly_increase: Math.round((newTotal - curTotal) * 100) / 100,
+    },
+  };
+}
+
+// POST /api/storage/rate-increase/preview  { per_foot }
+router.post('/rate-increase/preview', requireRole('admin', 'service_writer'), async (req, res) => {
+  const perFoot = parseFloat(req.body && req.body.per_foot);
+  if (!(perFoot > 0)) return res.status(400).json({ error: 'per_foot must be a positive number' });
+  try {
+    res.json(await buildRateIncrease(perFoot));
+  } catch (err) {
+    console.error('rate-increase preview error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/storage/rate-increase/apply  { per_foot, include_waitlist }
+router.post('/rate-increase/apply', requireRole('admin'), async (req, res) => {
+  const perFoot = parseFloat(req.body && req.body.per_foot);
+  const includeWaitlist = !!(req.body && req.body.include_waitlist);
+  if (!(perFoot > 0)) return res.status(400).json({ error: 'per_foot must be a positive number' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const spaceRes = await client.query(
+      `UPDATE storage_billing sb
+          SET monthly_rate = ROUND(sb.monthly_rate + ($1::numeric * lf.feet), 2),
+              updated_at = NOW()
+         FROM (
+           SELECT b.id, COALESCE(b.linear_feet, u.linear_feet, ss.linear_feet) AS feet
+             FROM storage_billing b
+             LEFT JOIN units u ON u.id = b.unit_id
+             LEFT JOIN storage_spaces ss ON ss.id = b.space_id
+            WHERE b.deleted_at IS NULL
+         ) lf
+        WHERE sb.id = lf.id AND sb.deleted_at IS NULL AND lf.feet IS NOT NULL`,
+      [perFoot]
+    );
+    let waitlistUpdated = 0;
+    if (includeWaitlist) {
+      const wlRes = await client.query(
+        `UPDATE storage_waitlist
+            SET budget_monthly = ROUND(COALESCE(budget_monthly, 0) + ($1::numeric * COALESCE(rv_length_feet, 0)), 2),
+                updated_at = NOW()
+          WHERE status IN ('waiting','notified')
+            AND rv_length_feet IS NOT NULL AND budget_monthly IS NOT NULL`,
+        [perFoot]
+      );
+      waitlistUpdated = wlRes.rowCount;
+    }
+    // Raise the per-foot base rates so future move-ins get the new pricing too.
+    for (const [key, base] of [['indoor_per_foot', 22], ['outdoor_per_foot', 6]]) {
+      await client.query(
+        `INSERT INTO system_settings (setting_key, setting_value, description)
+           VALUES ($1, $2::text, 'Storage per-linear-foot base rate')
+         ON CONFLICT (setting_key) DO NOTHING`,
+        [key, base]
+      );
+      await client.query(
+        `UPDATE system_settings SET setting_value = (setting_value::numeric + $2)::text WHERE setting_key = $1`,
+        [key, perFoot]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, spaces_updated: spaceRes.rowCount, waitlist_updated: waitlistUpdated });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('rate-increase apply error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

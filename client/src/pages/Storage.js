@@ -11,6 +11,7 @@ export default function Storage() {
   const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
   const location = useLocation();
   const [waitlistPrefill, setWaitlistPrefill] = useState(null);
+  const [showRateIncrease, setShowRateIncrease] = useState(false);
   const [spaces, setSpaces] = useState([]);
   const [summary, setSummary] = useState(null);
   const [rates, setRates] = useState({});
@@ -249,6 +250,9 @@ export default function Storage() {
           )}
           {activeTab === 'spaces' && isAdmin && (
             <button onClick={() => setShowAddSpace(true)} style={btnSecondary}>+ Add Space</button>
+          )}
+          {activeTab === 'spaces' && isAdmin && (
+            <button onClick={() => setShowRateIncrease(true)} style={btnSecondary}>Rate Increase</button>
           )}
           {activeTab === 'spaces' && isAdmin && (
             <button onClick={handleOpenBilling} style={btnPrimary}>
@@ -628,6 +632,13 @@ export default function Storage() {
           rates={rates}
           onClose={() => { setShowAssign(false); setSelectedSpace(null); }}
           onAssigned={() => { setShowAssign(false); setSelectedSpace(null); setActionMsg('Space assigned'); refreshSpaces(); }}
+        />
+      )}
+
+      {showRateIncrease && (
+        <RateIncreaseModal
+          onClose={() => setShowRateIncrease(false)}
+          onApplied={() => { setShowRateIncrease(false); refreshSpaces(); fetchWaitlist(); }}
         />
       )}
 
@@ -1113,6 +1124,129 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// RateIncreaseModal — bulk per-linear-foot storage rate increase, with preview
+// ---------------------------------------------------------------------------
+function RateIncreaseModal({ onClose, onApplied }) {
+  const [perFoot, setPerFoot] = useState('1.00');
+  const [includeWaitlist, setIncludeWaitlist] = useState(true);
+  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState('');
+
+  const money = (n) => `$${(parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const runPreview = async () => {
+    const v = parseFloat(perFoot);
+    if (!(v > 0)) { setError('Enter a dollar amount per linear foot.'); return; }
+    setLoading(true); setError('');
+    try {
+      setPreview(await api.previewStorageRateIncrease(v));
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const apply = async () => {
+    const v = parseFloat(perFoot);
+    if (!preview) return;
+    if (!window.confirm(`Apply a ${money(v)}/linear-foot increase now? This changes ${preview.summary.space_count} active spaces` + (includeWaitlist ? ' and the waitlist' : '') + '. This takes effect immediately.')) return;
+    setApplying(true); setError('');
+    try {
+      await api.applyStorageRateIncrease(v, includeWaitlist);
+      onApplied();
+    } catch (e) { setError(e.message); setApplying(false); }
+  };
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={{ ...modalStyle, width: '760px', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Storage Rate Increase</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#9ca3af' }}>&times;</button>
+        </div>
+        <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: 0 }}>
+          Raises every active space by this amount times its linear feet (a 24&#8209;ft unit goes up 24&#215; this amount). Preview first — nothing changes until you click Apply. Run it on the day the increase takes effect.
+        </p>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+          <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151' }}>
+            $ per linear foot:&nbsp;
+            <input type="number" step="0.25" min="0" value={perFoot} onChange={(e) => { setPerFoot(e.target.value); setPreview(null); }}
+              style={{ width: '90px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
+          </label>
+          <label style={{ fontSize: '0.85rem', color: '#374151', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <input type="checkbox" checked={includeWaitlist} onChange={(e) => setIncludeWaitlist(e.target.checked)} />
+            Also raise waitlist quotes
+          </label>
+          <button onClick={runPreview} disabled={loading} style={btnSecondary}>{loading ? 'Loading…' : 'Preview'}</button>
+        </div>
+        {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '8px 12px', borderRadius: '6px', fontSize: '0.85rem', marginBottom: '10px' }}>{error}</div>}
+
+        {preview && (
+          <>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', padding: '10px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', marginBottom: '12px', fontSize: '0.85rem' }}>
+              <div><strong>{preview.summary.space_count}</strong> spaces</div>
+              <div>Now: <strong>{money(preview.summary.current_monthly_total)}</strong>/mo</div>
+              <div>After: <strong>{money(preview.summary.new_monthly_total)}</strong>/mo</div>
+              <div style={{ color: '#065f46' }}>+{money(preview.summary.monthly_increase)}/mo</div>
+              {preview.summary.spaces_without_linear_feet > 0 && (
+                <div style={{ color: '#b91c1c' }}>{preview.summary.spaces_without_linear_feet} skipped (no linear feet)</div>
+              )}
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '14px' }}>
+              <thead><tr style={{ background: '#1e3a5f', color: '#fff' }}>
+                <th style={rmTh}>Space</th><th style={rmTh}>Customer</th><th style={{ ...rmTh, textAlign: 'right' }}>Ft</th>
+                <th style={{ ...rmTh, textAlign: 'right' }}>Now</th><th style={{ ...rmTh, textAlign: 'right' }}>After</th>
+              </tr></thead>
+              <tbody>
+                {preview.spaces.map(r => (
+                  <tr key={r.billing_id} style={{ borderBottom: '1px solid #eee', background: r.no_linear_feet ? '#fef2f2' : undefined }}>
+                    <td style={rmTd}>{r.space_type === 'indoor' ? 'In' : 'Out'} {r.label}</td>
+                    <td style={rmTd}>{r.customer}</td>
+                    <td style={{ ...rmTd, textAlign: 'right' }}>{r.no_linear_feet ? '—' : r.linear_feet}</td>
+                    <td style={{ ...rmTd, textAlign: 'right' }}>{money(r.current_rate)}</td>
+                    <td style={{ ...rmTd, textAlign: 'right', fontWeight: 700 }}>{r.no_linear_feet ? 'no change' : money(r.new_rate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {includeWaitlist && preview.waitlist.length > 0 && (
+              <>
+                <div style={{ fontWeight: 700, color: '#1e3a5f', fontSize: '0.85rem', margin: '0 0 6px' }}>Waitlist quotes</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '14px' }}>
+                  <thead><tr style={{ background: '#3949ab', color: '#fff' }}>
+                    <th style={rmTh}>Name</th><th style={{ ...rmTh, textAlign: 'right' }}>Ft</th>
+                    <th style={{ ...rmTh, textAlign: 'right' }}>Now</th><th style={{ ...rmTh, textAlign: 'right' }}>After</th>
+                  </tr></thead>
+                  <tbody>
+                    {preview.waitlist.map(r => (
+                      <tr key={r.id} style={{ borderBottom: '1px solid #eee', background: r.no_data ? '#fef2f2' : undefined }}>
+                        <td style={rmTd}>{r.contact_name}</td>
+                        <td style={{ ...rmTd, textAlign: 'right' }}>{r.linear_feet ?? '—'}</td>
+                        <td style={{ ...rmTd, textAlign: 'right' }}>{r.current_budget != null ? money(r.current_budget) : '—'}</td>
+                        <td style={{ ...rmTd, textAlign: 'right', fontWeight: 700 }}>{r.no_data ? 'no change' : money(r.new_budget)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={onClose} style={btnSecondary}>Cancel</button>
+              <button onClick={apply} disabled={applying} style={{ ...btnPrimary, backgroundColor: '#065f46' }}>
+                {applying ? 'Applying…' : `Apply Increase`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const rmTh = { padding: '6px 8px', textAlign: 'left', fontSize: '0.72rem' };
+const rmTd = { padding: '5px 8px' };
 
 // ---------------------------------------------------------------------------
 // SummaryCard component
