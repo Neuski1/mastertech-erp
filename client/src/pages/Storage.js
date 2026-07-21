@@ -2183,7 +2183,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
       await api.updateWaitlistEntry(entry.id, {
         ...form,
         rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
-        budget_monthly: calcRate,
+        budget_monthly: (form.budget_monthly !== '' && form.budget_monthly != null) ? parseFloat(form.budget_monthly) : calcRate,
       });
       onSaved();
     } catch (e) {
@@ -2281,7 +2281,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
             </div>
             <div>
               <label style={labelStyle}>Linear Feet</label>
-              <input type="number" value={form.rv_length_feet} onChange={(e) => up('rv_length_feet', e.target.value)}
+              <input type="number" value={form.rv_length_feet} onChange={(e) => { const val = e.target.value; setForm(f => { const ft = parseFloat(val) || 0; const sug = ft && f.space_type ? (ft * (f.space_type === 'indoor' ? 22 : 6)).toFixed(2) : ''; const budget = (f.budget_monthly === '' || f.budget_monthly == null) ? sug : f.budget_monthly; return { ...f, rv_length_feet: val, budget_monthly: budget }; }); }}
                 placeholder="22" style={inputStyleFull} />
             </div>
           </div>
@@ -2295,15 +2295,12 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
             </div>
             <div>
               <label style={labelStyle}>Monthly Storage Rate</label>
-              <input type="text" readOnly
-                value={(() => {
-                  const ft = parseFloat(form.rv_length_feet);
-                  if (!ft || !form.space_type) return '';
-                  const rate = form.space_type === 'indoor' ? 22 : 6;
-                  return `$${(ft * rate).toFixed(2)}`;
-                })()}
-                placeholder="Enter linear feet & type above"
+              <input type="number" step="0.01" min="0"
+                value={form.budget_monthly}
+                onChange={(e) => up('budget_monthly', e.target.value)}
+                placeholder="e.g. 168.00"
                 style={{ ...inputStyleFull, backgroundColor: '#f0fdf4', fontWeight: 600 }} />
+              <div style={{ fontSize: '0.68rem', color: '#6b7280', marginTop: '2px' }}>Auto-fills from linear feet. Type over it to quote a different rate.</div>
             </div>
           </div>
 
@@ -2473,7 +2470,7 @@ function AddWaitlistModal({ onClose, onAdded, prefill }) {
         ...form,
         customer_id: selectedCust?.id || null,
         rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
-        budget_monthly: calcRate,
+        budget_monthly: (form.budget_monthly !== '' && form.budget_monthly != null) ? parseFloat(form.budget_monthly) : calcRate,
       });
       onAdded();
     } catch (e) {
@@ -2599,7 +2596,7 @@ function AddWaitlistModal({ onClose, onAdded, prefill }) {
             </div>
             <div>
               <label style={labelStyle}>Linear Feet</label>
-              <input type="number" value={form.rv_length_feet} onChange={(e) => up('rv_length_feet', e.target.value)}
+              <input type="number" value={form.rv_length_feet} onChange={(e) => { const val = e.target.value; setForm(f => { const ft = parseFloat(val) || 0; const sug = ft && f.space_type ? (ft * (f.space_type === 'indoor' ? 22 : 6)).toFixed(2) : ''; const budget = (f.budget_monthly === '' || f.budget_monthly == null) ? sug : f.budget_monthly; return { ...f, rv_length_feet: val, budget_monthly: budget }; }); }}
                 placeholder="22" style={inputStyleFull} />
             </div>
           </div>
@@ -2613,15 +2610,12 @@ function AddWaitlistModal({ onClose, onAdded, prefill }) {
             </div>
             <div>
               <label style={labelStyle}>Monthly Storage Rate</label>
-              <input type="text" readOnly
-                value={(() => {
-                  const ft = parseFloat(form.rv_length_feet);
-                  if (!ft || !form.space_type) return '';
-                  const rate = form.space_type === 'indoor' ? 22 : 6;
-                  return `$${(ft * rate).toFixed(2)}`;
-                })()}
-                placeholder="Enter linear feet & type above"
+              <input type="number" step="0.01" min="0"
+                value={form.budget_monthly}
+                onChange={(e) => up('budget_monthly', e.target.value)}
+                placeholder="e.g. 168.00"
                 style={{ ...inputStyleFull, backgroundColor: '#f0fdf4', fontWeight: 600 }} />
+              <div style={{ fontSize: '0.68rem', color: '#6b7280', marginTop: '2px' }}>Auto-fills from linear feet. Type over it to quote a different rate.</div>
             </div>
           </div>
 
