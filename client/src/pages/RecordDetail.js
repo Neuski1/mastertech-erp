@@ -115,6 +115,10 @@ export default function RecordDetail() {
   // being recreated as a dependency.
   const focusedFieldRef = useRef(null);
   focusedFieldRef.current = focusedField;
+  // The field currently being saved. Its own post-save refetch must NOT be
+  // preserved (that is what made a cleared date snap back to the old value),
+  // while still protecting other fields the user may be mid-typing.
+  const savingFieldRef = useRef(null);
 
   const fetchRecord = useCallback(async () => {
     try {
@@ -123,7 +127,7 @@ export default function RecordDetail() {
       // local in-progress value for that one field; refresh everything else.
       setRecord(prev => {
         const focused = focusedFieldRef.current;
-        if (prev && focused && Object.prototype.hasOwnProperty.call(prev, focused)) {
+        if (prev && focused && focused !== savingFieldRef.current && Object.prototype.hasOwnProperty.call(prev, focused)) {
           return { ...data, [focused]: prev[focused] };
         }
         return data;
@@ -138,6 +142,7 @@ export default function RecordDetail() {
   // Auto-save a single field on blur/change, routing to the correct endpoint.
   const autoSave = async (field, value) => {
     if (record && value === record[field]) return; // no change
+    savingFieldRef.current = field;
     setSaving(true);
     setError('');
     try {
@@ -156,6 +161,7 @@ export default function RecordDetail() {
     } catch (err) {
       setError(err.message);
     } finally {
+      savingFieldRef.current = null;
       setSaving(false);
     }
   };
@@ -2239,6 +2245,7 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
     let out;
     if (isPhone) out = rawValue;
     else if (type === 'number') out = (rawValue === '' || rawValue === null) ? null : Number(rawValue);
+    else if (type === 'date') out = (rawValue === '' || rawValue === null) ? null : rawValue;
     else out = rawValue;
     setDirty(false);
     try {
