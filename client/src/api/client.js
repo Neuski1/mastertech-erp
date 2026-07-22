@@ -455,6 +455,7 @@ export const api = {
   getOnlinePaymentLinks: (recordId) => request(`/payments/online/links${recordId ? `?record_id=${recordId}` : ''}`),
   sendOnlinePaymentLinkReminder: (linkId, to = null) => request(`/payments/online/links/${linkId}/reminder`, { method: 'POST', body: JSON.stringify({ to }) }),
   cancelOnlinePaymentLink: (linkId) => request(`/payments/online/links/${linkId}/cancel`, { method: 'POST' }),
+  markOnlinePaymentLinkPaid: (linkId, body = {}) => request(`/payments/online/links/${linkId}/mark-paid`, { method: 'POST', body: JSON.stringify(body) }),
   getOnlinePaymentHistory: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/payments/online/history${qs ? `?${qs}` : ''}`);
