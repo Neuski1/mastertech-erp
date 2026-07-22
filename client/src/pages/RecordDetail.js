@@ -2228,20 +2228,24 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
     }
   };
 
-  const handleBlur = async () => {
+  // Commit whatever is CURRENTLY in the box, read straight from the DOM. This
+  // is deliberately independent of React state/timing: Enter and Tab (blur)
+  // both call it with the live value, so pressing Enter saves exactly like
+  // tabbing out. A ref dedupes the Enter+blur double-fire.
+  const committingRef = React.useRef(false);
+  const commit = async (rawValue) => {
+    if (committingRef.current) return;
+    committingRef.current = true;
     let out;
-    if (isPhone) {
-      out = draft;
-    } else if (type === 'number') {
-      out = draft === '' || draft === null ? null : Number(draft);
-    } else {
-      out = draft;
-    }
+    if (isPhone) out = rawValue;
+    else if (type === 'number') out = (rawValue === '' || rawValue === null) ? null : Number(rawValue);
+    else out = rawValue;
     setDirty(false);
     try {
       await autoSave(field, out);
     } finally {
       if (onBlur) onBlur(field);
+      committingRef.current = false;
     }
   };
 
@@ -2253,18 +2257,12 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
         value={isPhone ? handlePhoneInput((draft ?? '').toString().replace(/\D/g, '')) : (draft ?? '')}
         onChange={handleChange}
         onFocus={() => { if (onFocus) onFocus(field); }}
-        onBlur={handleBlur}
+        onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            // Defer blur to the next tick so React has committed the latest
-            // keystroke into draft before handleBlur/autoSave runs. Blurring
-            // synchronously inside keydown could fire the save against a stale
-            // draft, whose no-change guard then skipped the save entirely --
-            // Enter appeared to lose the value while Tab (a native post-commit
-            // blur) worked. Customer/unit fields were hit hardest.
-            const el = e.currentTarget;
-            setTimeout(() => el.blur(), 0);
+            commit(e.currentTarget.value);
+            e.currentTarget.blur();
           }
         }}
         style={inputStyle}
@@ -2333,6 +2331,7 @@ function DiscountRow({ record, isEditable, formatCurrency, onSaved }) {
         Discount
         {isEditable ? (
           <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} onBlur={saveDesc}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
             placeholder="Reason" style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.8rem', width: '160px', marginLeft: '4px' }} autoComplete="off" />
         ) : desc ? (
           <span style={{ fontSize: '0.8rem', fontStyle: 'italic' }}>({desc})</span>
@@ -2341,6 +2340,7 @@ function DiscountRow({ record, isEditable, formatCurrency, onSaved }) {
       <span style={{ color: '#dc2626' }}>
         {isEditable ? (
           <input type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} onBlur={saveAmt}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
             placeholder="0.00" style={{ padding: '2px 6px', border: '1px solid #d1d5db', borderRadius: '3px', fontSize: '0.875rem', width: '90px', textAlign: 'right' }} autoComplete="off" />
         ) : (
           `-${formatCurrency(record.discount_amount)}`
