@@ -239,6 +239,60 @@ router.post('/links/:id/cancel', requireAuth, requireRole('admin', 'service_writ
 });
 
 // ---------------------------------------------------------------------------
+// POST /links/:id/mark-paid — manually reconcile a link that was actually paid
+// outside the app (physical terminal, GoDaddy virtual terminal, etc.) but is
+// still showing pending/failed. Mirrors the online-charge success path: marks
+// the link paid, records the payment in the ledger, recalculates totals, and
+// (for a final payment) closes the work order.
+// ---------------------------------------------------------------------------
+router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  const VALID_METHODS = ['credit_card', 'check', 'cash', 'zelle'];
+  const method = VALID_METHODS.includes(req.body && req.body.payment_method) ? req.body.payment_method : 'credit_card';
+  const providedTxn = (req.body && req.body.transaction_id) ? String(req.body.transaction_id).trim() : '';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM online_payments WHERE id = $1', [req.params.id]);
+    if (rows.length === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Payment link not found' }); }
+    const link = rows[0];
+    if (link.status === 'paid') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'This link is already marked paid.' }); }
+
+    const txnId = providedTxn || 'manual-reconcile';
+    await client.query(
+      `UPDATE online_payments
+          SET status = 'paid', transaction_id = $2, paid_at = NOW(), error_message = NULL, updated_at = NOW()
+        WHERE id = $1`,
+      [link.id, txnId]
+    );
+    await client.query(
+      `INSERT INTO payments
+         (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes, posted_by_user_id)
+       VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7)`,
+      [link.record_id, dbPaymentType(link.payment_type), method,
+       (parseInt(link.amount_cents) / 100).toFixed(2), providedTxn || null,
+       `Manually reconciled online link — ${typeLabel(link.payment_type)}`, req.user && req.user.id ? req.user.id : null]
+    );
+    const { recalculateTotals } = require('../db/calculations');
+    await recalculateTotals(link.record_id, client);
+    if (link.payment_type === 'final_payment') {
+      await client.query(
+        `UPDATE records SET status = 'paid', payment_pending_since = NULL, reminder_count = 0, last_reminder_sent_at = NULL
+           WHERE id = $1 AND status <> 'void'`,
+        [link.record_id]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /links/:id/mark-paid error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // ADMIN: GET /history — full payment history for admin view
 // Query: date_from, date_to, payment_type, status
 // ---------------------------------------------------------------------------

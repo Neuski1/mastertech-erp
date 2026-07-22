@@ -2598,6 +2598,20 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
     }
   };
 
+  const handleMarkPaid = async (id) => {
+    if (!window.confirm('Mark this payment as received?\n\nUse this only when the customer already paid another way (physical terminal, GoDaddy, etc.) and this link is still showing unpaid. It records the payment in your ledger and, for a final payment, closes the work order.')) return;
+    setError('');
+    setSentMsg('');
+    try {
+      await api.markOnlinePaymentLinkPaid(id);
+      setSentMsg('Payment marked as received.');
+      setTimeout(() => setSentMsg(''), 4000);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleRemoveLink = async (id, isPaid) => {
     const msg = isPaid
       ? 'Remove this paid link from the list? The actual payment in your Payment Ledger is NOT affected — this only clears the link row.'
@@ -2681,6 +2695,13 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
                   )}
                   {l.status === 'paid' && l.transaction_id && (
                     <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: '#6b7280', marginRight: 8 }}>Txn: {l.transaction_id}</span>
+                  )}
+                  {(l.status === 'pending' || l.status === 'terminal_pending' || l.status === 'failed') && (
+                    <button onClick={() => handleMarkPaid(l.id)}
+                      title="Mark this payment as received (use if it was already paid another way)"
+                      style={{ marginRight: 6, padding: '3px 10px', background: '#065f46', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+                      Mark Paid
+                    </button>
                   )}
                   {l.status !== 'cancelled' && (
                     <button onClick={() => handleRemoveLink(l.id, l.status === 'paid')}
