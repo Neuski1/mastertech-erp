@@ -415,7 +415,10 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) {
       updates.push(`${field} = $${idx++}`);
-      values.push(req.body[field]);
+      // Treat an empty string as a real clear -> NULL. Otherwise '' fails on a
+      // date/numeric column (Postgres: invalid input syntax), the save errors,
+      // and the old value refills. "Clear the date" now clears the date.
+      values.push(req.body[field] === '' ? null : req.body[field]);
     }
   }
 
