@@ -266,8 +266,11 @@ router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_w
     // status matches reality.
     const { rows: dupRows } = await client.query(
       `SELECT id FROM payments
-        WHERE record_id = $1 AND deleted_at IS NULL AND amount = $2 LIMIT 1`,
-      [link.record_id, amountStr]
+        WHERE deleted_at IS NULL
+          AND (online_payment_id = $3
+               OR (record_id = $1 AND amount = $2))
+        LIMIT 1`,
+      [link.record_id, amountStr, link.id]
     );
     const duplicateSkipped = dupRows.length > 0;
 
@@ -280,11 +283,11 @@ router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_w
     if (!duplicateSkipped) {
       await client.query(
         `INSERT INTO payments
-           (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes, posted_by_user_id)
-         VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7)`,
+           (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes, posted_by_user_id, online_payment_id)
+         VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8)`,
         [link.record_id, dbPaymentType(link.payment_type), method,
          amountStr, providedTxn || null,
-         `Manually reconciled online link — ${typeLabel(link.payment_type)}`, req.user && req.user.id ? req.user.id : null]
+         `Manually reconciled online link — ${typeLabel(link.payment_type)}`, req.user && req.user.id ? req.user.id : null, link.id]
       );
     }
     const { recalculateTotals } = require('../db/calculations');
@@ -472,14 +475,15 @@ router.get('/links/:id/terminal-status', requireAuth, async (req, res) => {
     await client.query(
       `INSERT INTO payments
          (record_id, payment_type, payment_method, amount, payment_date,
-          square_transaction_id, notes, posted_by_user_id)
-       VALUES ($1, $2, 'credit_card', $3, NOW(), $4, $5, NULL)`,
+          square_transaction_id, notes, posted_by_user_id, online_payment_id)
+       VALUES ($1, $2, 'credit_card', $3, NOW(), $4, $5, NULL, $6)`,
       [
         link.record_id,
         dbPaymentType(link.payment_type),
         (parseInt(link.amount_cents) / 100).toFixed(2),
         txnId || null,
         `Terminal payment (GoDaddy/Poynt Smart Terminal) — ${typeLabel(link.payment_type)}`,
+        link.id,
       ]
     );
     const { recalculateTotals } = require('../db/calculations');
@@ -672,14 +676,15 @@ router.post('/:token/charge', async (req, res) => {
     await client.query(
       `INSERT INTO payments
          (record_id, payment_type, payment_method, amount, payment_date,
-          square_transaction_id, notes, posted_by_user_id)
-       VALUES ($1, $2, 'credit_card', $3, NOW(), $4, $5, NULL)`,
+          square_transaction_id, notes, posted_by_user_id, online_payment_id)
+       VALUES ($1, $2, 'credit_card', $3, NOW(), $4, $5, NULL, $6)`,
       [
         link.record_id,
         dbPaymentType(link.payment_type), // maps 'parts_deposit' → 'deposit' for DB enum
         (parseInt(link.amount_cents) / 100).toFixed(2),
         txnId || null,
         `Online payment (GoDaddy/Poynt) — ${typeLabel(link.payment_type)}`,
+        link.id,
       ]
     );
 
