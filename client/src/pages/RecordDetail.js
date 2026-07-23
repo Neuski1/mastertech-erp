@@ -2603,9 +2603,11 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
     setError('');
     setSentMsg('');
     try {
-      await api.markOnlinePaymentLinkPaid(id);
-      setSentMsg('Payment marked as received.');
-      setTimeout(() => setSentMsg(''), 4000);
+      const r = await api.markOnlinePaymentLinkPaid(id);
+      setSentMsg(r && r.duplicate_skipped
+        ? 'Link marked paid. A matching payment was already on the ledger, so no duplicate was added.'
+        : 'Payment marked as received and recorded.');
+      setTimeout(() => setSentMsg(''), 6000);
       load();
     } catch (err) {
       setError(err.message);
