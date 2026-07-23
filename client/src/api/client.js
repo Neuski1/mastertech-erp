@@ -148,6 +148,7 @@ export const api = {
   // Units
   createUnit: (data) => request('/units', { method: 'POST', body: JSON.stringify(data) }),
   updateUnit: (id, data) => request(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateRecordUnitField: (recordId, field, value) => request(`/records/${recordId}/unit-field`, { method: 'PATCH', body: JSON.stringify({ field, value }) }),
   deleteUnit: (id) => request(`/units/${id}`, { method: 'DELETE' }),
   mergeUnits: (keeperId, data) => request(`/units/${keeperId}/merge`, { method: 'POST', body: JSON.stringify(data) }),
 
