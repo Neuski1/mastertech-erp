@@ -501,6 +501,107 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/records/:id/unit-field — Edit an RV field FROM a work order.
+//
+// Editing the RV on a work order must never silently rewrite the shared unit
+// row (that row is also used by the customer's other work orders and shows in
+// their unit box). So this is copy-on-write:
+//   - If the record's current unit is referenced by any OTHER non-deleted
+//     record, we CLONE the unit into a new unit for the same customer, point
+//     THIS record at the clone, and apply the edit to the clone. The original
+//     unit (and every other record + the customer's box entry) is untouched,
+//     and the customer's box gains the new unit instead of losing the old one.
+//   - If the unit is used only by this record, we edit it in place (a normal
+//     correction). After a clone, the clone is used only by this record, so
+//     subsequent field edits accumulate on the clone rather than re-cloning.
+// ---------------------------------------------------------------------------
+const UNIT_EDITABLE = ['year', 'make', 'model', 'vin', 'license_plate', 'unit_notes', 'unit_type', 'color', 'linear_feet'];
+router.patch('/:id/unit-field', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const recordId = parseInt(req.params.id);
+  const { field } = req.body;
+  const rawValue = req.body.value;
+  if (!UNIT_EDITABLE.includes(field)) {
+    return res.status(400).json({ error: `Field '${field}' is not an editable unit field` });
+  }
+  const value = (rawValue === '' || rawValue === undefined) ? null : rawValue;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const recRes = await client.query(
+      'SELECT id, unit_id, customer_id FROM records WHERE id = $1 AND deleted_at IS NULL',
+      [recordId]
+    );
+    if (recRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Record not found' });
+    }
+    const rec = recRes.rows[0];
+    if (!rec.unit_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Record has no unit to edit' });
+    }
+
+    const unitRes = await client.query(
+      'SELECT * FROM units WHERE id = $1 AND deleted_at IS NULL',
+      [rec.unit_id]
+    );
+    if (unitRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+    const unit = unitRes.rows[0];
+
+    // Is this unit shared with any OTHER active record?
+    const otherRes = await client.query(
+      'SELECT 1 FROM records WHERE unit_id = $1 AND id <> $2 AND deleted_at IS NULL LIMIT 1',
+      [rec.unit_id, recordId]
+    );
+    const shared = otherRes.rows.length > 0;
+
+    let resultUnit;
+    let forked = false;
+    if (shared) {
+      // Clone the unit, apply the edit to the clone, repoint this record.
+      const cloned = {
+        customer_id: unit.customer_id,
+        year: unit.year, make: unit.make, model: unit.model, vin: unit.vin,
+        license_plate: unit.license_plate, unit_notes: unit.unit_notes,
+        unit_type: unit.unit_type, color: unit.color, linear_feet: unit.linear_feet,
+      };
+      cloned[field] = value;
+      const ins = await client.query(
+        `INSERT INTO units (customer_id, year, make, model, vin, license_plate, unit_notes, unit_type, color, linear_feet)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [cloned.customer_id, cloned.year, cloned.make, cloned.model, cloned.vin,
+         cloned.license_plate, cloned.unit_notes, cloned.unit_type, cloned.color, cloned.linear_feet]
+      );
+      resultUnit = ins.rows[0];
+      await client.query('UPDATE records SET unit_id = $1 WHERE id = $2', [resultUnit.id, recordId]);
+      forked = true;
+    } else {
+      // Only this record uses the unit: edit in place.
+      const upd = await client.query(
+        `UPDATE units SET ${field} = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+        [value, rec.unit_id]
+      );
+      resultUnit = upd.rows[0];
+    }
+
+    await client.query('COMMIT');
+    res.json({ forked, unit: resultUnit, record_id: recordId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('PATCH /api/records/:id/unit-field error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ---------------------------------------------------------------------------
 // PATCH /api/records/:id/status — Change status with validation
 // ---------------------------------------------------------------------------
 router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {

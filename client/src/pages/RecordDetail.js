@@ -149,7 +149,10 @@ export default function RecordDetail() {
       if (CUSTOMER_FIELDS.includes(field)) {
         if (record.customer_id) await api.updateCustomer(record.customer_id, { [field]: value });
       } else if (UNIT_FIELDS.includes(field)) {
-        if (record.unit_id) await api.updateUnit(record.unit_id, { [field]: value });
+        // Route RV edits through the record so they copy-on-write instead of
+        // mutating the shared unit (which would rewrite other work orders +
+        // the customer's unit box).
+        if (record.unit_id) await api.updateRecordUnitField(id, field, value);
       } else {
         const result = await api.updateRecord(id, { [field]: value });
         if (result && result.labor_lines_created > 0) {
