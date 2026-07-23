@@ -258,20 +258,35 @@ router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_w
     if (link.status === 'paid') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'This link is already marked paid.' }); }
 
     const txnId = providedTxn || 'manual-reconcile';
+    const amountStr = (parseInt(link.amount_cents) / 100).toFixed(2);
+
+    // Guard against double-recording: if a payment for this exact amount is
+    // already on the ledger for this record (entered manually, or synced from
+    // Square/GoDaddy), do NOT add a second one. Still mark the link paid so the
+    // status matches reality.
+    const { rows: dupRows } = await client.query(
+      `SELECT id FROM payments
+        WHERE record_id = $1 AND deleted_at IS NULL AND amount = $2 LIMIT 1`,
+      [link.record_id, amountStr]
+    );
+    const duplicateSkipped = dupRows.length > 0;
+
     await client.query(
       `UPDATE online_payments
           SET status = 'paid', transaction_id = $2, paid_at = NOW(), error_message = NULL, updated_at = NOW()
         WHERE id = $1`,
       [link.id, txnId]
     );
-    await client.query(
-      `INSERT INTO payments
-         (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes, posted_by_user_id)
-       VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7)`,
-      [link.record_id, dbPaymentType(link.payment_type), method,
-       (parseInt(link.amount_cents) / 100).toFixed(2), providedTxn || null,
-       `Manually reconciled online link — ${typeLabel(link.payment_type)}`, req.user && req.user.id ? req.user.id : null]
-    );
+    if (!duplicateSkipped) {
+      await client.query(
+        `INSERT INTO payments
+           (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes, posted_by_user_id)
+         VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7)`,
+        [link.record_id, dbPaymentType(link.payment_type), method,
+         amountStr, providedTxn || null,
+         `Manually reconciled online link — ${typeLabel(link.payment_type)}`, req.user && req.user.id ? req.user.id : null]
+      );
+    }
     const { recalculateTotals } = require('../db/calculations');
     await recalculateTotals(link.record_id, client);
     if (link.payment_type === 'final_payment') {
@@ -282,7 +297,7 @@ router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_w
       );
     }
     await client.query('COMMIT');
-    res.json({ ok: true });
+    res.json({ ok: true, duplicate_skipped: duplicateSkipped });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /links/:id/mark-paid error:', err);
