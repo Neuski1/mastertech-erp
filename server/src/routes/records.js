@@ -503,17 +503,19 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 // ---------------------------------------------------------------------------
 // PATCH /api/records/:id/unit-field — Edit an RV field FROM a work order.
 //
-// Editing the RV on a work order must never silently rewrite the shared unit
-// row (that row is also used by the customer's other work orders and shows in
-// their unit box). So this is copy-on-write:
-//   - If the record's current unit is referenced by any OTHER non-deleted
-//     record, we CLONE the unit into a new unit for the same customer, point
-//     THIS record at the clone, and apply the edit to the clone. The original
-//     unit (and every other record + the customer's box entry) is untouched,
-//     and the customer's box gains the new unit instead of losing the old one.
-//   - If the unit is used only by this record, we edit it in place (a normal
-//     correction). After a clone, the clone is used only by this record, so
-//     subsequent field edits accumulate on the clone rather than re-cloning.
+// RULE: changing the RV on a work order NEVER overwrites the customer's
+// existing trailer. The first time any RV field is edited on a given work
+// order, we CLONE that trailer into a new unit for the customer, point THIS
+// work order at the clone, and apply the edit to the clone. The original
+// trailer is left untouched — it stays in the customer's unit box and every
+// other work order that used it keeps showing it. This holds whether or not
+// the trailer is shared with other records.
+//
+// The records.unit_forked flag marks that this work order already has its own
+// forked copy, so subsequent field edits (finishing typing the new RV's year,
+// make, VIN, etc.) accumulate on that same copy instead of spawning more units.
+// Corrections that SHOULD propagate to a trailer everywhere are made from the
+// Customer module (PATCH /api/units/:id), which still edits in place.
 // ---------------------------------------------------------------------------
 const UNIT_EDITABLE = ['year', 'make', 'model', 'vin', 'license_plate', 'unit_notes', 'unit_type', 'color', 'linear_feet'];
 router.patch('/:id/unit-field', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
@@ -530,7 +532,7 @@ router.patch('/:id/unit-field', requireRole('admin', 'service_writer', 'technici
     await client.query('BEGIN');
 
     const recRes = await client.query(
-      'SELECT id, unit_id, customer_id FROM records WHERE id = $1 AND deleted_at IS NULL',
+      'SELECT id, unit_id, customer_id, unit_forked FROM records WHERE id = $1 AND deleted_at IS NULL',
       [recordId]
     );
     if (recRes.rows.length === 0) {
@@ -553,17 +555,15 @@ router.patch('/:id/unit-field', requireRole('admin', 'service_writer', 'technici
     }
     const unit = unitRes.rows[0];
 
-    // Is this unit shared with any OTHER active record?
-    const otherRes = await client.query(
-      'SELECT 1 FROM records WHERE unit_id = $1 AND id <> $2 AND deleted_at IS NULL LIMIT 1',
-      [rec.unit_id, recordId]
-    );
-    const shared = otherRes.rows.length > 0;
+    // Fork on the FIRST RV edit to this work order (unit_forked = false).
+    // After that, the record has its own copy and further edits accumulate.
+    const needFork = !rec.unit_forked;
 
     let resultUnit;
     let forked = false;
-    if (shared) {
-      // Clone the unit, apply the edit to the clone, repoint this record.
+    if (needFork) {
+      // Clone the trailer, apply the edit to the clone, repoint this record,
+      // and mark the record so later edits land on the clone (not new copies).
       const cloned = {
         customer_id: unit.customer_id,
         year: unit.year, make: unit.make, model: unit.model, vin: unit.vin,
@@ -578,10 +578,10 @@ router.patch('/:id/unit-field', requireRole('admin', 'service_writer', 'technici
          cloned.license_plate, cloned.unit_notes, cloned.unit_type, cloned.color, cloned.linear_feet]
       );
       resultUnit = ins.rows[0];
-      await client.query('UPDATE records SET unit_id = $1 WHERE id = $2', [resultUnit.id, recordId]);
+      await client.query('UPDATE records SET unit_id = $1, unit_forked = TRUE WHERE id = $2', [resultUnit.id, recordId]);
       forked = true;
     } else {
-      // Only this record uses the unit: edit in place.
+      // This work order already has its own forked copy: edit it in place.
       const upd = await client.query(
         `UPDATE units SET ${field} = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
         [value, rec.unit_id]

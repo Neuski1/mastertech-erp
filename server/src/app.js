@@ -177,6 +177,8 @@ const pool = require('./db/pool');
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'other'");
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0.00');
     await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_description VARCHAR(255)");
+    // Migration: per-record flag so the first RV edit on a work order forks a new unit (never overwrites the customer's existing trailer/history).
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS unit_forked BOOLEAN NOT NULL DEFAULT FALSE');
     await pool.query(`CREATE TABLE IF NOT EXISTS inventory_categories (
       id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, prefix VARCHAR(10) NOT NULL UNIQUE, created_at TIMESTAMP DEFAULT NOW()
     )`);
