@@ -245,6 +245,9 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS payment_pending_since TIMESTAMPTZ');
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS last_reminder_sent_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS reminder_count INTEGER NOT NULL DEFAULT 0');
+    // Hard link a ledger payment back to the online payment link that produced it.
+    await pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS online_payment_id INTEGER');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_payments_online_payment ON payments(online_payment_id)');
     await pool.query(`INSERT INTO system_settings (setting_key, setting_value, description) VALUES
       ('payment_reminders_enabled', 'true', 'Enable automatic payment reminder emails and texts'),
       ('payment_reminders_last_run', '', 'Timestamp of last payment reminder cron run'),
