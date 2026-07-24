@@ -154,6 +154,7 @@ export const api = {
 
   // Payments
   addPayment: (recordId, data) => request(`/payments/${recordId}`, { method: 'POST', body: JSON.stringify(data) }),
+  logClientError: (data) => request('/client-errors', { method: 'POST', body: JSON.stringify(data) }),
   getPayments: (recordId) => request(`/payments/${recordId}`),
   deletePayment: (recordId, paymentId) => request(`/payments/${recordId}/${paymentId}`, { method: 'DELETE' }),
 

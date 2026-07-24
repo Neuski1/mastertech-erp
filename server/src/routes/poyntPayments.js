@@ -74,7 +74,7 @@ router.get('/health', requireAuth, requireRole('admin'), (_req, res) => {
 // ADMIN: POST /links — create a new payment link for a record
 // Body: { record_id, amount_cents | amount_dollars, payment_type, customer_email? }
 // ---------------------------------------------------------------------------
-router.post('/links', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/links', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const { record_id, payment_type, customer_email } = req.body || {};
   let amountCents = req.body.amount_cents;
   if (amountCents == null && req.body.amount_dollars != null) {
@@ -140,7 +140,7 @@ router.get('/links', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: POST /links/:id/reminder — email a reminder for a specific unpaid link
 // ---------------------------------------------------------------------------
-router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT op.*, r.record_number,
@@ -219,7 +219,7 @@ router.post('/links/:id/reminder', requireAuth, requireRole('admin', 'service_wr
 // or paid links. Marking a 'paid' link cancelled is purely cosmetic — actual
 // payment rows live in the separate payments table and are untouched.
 // ---------------------------------------------------------------------------
-router.post('/links/:id/cancel', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/links/:id/cancel', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE online_payments
@@ -245,7 +245,7 @@ router.post('/links/:id/cancel', requireAuth, requireRole('admin', 'service_writ
 // the link paid, records the payment in the ledger, recalculates totals, and
 // (for a final payment) closes the work order.
 // ---------------------------------------------------------------------------
-router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   const VALID_METHODS = ['credit_card', 'check', 'cash', 'zelle'];
   const method = VALID_METHODS.includes(req.body && req.body.payment_method) ? req.body.payment_method : 'credit_card';
   const providedTxn = (req.body && req.body.transaction_id) ? String(req.body.transaction_id).trim() : '';
@@ -380,7 +380,7 @@ router.get('/devices', requireAuth, requireRole('admin'), async (_req, res) => {
 // the Smart Terminal Duo. Customer taps card on the terminal; result is
 // reconciled by GET /links/:id/terminal-status (or auto-polled by the UI).
 // ---------------------------------------------------------------------------
-router.post('/links/:id/push-to-terminal', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+router.post('/links/:id/push-to-terminal', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
   if (!isPoyntConfigured()) {
     return res.status(503).json({ error: 'Poynt not configured' });
   }

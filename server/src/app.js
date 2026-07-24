@@ -57,6 +57,7 @@ app.get('/api/calendar/status', async (req, res) => {
 
 // Auth routes (no auth required for login/seed-admin)
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/client-errors', require('./routes/clientErrors')); // Public: capture frontend render crashes
 
 // Public routes (no auth)
 app.use('/api/records/approve', require('./routes/estimate-approval')); // Customer clicks from email
@@ -179,6 +180,11 @@ const pool = require('./db/pool');
     await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_description VARCHAR(255)");
     // Migration: per-record flag so the first RV edit on a work order forks a new unit (never overwrites the customer's existing trailer/history).
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS unit_forked BOOLEAN NOT NULL DEFAULT FALSE');
+    // Client-side error capture (diagnoses white-screen render crashes).
+    await pool.query(`CREATE TABLE IF NOT EXISTS client_errors (
+      id SERIAL PRIMARY KEY, message TEXT, stack TEXT, component_stack TEXT,
+      url TEXT, user_agent TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
     await pool.query(`CREATE TABLE IF NOT EXISTS inventory_categories (
       id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, prefix VARCHAR(10) NOT NULL UNIQUE, created_at TIMESTAMP DEFAULT NOW()
     )`);

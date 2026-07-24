@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import RecordList from './pages/RecordList';
@@ -202,6 +203,7 @@ function AppLayout() {
         paddingLeft: 'calc(24px + env(safe-area-inset-left, 0px))',
         paddingRight: 'calc(24px + env(safe-area-inset-right, 0px))',
       }}>
+        <ErrorBoundary key={location.pathname}>
         <Routes>
           <Route path="/" element={<Navigate to="/records" />} />
           <Route path="/customers" element={<CustomerList />} />
@@ -236,6 +238,7 @@ function AppLayout() {
           <Route path="/settings" element={canManageSettings ? <Settings /> : <Navigate to="/records" />} />
           <Route path="/users" element={canManageUsers ? <UserManagement /> : <Navigate to="/records" />} />
         </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );
