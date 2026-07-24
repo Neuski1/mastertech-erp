@@ -49,7 +49,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
 
     // Generate next record_number
     const numRes = await client.query(
-      'SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records'
+      'SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records WHERE record_number < 900000'
     );
     const recordNumber = numRes.rows[0].next_num;
 
@@ -145,7 +145,7 @@ router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), a
       appendMode = true;
     } else {
       // New record mode (legacy default)
-      const numRes = await client.query('SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records');
+      const numRes = await client.query('SELECT COALESCE(MAX(record_number), 0) + 1 AS next_num FROM records WHERE record_number < 900000');
       recordNumber = numRes.rows[0].next_num;
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
       const { rows: newRows } = await client.query(
