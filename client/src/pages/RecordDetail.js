@@ -1276,7 +1276,7 @@ ${paymentDetailHtml}
                   <tr key={p.id}>
                     <td style={tdStyle}>{formatDate(p.payment_date)}</td>
                     <td style={tdStyle}>
-                      {METHOD_LABELS[p.payment_method] || p.payment_method.replace(/_/g, ' ')}
+                      {METHOD_LABELS[p.payment_method] || (p.payment_method ? p.payment_method.replace(/_/g, ' ') : '\u2014')}
                       {p.online_payment_id && (
                         <span style={{ marginLeft: '4px', padding: '1px 6px', background: '#e0e7ff', color: '#3730a3', borderRadius: '9999px', fontSize: '0.65rem', fontWeight: 700 }} title="Recorded from an online payment link">Link</span>
                       )}
