@@ -2222,6 +2222,13 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
     if (!dirty) setDraft(value ?? '');
   }, [value, dirty]);
 
+  // Every hook must run before any early return. `committingRef` lives here
+  // (not after the `if (!editable)` return) so the hook count stays constant
+  // when `editable` flips true->false (e.g. a record going to 'paid' after a
+  // final payment). Otherwise React throws "rendered fewer hooks than
+  // expected" and the page white-screens.
+  const committingRef = React.useRef(false);
+
   if (!editable) {
     return (
       <div>
@@ -2243,8 +2250,7 @@ function EditableField({ label, field, value, editable, autoSave, onFocus, onBlu
   // Commit whatever is CURRENTLY in the box, read straight from the DOM. This
   // is deliberately independent of React state/timing: Enter and Tab (blur)
   // both call it with the live value, so pressing Enter saves exactly like
-  // tabbing out. A ref dedupes the Enter+blur double-fire.
-  const committingRef = React.useRef(false);
+  // tabbing out. `committingRef` (declared above) dedupes the Enter+blur double-fire.
   const commit = async (rawValue) => {
     if (committingRef.current) return;
     committingRef.current = true;
