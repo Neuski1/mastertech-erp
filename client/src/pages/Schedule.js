@@ -490,10 +490,18 @@ export default function Schedule() {
         if (reqs.length === 0) return null;
         const fmtReq = (a) => {
           if (!a.reschedule_requested_date) return 'a new time';
+          // reschedule_requested_date can arrive as a full ISO timestamp
+          // (e.g. 2026-08-03T06:00:00.000Z); take just the calendar date so
+          // combining it with the requested time yields a valid Date instead
+          // of "Invalid Date".
+          const datePart = String(a.reschedule_requested_date).slice(0, 10);
           const t = (a.reschedule_requested_time || '').slice(0, 5);
-          try {
-            return new Date(`${a.reschedule_requested_date}T${t || '00:00'}:00`).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-          } catch { return `${a.reschedule_requested_date} ${t}`; }
+          const dt = new Date(`${datePart}T${t || '00:00'}:00`);
+          if (isNaN(dt.getTime())) return `${datePart}${t ? ' ' + t : ''}`;
+          return dt.toLocaleString('en-US', {
+            weekday: 'short', month: 'short', day: 'numeric',
+            ...(t ? { hour: 'numeric', minute: '2-digit' } : {}),
+          });
         };
         return (
           <div style={{ marginBottom: '16px', border: '1px solid #fcd34d', borderRadius: '8px', overflow: 'hidden' }}>
