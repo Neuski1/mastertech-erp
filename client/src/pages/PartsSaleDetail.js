@@ -62,11 +62,6 @@ export default function PartsSaleDetail() {
   const formatCurrency = (val) =>
     parseFloat(val || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-  const formatDate = (d) => {
-    if (!d) return '—';
-    return formatDate(d);
-  };
-
   // ── Customer search ───────────────────────────────────────────────
   useEffect(() => {
     if (customerSearch.length < 2) { setCustomerResults([]); setCustomerSearchDone(false); return; }
