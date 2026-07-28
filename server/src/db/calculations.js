@@ -49,7 +49,7 @@ async function recalculateTotals(recordId, client) {
   const freightSubtotal = parseFloat(freightRes.rows[0].freight_subtotal);
 
   const recRes = await db.query(
-    `SELECT r.shop_supplies_exempt, r.cc_fee_applied, r.tax_rate,
+    `SELECT r.shop_supplies_exempt, r.is_insurance_job, r.cc_fee_applied, r.tax_rate,
             r.under_warranty_amount, r.no_charge_amount, r.discount_amount, r.deposit_amount,
             r.tax_waived,
             c.tax_exempt
@@ -64,7 +64,10 @@ async function recalculateTotals(recordId, client) {
   const discountAmount = parseFloat(rec.discount_amount) || 0;
 
   const shopSuppliesRate = await getSetting('shop_supplies_rate');
-  const shopSuppliesAmount = rec.shop_supplies_exempt
+  // Business rule: insurance jobs NEVER waive shop supplies, even if the
+  // exempt flag happens to be set.
+  const shopSuppliesExempt = rec.shop_supplies_exempt && !rec.is_insurance_job;
+  const shopSuppliesAmount = shopSuppliesExempt
     ? 0
     : parseFloat((laborSubtotal * shopSuppliesRate).toFixed(2));
 

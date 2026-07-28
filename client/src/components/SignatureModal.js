@@ -3,6 +3,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 const LEGAL_PARAGRAPHS = [
   'By signing below, I authorize Master Tech RV Repair & Storage to perform the services and repairs described in this estimate on my RV/unit. I understand that the final charges may vary from this estimate due to unforeseen conditions discovered during the repair process. Any additional work or costs beyond this estimate will be communicated to me for approval before proceeding.',
   'I agree to pay the full balance for all authorized services upon completion of work.',
+  'I agree to pick up my RV/unit within 48 hours of being notified that the work is complete. I understand that any unit not picked up within 48 hours of completion will begin accruing daily storage charges at Master Tech RV Repair & Storage\'s current storage rate until the unit is removed.',
   'I understand that Master Tech RV Repair & Storage takes reasonable care of all units in our possession; however, we are not responsible for loss or damage to the RV or personal belongings left inside in the event of fire, theft, weather events, or other circumstances beyond our control. We recommend removing valuables prior to drop-off.',
   'I grant Master Tech RV Repair & Storage permission to operate my RV/unit as needed for testing, inspection, and the safe movement of the vehicle within our facility.',
 ];
@@ -125,6 +126,14 @@ export default function SignatureModal({ record, onSign, onClose }) {
             <div><strong>Estimated Total:</strong> <span style={{ fontWeight: 700, color: '#1e3a5f' }}>${(parseFloat(record.total_sales) || 0).toFixed(2)}</span></div>
           </div>
         </div>
+
+        {/* Job description — so it can be reviewed with the customer without leaving the modal */}
+        {record.job_description && (
+          <div style={{ marginBottom: '16px', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '12px', maxHeight: '160px', overflowY: 'auto' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#1e3a5f', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Job Description</div>
+            <div style={{ fontSize: '0.85rem', color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{record.job_description}</div>
+          </div>
+        )}
 
         {/* Line items the customer can selectively approve */}
         {(estLabor.length > 0 || estParts.length > 0) && (
