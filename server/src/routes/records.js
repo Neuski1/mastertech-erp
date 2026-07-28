@@ -56,8 +56,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     // Snapshot tax rate from system settings
     const taxRate = await getSetting('tax_rate');
 
-    // Shop supplies exempt only if insurance job; CC fee on by default
-    const shopSuppliesExempt = is_insurance_job === true;
+    // Shop supplies are charged by default. Insurance jobs are never waived.
+    const shopSuppliesExempt = false;
     const ccFeeApplied = true;
 
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
@@ -422,10 +422,11 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     }
   }
 
-  // Auto-set shop_supplies_exempt when is_insurance_job changes
+  // Insurance jobs never waive shop supplies. If the insurance flag is being
+  // toggled (and shop supplies not explicitly provided), force not-exempt.
   if (req.body.is_insurance_job !== undefined && req.body.shop_supplies_exempt === undefined) {
     updates.push(`shop_supplies_exempt = $${idx++}`);
-    values.push(req.body.is_insurance_job);
+    values.push(false);
   }
 
   if (updates.length === 0) {

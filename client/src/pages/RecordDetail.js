@@ -1187,13 +1187,14 @@ ${paymentDetailHtml}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.8rem' }}>
               <span style={{ color: '#9ca3af', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Shop Supplies
-                {isEditable && (
+                {isEditable && !record.is_insurance_job && (
                   <ToggleSwitch
                     checked={!record.shop_supplies_exempt}
                     onChange={() => handleToggleFlag('shop_supplies_exempt', record.shop_supplies_exempt)}
                   />
                 )}
-                {record.shop_supplies_exempt && <span style={{ color: '#dc2626', fontSize: '0.75rem', fontWeight: 600 }}>WAIVED</span>}
+                {record.is_insurance_job && <span style={{ color: '#6b7280', fontSize: '0.7rem' }}>(insurance — always charged)</span>}
+                {!record.is_insurance_job && record.shop_supplies_exempt && <span style={{ color: '#dc2626', fontSize: '0.75rem', fontWeight: 600 }}>WAIVED</span>}
               </span>
               <span>{formatCurrency(record.shop_supplies_amount)}</span>
             </div>
