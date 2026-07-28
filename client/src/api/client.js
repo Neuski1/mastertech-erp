@@ -334,8 +334,8 @@ export const api = {
   notifyWaitlistEntry: (id, data = {}) => request(`/storage/waitlist/${id}/notify`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Storage Contract
-  generateStorageContract: (data) => fetch(`${BASE}/storage-contract/generate`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+  generateStorageContract: (data) => fetch(`${API_BASE}/storage-contract/generate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken || localStorage.getItem('erp_token')}` },
     body: JSON.stringify(data),
   }).then(r => { if (!r.ok) throw new Error('Failed to generate contract'); return r.blob(); }),
   emailStorageContract: (billing_id) => request('/storage-contract/email', { method: 'POST', body: JSON.stringify({ billing_id }) }),
