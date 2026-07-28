@@ -637,6 +637,9 @@ ${paymentDetailHtml}
     <p>I understand that if my RV is not picked up within two (2) days of completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
     <p>WARRANTY - 60 days on parts and labor unless otherwise stated from parts manufacturer. If customer provides parts, warranty is only on labor.</p>
     <p>If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+    ` : invoiceStatuses.includes(r.status) ? `
+    <p style="font-size:14px;font-weight:bold;color:#1a2a4a;margin:8px 0;">WARRANTY - 60 days on parts and labor unless otherwise stated from parts manufacturer. If customer provides parts, warranty is only on labor.</p>
+    <p>If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
     ` : `
     <p>I understand that if my RV is not picked up within two (2) days of completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
     <p>WARRANTY - 60 days on parts and labor unless otherwise stated from parts manufacturer. If customer provides parts, warranty is only on labor.</p>
