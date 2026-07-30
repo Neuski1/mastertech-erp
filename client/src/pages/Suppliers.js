@@ -129,11 +129,12 @@ export default function Suppliers() {
         const details = detailsByName.get(vendor.name.toLowerCase()) || {};
         return { ...details, name: vendor.name, item_count: vendor.item_count || 0, total_value: vendor.total_value || 0, supplier_type: 'inventory' };
       }),
-    // Inventory suppliers with no inventory items yet (e.g. just moved to
-    // Inventory, or newly added) have no row in the item-based vendor list —
-    // include them here so they don't vanish from every view.
+    // Any supplier that is NOT explicitly 'misc' and has no row in the
+    // item-based vendor list (e.g. just moved to Inventory, newly added, or
+    // has no type set) still belongs in Inventory. Guarantee: no supplier is
+    // ever hidden — every record shows in exactly one of the two sections.
     ...vendorDetails
-      .filter(d => d.supplier_type === 'inventory' && !vendorNames.has((d.vendor_name || '').toLowerCase()))
+      .filter(d => d.supplier_type !== 'misc' && !vendorNames.has((d.vendor_name || '').toLowerCase()))
       .map(d => ({ ...d, name: d.vendor_name, item_count: d.item_count || 0, total_value: d.total_value || 0, supplier_type: 'inventory' })),
   ];
 
