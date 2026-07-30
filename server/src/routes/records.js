@@ -36,16 +36,33 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     is_insurance_job, insurance_company, insurance_contact_name,
     insurance_phone, insurance_email, claim_number, policy_number,
     estimate_valid_until, internal_notes, customer_notes,
-    deposit_amount, deductible_amount, mileage_at_intake, expected_completion_date
+    deposit_amount, deductible_amount, mileage_at_intake, expected_completion_date,
+    allow_no_unit
   } = req.body;
 
-  if (!customer_id || !unit_id) {
-    return res.status(400).json({ error: 'customer_id and unit_id are required' });
+  if (!customer_id) {
+    return res.status(400).json({ error: 'customer_id is required' });
+  }
+  if (!unit_id && !allow_no_unit) {
+    return res.status(400).json({ error: 'unit_id is required' });
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Override: no RV on file. Create a blank placeholder unit for this customer
+    // so the record has a unit to attach to; staff fill in the RV on the record.
+    let finalUnitId = unit_id;
+    let createdBlankUnit = false;
+    if (!finalUnitId) {
+      const bu = await client.query(
+        'INSERT INTO units (customer_id, year, make, model) VALUES ($1, NULL, NULL, NULL) RETURNING id',
+        [customer_id]
+      );
+      finalUnitId = bu.rows[0].id;
+      createdBlankUnit = true;
+    }
 
     // Generate next record_number
     const numRes = await client.query(
@@ -73,7 +90,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
          expected_completion_date, deductible_amount
        ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
-      [recordNumber, customer_id, unit_id, key_number || null,
+      [recordNumber, customer_id, finalUnitId, key_number || null,
        job_description || null, is_insurance_job || false,
        insurance_company || null, insurance_contact_name || null,
        insurance_phone || null, insurance_email || null,
@@ -83,6 +100,12 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
        mileage_at_intake || null, taxRate, shopSuppliesExempt, ccFeeApplied, today,
        expected_completion_date || null, deductible_amount || 0]
     );
+
+    // The blank placeholder belongs to this record alone, so RV edits made on
+    // the record should fill it in place rather than fork a new unit.
+    if (createdBlankUnit) {
+      await client.query('UPDATE records SET unit_forked = TRUE WHERE id = $1', [rows[0].id]);
+    }
 
     await client.query('COMMIT');
     res.status(201).json(rows[0]);

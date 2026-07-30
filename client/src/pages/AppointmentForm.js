@@ -205,6 +205,17 @@ export default function AppointmentForm() {
         }
       }
 
+      // New appointment with no RV on file: remind the user to add year/make/model
+      // (needed to create a work order later). Soft nudge — they can proceed.
+      if (!isEdit && !finalUnitId) {
+        const proceed = window.confirm(
+          'No RV year, make, and model was entered for this customer.\n\n' +
+          'You need it to create a work order later. Click Cancel to go back and ' +
+          'add it now, or OK to schedule without it.'
+        );
+        if (!proceed) { setSaving(false); return; }
+      }
+
       const payload = {
         ...form,
         customer_id: finalCustomerId,
@@ -267,12 +278,21 @@ export default function AppointmentForm() {
   };
 
   const handleCreateRecord = async () => {
+    // Override: allow creating the work order even without RV details on file.
+    if (!form.unit_id) {
+      const proceed = window.confirm(
+        'This appointment has no RV year, make, and model on file.\n\n' +
+        'Create the work order anyway? You can add the RV details on the record.'
+      );
+      if (!proceed) return;
+    }
     setCreatingRecord(true);
     setError(null);
     try {
       const rec = await api.createRecord({
         customer_id: parseInt(form.customer_id),
         unit_id: form.unit_id ? parseInt(form.unit_id) : null,
+        allow_no_unit: !form.unit_id,
         job_description: form.job_description || null,
       });
       // Link appointment to the new record and set arrived status
