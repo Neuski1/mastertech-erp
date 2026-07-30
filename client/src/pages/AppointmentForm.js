@@ -205,15 +205,15 @@ export default function AppointmentForm() {
         }
       }
 
-      // New appointment with no RV on file: remind the user to add year/make/model
-      // (needed to create a work order later). Soft nudge — they can proceed.
+      // New appointment with no RV on file: remind the user to add year/make/model.
+      // OK keeps this form open so they can add it; Cancel schedules without it.
       if (!isEdit && !finalUnitId) {
-        const proceed = window.confirm(
-          'No RV year, make, and model was entered for this customer.\n\n' +
-          'You need it to create a work order later. Click Cancel to go back and ' +
-          'add it now, or OK to schedule without it.'
+        const addNow = window.confirm(
+          'This customer has no RV year, make, and model yet.\n\n' +
+          'Click OK to add it now — this form stays open so you can enter it. ' +
+          'Click Cancel to schedule without it.'
         );
-        if (!proceed) { setSaving(false); return; }
+        if (addNow) { setSaving(false); return; }
       }
 
       const payload = {
