@@ -85,6 +85,14 @@ router.delete('/:name', requireRole('admin'), async (req, res) => {
       });
     }
 
+    // No inventory items — actually remove the supplier detail row so the
+    // supplier disappears from the list (previously this endpoint deleted
+    // nothing, so inventory suppliers could never be removed).
+    await pool.query(
+      'DELETE FROM suppliers WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))',
+      [vendorName]
+    );
+
     res.json({ message: `Vendor "${vendorName}" deleted.` });
   } catch (err) {
     console.error('DELETE /api/vendors/:name error:', err);
