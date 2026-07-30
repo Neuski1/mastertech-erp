@@ -46,6 +46,7 @@ export default function Suppliers() {
   const [supplierDetail, setSupplierDetail] = useState(null); // { loading, supplier, pos, parts }
   const [supplierDetailTab, setSupplierDetailTab] = useState('open_pos');
   const [supplierTypeFilter, setSupplierTypeFilter] = useState('all'); // all | inventory | misc
+  const [supplierSearch, setSupplierSearch] = useState('');
   // PO detail actions (Phase 2)
   const [poReceiveMode, setPoReceiveMode] = useState(false);
   const [poReceiveQtys, setPoReceiveQtys] = useState({});
@@ -120,22 +121,38 @@ export default function Suppliers() {
   // Merge inventory vendors with their detail records, but EXCLUDE any
   // vendor explicitly marked supplier_type='misc' in vendor_details — those
   // belong in the Misc section regardless of whether they still have items.
-  const mergedVendors = vendors
-    .filter(vendor => detailsByName.get(vendor.name.toLowerCase())?.supplier_type !== 'misc')
-    .map(vendor => {
-      const details = detailsByName.get(vendor.name.toLowerCase()) || {};
-      return { ...details, name: vendor.name, item_count: vendor.item_count || 0, total_value: vendor.total_value || 0, supplier_type: 'inventory' };
-    });
+  const vendorNames = new Set(vendors.map(v => v.name.toLowerCase()));
+  const mergedVendorsAll = [
+    ...vendors
+      .filter(vendor => detailsByName.get(vendor.name.toLowerCase())?.supplier_type !== 'misc')
+      .map(vendor => {
+        const details = detailsByName.get(vendor.name.toLowerCase()) || {};
+        return { ...details, name: vendor.name, item_count: vendor.item_count || 0, total_value: vendor.total_value || 0, supplier_type: 'inventory' };
+      }),
+    // Inventory suppliers with no inventory items yet (e.g. just moved to
+    // Inventory, or newly added) have no row in the item-based vendor list —
+    // include them here so they don't vanish from every view.
+    ...vendorDetails
+      .filter(d => d.supplier_type === 'inventory' && !vendorNames.has((d.vendor_name || '').toLowerCase()))
+      .map(d => ({ ...d, name: d.vendor_name, item_count: d.item_count || 0, total_value: d.total_value || 0, supplier_type: 'inventory' })),
+  ];
 
   // Misc suppliers: every vendor_details row with supplier_type='misc'.
   // Carry the inventory item count through if the supplier also has parts.
   const inventoryByName = new Map(vendors.map(v => [v.name.toLowerCase(), v]));
-  const miscSuppliers = vendorDetails
+  const miscSuppliersAll = vendorDetails
     .filter(d => d.supplier_type === 'misc')
     .map(d => {
       const inv = inventoryByName.get((d.vendor_name || '').toLowerCase());
       return { ...d, name: d.vendor_name, item_count: inv?.item_count || 0, total_value: inv?.total_value || 0 };
     });
+
+  // Search filter across name, contact, subcategory, account #, website.
+  const supplierQuery = supplierSearch.trim().toLowerCase();
+  const matchesSupplier = (s) => !supplierQuery || [s.name, s.contact_name, s.contact_email, s.contact_phone, s.subcategory, s.account_number, s.website]
+    .some(v => (v || '').toString().toLowerCase().includes(supplierQuery));
+  const mergedVendors = mergedVendorsAll.filter(matchesSupplier);
+  const miscSuppliers = miscSuppliersAll.filter(matchesSupplier);
 
   // Group misc suppliers by subcategory
   const miscBySubcategory = {};
@@ -662,6 +679,7 @@ export default function Suppliers() {
                 <button onClick={() => { setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
                   + Add Misc. Supplier
                 </button>
+                <input type="text" value={supplierSearch} onChange={(e) => setSupplierSearch(e.target.value)} placeholder="Search suppliers by name, contact..." style={{ ...inputStyle, width: '260px' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280' }}>Type</label>
                   <select value={supplierTypeFilter} onChange={(e) => setSupplierTypeFilter(e.target.value)} style={{ ...inputStyle, width: '150px' }}>
