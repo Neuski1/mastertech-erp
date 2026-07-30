@@ -244,7 +244,10 @@ export default function RecordDetail() {
       const result = await api.signEstimate(id, signatureData, approvedLaborIds, approvedPartsIds);
       setShowSignModal(false);
       await fetchRecord();
-      alert(`Estimate signed and approved!\nPDF saved to:\n${result.pdf_path}`);
+      const laborMsg = result.labor_lines_created > 0
+        ? `\n${result.labor_lines_created} labor line${result.labor_lines_created > 1 ? 's' : ''} created from the job description.`
+        : '';
+      alert(`Estimate signed and approved!${laborMsg}\nPDF saved to:\n${result.pdf_path}`);
     } catch (err) {
       throw err;
     }

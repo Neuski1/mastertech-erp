@@ -132,6 +132,35 @@ router.post('/:id/sign', requireRole('admin', 'service_writer', 'technician'), a
       }
     }
 
+    // If the estimate was written as a free-text job description with no line
+    // items, signing turns that description into labor lines (one per line) so
+    // the approved work lands on the work order — same as approving via the
+    // status change. Skipped when the estimate already has line items.
+    let laborLinesCreated = 0;
+    if (record.job_description && !record.description_lines_imported && laborRes.rows.length === 0) {
+      const lines = record.job_description.split('\n')
+        .map(l => l.trim())
+        .map(l => l.replace(/^[\u2022\-\*]\s*/, '').replace(/^\d+\.\s*/, ''))
+        .filter(l => l.length > 0)
+        .map(l => l.substring(0, 255));
+      if (lines.length > 0) {
+        const rateRes = await client.query(
+          "SELECT setting_value FROM system_settings WHERE setting_key = 'labor_rate'"
+        );
+        const rate = rateRes.rows[0] ? parseFloat(rateRes.rows[0].setting_value) : 198.00;
+        for (let i = 0; i < lines.length; i++) {
+          await client.query(
+            `INSERT INTO record_labor_lines
+               (record_id, line_type, description, hours, rate, line_total, sort_order)
+             VALUES ($1, 'L', $2, 0, $3, 0, $4)`,
+            [req.params.id, lines[i], rate, i + 1]
+          );
+        }
+        laborLinesCreated = lines.length;
+      }
+      await client.query('UPDATE records SET description_lines_imported = true WHERE id = $1', [req.params.id]);
+    }
+
     // Recalculate totals
     await recalculateTotals(req.params.id, client);
 
@@ -144,6 +173,7 @@ router.post('/:id/sign', requireRole('admin', 'service_writer', 'technician'), a
       message: 'Estimate signed and approved',
       pdf_path: pdfPath,
       authorization_signed_at: now.toISOString(),
+      labor_lines_created: laborLinesCreated,
     });
   } catch (err) {
     await client.query('ROLLBACK');
