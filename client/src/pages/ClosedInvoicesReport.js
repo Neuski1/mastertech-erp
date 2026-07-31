@@ -149,13 +149,13 @@ export default function ClosedInvoicesReport() {
                   <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 500 }}>{fmtCur(inv.total_sales)}</td>
                 </tr>
               ))}
+              {data.invoices.length > 0 && (
+                <tr style={{ borderTop: '2px solid #1e3a5f', background: '#f3f4f6', fontWeight: 700, pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                  <td style={{ padding: '9px 12px' }} colSpan={4}>{data.count} invoice{data.count !== 1 ? 's' : ''}</td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}>{fmtCur(data.totalAmount)}</td>
+                </tr>
+              )}
             </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '2px solid #1e3a5f', background: '#f3f4f6', fontWeight: 700 }}>
-                <td style={{ padding: '9px 12px' }} colSpan={4}>{data.count} invoice{data.count !== 1 ? 's' : ''}</td>
-                <td style={{ padding: '9px 12px', textAlign: 'right' }}>{fmtCur(data.totalAmount)}</td>
-              </tr>
-            </tfoot>
           </table>
         </div>
       )}
