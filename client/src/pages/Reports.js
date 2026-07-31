@@ -166,6 +166,7 @@ export default function Reports() {
       <div className="print-hide" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 style={{ margin: 0, color: '#1e3a5f' }}>Financial Reports</h1>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <a href="/reports/closed-invoices" style={{ padding: '8px 16px', backgroundColor: '#0d9488', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '0.85rem' }}>Closed Invoices</a>
           <a href="/reports/active-workorders" style={{ padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '0.85rem' }}>
             Active Work Orders
           </a>

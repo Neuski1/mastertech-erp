@@ -29,6 +29,7 @@ import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
 import Reports from './pages/Reports';
 import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
+import ClosedInvoicesReport from './pages/ClosedInvoicesReport';
 import PartsOnOrder from './pages/PartsOnOrder';
 import PayOnline from './pages/PayOnline';
 import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
@@ -228,6 +229,7 @@ function AppLayout() {
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />
           <Route path="/reports/active-workorders" element={<ActiveWorkOrdersReport />} />
+          <Route path="/reports/closed-invoices" element={canManageSettings ? <ClosedInvoicesReport /> : <Navigate to="/records" />} />
           <Route path="/payments/online" element={canManageSettings ? <OnlinePaymentsHistory /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping" element={canManageSettings ? <Bookkeeping /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/journal-entries" element={canManageSettings ? <BookkeepingJournalEntries /> : <Navigate to="/records" />} />
