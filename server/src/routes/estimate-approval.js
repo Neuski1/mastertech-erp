@@ -62,7 +62,11 @@ router.get('/:token', async (req, res) => {
     // Approve the estimate
     await pool.query(
       `UPDATE records SET
-         status = 'approved',
+         status = CASE
+                    WHEN status = 'awaiting_approval' THEN 'in_progress'
+                    WHEN status = 'estimate' THEN 'approved'
+                    ELSE status
+                  END,
          approved_by_customer_at = NOW(),
          approved_by_customer_ip = $1,
          approval_token = NULL,
