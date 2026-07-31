@@ -391,10 +391,14 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
       if (approvedLaborIds.length + approvedPartsIds.length > 0) {
         await client.query(
           `UPDATE records
-             SET status = 'approved',
+             SET status = CASE
+                            WHEN status = 'awaiting_approval' THEN 'in_progress'
+                            WHEN status = 'estimate' THEN 'approved'
+                            ELSE status
+                          END,
                  approved_by_customer_at = NOW(),
                  intake_date = COALESCE(intake_date, CURRENT_DATE)
-           WHERE id = $1 AND status = 'estimate'`,
+           WHERE id = $1`,
           [recordId]
         );
       }
