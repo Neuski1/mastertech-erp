@@ -277,4 +277,47 @@ router.get('/contractor-profitability', requireRole('admin'), async (req, res) =
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/reports/closed-invoices?from&to — every paid ("closed") invoice in
+// range with customer, invoice #, total, and how they paid. Same cash-basis
+// attribution date as the financial report so the two reconcile.
+// ---------------------------------------------------------------------------
+router.get('/closed-invoices', requireRole('admin', 'bookkeeper'), async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        r.record_number,
+        COALESCE(NULLIF(TRIM(c.company_name), ''),
+                 NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                 'Customer') AS customer_name,
+        r.total_sales,
+        r.total_collected,
+        COALESCE(p.last_payment_date::date, r.actual_completion_date, r.created_at::date) AS closed_date,
+        p.methods
+      FROM records r
+      JOIN customers c ON c.id = r.customer_id
+      LEFT JOIN (
+        SELECT record_id,
+               MAX(payment_date) AS last_payment_date,
+               STRING_AGG(DISTINCT payment_method::text, ', ') AS methods
+          FROM payments
+         WHERE deleted_at IS NULL
+         GROUP BY record_id
+      ) p ON p.record_id = r.id
+      WHERE r.deleted_at IS NULL
+        AND r.status = 'paid'
+        AND COALESCE(p.last_payment_date::date, r.actual_completion_date, r.created_at::date) BETWEEN $1 AND $2
+      ORDER BY closed_date, r.record_number
+    `, [from, to]);
+    const totalAmount = rows.reduce((s, x) => s + parseFloat(x.total_sales || 0), 0);
+    const totalCollected = rows.reduce((s, x) => s + parseFloat(x.total_collected || 0), 0);
+    res.json({ invoices: rows, count: rows.length, totalAmount, totalCollected });
+  } catch (err) {
+    console.error('GET /api/reports/closed-invoices error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

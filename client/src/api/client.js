@@ -279,6 +279,7 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/reports/financial${qs ? `?${qs}` : ''}`);
   },
+  getClosedInvoices: ({ from, to }) => request(`/reports/closed-invoices?from=${from}&to=${to}`),
 
   // Bookkeeper adjustments
   getBookkeeperAdjustments: (params = {}) => {
