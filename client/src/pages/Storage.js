@@ -2086,6 +2086,12 @@ function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
   const [sendGuidelines, setSendGuidelines] = useState(true);
   const [contractSaving, setContractSaving] = useState(false);
   const [contractSuccess, setContractSuccess] = useState('');
+  // Second space/RV (multi-unit contract)
+  const [addSecond, setAddSecond] = useState(false);
+  const [allAvailSpaces, setAllAvailSpaces] = useState([]);
+  const [secondSpaceId, setSecondSpaceId] = useState('');
+  const [secondRv, setSecondRv] = useState({ year: '', make: '', model: '', length: '' });
+  const [secondRate, setSecondRate] = useState('');
 
   const startContractSetup = async () => {
     setErr('');
@@ -2101,6 +2107,7 @@ function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
         s.space_type === form.space_type && !s.billing_id
       );
       setAvailableSpaces(spaces);
+      setAllAvailSpaces((data.spaces || data || []).filter(sp => !sp.billing_id));
       if (spaces.length === 1) setSelectedSpaceId(String(spaces[0].id));
       setContractMode(true);
     } catch (e) { setErr('Failed to load spaces: ' + e.message); }
@@ -2108,6 +2115,7 @@ function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
 
   const handleSetupContract = async () => {
     if (!selectedSpaceId) { setErr('Please select a space'); return; }
+    if (addSecond && !secondSpaceId) { setErr('Select the second space (or turn off the second unit)'); return; }
     setContractSaving(true);
     setErr('');
     try {
@@ -2130,36 +2138,46 @@ function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
         try { await api.updateCustomer(customerId, { is_storage_customer: true }); } catch {}
       }
 
-      // 2. Create unit from RV details
-      let unitId = null;
-      if (form.rv_year || form.rv_make || form.rv_model) {
-        const newUnit = await api.createUnit({
+      // 2-4. Create unit(s) + assign space(s). With a second space/RV, both
+      // billings share a contract_group so they form one lease (rates summed).
+      const groupId = (addSecond && secondSpaceId)
+        ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
+           : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+        : null;
+
+      const makeUnit = async (rv) => {
+        if (!(rv.year || rv.make || rv.model)) return null;
+        const u = await api.createUnit({
           customer_id: customerId,
-          year: form.rv_year || null,
-          make: form.rv_make || null,
-          model: form.rv_model || null,
-          linear_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
+          year: rv.year || null, make: rv.make || null, model: rv.model || null,
+          linear_feet: rv.length ? parseFloat(rv.length) : null,
         });
-        unitId = newUnit.id;
-      }
+        return u.id;
+      };
 
-      // 3. Monthly rate: use the quoted "Monthly Storage Rate" the user entered
-      // (budget_monthly) when set; otherwise fall back to linear feet x per-foot.
-      const ft = parseFloat(form.rv_length_feet) || 0;
-      const perFoot = perFootRate(rates, form.space_type);
-      const quoted = parseFloat(form.budget_monthly);
-      const monthlyRate = (quoted > 0) ? quoted : (ft > 0 ? ft * perFoot : 0);
+      const unit1Id = await makeUnit({ year: form.rv_year, make: form.rv_make, model: form.rv_model, length: form.rv_length_feet });
+      const ft1 = parseFloat(form.rv_length_feet) || 0;
+      const quoted1 = parseFloat(form.budget_monthly);
+      const rate1 = (quoted1 > 0) ? quoted1 : (ft1 > 0 ? ft1 * perFootRate(rates, form.space_type) : 0);
 
-      // 4. Assign space (creates billing record)
       const result = await api.assignStorage({
-        space_id: parseInt(selectedSpaceId),
-        customer_id: customerId,
-        unit_id: unitId,
-        monthly_rate: monthlyRate,
-        due_day: 1,
-        billing_start_date: contractStartDate || null,
-        notes: form.notes || null,
+        space_id: parseInt(selectedSpaceId), customer_id: customerId, unit_id: unit1Id,
+        monthly_rate: rate1, due_day: 1, billing_start_date: contractStartDate || null,
+        notes: form.notes || null, contract_group: groupId,
       });
+
+      if (groupId) {
+        const space2 = allAvailSpaces.find(sp => String(sp.id) === String(secondSpaceId));
+        const unit2Id = await makeUnit(secondRv);
+        const ft2 = parseFloat(secondRv.length) || 0;
+        const quoted2 = parseFloat(secondRate);
+        const rate2 = (quoted2 > 0) ? quoted2 : (ft2 > 0 ? ft2 * perFootRate(rates, space2 && space2.space_type) : 0);
+        await api.assignStorage({
+          space_id: parseInt(secondSpaceId), customer_id: customerId, unit_id: unit2Id,
+          monthly_rate: rate2, due_day: 1, billing_start_date: contractStartDate || null,
+          notes: form.notes || null, contract_group: groupId,
+        });
+      }
 
       // 5. Open a preview of the contract in a new tab so Carol can review
       //    the actual document BEFORE the customer email is sent. The
@@ -2370,6 +2388,36 @@ function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
                     <label style={labelStyle}>Start Date</label>
                     <input type="date" value={contractStartDate} onChange={(e) => setContractStartDate(e.target.value)} style={inputStyleFull} />
                   </div>
+
+                  {/* Second space + RV on the same contract (rates are summed) */}
+                  <div style={{ marginBottom: '12px', borderTop: '1px dashed #d1d5db', paddingTop: '10px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={addSecond} onChange={(e) => setAddSecond(e.target.checked)} /> Add a second space &amp; RV to this contract
+                    </label>
+                  </div>
+                  {addSecond && (
+                    <div style={{ marginBottom: '12px', padding: '10px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                      <label style={labelStyle}>Second Space</label>
+                      <select value={secondSpaceId} onChange={(e) => setSecondSpaceId(e.target.value)} style={inputStyleFull}>
+                        <option value="">-- Select a space --</option>
+                        {allAvailSpaces.filter(s => String(s.id) !== String(selectedSpaceId)).map(s => (
+                          <option key={s.id} value={s.id}>{s.label} — {s.space_type} ({s.linear_feet ? s.linear_feet + ' ft' : 'no size'})</option>
+                        ))}
+                      </select>
+                      <label style={{ ...labelStyle, marginTop: '10px' }}>Second RV</label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input placeholder="Year" value={secondRv.year} onChange={(e) => setSecondRv({ ...secondRv, year: e.target.value })} style={{ ...inputStyleFull, flex: '0 0 70px' }} />
+                        <input placeholder="Make" value={secondRv.make} onChange={(e) => setSecondRv({ ...secondRv, make: e.target.value })} style={inputStyleFull} />
+                        <input placeholder="Model" value={secondRv.model} onChange={(e) => setSecondRv({ ...secondRv, model: e.target.value })} style={inputStyleFull} />
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                        <input placeholder="Length (ft)" value={secondRv.length} onChange={(e) => setSecondRv({ ...secondRv, length: e.target.value })} style={inputStyleFull} />
+                        <input placeholder="Rate $/mo (auto)" value={secondRate} onChange={(e) => setSecondRate(e.target.value)} style={inputStyleFull} />
+                      </div>
+                      <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#6b7280' }}>Leave rate blank to auto-calc from length &times; the per-foot rate for that space type.</p>
+                    </div>
+                  )}
+
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer' }}>
                       <input type="checkbox" checked={sendContract} onChange={(e) => setSendContract(e.target.checked)} /> Prepare contract (review before sending)
@@ -2380,11 +2428,21 @@ function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
                   </div>
                   <div style={{ padding: '10px', backgroundColor: '#f0fdf4', borderRadius: '6px', marginBottom: '12px', fontSize: '0.85rem', color: '#065f46' }}>
                     <strong>Summary:</strong> {form.contact_name} → {form.space_type} storage
-                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft • $${((parseFloat(form.budget_monthly) > 0 ? parseFloat(form.budget_monthly) : parseFloat(form.rv_length_feet) * (perFootRate(rates, form.space_type)))).toFixed(2)}/mo`}
+                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft`}
+                    {(() => {
+                      const r1 = (parseFloat(form.budget_monthly) > 0) ? parseFloat(form.budget_monthly) : (parseFloat(form.rv_length_feet) || 0) * perFootRate(rates, form.space_type);
+                      const space2 = allAvailSpaces.find(s => String(s.id) === String(secondSpaceId));
+                      const r2 = (addSecond && secondSpaceId) ? ((parseFloat(secondRate) > 0) ? parseFloat(secondRate) : (parseFloat(secondRv.length) || 0) * perFootRate(rates, space2 && space2.space_type)) : 0;
+                      const total = r1 + r2;
+                      if (!total) return null;
+                      return (addSecond && secondSpaceId)
+                        ? ` • 2 spaces • $${r1.toFixed(2)} + $${r2.toFixed(2)} = $${total.toFixed(2)}/mo`
+                        : ` • $${total.toFixed(2)}/mo`;
+                    })()}
                     {!entry.customer_id && ' • New customer record will be created'}
                   </div>
-                  <button type="button" onClick={handleSetupContract} disabled={contractSaving || !selectedSpaceId}
-                    style={{ ...btnPrimary, width: '100%', padding: '12px', backgroundColor: '#065f46', opacity: (!selectedSpaceId || contractSaving) ? 0.5 : 1 }}>
+                  <button type="button" onClick={handleSetupContract} disabled={contractSaving || !selectedSpaceId || (addSecond && !secondSpaceId)}
+                    style={{ ...btnPrimary, width: '100%', padding: '12px', backgroundColor: '#065f46', opacity: (!selectedSpaceId || contractSaving || (addSecond && !secondSpaceId)) ? 0.5 : 1 }}>
                     {contractSaving ? 'Setting up...' : 'Assign Space & Send Contract'}
                   </button>
                 </>

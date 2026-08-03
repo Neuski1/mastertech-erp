@@ -352,7 +352,7 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
     space_id, customer_id, unit_id,
     monthly_rate, due_day,
     square_customer_id, square_sub_id,
-    billing_start_date, notes
+    billing_start_date, notes, contract_group
   } = req.body;
 
   if (!space_id || !customer_id) {
@@ -408,8 +408,8 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
     const { rows } = await client.query(
       `INSERT INTO storage_billing
          (customer_id, unit_id, space_id, monthly_rate, billing_start_date,
-          due_day, square_customer_id, square_sub_id, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          due_day, square_customer_id, square_sub_id, notes, contract_group)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         customer_id,
@@ -421,6 +421,7 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
         square_customer_id || null,
         square_sub_id || null,
         notes || null,
+        contract_group || null,
       ]
     );
 

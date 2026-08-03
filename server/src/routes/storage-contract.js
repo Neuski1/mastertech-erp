@@ -9,6 +9,59 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { generateContractPDF, getGuidelinesHTML } = require('../services/storageContract');
+
+// Build contract data for a billing. If the billing is part of a
+// contract_group (multi-unit lease), every billing in the group is included as
+// a separate unit and the monthly amount is the sum of their rates.
+async function buildBillingContractData(billingId) {
+  const seed = await pool.query(
+    'SELECT contract_group FROM storage_billing WHERE id = $1 AND deleted_at IS NULL',
+    [billingId]
+  );
+  if (!seed.rows.length) return null;
+  const group = seed.rows[0].contract_group;
+  const clause = group ? 'sb.contract_group = $1' : 'sb.id = $1';
+  const { rows } = await pool.query(
+    `SELECT sb.*, s.space_type, s.label, s.linear_feet AS space_linear_feet,
+            c.first_name, c.last_name, c.phone_primary, c.email_primary, c.company_name,
+            u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
+            u.license_plate, u.vin, u.linear_feet AS unit_linear_feet
+     FROM storage_billing sb
+     JOIN storage_spaces s ON s.id = sb.space_id
+     JOIN customers c ON c.id = sb.customer_id
+     LEFT JOIN units u ON u.id = sb.unit_id
+     WHERE ${clause} AND sb.deleted_at IS NULL
+     ORDER BY sb.id`,
+    [group || billingId]
+  );
+  if (!rows.length) return null;
+  const r0 = rows[0];
+  const units = rows.map(r => {
+    const lf = r.unit_linear_feet || r.space_linear_feet || '';
+    return {
+      rv_year: r.unit_year || '', rv_make: r.unit_make || '', rv_model: r.unit_model || '',
+      rv_length_feet: lf ? `${lf} ft` : '', license_plate: r.license_plate || '', vin: r.vin || '',
+      space_type: r.space_type, space_label: r.label,
+    };
+  });
+  const monthlyTotal = rows.reduce((sum, r) => sum + (parseFloat(r.monthly_rate) || 0), 0);
+  return {
+    lessee_name: `${r0.first_name || ''} ${r0.last_name || ''}`.trim() || r0.company_name || '',
+    lessee_phone: r0.phone_primary || '',
+    lessee_email: r0.email_primary || '',
+    rv_year: units[0].rv_year, rv_make: units[0].rv_make, rv_model: units[0].rv_model,
+    rv_length_feet: units[0].rv_length_feet, license_plate: units[0].license_plate, vin: units[0].vin,
+    space_type: r0.space_type, space_label: r0.label,
+    units,
+    start_date: r0.billing_start_date ? new Date(r0.billing_start_date).toLocaleDateString('en-US') : '',
+    start_date_raw: r0.billing_start_date ? new Date(r0.billing_start_date).toISOString().split('T')[0] : '',
+    end_date: 'Open',
+    monthly_amount: monthlyTotal.toFixed(2),
+    lease_date: new Date().toLocaleDateString('en-US'),
+    accepted_at: r0.contract_accepted_at ? new Date(r0.contract_accepted_at).toLocaleString('en-US', { timeZone: 'America/Denver' }) : null,
+    accepted_ip: r0.contract_accepted_ip || null,
+  };
+}
 const { sendEmail } = require('../services/email');
 
 // ──────────────────────────────────────────────────────
@@ -20,45 +73,8 @@ router.post('/generate', requireAuth, requireRole('admin', 'service_writer'), as
     let data = {};
 
     if (req.body.billing_id) {
-      // Pull from existing storage billing record
-      const { rows } = await pool.query(
-        `SELECT sb.*, s.space_type, s.label, s.linear_feet AS space_linear_feet,
-                c.first_name, c.last_name, c.phone_primary, c.email_primary,
-                c.company_name,
-                u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
-                u.license_plate, u.vin, u.linear_feet AS unit_linear_feet
-         FROM storage_billing sb
-         JOIN storage_spaces s ON s.id = sb.space_id
-         JOIN customers c ON c.id = sb.customer_id
-         LEFT JOIN units u ON u.id = sb.unit_id
-         WHERE sb.id = $1 AND sb.deleted_at IS NULL`,
-        [req.body.billing_id]
-      );
-      if (!rows.length) return res.status(404).json({ error: 'Billing record not found' });
-      const r = rows[0];
-      const linearFeet = r.unit_linear_feet || r.space_linear_feet || '';
-      const monthlyRate = parseFloat(r.monthly_rate) || 0;
-
-      data = {
-        lessee_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '',
-        lessee_phone: r.phone_primary || '',
-        lessee_email: r.email_primary || '',
-        rv_year: r.unit_year || '',
-        rv_make: r.unit_make || '',
-        rv_model: r.unit_model || '',
-        rv_length_feet: linearFeet ? `${linearFeet} ft` : '',
-        license_plate: r.license_plate || '',
-        vin: r.vin || '',
-        space_type: r.space_type,
-        start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
-        start_date_raw: r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '',
-        end_date: 'Open',
-        monthly_amount: monthlyRate.toFixed(2),
-        lease_date: new Date().toLocaleDateString('en-US'),
-        // Digital acceptance info if already accepted
-        accepted_at: r.contract_accepted_at ? new Date(r.contract_accepted_at).toLocaleString('en-US', { timeZone: 'America/Denver' }) : null,
-        accepted_ip: r.contract_accepted_ip || null,
-      };
+      data = await buildBillingContractData(req.body.billing_id);
+      if (!data) return res.status(404).json({ error: 'Billing record not found' });
     } else if (req.body.waitlist_data) {
       // Pre-fill from waitlist data (before formal assignment)
       const w = req.body.waitlist_data;
@@ -296,6 +312,27 @@ router.get('/view/:token', async (req, res) => {
     }
     const r = rows[0];
 
+    // Group-aware: if this billing belongs to a multi-unit contract, gather the
+    // sibling billings so we can show the combined rate and every space/unit.
+    let groupRows = [r];
+    if (r.contract_group) {
+      const g = await pool.query(
+        `SELECT sb.id, sb.monthly_rate, s.label, s.space_type, s.linear_feet AS space_linear_feet,
+                u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
+                u.license_plate, u.vin, u.linear_feet AS unit_linear_feet
+           FROM storage_billing sb
+           JOIN storage_spaces s ON s.id = sb.space_id
+           LEFT JOIN units u ON u.id = sb.unit_id
+          WHERE sb.contract_group = $1 AND sb.deleted_at IS NULL
+          ORDER BY sb.id`,
+        [r.contract_group]
+      );
+      if (g.rows.length) groupRows = g.rows;
+    }
+    const combinedRate = groupRows.reduce((sum, x) => sum + (parseFloat(x.monthly_rate) || 0), 0) || (parseFloat(r.monthly_rate) || 0);
+    const spaceListLabel = groupRows.map(x => `${x.label} \u2014 ${x.space_type === 'indoor' ? 'Indoor' : 'Outdoor'} Storage`).join(', ');
+    const additionalUnits = groupRows.filter(x => String(x.id) !== String(r.id));
+
     // If the customer already accepted, show a green confirmation banner
     // at the top but STILL render the rest of the contract (read-only) so
     // shop staff using the View Contract link can see what was signed.
@@ -308,7 +345,7 @@ router.get('/view/:token', async (req, res) => {
 
     const customerName = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.company_name || '';
     const linearFeet = r.unit_linear_feet || r.space_linear_feet || '';
-    const monthlyRate = parseFloat(r.monthly_rate) || 0;
+    const monthlyRate = combinedRate;
     const startDate = r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : 'TBD';
 
     const baseUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get('host')}`);
@@ -381,7 +418,7 @@ router.get('/view/:token', async (req, res) => {
           ${editableRow('Email', r.email_primary || '', 'lessee_email', 'e.g. name@example.com')}
           ${editableRow('Start Date', startDate, 'start_date', 'MM/DD/YYYY')}
           ${editableRow('End Date', '', 'end_date', 'MM/DD/YYYY or leave blank for Open')}
-          ${fixedRow('Space', `${r.label} — ${r.space_type === 'indoor' ? 'Indoor' : 'Outdoor'} Storage`)}
+          ${fixedRow('Space', spaceListLabel)}
           ${fixedRow('Monthly Rate', `$${monthlyRate.toFixed(2)}`)}
           ${proratedHtml}
         </table>
@@ -399,6 +436,15 @@ router.get('/view/:token', async (req, res) => {
           ${editableRow('VIN #', r.vin || '', 'vin', 'Vehicle Identification Number')}
         </table>
       </div>
+
+      ${additionalUnits.length ? `
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:20px;">
+        <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">Additional Unit(s) on This Lease</h3>
+        <table style="width:100%;font-size:13px;color:#374151;border-collapse:collapse;">
+          ${additionalUnits.map(x => `<tr><td style="padding:6px 0;">${[x.unit_year, x.unit_make, x.unit_model].filter(Boolean).join(' ') || 'Unit'} \u2014 Space ${x.label} (${x.space_type === 'indoor' ? 'Indoor' : 'Outdoor'})${x.unit_linear_feet ? ' \u00b7 ' + parseFloat(x.unit_linear_feet) + ' ft' : ''}</td></tr>`).join('')}
+        </table>
+        <p style="font-size:12px;color:#6b7280;margin:8px 0 0;">This lease covers all units listed above. The Monthly Rate shown is the combined total for all spaces.</p>
+      </div>` : ''}
 
       ${r.special_terms && r.special_terms.trim() ? `
       <div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:16px 18px;margin-bottom:20px;">
@@ -500,13 +546,13 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
 
     const acceptedAt = new Date().toLocaleString('en-US', { timeZone: 'America/Denver' });
 
-    // Mark as accepted
+    // Mark as accepted — the whole contract group when this billing is part of one.
     await pool.query(
       `UPDATE storage_billing SET
         contract_accepted_at = NOW(),
         contract_accepted_ip = $1
-       WHERE id = $2`,
-      [req.ip, r.id]
+       WHERE id = $2 OR (contract_group IS NOT NULL AND contract_group = $3)`,
+      [req.ip, r.id, r.contract_group || null]
     );
 
     // Save customer-provided details
@@ -591,7 +637,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 
     // Generate accepted contract PDF with final RV details and email copy to customer
-    const monthlyRate = parseFloat(r.monthly_rate) || 0;
+    const monthlyRate = combinedRate;
     const { calcProrated } = require('../services/storageContract');
     const startDateRaw = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
 
