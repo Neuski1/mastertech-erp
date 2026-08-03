@@ -593,6 +593,7 @@ export default function Storage() {
       {/* Waitlist Edit Modal */}
       {showWaitlistDetail && (
         <EditWaitlistModal
+          rates={rates}
           entry={showWaitlistDetail}
           onClose={() => setShowWaitlistDetail(null)}
           onSaved={() => { setShowWaitlistDetail(null); setActionMsg('Waitlist entry updated'); fetchWaitlist(); }}
@@ -611,6 +612,7 @@ export default function Storage() {
       {/* Add to Waitlist Modal */}
       {showAddWaitlist && (
         <AddWaitlistModal
+          rates={rates}
           prefill={waitlistPrefill}
           onClose={() => { setShowAddWaitlist(false); setWaitlistPrefill(null); }}
           onAdded={async () => {
@@ -2033,7 +2035,13 @@ function WaitlistNotifyModal({ entry, onClose, onSent }) {
   );
 }
 
-function EditWaitlistModal({ entry, onClose, onSaved }) {
+function perFootRate(rates, type) {
+  return type === 'indoor'
+    ? (parseFloat(rates && rates.indoor_per_foot) || 23)
+    : (parseFloat(rates && rates.outdoor_per_foot) || 6);
+}
+
+function EditWaitlistModal({ entry, onClose, onSaved, rates }) {
   const [form, setForm] = useState({
     contact_name: entry.contact_name || (entry.cust_first ? `${entry.cust_first} ${entry.cust_last}` : ''),
     contact_phone: entry.contact_phone || entry.cust_phone || '',
@@ -2138,7 +2146,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
       // 3. Monthly rate: use the quoted "Monthly Storage Rate" the user entered
       // (budget_monthly) when set; otherwise fall back to linear feet x per-foot.
       const ft = parseFloat(form.rv_length_feet) || 0;
-      const perFoot = form.space_type === 'indoor' ? 22 : 6;
+      const perFoot = perFootRate(rates, form.space_type);
       const quoted = parseFloat(form.budget_monthly);
       const monthlyRate = (quoted > 0) ? quoted : (ft > 0 ? ft * perFoot : 0);
 
@@ -2187,7 +2195,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
     setSaving(true);
     try {
       const ft = parseFloat(form.rv_length_feet) || 0;
-      const calcRate = ft && form.space_type ? ft * (form.space_type === 'indoor' ? 22 : 6) : null;
+      const calcRate = ft && form.space_type ? ft * (perFootRate(rates, form.space_type)) : null;
       await api.updateWaitlistEntry(entry.id, {
         ...form,
         rv_length_feet: form.rv_length_feet ? parseFloat(form.rv_length_feet) : null,
@@ -2289,7 +2297,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
             </div>
             <div>
               <label style={labelStyle}>Linear Feet</label>
-              <input type="number" value={form.rv_length_feet} onChange={(e) => { const val = e.target.value; setForm(f => { const ft = parseFloat(val) || 0; const sug = ft && f.space_type ? (ft * (f.space_type === 'indoor' ? 22 : 6)).toFixed(2) : ''; const budget = (f.budget_monthly === '' || f.budget_monthly == null) ? sug : f.budget_monthly; return { ...f, rv_length_feet: val, budget_monthly: budget }; }); }}
+              <input type="number" value={form.rv_length_feet} onChange={(e) => { const val = e.target.value; setForm(f => { const ft = parseFloat(val) || 0; const sug = ft && f.space_type ? (ft * (perFootRate(rates, f.space_type))).toFixed(2) : ''; const budget = (f.budget_monthly === '' || f.budget_monthly == null) ? sug : f.budget_monthly; return { ...f, rv_length_feet: val, budget_monthly: budget }; }); }}
                 placeholder="22" style={inputStyleFull} />
             </div>
           </div>
@@ -2372,7 +2380,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
                   </div>
                   <div style={{ padding: '10px', backgroundColor: '#f0fdf4', borderRadius: '6px', marginBottom: '12px', fontSize: '0.85rem', color: '#065f46' }}>
                     <strong>Summary:</strong> {form.contact_name} → {form.space_type} storage
-                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft • $${((parseFloat(form.budget_monthly) > 0 ? parseFloat(form.budget_monthly) : parseFloat(form.rv_length_feet) * (form.space_type === 'indoor' ? 22 : 6))).toFixed(2)}/mo`}
+                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft • $${((parseFloat(form.budget_monthly) > 0 ? parseFloat(form.budget_monthly) : parseFloat(form.rv_length_feet) * (perFootRate(rates, form.space_type)))).toFixed(2)}/mo`}
                     {!entry.customer_id && ' • New customer record will be created'}
                   </div>
                   <button type="button" onClick={handleSetupContract} disabled={contractSaving || !selectedSpaceId}
@@ -2410,7 +2418,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
   );
 }
 
-function AddWaitlistModal({ onClose, onAdded, prefill }) {
+function AddWaitlistModal({ onClose, onAdded, prefill, rates }) {
   const [form, setForm] = useState(() => ({
     contact_name: prefill?.contactName || '', contact_phone: prefill?.contactPhone || '', contact_email: prefill?.contactEmail || '',
     space_type: prefill?.spaceType || 'indoor', rv_year: prefill?.rvYear || '', rv_make: prefill?.rvMake || '', rv_model: prefill?.rvModel || '',
@@ -2476,7 +2484,7 @@ function AddWaitlistModal({ onClose, onAdded, prefill }) {
     setSaving(true);
     try {
       const ft = parseFloat(form.rv_length_feet) || 0;
-      const calcRate = ft && form.space_type ? ft * (form.space_type === 'indoor' ? 22 : 6) : null;
+      const calcRate = ft && form.space_type ? ft * (perFootRate(rates, form.space_type)) : null;
       await api.addToWaitlist({
         ...form,
         customer_id: selectedCust?.id || null,
@@ -2607,7 +2615,7 @@ function AddWaitlistModal({ onClose, onAdded, prefill }) {
             </div>
             <div>
               <label style={labelStyle}>Linear Feet</label>
-              <input type="number" value={form.rv_length_feet} onChange={(e) => { const val = e.target.value; setForm(f => { const ft = parseFloat(val) || 0; const sug = ft && f.space_type ? (ft * (f.space_type === 'indoor' ? 22 : 6)).toFixed(2) : ''; const budget = (f.budget_monthly === '' || f.budget_monthly == null) ? sug : f.budget_monthly; return { ...f, rv_length_feet: val, budget_monthly: budget }; }); }}
+              <input type="number" value={form.rv_length_feet} onChange={(e) => { const val = e.target.value; setForm(f => { const ft = parseFloat(val) || 0; const sug = ft && f.space_type ? (ft * (perFootRate(rates, f.space_type))).toFixed(2) : ''; const budget = (f.budget_monthly === '' || f.budget_monthly == null) ? sug : f.budget_monthly; return { ...f, rv_length_feet: val, budget_monthly: budget }; }); }}
                 placeholder="22" style={inputStyleFull} />
             </div>
           </div>
