@@ -2135,10 +2135,12 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
         unitId = newUnit.id;
       }
 
-      // 3. Calculate monthly rate
+      // 3. Monthly rate: use the quoted "Monthly Storage Rate" the user entered
+      // (budget_monthly) when set; otherwise fall back to linear feet x per-foot.
       const ft = parseFloat(form.rv_length_feet) || 0;
       const perFoot = form.space_type === 'indoor' ? 22 : 6;
-      const monthlyRate = ft > 0 ? ft * perFoot : 0;
+      const quoted = parseFloat(form.budget_monthly);
+      const monthlyRate = (quoted > 0) ? quoted : (ft > 0 ? ft * perFoot : 0);
 
       // 4. Assign space (creates billing record)
       const result = await api.assignStorage({
@@ -2370,7 +2372,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
                   </div>
                   <div style={{ padding: '10px', backgroundColor: '#f0fdf4', borderRadius: '6px', marginBottom: '12px', fontSize: '0.85rem', color: '#065f46' }}>
                     <strong>Summary:</strong> {form.contact_name} → {form.space_type} storage
-                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft • $${(parseFloat(form.rv_length_feet) * (form.space_type === 'indoor' ? 22 : 6)).toFixed(2)}/mo`}
+                    {form.rv_length_feet && ` • ${form.rv_length_feet} ft • $${((parseFloat(form.budget_monthly) > 0 ? parseFloat(form.budget_monthly) : parseFloat(form.rv_length_feet) * (form.space_type === 'indoor' ? 22 : 6))).toFixed(2)}/mo`}
                     {!entry.customer_id && ' • New customer record will be created'}
                   </div>
                   <button type="button" onClick={handleSetupContract} disabled={contractSaving || !selectedSpaceId}
