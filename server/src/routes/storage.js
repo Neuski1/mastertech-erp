@@ -1216,6 +1216,18 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
       userId: req.user && req.user.id,
     });
 
+    // Save the free-text waitlist note (if any) to the customer's history so it
+    // is preserved on the customer record even if the waitlist entry is removed.
+    if (notes && String(notes).trim() && customer_id) {
+      await logCustomerContact({
+        customerId: customer_id,
+        channel: 'Note',
+        campaign: 'Storage waitlist note',
+        notes: String(notes).trim(),
+        userId: req.user && req.user.id,
+      });
+    }
+
     res.status(201).json({ ...entry, confirmation_sent: confirmationSent });
   } catch (err) {
     console.error('POST /api/storage/waitlist error:', err);
@@ -1232,6 +1244,12 @@ router.post('/waitlist', requireRole('admin', 'service_writer', 'technician'), a
 router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { id } = req.params;
+    // Snapshot current notes + customer link so a note change can be logged to
+    // the customer's history.
+    const { rows: existingRows } = await pool.query(
+      'SELECT customer_id, notes FROM storage_waitlist WHERE id = $1', [id]
+    );
+    const existingEntry = existingRows[0] || {};
     // `position` is handled separately (resequencing) so it is NOT in this list.
     const fields = ['contact_name', 'contact_phone', 'contact_email', 'space_type',
                     'rv_year', 'rv_make', 'rv_model', 'rv_length_feet',
@@ -1309,6 +1327,22 @@ router.patch('/waitlist/:id', requireRole('admin', 'service_writer', 'technician
       } finally {
         client.release();
       }
+    }
+
+    // Save an edited waitlist note to the customer's history when it changes.
+    const newNotes = req.body.notes;
+    const noteCustomerId = (req.body.customer_id !== undefined && req.body.customer_id)
+      ? req.body.customer_id : existingEntry.customer_id;
+    if (newNotes !== undefined && newNotes && String(newNotes).trim()
+        && String(newNotes).trim() !== String(existingEntry.notes || '').trim()
+        && noteCustomerId) {
+      await logCustomerContact({
+        customerId: noteCustomerId,
+        channel: 'Note',
+        campaign: 'Storage waitlist note',
+        notes: String(newNotes).trim(),
+        userId: req.user && req.user.id,
+      });
     }
 
     const { rows: finalRows } = await pool.query(
