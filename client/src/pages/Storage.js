@@ -1366,7 +1366,7 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
 
         {error && <div style={errorBannerSmall}>{error}</div>}
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') e.preventDefault(); }}>
           {/* Customer Search */}
           <div style={{ marginBottom: '16px', position: 'relative' }}>
             <label style={labelStyle}>Customer</label>
@@ -2206,7 +2206,7 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
           <button onClick={onClose} style={closeBtnLargeStyle}>×</button>
         </div>
         {err && <div style={errorBannerSmall}>{err}</div>}
-        <form onSubmit={handleSave}>
+        <form onSubmit={handleSave} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') e.preventDefault(); }}>
           {/* Name */}
           <div style={{ marginBottom: '14px' }}>
             <label style={labelStyle}>Contact Name *</label>
@@ -2495,7 +2495,7 @@ function AddWaitlistModal({ onClose, onAdded, prefill }) {
           <button onClick={onClose} style={closeBtnLargeStyle}>×</button>
         </div>
         {err && <div style={errorBannerSmall}>{err}</div>}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') e.preventDefault(); }}>
           {/* Customer Search */}
           <div style={{ marginBottom: '14px', position: 'relative' }}>
             <label style={labelStyle}>Customer / Name *</label>
@@ -2675,7 +2675,7 @@ function AddSpaceModal({ onClose, onCreated }) {
           <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
         </div>
         {error && <div style={errorBannerSmall}>{error}</div>}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') e.preventDefault(); }}>
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Space Number / Label</label>
             <input type="text" value={spaceNumber} onChange={(e) => setSpaceNumber(e.target.value)} placeholder='e.g. 27, A1, OVERFLOW-1' style={inputStyleFull} autoFocus />
