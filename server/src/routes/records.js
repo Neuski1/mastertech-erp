@@ -1250,6 +1250,30 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <p style="margin:8px 0 0;font-size:11px;color:#6b7280;">Questions? Call (303) 557-2214 or reply to this email.</p>
     </div>` : ''}
     ${payButtonHtml}
+    ${docType === 'Estimate' ? `
+    <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;font-size:12px;color:#374151;line-height:1.5;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Authorization Agreement</p>
+      <p style="margin:0 0 8px;">By approving this estimate, I authorize Master Tech RV Repair &amp; Storage to perform the services and repairs described in this estimate on my RV/unit. I understand that the final charges may vary from this estimate due to unforeseen conditions discovered during the repair process. Any additional work or costs beyond this estimate will be communicated to me for approval before proceeding.</p>
+      <p style="margin:0 0 8px;">I agree to pay the full balance for all authorized services upon completion of work.</p>
+      <p style="margin:0 0 8px;">I understand that Master Tech RV Repair &amp; Storage takes reasonable care of all units in our possession; however, we are not responsible for loss or damage to the RV or personal belongings left inside in the event of fire, theft, weather events, or other circumstances beyond our control. We recommend removing valuables prior to drop-off.</p>
+      <p style="margin:0 0 8px;">I grant Master Tech RV Repair &amp; Storage permission to operate my RV/unit as needed for testing, inspection, and the safe movement of the vehicle within our facility.</p>
+      <p style="margin:0 0 8px;">If my RV is not picked up within two (2) days of the completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
+      <p style="margin:0 0 8px;font-weight:bold;color:#1a2a4a;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0;">If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+    </div>` : ''}
+    ${docType === 'Work Order' ? `
+    <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;font-size:12px;color:#374151;line-height:1.5;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Terms</p>
+      <p style="margin:0 0 8px;">If your RV is not picked up within two (2) days of the completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
+      <p style="margin:0 0 8px;font-weight:bold;color:#1a2a4a;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0;">If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+    </div>` : ''}
+    ${docType === 'Invoice' ? `
+    <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Warranty</p>
+      <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#1a2a4a;line-height:1.5;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0;font-size:12px;color:#374151;line-height:1.5;">If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+    </div>` : ''}
     ${docType === 'Invoice' ? `
     <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;">
       <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Warranty &amp; Pickup</p>
