@@ -2316,7 +2316,10 @@ function EditWaitlistModal({ entry, onClose, onSaved }) {
             <select value={form.status} onChange={(e) => up('status', e.target.value)} style={inputStyleFull}>
               <option value="waiting">Waiting</option>
               <option value="notified">Notified</option>
-              <option value="assigned">Assigned</option>
+              {/* "Assigned" is set only by the Set Up Contract flow (which builds the
+                  billing). It's not manually selectable — picking it here used to
+                  hide the person with no contract and no way back. */}
+              {form.status === 'assigned' && <option value="assigned" disabled>Assigned (use Set Up Contract)</option>}
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
