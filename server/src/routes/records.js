@@ -1251,6 +1251,12 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     </div>` : ''}
     ${payButtonHtml}
     ${docType === 'Invoice' ? `
+    <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Warranty &amp; Pickup</p>
+      <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#1a2a4a;line-height:1.5;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0;font-size:12px;color:#374151;line-height:1.5;">Please pick up your RV within two (2) days of the completion notice. After that, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
+    </div>` : ''}
+    ${docType === 'Invoice' ? `
     <div style="margin:28px 0 8px;padding:20px;background:#f0f7ff;border:2px solid #1e3a5f;border-radius:8px;">
       <table style="width:100%;border-collapse:collapse;">
         <tr>
