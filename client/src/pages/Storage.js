@@ -717,7 +717,7 @@ function PaymentLegend() {
       <Item color={STATUS_COLORS.paid.bg} label="Paid" />
       <Item color={STATUS_COLORS.unpaid.bg} label="Unpaid" />
       <Item color={STATUS_COLORS.partial.bg} label="Partial" />
-      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Hover a cell for source · click to set a manual override (cycles paid → partial → unpaid → auto)</span>
+      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Hover a cell for source · click to set a manual override (cycles paid → partial → unpaid → auto) · the boxed month is the current month; months to its right are future — mark them paid to record advance payments</span>
     </div>
   );
 }
@@ -726,6 +726,9 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
   if (!box || !months || months.length === 0) return null;
   const cellsByKey = {};
   (box.cells || []).forEach(c => { cellsByKey[`${c.year}-${c.month}`] = c; });
+  const nowStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+  const nowYear = parseInt(nowStr.slice(0, 4), 10);
+  const nowMonth = parseInt(nowStr.slice(5, 7), 10);
 
   return (
     <div style={{ marginTop: '8px', borderTop: '1px dashed #e5e7eb', paddingTop: '6px' }}>
@@ -733,6 +736,7 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
         {months.map(({ year, month }) => {
           const cell = cellsByKey[`${year}-${month}`] || { year, month, status: 'unpaid', source: null };
           const colors = STATUS_COLORS[cell.status] || STATUS_COLORS.unpaid;
+          const isCurrent = year === nowYear && month === nowMonth;
           const srcLabel = cell.source ? SOURCE_LABELS[cell.source] : 'No data';
           const title = `${MONTH_ABBR[month]} ${year} — ${cell.status.charAt(0).toUpperCase() + cell.status.slice(1)} (${srcLabel})`;
           return (
@@ -749,6 +753,8 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
                 // Manual overrides get a dark ring so they stand out.
                 outline: cell.source === 'manual' ? '2px solid #1e3a5f' : 'none',
                 outlineOffset: '-2px',
+                border: isCurrent ? '2px solid #111827' : 'none',
+                boxSizing: 'border-box',
               }}
             >
               {month}

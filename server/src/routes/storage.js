@@ -30,18 +30,24 @@ async function logCustomerContact({ customerId, channel, campaign, notes, userId
 
 // Last 12 months (current + prior 11), oldest first, as {year, month} (month 1-12).
 // Uses America/Denver so the "current month" matches the shop's clock.
-function lastTwelveMonths() {
+// Payment-grid month window: 11 months of history + the current month + 6
+// months ahead, so advance payments (customers paid months in advance) can be
+// marked and seen. Oldest -> newest.
+function paymentGridMonths() {
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
-  let curYear = parseInt(todayStr.slice(0, 4), 10);
-  let curMonth = parseInt(todayStr.slice(5, 7), 10); // 1-12
+  const curYear = parseInt(todayStr.slice(0, 4), 10);
+  const curMonth = parseInt(todayStr.slice(5, 7), 10); // 1-12
+  const PAST = 11;
+  const FUTURE = 6;
   const months = [];
-  for (let i = 0; i < 12; i++) {
-    let m = curMonth - i;
+  for (let i = -PAST; i <= FUTURE; i++) {
+    let m = curMonth + i;
     let y = curYear;
     while (m <= 0) { m += 12; y -= 1; }
+    while (m > 12) { m -= 12; y += 1; }
     months.push({ year: y, month: m });
   }
-  return months.reverse(); // oldest -> newest
+  return months; // oldest -> newest, includes current + FUTURE ahead
 }
 
 // Map a Square invoice status to our internal status.
@@ -57,7 +63,7 @@ const cellKey = (year, month) => `${year}-${month}`;
 // (manual overrides + cached Square results). Square is the single source of
 // truth. Precedence per cell: manual > square > unpaid.
 async function buildPaymentGrid() {
-  const months = lastTwelveMonths();
+  const months = paymentGridMonths();
   const windowStart = `${months[0].year}-${String(months[0].month).padStart(2, '0')}`; // YYYY-MM
 
   // Active boxes (one per occupied space)
@@ -871,7 +877,7 @@ router.get('/payment-grid', requireRole('admin', 'service_writer', 'bookkeeper',
 // not configured.
 // ---------------------------------------------------------------------------
 router.post('/payment-grid/sync', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const months = lastTwelveMonths();
+  const months = paymentGridMonths();
   const oldest = months[0]; // {year, month}
   const oldestKey = oldest.year * 100 + oldest.month;
 
