@@ -248,6 +248,9 @@ export default function Storage() {
               {gridSyncing ? 'Syncing…' : '⟳ Sync from Square'}
             </button>
           )}
+          {activeTab === 'spaces' && (isAdmin || canEditRecords) && (
+            <button onClick={() => { setSelectedSpace(null); setShowAssign(true); }} style={btnPrimary}>+ New Contract</button>
+          )}
           {activeTab === 'spaces' && isAdmin && (
             <button onClick={() => setShowAddSpace(true)} style={btnSecondary}>+ Add Space</button>
           )}
@@ -627,13 +630,14 @@ export default function Storage() {
         />
       )}
 
-      {/* Assign Modal */}
-      {showAssign && selectedSpace && (
+      {/* Assign Modal (also the standalone New Contract builder) */}
+      {showAssign && (
         <AssignModal
           space={selectedSpace}
+          allSpaces={spaces}
           rates={rates}
           onClose={() => { setShowAssign(false); setSelectedSpace(null); }}
-          onAssigned={() => { setShowAssign(false); setSelectedSpace(null); setActionMsg('Space assigned'); refreshSpaces(); }}
+          onAssigned={() => { setShowAssign(false); setSelectedSpace(null); setActionMsg(selectedSpace ? 'Space assigned' : 'Contract created'); refreshSpaces(); }}
         />
       )}
 
@@ -1276,7 +1280,7 @@ function SummaryCard({ label, occupied, total, color }) {
 // ---------------------------------------------------------------------------
 // AssignModal — form to assign a customer/unit to a space
 // ---------------------------------------------------------------------------
-function AssignModal({ space, rates, onClose, onAssigned }) {
+function AssignModal({ space, rates, onClose, onAssigned, allSpaces = [] }) {
   const [customers, setCustomers] = useState([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -1284,19 +1288,28 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [form, setForm] = useState({
     unit_id: '',
-    monthly_rate: space.space_type === 'indoor' ? rates.indoor_monthly : rates.outdoor_monthly,
+    monthly_rate: space ? (space.space_type === 'indoor' ? rates.indoor_monthly : rates.outdoor_monthly) : '',
     due_day: 1,
     square_customer_id: '',
     square_sub_id: '',
     billing_start_date: new Date().toISOString().split('T')[0],
     notes: '',
-    space_type: space.space_type,
+    space_type: space ? space.space_type : 'outdoor',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [sendContract, setSendContract] = useState(true);
   const [sendGuidelines, setSendGuidelines] = useState(false);
   const searchTimeout = useRef(null);
+  // Space picker (when opened as a standalone New Contract, no space preset)
+  const [space1Id, setSpace1Id] = useState(space ? String(space.id) : '');
+  // Second space + unit on the same contract (multi-unit lease)
+  const [addSecond, setAddSecond] = useState(false);
+  const [secondSpaceId, setSecondSpaceId] = useState('');
+  const [secondUnitId, setSecondUnitId] = useState('');
+  const [secondRate, setSecondRate] = useState('');
+  const unoccupied = (allSpaces || []).filter(sp => !sp.billing_id);
+  const primarySpaceId = space ? space.id : (space1Id ? parseInt(space1Id) : null);
 
   const handleCustomerSearch = (q) => {
     setCustomerSearch(q);
@@ -1324,11 +1337,17 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedCustomer) { setError('Select a customer'); return; }
+    if (!primarySpaceId) { setError('Select a space'); return; }
+    if (addSecond && !secondSpaceId) { setError('Select the second space (or turn off the second unit)'); return; }
     setSaving(true);
     setError('');
     try {
+      const groupId = (addSecond && secondSpaceId)
+        ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
+           : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+        : null;
       const result = await api.assignStorage({
-        space_id: space.id,
+        space_id: primarySpaceId,
         customer_id: selectedCustomer.id,
         unit_id: form.unit_id ? parseInt(form.unit_id) : null,
         monthly_rate: parseFloat(form.monthly_rate),
@@ -1337,7 +1356,25 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
         square_sub_id: form.square_sub_id || null,
         billing_start_date: form.billing_start_date || null,
         notes: form.notes || null,
+        contract_group: groupId,
       });
+      if (groupId) {
+        const sp2 = unoccupied.find(x => String(x.id) === String(secondSpaceId));
+        const u2 = units.find(u => String(u.id) === String(secondUnitId));
+        const ft2 = (u2 && u2.linear_feet) ? parseFloat(u2.linear_feet) : 0;
+        const rate2 = (parseFloat(secondRate) > 0) ? parseFloat(secondRate)
+          : (ft2 > 0 ? ft2 * perFootRate(rates, sp2 && sp2.space_type) : 0);
+        await api.assignStorage({
+          space_id: parseInt(secondSpaceId),
+          customer_id: selectedCustomer.id,
+          unit_id: secondUnitId ? parseInt(secondUnitId) : null,
+          monthly_rate: rate2,
+          due_day: parseInt(form.due_day),
+          billing_start_date: form.billing_start_date || null,
+          notes: form.notes || null,
+          contract_group: groupId,
+        });
+      }
       // Preview the contract for Carol's review BEFORE the customer email
       // fires, then ask before sending. Guidelines stay automatic.
       const billingId = result?.id;
@@ -1362,7 +1399,7 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Assign — {space.label}</h2>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>{space ? `Assign — ${space.label}` : 'New Storage Contract'}</h2>
           <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
         </div>
 
@@ -1417,6 +1454,20 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
             )}
           </div>
 
+          {/* Space (standalone New Contract only) */}
+          {!space && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Space</label>
+              <select value={space1Id} onChange={(e) => { setSpace1Id(e.target.value); const sp = unoccupied.find(x => String(x.id) === e.target.value); if (sp) setForm(f => ({ ...f, space_type: sp.space_type })); }} style={inputStyleFull}>
+                <option value="">-- Select a space --</option>
+                {unoccupied.map(sp => (
+                  <option key={sp.id} value={sp.id}>{sp.label} — {sp.space_type} ({sp.linear_feet ? parseFloat(sp.linear_feet) + ' ft' : 'no size'})</option>
+                ))}
+              </select>
+              {unoccupied.length === 0 && <div style={{ marginTop: '6px', fontSize: '0.8rem', color: '#dc2626' }}>No available spaces. Add a space first.</div>}
+            </div>
+          )}
+
           {/* Unit */}
           {selectedCustomer && (
             <div style={{ marginBottom: '16px' }}>
@@ -1467,6 +1518,35 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
             </div>
           </div>
 
+          {/* Second space + unit on the same contract (rates summed) */}
+          <div style={{ marginBottom: '16px', borderTop: '1px dashed #d1d5db', paddingTop: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151', cursor: 'pointer' }}>
+              <input type="checkbox" checked={addSecond} onChange={(e) => setAddSecond(e.target.checked)} disabled={!selectedCustomer} /> Add a second space &amp; RV to this contract
+            </label>
+            {!selectedCustomer && <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '4px' }}>Select a customer first.</div>}
+            {addSecond && selectedCustomer && (
+              <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                <label style={labelStyle}>Second Space</label>
+                <select value={secondSpaceId} onChange={(e) => setSecondSpaceId(e.target.value)} style={inputStyleFull}>
+                  <option value="">-- Select a space --</option>
+                  {unoccupied.filter(sp => String(sp.id) !== String(primarySpaceId)).map(sp => (
+                    <option key={sp.id} value={sp.id}>{sp.label} — {sp.space_type} ({sp.linear_feet ? parseFloat(sp.linear_feet) + ' ft' : 'no size'})</option>
+                  ))}
+                </select>
+                <label style={{ ...labelStyle, marginTop: '10px' }}>Second Unit (optional)</label>
+                <select value={secondUnitId} onChange={(e) => setSecondUnitId(e.target.value)} style={inputStyleFull}>
+                  <option value="">No unit selected</option>
+                  {units.map(u => (
+                    <option key={u.id} value={u.id}>{[u.year, u.make, u.model].filter(Boolean).join(' ')} {u.linear_feet ? `(${parseFloat(u.linear_feet)} ft)` : ''}</option>
+                  ))}
+                </select>
+                <label style={{ ...labelStyle, marginTop: '10px' }}>Second Space Rate ($/mo)</label>
+                <input type="number" step="0.01" value={secondRate} onChange={(e) => setSecondRate(e.target.value)} placeholder="Auto from unit length if blank" style={inputStyleFull} />
+                <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: '#6b7280' }}>Leave blank to auto-calc from the unit's length. The contract total is both rates combined.</p>
+              </div>
+            )}
+          </div>
+
           {/* Notes */}
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Notes</label>
@@ -1499,8 +1579,8 @@ function AssignModal({ space, rates, onClose, onAssigned }) {
           </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button type="submit" disabled={saving || !selectedCustomer} style={btnPrimary}>
-              {saving ? 'Assigning...' : 'Assign Space'}
+            <button type="submit" disabled={saving || !selectedCustomer || !primarySpaceId || (addSecond && !secondSpaceId)} style={btnPrimary}>
+              {saving ? 'Saving...' : (space ? 'Assign Space' : 'Create Contract')}
             </button>
             <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
           </div>
