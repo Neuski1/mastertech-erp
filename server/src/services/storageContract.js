@@ -60,33 +60,44 @@ function generateContractPDF(data) {
     );
     doc.moveDown(0.8);
 
-    // --- RV Info ---
-    const rvInfo = [data.rv_year, data.rv_make, data.rv_model].filter(Boolean).join(' ') || '_________________________________';
-    doc.font('Helvetica-Bold').text('RV Year, Make, Model: ', { continued: true });
-    doc.font('Helvetica').text(rvInfo);
-    doc.text('(also known as \u201CUnit\u201D)');
-    doc.moveDown(0.8);
+    // --- Unit(s): one or more RVs / spaces covered by this lease ---
+    const units = (Array.isArray(data.units) && data.units.length > 0) ? data.units : [{
+      rv_year: data.rv_year, rv_make: data.rv_make, rv_model: data.rv_model,
+      rv_length_feet: data.rv_length_feet, license_plate: data.license_plate, vin: data.vin,
+      space_type: data.space_type, space_label: data.space_label,
+      indoor_rate: data.indoor_rate, outdoor_rate: data.outdoor_rate,
+    }];
+    units.forEach((u, i) => {
+      if (units.length > 1) {
+        doc.font('Helvetica-Bold').fontSize(11).text(`Unit ${i + 1}${u.space_label ? ' \u2014 Space ' + u.space_label : ''}:`);
+        doc.moveDown(0.2);
+        doc.fontSize(10.5);
+      }
+      const rvInfo = [u.rv_year, u.rv_make, u.rv_model].filter(Boolean).join(' ') || '_________________________________';
+      doc.font('Helvetica-Bold').fontSize(10.5).text('RV Year, Make, Model: ', { continued: true });
+      doc.font('Helvetica').text(rvInfo);
+      if (units.length === 1) doc.text('(also known as \u201CUnit\u201D)');
+      doc.moveDown(0.5);
 
-    // --- Storage Type (show only the selected type) ---
-    const isIndoor = data.space_type === 'indoor';
-    const perFootRate = isIndoor ? (data.indoor_rate || '22.00') : (data.outdoor_rate || '6.00');
-    const storageLabel = isIndoor ? 'Indoor Storage' : 'Outdoor Storage';
-    doc.font('Helvetica-Bold').fontSize(10.5).text(`${storageLabel}:  `, { continued: true });
-    doc.font('Helvetica').text(`$${perFootRate} per linear foot`);
-    doc.moveDown(0.8);
+      const isIndoor = u.space_type === 'indoor';
+      const perFootRate = isIndoor ? (u.indoor_rate || data.indoor_rate || '23.00') : (u.outdoor_rate || data.outdoor_rate || '6.00');
+      const storageLabel = isIndoor ? 'Indoor Storage' : 'Outdoor Storage';
+      doc.font('Helvetica-Bold').fontSize(10.5).text(`${storageLabel}:  `, { continued: true });
+      doc.font('Helvetica').text(`$${perFootRate} per linear foot`);
+      doc.moveDown(0.4);
 
-    // --- RV Length / License / VIN ---
-    const rvLength = data.rv_length_feet || '________________';
-    doc.font('Helvetica-Bold').text('RV LENGTH TOE to TOE:  ', { continued: true });
-    doc.font('Helvetica').text(rvLength);
-    doc.moveDown(0.3);
-    const licensePlate = data.license_plate || '________________________';
-    const vin = data.vin || '___________________________________';
-    doc.font('Helvetica-Bold').text('RV LICENSE PLATE #:  ', { continued: true });
-    doc.font('Helvetica').text(`${licensePlate}          `, { continued: true });
-    doc.font('Helvetica-Bold').text('RV VIN #:  ', { continued: true });
-    doc.font('Helvetica').text(vin);
-    doc.moveDown(1);
+      const rvLength = u.rv_length_feet || '________________';
+      doc.font('Helvetica-Bold').text('RV LENGTH TOE to TOE:  ', { continued: true });
+      doc.font('Helvetica').text(String(rvLength));
+      doc.moveDown(0.3);
+      const licensePlate = u.license_plate || '________________________';
+      const vin = u.vin || '___________________________________';
+      doc.font('Helvetica-Bold').text('RV LICENSE PLATE #:  ', { continued: true });
+      doc.font('Helvetica').text(`${licensePlate}          `, { continued: true });
+      doc.font('Helvetica-Bold').text('RV VIN #:  ', { continued: true });
+      doc.font('Helvetica').text(vin);
+      doc.moveDown(units.length > 1 ? 0.8 : 1);
+    });
 
     // --- Term & Monthly Amount ---
     const startDate = data.start_date || '_______________';

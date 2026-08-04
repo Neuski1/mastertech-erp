@@ -180,6 +180,8 @@ const pool = require('./db/pool');
     await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS discount_description VARCHAR(255)");
     // Migration: per-record flag so the first RV edit on a work order forks a new unit (never overwrites the customer's existing trailer/history).
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS unit_forked BOOLEAN NOT NULL DEFAULT FALSE');
+    // Multi-unit storage contracts: links the billings that belong to one lease.
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_group UUID');
     // Client-side error capture (diagnoses white-screen render crashes).
     await pool.query(`CREATE TABLE IF NOT EXISTS client_errors (
       id SERIAL PRIMARY KEY, message TEXT, stack TEXT, component_stack TEXT,
