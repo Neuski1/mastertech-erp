@@ -560,6 +560,66 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/storage/:id/move — Move an active billing to a different (free) space.
+// Used to promote an overflow occupant into a permanent spot. Keeps the customer,
+// unit, rate, start date, payment history, and contract; only the space changes.
+// ---------------------------------------------------------------------------
+router.patch('/:id/move', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const { new_space_id } = req.body;
+  if (!new_space_id) return res.status(400).json({ error: 'new_space_id is required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const billing = await client.query(
+      'SELECT * FROM storage_billing WHERE id = $1 AND deleted_at IS NULL AND billing_end_date IS NULL',
+      [req.params.id]
+    );
+    if (billing.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Active storage billing record not found' });
+    }
+    if (String(billing.rows[0].space_id) === String(new_space_id)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Already in that space' });
+    }
+
+    const target = await client.query(
+      'SELECT id, label FROM storage_spaces WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE',
+      [new_space_id]
+    );
+    if (target.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Target space not found or inactive' });
+    }
+
+    const occupied = await client.query(
+      'SELECT id FROM storage_billing WHERE space_id = $1 AND deleted_at IS NULL AND billing_end_date IS NULL',
+      [new_space_id]
+    );
+    if (occupied.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Target space is already occupied' });
+    }
+
+    const updated = await client.query(
+      'UPDATE storage_billing SET space_id = $1 WHERE id = $2 RETURNING *',
+      [new_space_id, req.params.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ message: `Moved to ${target.rows[0].label}`, billing: updated.rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('PATCH /api/storage/:id/move error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /api/storage/:id — End storage (set billing_end_date)
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {

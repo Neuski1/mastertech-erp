@@ -661,6 +661,7 @@ export default function Storage() {
       {showDetail && selectedSpace && (
         <DetailModal
           space={selectedSpace}
+          allSpaces={spaces}
           canEdit={canEditRecords}
           isAdmin={isAdmin}
           canSeeFinancials={canSeeFinancials}
@@ -1611,7 +1612,7 @@ function AssignModal({ space, rates, onClose, onAssigned, allSpaces = [] }) {
 // ---------------------------------------------------------------------------
 // DetailModal — editable occupied space details, end storage, charge
 // ---------------------------------------------------------------------------
-function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpdated }) {
+function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials, onClose, onUpdated }) {
   const [form, setForm] = useState({
     space_type: space.space_type || 'outdoor',
     monthly_rate: parseFloat(space.monthly_rate) || 0,
@@ -1630,6 +1631,8 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [contractMsg, setContractMsg] = useState('');
+  const [moveTargetId, setMoveTargetId] = useState('');
+  const [moving, setMoving] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -1687,6 +1690,22 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleMove = async () => {
+    if (!moveTargetId) { setError('Pick a space to move to'); return; }
+    const target = (allSpaces || []).find(sp => String(sp.id) === String(moveTargetId));
+    if (!window.confirm(`Move ${customerName} from ${space.label} to ${target ? target.label : 'the selected space'}? The customer, RV, rate, and payment history stay the same.`)) return;
+    setMoving(true);
+    setError('');
+    try {
+      await api.moveStorage(space.billing_id, parseInt(moveTargetId));
+      onUpdated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMoving(false);
     }
   };
 
@@ -1800,6 +1819,23 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
                 <label style={labelStyle}>Square Subscription ID</label>
                 <input value={form.square_sub_id} onChange={(e) => setForm({ ...form, square_sub_id: e.target.value })} placeholder="Optional" style={inputStyleFull} />
               </div>
+            </div>
+
+            {/* Move to another space (e.g. promote overflow to a permanent spot) */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+              <label style={{ ...labelStyle, color: '#1e40af' }}>Move to Another Space</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <select value={moveTargetId} onChange={(e) => setMoveTargetId(e.target.value)} style={{ ...inputStyleFull, flex: 1 }}>
+                  <option value="">-- Select an open space --</option>
+                  {(allSpaces || []).filter(sp => sp.is_active && !sp.billing_id && String(sp.id) !== String(space.id)).map(sp => (
+                    <option key={sp.id} value={sp.id}>{sp.label} — {sp.space_type} ({sp.space_linear_feet ? parseFloat(sp.space_linear_feet) + ' ft' : 'no size'})</option>
+                  ))}
+                </select>
+                <button type="button" onClick={handleMove} disabled={moving || !moveTargetId} style={{ ...btnPrimary, opacity: (moving || !moveTargetId) ? 0.5 : 1 }}>
+                  {moving ? 'Moving...' : 'Move'}
+                </button>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#1e40af', marginTop: '4px' }}>Keeps the customer, RV, rate, and payment history. Use this to move an overflow customer into a permanent spot.</div>
             </div>
 
             {/* Scheduled move-out (saved with Save) + immediate End Storage */}

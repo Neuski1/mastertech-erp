@@ -304,6 +304,7 @@ export const api = {
   applyStorageRateIncrease: (per_foot, include_waitlist) => request('/storage/rate-increase/apply', { method: 'POST', body: JSON.stringify({ per_foot, include_waitlist }) }),
   updateStorage: (id, data) => request(`/storage/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   endStorage: (id, data = {}) => request(`/storage/${id}`, { method: 'DELETE', body: JSON.stringify(data) }),
+  moveStorage: (id, new_space_id) => request(`/storage/${id}/move`, { method: 'PATCH', body: JSON.stringify({ new_space_id }) }),
   getBillingPreview: () => request('/storage/billing-preview'),
   runBilling: (data) => request('/storage/run-billing', { method: 'POST', body: JSON.stringify(data) }),
   getStorageCharges: (params = {}) => {
