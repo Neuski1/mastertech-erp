@@ -271,7 +271,7 @@ function getGuidelinesHTML() {
       <li>If you want to drop off your RV on <strong>Sunday</strong>, please let us know and park it in front of our building and drop the keys in the mail slot. We will move it into our facility Monday morning.</li>
       <li>Please advise if you will be leaving a vehicle when picking up a unit.</li>
       <li><strong>YOU MUST</strong> let us know when you leave permanently, or you will continue to be billed. We don&rsquo;t issue refunds for partial months.</li>
-      <li>We offer <strong>Auto-Pay</strong> for storage payments. If you don&rsquo;t want to set up Auto-Pay, payment is due in advance of the period and without notice.</li>
+      <li>We offer <strong>Auto-Pay</strong> for storage payments. If you don&rsquo;t want to set up Auto-Pay, payment is due in advance of the period.</li>
       <li>We send invoices and receipts by email unless otherwise requested.</li>
     </ul>
 
