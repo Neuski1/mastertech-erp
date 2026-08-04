@@ -308,6 +308,60 @@ export default function Storage() {
         </div>
       )}
 
+      {/* Billing Report */}
+      {showReport && (
+        <div style={sectionStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>Billing Report</h2>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={inputStyle} />
+              <button onClick={fetchReport} disabled={reportLoading} style={btnSmall}>
+                {reportLoading ? '...' : 'Load'}
+              </button>
+            </div>
+          </div>
+          {report && (
+            <>
+              <div style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#6b7280' }}>
+                Active billings: {report.total_active} — Total monthly: {formatCurrency(report.total_monthly_revenue)}
+              </div>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Space</th>
+                    <th style={thStyle}>Type</th>
+                    <th style={thStyle}>Customer</th>
+                    <th style={thStyle}>Unit</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
+                    <th style={thStyle}>Start</th>
+                    <th style={thStyle}>Square ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.billings.map(b => (
+                    <tr key={b.id}>
+                      <td style={tdStyle}>{b.space_label}</td>
+                      <td style={tdStyle}>{b.space_type}</td>
+                      <td style={tdStyle}>
+                        {b.last_name}{b.first_name ? `, ${b.first_name}` : ''}
+                        {b.company_name && <span style={{ color: '#6b7280', marginLeft: '4px' }}>({b.company_name})</span>}
+                      </td>
+                      <td style={tdStyle}>{[b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.monthly_rate)}</td>
+                      <td style={tdStyle}>{b.billing_start_date ? new Date(String(b.billing_start_date).split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '\u2014'}</td>
+                      <td style={tdStyle}>{b.square_customer_id || <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>Not linked</span>}</td>
+                    </tr>
+                  ))}
+                  {report.billings.length === 0 && (
+                    <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No billings for this month</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Payment grid legend */}
       <PaymentLegend />
 
@@ -385,59 +439,6 @@ export default function Storage() {
         </div>
       )}
 
-      {/* Billing Report */}
-      {showReport && (
-        <div style={sectionStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2 style={{ ...sectionTitle, marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>Billing Report</h2>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={inputStyle} />
-              <button onClick={fetchReport} disabled={reportLoading} style={btnSmall}>
-                {reportLoading ? '...' : 'Load'}
-              </button>
-            </div>
-          </div>
-          {report && (
-            <>
-              <div style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#6b7280' }}>
-                Active billings: {report.total_active} — Total monthly: {formatCurrency(report.total_monthly_revenue)}
-              </div>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>Space</th>
-                    <th style={thStyle}>Type</th>
-                    <th style={thStyle}>Customer</th>
-                    <th style={thStyle}>Unit</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
-                    <th style={thStyle}>Start</th>
-                    <th style={thStyle}>Square ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.billings.map(b => (
-                    <tr key={b.id}>
-                      <td style={tdStyle}>{b.space_label}</td>
-                      <td style={tdStyle}>{b.space_type}</td>
-                      <td style={tdStyle}>
-                        {b.last_name}{b.first_name ? `, ${b.first_name}` : ''}
-                        {b.company_name && <span style={{ color: '#6b7280', marginLeft: '4px' }}>({b.company_name})</span>}
-                      </td>
-                      <td style={tdStyle}>{[b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—'}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.monthly_rate)}</td>
-                      <td style={tdStyle}>{b.billing_start_date}</td>
-                      <td style={tdStyle}>{b.square_customer_id || <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>Not linked</span>}</td>
-                    </tr>
-                  ))}
-                  {report.billings.length === 0 && (
-                    <tr><td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No billings for this month</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </>
-          )}
-        </div>
-      )}
       </>}
 
       {/* ===== WAITLIST TAB ===== */}
