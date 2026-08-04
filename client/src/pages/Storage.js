@@ -1143,6 +1143,15 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
             Preview Guidelines
           </button>
+          <button onClick={async () => {
+            if (!window.confirm('Email the storage guidelines to this customer?')) return;
+            try {
+              const res = await api.sendStorageGuidelines({ billing_id: space.billing_id });
+              flash(res.message || 'Guidelines emailed');
+            } catch (err) { flash('Error: ' + err.message); }
+          }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#fde68a', color: '#92400e', border: '1px solid #f59e0b' }}>
+            Send Guidelines
+          </button>
         </div>
       </div>
 
