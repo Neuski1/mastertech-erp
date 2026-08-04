@@ -801,6 +801,18 @@ function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canE
             <div>{[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ')}</div>
           )}
           {canSeeFinancials && <div style={{ color: '#059669' }}>${parseFloat(space.monthly_rate).toFixed(0)}/mo</div>}
+          {space.billing_start_date && (() => {
+            const sd = new Date(String(space.billing_start_date).split('T')[0] + 'T00:00:00');
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const future = sd > today;
+            return future ? (
+              <div style={{ marginTop: '2px', display: 'inline-block', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '1px 5px', fontSize: '0.62rem', fontWeight: 700 }}>
+                Starts {sd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </div>
+            ) : (
+              <div style={{ color: '#9ca3af', fontSize: '0.62rem' }}>Since {sd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</div>
+            );
+          })()}
           {space.scheduled_move_out && (
             <div style={{ marginTop: '2px', display: 'inline-block', backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', borderRadius: '4px', padding: '1px 5px', fontSize: '0.62rem', fontWeight: 700 }}>
               Ending {new Date(String(space.scheduled_move_out).split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
