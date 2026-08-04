@@ -268,7 +268,7 @@ function getGuidelinesHTML() {
     <ul style="color:#374151;font-size:14px;line-height:1.8;padding-left:20px;">
       <li>When requesting your unit to be pulled out, give us at least <strong>2 hours notice</strong> by call or text between the hours of <strong>9AM &ndash; 6PM Monday thru Friday</strong>.</li>
       <li>When you drop off your storage unit, it must be dropped off at least <strong>30 minutes before we close</strong> so we have time to put it away.</li>
-      <li>If you want to drop off your RV on <strong>Sunday</strong>, please let us know and park it in front of our building and drop the keys in the mail slot. We will attempt to move it into the facility that day or first thing Monday morning.</li>
+      <li>If you want to drop off your RV on <strong>Sunday</strong>, please let us know and park it in front of our building and drop the keys in the mail slot. We will move it into our facility Monday morning.</li>
       <li>Please advise if you will be leaving a vehicle when picking up a unit.</li>
       <li><strong>YOU MUST</strong> let us know when you leave permanently, or you will continue to be billed. We don&rsquo;t issue refunds for partial months.</li>
       <li>We offer <strong>Auto-Pay</strong> for storage payments. If you don&rsquo;t want to set up Auto-Pay, payment is due in advance of the period and without notice.</li>
