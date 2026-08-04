@@ -103,7 +103,7 @@ function generateContractPDF(data) {
     const startDate = data.start_date || '_______________';
     const endDate = data.end_date || 'Open';
     doc.fontSize(10.5).text(
-      `The term of this lease commences ${startDate} until ${endDate}, payable in advance of the period and without notice:`,
+      `The term of this lease commences ${startDate} until ${endDate}, payable in advance of the period:`,
       { width: w, lineGap }
     );
     doc.moveDown(0.5);
@@ -129,7 +129,7 @@ function generateContractPDF(data) {
     doc.font('Helvetica').fontSize(10.5);
 
     const terms = [
-      'Pay the rent for the above-described Unit as it becomes due, in advance of the period without notice.',
+      'Pay the rent for the above-described Unit as it becomes due, in advance of the period.',
       'No subletting of the space or assignment of this lease under any circumstances.',
       'RV insurance on your unit being stored is required. Understand that your property is covered by your insurance only and Lessor has no financial liability to Lessee.',
       'Lessee will not hold the Lessor responsible for any damage to the property for any reason.',
