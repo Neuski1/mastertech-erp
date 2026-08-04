@@ -156,6 +156,8 @@ router.get('/', async (req, res) => {
               sb.id AS billing_id, sb.customer_id, sb.unit_id,
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
               sb.scheduled_move_out,
+              (EXISTS (SELECT 1 FROM customer_documents cd
+                       WHERE cd.doc_type = 'storage_contract' AND cd.related_id = sb.id)) AS has_signed_contract,
               sb.due_day, sb.square_customer_id, sb.square_sub_id,
               sb.notes AS billing_notes,
               sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at, sb.special_terms,
@@ -555,6 +557,29 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     res.json(billing);
   } catch (err) {
     console.error('PATCH /api/storage/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/storage/:id/signed-contract — Stream the saved signed contract PDF
+// (from customer_documents) inline so staff can view/print it for backup.
+// ---------------------------------------------------------------------------
+router.get('/:id/signed-contract', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT title, file_data, mime_type FROM customer_documents
+       WHERE doc_type = 'storage_contract' AND related_id = $1
+       ORDER BY created_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No signed contract on file for this space' });
+    const doc = rows[0];
+    res.setHeader('Content-Type', doc.mime_type || 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="storage-contract-signed.pdf"');
+    res.send(doc.file_data);
+  } catch (err) {
+    console.error('GET /api/storage/:id/signed-contract error:', err);
     res.status(500).json({ error: err.message });
   }
 });

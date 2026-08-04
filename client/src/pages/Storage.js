@@ -1137,6 +1137,19 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>
             {space.contract_sent_at ? 'Resend Contract' : 'Email Contract'}
           </button>
+          {space.has_signed_contract && (
+          <button onClick={async () => {
+            const w = window.open('about:blank', '_blank');
+            try {
+              const blob = await api.getStorageSignedContract(space.billing_id);
+              const url = URL.createObjectURL(blob);
+              if (w) w.location.href = url; else window.open(url, '_blank', 'noopener');
+              flash('Signed contract opened - use your browser to print');
+            } catch (err) { if (w) w.close(); flash('Error: ' + err.message); }
+          }} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#dcfce7', color: '#065f46', border: '1px solid #86efac' }}>
+            Print Signed Contract
+          </button>
+          )}
           <button onClick={() => {
             const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
             window.open(`${apiBase}/storage-contract/guidelines-preview`, '_blank', 'noopener');
@@ -1939,6 +1952,20 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
               }} style={{ ...btnTinyGray, backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', padding: '6px 14px' }}>
                 Download Contract
               </button>
+              {space.has_signed_contract && (
+              <button onClick={async () => {
+                const w = window.open('about:blank', '_blank');
+                try {
+                  setContractMsg('Opening signed contract...');
+                  const blob = await api.getStorageSignedContract(space.billing_id);
+                  const url = URL.createObjectURL(blob);
+                  if (w) w.location.href = url; else window.open(url, '_blank', 'noopener');
+                  setContractMsg('Signed contract opened - use your browser to print');
+                } catch (err) { if (w) w.close(); setContractMsg('Error: ' + err.message); }
+              }} style={{ ...btnTinyGray, backgroundColor: '#dcfce7', color: '#065f46', border: '1px solid #86efac', padding: '6px 14px' }}>
+                Print Signed Contract
+              </button>
+              )}
               <button onClick={async () => {
                 try {
                   setContractMsg('Loading preview...');
