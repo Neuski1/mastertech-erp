@@ -263,11 +263,10 @@ function getGuidelinesHTML() {
   <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;">
     <h2 style="color:#1e3a5f;margin:0 0 20px;font-size:18px;text-align:center;text-transform:uppercase;">Storage Guidelines</h2>
 
-    <p style="color:#dc2626;font-weight:bold;margin:0 0 16px;">**APPOINTMENT ONLY SATURDAY, CLOSED SUNDAY AND MAJOR HOLIDAYS!</p>
+    <p style="color:#dc2626;font-weight:bold;margin:0 0 16px;">**CLOSED SATURDAY, SUNDAY AND MAJOR HOLIDAYS! PICKUP 9AM &ndash; 6PM MONDAY THROUGH FRIDAY ONLY.</p>
 
     <ul style="color:#374151;font-size:14px;line-height:1.8;padding-left:20px;">
       <li>When requesting your unit to be pulled out, give us at least <strong>2 hours notice</strong> by call or text between the hours of <strong>9AM &ndash; 6PM Monday thru Friday</strong>.</li>
-      <li>If you want your unit on <strong>Saturday</strong>, call or text us before <strong>4PM on Friday</strong>.</li>
       <li>When you drop off your storage unit, it must be dropped off at least <strong>30 minutes before we close</strong> so we have time to put it away.</li>
       <li>If you want to drop off your RV on <strong>Sunday</strong>, please let us know and park it in front of our building and drop the keys in the mail slot. We will attempt to move it into the facility that day or first thing Monday morning.</li>
       <li>Please advise if you will be leaving a vehicle when picking up a unit.</li>
