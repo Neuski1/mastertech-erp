@@ -801,6 +801,11 @@ function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canE
             <div>{[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ')}</div>
           )}
           {canSeeFinancials && <div style={{ color: '#059669' }}>${parseFloat(space.monthly_rate).toFixed(0)}/mo</div>}
+          {space.scheduled_move_out && (
+            <div style={{ marginTop: '2px', display: 'inline-block', backgroundColor: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', borderRadius: '4px', padding: '1px 5px', fontSize: '0.62rem', fontWeight: 700 }}>
+              Ending {new Date(String(space.scheduled_move_out).split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </div>
+          )}
           <PaymentMonthGrid box={gridBox} months={gridMonths} canEdit={canEdit} onToggle={onCellToggle} />
         </div>
       ) : (
@@ -1605,6 +1610,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
     unit_id: space.unit_id ? String(space.unit_id) : '',
     linear_feet: space.unit_linear_feet ? String(parseFloat(space.unit_linear_feet)) : '',
     end_date: '',
+    scheduled_move_out: space.scheduled_move_out ? (String(space.scheduled_move_out).includes('T') ? String(space.scheduled_move_out).split('T')[0] : String(space.scheduled_move_out)) : '',
   });
   const [initialLinearFeet] = useState(space.unit_linear_feet ? String(parseFloat(space.unit_linear_feet)) : '');
   const [customerUnits, setCustomerUnits] = useState([]);
@@ -1650,6 +1656,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
           square_customer_id: form.square_customer_id || null,
           due_day: parseInt(form.due_day),
           unit_id: form.unit_id ? parseInt(form.unit_id) : null,
+          scheduled_move_out: form.scheduled_move_out || null,
         }),
       ];
 
@@ -1671,7 +1678,7 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
   };
 
   const handleEndStorage = async () => {
-    const endDate = form.end_date || new Date().toISOString().split('T')[0];
+    const endDate = form.end_date || form.scheduled_move_out || new Date().toISOString().split('T')[0];
     if (!window.confirm(`End storage for ${space.label}? End date: ${endDate}`)) return;
     setSaving(true);
     setError('');
@@ -1782,11 +1789,11 @@ function DetailModal({ space, canEdit, isAdmin, canSeeFinancials, onClose, onUpd
               </div>
             </div>
 
-            {/* End date */}
-            <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#fef2f2', borderRadius: '6px', border: '1px solid #fecaca' }}>
-              <label style={{ ...labelStyle, color: '#dc2626' }}>Move-out / End Date</label>
-              <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} style={inputStyleFull} />
-              <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>Set a date and click "End Storage" to close this assignment</div>
+            {/* Scheduled move-out (saved with Save) + immediate End Storage */}
+            <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#fff7ed', borderRadius: '6px', border: '1px solid #fed7aa' }}>
+              <label style={{ ...labelStyle, color: '#c2410c' }}>Scheduled Move-Out Date</label>
+              <input type="date" value={form.scheduled_move_out} onChange={(e) => setForm({ ...form, scheduled_move_out: e.target.value })} style={inputStyleFull} />
+              <div style={{ fontSize: '0.72rem', color: '#9a3412', marginTop: '4px' }}>Click <strong>Save</strong> to record this date. The space stays occupied and keeps billing until the RV actually leaves. On move-out day, click <strong>End Storage</strong> below to free the space and stop billing.</div>
             </div>
           </>
         ) : (
