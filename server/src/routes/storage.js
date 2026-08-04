@@ -676,6 +676,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 // Returns active billings and total for confirmation before running
 // ---------------------------------------------------------------------------
 router.get('/billing-preview', requireRole('admin'), async (req, res) => {
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
   try {
     const { rows: billings } = await pool.query(
       `SELECT sb.id AS billing_id, sb.customer_id, sb.monthly_rate, sb.space_id,
@@ -685,12 +686,15 @@ router.get('/billing-preview', requireRole('admin'), async (req, res) => {
        JOIN storage_spaces s ON s.id = sb.space_id
        JOIN customers c ON c.id = sb.customer_id
        WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
-       ORDER BY s.label`
+         AND sb.billing_start_date < ($1 || '-01')::date + INTERVAL '1 month'
+       ORDER BY s.label`,
+      [month]
     );
 
     const total = billings.reduce((sum, b) => sum + parseFloat(b.monthly_rate), 0);
 
     res.json({
+      month,
       count: billings.length,
       total_amount: parseFloat(total.toFixed(2)),
       billings: billings.map(b => ({
@@ -739,7 +743,9 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
        JOIN storage_spaces s ON s.id = sb.space_id
        JOIN customers c ON c.id = sb.customer_id
        WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
-       ORDER BY s.label`
+         AND sb.billing_start_date < ($1 || '-01')::date + INTERVAL '1 month'
+       ORDER BY s.label`,
+      [month]
     );
 
     if (billings.length === 0) {

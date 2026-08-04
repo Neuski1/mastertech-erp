@@ -36,6 +36,8 @@ export default function Storage() {
   // Billing run
   const [showBillingModal, setShowBillingModal] = useState(false);
   const [billingPreview, setBillingPreview] = useState(null);
+  const [billingMonth, setBillingMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [billingRunning, setBillingRunning] = useState(false);
   const [billingResults, setBillingResults] = useState(null);
 
@@ -194,14 +196,26 @@ export default function Storage() {
     setShowDetail(true);
   };
 
-  const handleOpenBilling = async () => {
+  const fetchBillingPreview = async (m) => {
+    setPreviewLoading(true);
     try {
-      const preview = await api.getBillingPreview();
+      const preview = await api.getBillingPreview(m);
       setBillingPreview(preview);
-      setShowBillingModal(true);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setPreviewLoading(false);
     }
+  };
+
+  const handleOpenBilling = async () => {
+    await fetchBillingPreview(billingMonth);
+    setShowBillingModal(true);
+  };
+
+  const handleBillingMonthChange = (m) => {
+    setBillingMonth(m);
+    fetchBillingPreview(m);
   };
 
   const fetchReport = async () => {
@@ -674,6 +688,9 @@ export default function Storage() {
       {showBillingModal && billingPreview && (
         <BillingConfirmModal
           preview={billingPreview}
+          month={billingMonth}
+          loading={previewLoading}
+          onMonthChange={handleBillingMonthChange}
           running={billingRunning}
           onClose={() => { setShowBillingModal(false); setBillingPreview(null); }}
           onConfirm={async (month) => {
@@ -2084,8 +2101,7 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
 // ---------------------------------------------------------------------------
 // BillingConfirmModal — preview and confirm monthly billing run
 // ---------------------------------------------------------------------------
-function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurrency }) {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+function BillingConfirmModal({ preview, month, loading, onMonthChange, running, onClose, onConfirm, formatCurrency }) {
 
   return (
     <div style={overlayStyle}>
@@ -2110,7 +2126,7 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
 
         <div style={{ marginBottom: '16px' }}>
           <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '4px' }}>Billing Month</label>
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.875rem' }} />
+          <input type="month" value={month} onChange={(e) => onMonthChange(e.target.value)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.875rem' }} />
         </div>
 
         <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
@@ -2135,8 +2151,8 @@ function BillingConfirmModal({ preview, running, onClose, onConfirm, formatCurre
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => onConfirm(month)} disabled={running} style={btnPrimary}>
-            {running ? 'Recording...' : `Record & Post Storage Billing for ${month}`}
+          <button onClick={() => onConfirm(month)} disabled={running || loading} style={btnPrimary}>
+            {running ? 'Recording...' : loading ? 'Loading...' : `Record & Post Storage Billing for ${month}`}
           </button>
           <button onClick={onClose} disabled={running} style={btnSecondary}>Cancel</button>
         </div>
