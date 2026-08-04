@@ -155,6 +155,7 @@ router.get('/', async (req, res) => {
               s.linear_feet AS space_linear_feet,
               sb.id AS billing_id, sb.customer_id, sb.unit_id,
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
+              sb.scheduled_move_out,
               sb.due_day, sb.square_customer_id, sb.square_sub_id,
               sb.notes AS billing_notes,
               sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at, sb.special_terms,
@@ -462,7 +463,7 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
 // Allowed: monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes
 // ---------------------------------------------------------------------------
 router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type, special_terms } = req.body;
+  const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type, special_terms, scheduled_move_out } = req.body;
 
   const updates = [];
   const values = [];
@@ -499,6 +500,10 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   if (special_terms !== undefined) {
     updates.push(`special_terms = $${idx++}`);
     values.push((special_terms || '').trim() || null);
+  }
+  if (scheduled_move_out !== undefined) {
+    updates.push(`scheduled_move_out = $${idx++}`);
+    values.push(scheduled_move_out || null);
   }
 
   if (updates.length === 0 && !space_type) {
