@@ -305,6 +305,17 @@ export const api = {
   updateStorage: (id, data) => request(`/storage/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   endStorage: (id, data = {}) => request(`/storage/${id}`, { method: 'DELETE', body: JSON.stringify(data) }),
   moveStorage: (id, new_space_id) => request(`/storage/${id}/move`, { method: 'PATCH', body: JSON.stringify({ new_space_id }) }),
+  getStorageSignedContract: async (billingId) => {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/storage/${billingId}/signed-contract`, { headers });
+    if (!res.ok) {
+      let msg = 'No signed contract on file';
+      try { msg = (await res.json()).error || msg; } catch (e) { /* ignore */ }
+      throw new Error(msg);
+    }
+    return res.blob();
+  },
   getBillingPreview: () => request('/storage/billing-preview'),
   runBilling: (data) => request('/storage/run-billing', { method: 'POST', body: JSON.stringify(data) }),
   getStorageCharges: (params = {}) => {
