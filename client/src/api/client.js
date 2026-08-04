@@ -316,7 +316,7 @@ export const api = {
     }
     return res.blob();
   },
-  getBillingPreview: () => request('/storage/billing-preview'),
+  getBillingPreview: (month) => request(`/storage/billing-preview${month ? `?month=${month}` : ''}`),
   runBilling: (data) => request('/storage/run-billing', { method: 'POST', body: JSON.stringify(data) }),
   getStorageCharges: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
