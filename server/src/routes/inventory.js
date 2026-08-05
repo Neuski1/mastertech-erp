@@ -64,9 +64,9 @@ router.get('/reorder-alerts', async (req, res) => {
               qty_on_hand, reorder_level, cost_each, sale_price_each
        FROM inventory
        WHERE deleted_at IS NULL AND is_active = TRUE
-         AND reorder_level IS NOT NULL AND reorder_level > 0
-         AND qty_on_hand <= reorder_level
-       ORDER BY (qty_on_hand - reorder_level) ASC, description`
+         AND ((reorder_level IS NOT NULL AND reorder_level > 0 AND qty_on_hand <= reorder_level)
+              OR (alert_when_depleted = TRUE AND qty_on_hand <= 0))
+       ORDER BY (qty_on_hand - COALESCE(reorder_level, 0)) ASC, description`
     );
     res.json({ count: rows.length, items: rows });
   } catch (err) {
@@ -103,8 +103,8 @@ router.get('/reports/low-stock', async (req, res) => {
               qty_on_hand, reorder_level, cost_each, sale_price_each
        FROM inventory
        WHERE deleted_at IS NULL AND is_active = TRUE
-         AND reorder_level IS NOT NULL AND reorder_level > 0
-         AND qty_on_hand <= reorder_level
+         AND ((reorder_level IS NOT NULL AND reorder_level > 0 AND qty_on_hand <= reorder_level)
+              OR (alert_when_depleted = TRUE AND qty_on_hand <= 0))
        ORDER BY category ASC, part_number ASC`
     );
     res.json({ count: rows.length, items: rows });
@@ -151,7 +151,7 @@ router.get('/', async (req, res) => {
     params.push(location);
   }
   if (low_stock === 'true') {
-    conditions.push('i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level');
+    conditions.push('((i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level) OR (i.alert_when_depleted = TRUE AND i.qty_on_hand <= 0))');
   }
 
   const allowedSorts = ['part_number', 'description', 'vendor_part_number', 'vendor', 'category', 'location', 'qty_on_hand', 'cost_each', 'sale_price_each'];
@@ -170,7 +170,8 @@ router.get('/', async (req, res) => {
               i.qty_on_hand, i.reorder_level, i.cost_each, i.sale_price_each,
               i.is_active, i.created_at,
               i.reorder_status, i.reorder_date, i.reorder_note,
-              CASE WHEN i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level
+              CASE WHEN (i.reorder_level IS NOT NULL AND i.reorder_level > 0 AND i.qty_on_hand <= i.reorder_level)
+                        OR (i.alert_when_depleted = TRUE AND i.qty_on_hand <= 0)
                    THEN TRUE ELSE FALSE END AS low_stock
        FROM inventory i
        WHERE ${conditions.join(' AND ')}
@@ -198,7 +199,8 @@ router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT *,
-              CASE WHEN reorder_level IS NOT NULL AND reorder_level > 0 AND qty_on_hand <= reorder_level
+              CASE WHEN (reorder_level IS NOT NULL AND reorder_level > 0 AND qty_on_hand <= reorder_level)
+                        OR (alert_when_depleted = TRUE AND qty_on_hand <= 0)
                    THEN TRUE ELSE FALSE END AS low_stock
        FROM inventory
        WHERE id = $1 AND deleted_at IS NULL`,
@@ -222,7 +224,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     part_number, description, vendor, vendor_part_number, category, location,
-    qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes
+    qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes, alert_when_depleted
   } = req.body;
 
   if (!description || sale_price_each === undefined) {
@@ -233,8 +235,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     const { rows } = await pool.query(
       `INSERT INTO inventory
          (part_number, description, vendor, vendor_part_number, category, location,
-          qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+          qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes, alert_when_depleted)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [
         part_number || null,
@@ -248,6 +250,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
         cost_each !== undefined && cost_each !== '' ? parseFloat(cost_each) : null,
         parseFloat(sale_price_each),
         pricing_notes || null,
+        alert_when_depleted === true || alert_when_depleted === 'true',
       ]
     );
 
@@ -265,7 +268,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   const allowedFields = [
     'part_number', 'description', 'vendor', 'vendor_part_number', 'category', 'location',
     'qty_on_hand', 'reorder_level', 'cost_each', 'sale_price_each', 'is_active',
-    'reorder_status', 'reorder_date', 'reorder_note', 'pricing_notes',
+    'reorder_status', 'reorder_date', 'reorder_note', 'pricing_notes', 'alert_when_depleted',
   ];
 
   const updates = [];
