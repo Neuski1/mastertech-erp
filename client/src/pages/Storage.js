@@ -230,6 +230,30 @@ export default function Storage() {
     }
   };
 
+  const handlePrintReport = () => {
+    if (!report || !report.billings) return;
+    const money = (v) => '$' + (parseFloat(v) || 0).toFixed(2);
+    const dt = (d) => d ? new Date(String(d).split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
+    const rows = report.billings.map(b => {
+      const cust = `${b.last_name || ''}${b.first_name ? ', ' + b.first_name : ''}${b.company_name ? ' (' + b.company_name + ')' : ''}`;
+      const unit = [b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—';
+      const linked = (b.square_sub_id && String(b.square_sub_id).trim()) ? 'Linked' : 'Not linked';
+      return `<tr><td>${b.space_label || ''}</td><td>${b.space_type || ''}</td><td>${cust}</td><td>${unit}</td><td style="text-align:right">${money(b.monthly_rate)}</td><td>${dt(b.billing_start_date)}</td><td>${linked}</td></tr>`;
+    }).join('');
+    const html = `<!doctype html><html><head><title>Storage Billing Report — ${reportMonth}</title>
+      <style>body{font-family:Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 4px}.sub{color:#555;font-size:13px;margin:0 0 16px}
+      table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f0f0f0}
+      tfoot td{font-weight:bold}@media print{button{display:none}}</style></head>
+      <body><h1>Master Tech RV — Storage Billing Report</h1>
+      <p class="sub">Month: ${reportMonth} &nbsp;|&nbsp; Active billings: ${report.total_active} &nbsp;|&nbsp; Total monthly: ${money(report.total_monthly_revenue)}</p>
+      <table><thead><tr><th>Space</th><th>Type</th><th>Customer</th><th>Unit</th><th style="text-align:right">Rate</th><th>Start</th><th>Square Sync</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="4">Total (${report.total_active} customers)</td><td style="text-align:right">${money(report.total_monthly_revenue)}</td><td colspan="2"></td></tr></tfoot></table>
+      <script>window.onload=function(){window.print();}</script></body></html>`;
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+  };
+
   const formatCurrency = (val) => {
     const num = parseFloat(val) || 0;
     return num.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -332,6 +356,7 @@ export default function Storage() {
               <button onClick={fetchReport} disabled={reportLoading} style={btnSmall}>
                 {reportLoading ? '...' : 'Load'}
               </button>
+              <button onClick={handlePrintReport} disabled={!report || reportLoading} style={btnSmall}>Print</button>
             </div>
           </div>
           {report && (
@@ -348,7 +373,7 @@ export default function Storage() {
                     <th style={thStyle}>Unit</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
                     <th style={thStyle}>Start</th>
-                    <th style={thStyle}>Square ID</th>
+                    <th style={thStyle}>Square Sync</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -363,7 +388,7 @@ export default function Storage() {
                       <td style={tdStyle}>{[b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—'}</td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.monthly_rate)}</td>
                       <td style={tdStyle}>{b.billing_start_date ? new Date(String(b.billing_start_date).split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '\u2014'}</td>
-                      <td style={tdStyle}>{b.square_customer_id || <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>Not linked</span>}</td>
+                      <td style={tdStyle}>{(b.square_sub_id && String(b.square_sub_id).trim()) ? <span style={{ color: '#059669', fontSize: '0.75rem', fontWeight: 600 }}>Linked</span> : <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>Not linked</span>}</td>
                     </tr>
                   ))}
                   {report.billings.length === 0 && (
