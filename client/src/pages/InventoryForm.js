@@ -22,6 +22,7 @@ const emptyForm = {
   location: 'unassigned',
   qty_on_hand: '0',
   reorder_level: '',
+  alert_when_depleted: false,
   cost_each: '',
   markup: '50',
   sale_price_each: '',
@@ -73,6 +74,7 @@ export default function InventoryForm() {
           location: item.location || 'unassigned',
           qty_on_hand: item.qty_on_hand != null ? String(item.qty_on_hand) : '0',
           reorder_level: item.reorder_level != null ? String(item.reorder_level) : '',
+          alert_when_depleted: !!item.alert_when_depleted,
           cost_each: item.cost_each != null ? String(item.cost_each) : '',
           markup: (item.cost_each && item.sale_price_each && parseFloat(item.cost_each) > 0)
             ? String(Math.round(((parseFloat(item.sale_price_each) - parseFloat(item.cost_each)) / parseFloat(item.cost_each)) * 100))
@@ -164,6 +166,7 @@ export default function InventoryForm() {
         ...form,
         qty_on_hand: form.qty_on_hand !== '' ? parseFloat(form.qty_on_hand) : 0,
         reorder_level: form.reorder_level !== '' ? parseFloat(form.reorder_level) : null,
+        alert_when_depleted: !!form.alert_when_depleted,
         cost_each: form.cost_each !== '' ? parseFloat(form.cost_each) : null,
         sale_price_each: parseFloat(form.sale_price_each),
         vendor: form.vendor || null,
@@ -338,6 +341,14 @@ export default function InventoryForm() {
               <span style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', display: 'block' }}>
                 Set to 1 or more to enable low stock alerts for this item. Leave at 0 for no alert.
               </span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '13px', color: '#374151', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.alert_when_depleted}
+                  onChange={(e) => setForm({ ...form, alert_when_depleted: e.target.checked })}
+                />
+                Alert only when out of stock (for single-stock items you replenish once depleted)
+              </label>
             </div>
           </div>
 
