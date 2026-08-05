@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 
 const links = [
   { to: '/bookkeeping',                     label: 'Bank Connections' },
+  { to: '/bookkeeping/transactions',        label: 'Transactions' },
   { to: '/bookkeeping/journal-entries',     label: 'Journal Entries' },
   { to: '/bookkeeping/chart',               label: 'Chart of Accounts' },
   { to: '/bookkeeping/reports/pnl',         label: 'P&L Report' },

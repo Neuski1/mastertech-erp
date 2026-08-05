@@ -13,6 +13,7 @@ import AppointmentForm from './pages/AppointmentForm';
 import Settings from './pages/Settings';
 import Bookkeeping from './pages/Bookkeeping';
 import BookkeepingJournalEntries from './pages/BookkeepingJournalEntries';
+import BookkeepingTransactions from './pages/BookkeepingTransactions';
 import BookkeepingChart from './pages/BookkeepingChart';
 import BookkeepingPnl from './pages/BookkeepingPnl';
 import BookkeepingBalanceSheet from './pages/BookkeepingBalanceSheet';
@@ -233,6 +234,7 @@ function AppLayout() {
           <Route path="/payments/online" element={canManageSettings ? <OnlinePaymentsHistory /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping" element={canManageSettings ? <Bookkeeping /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/journal-entries" element={canManageSettings ? <BookkeepingJournalEntries /> : <Navigate to="/records" />} />
+          <Route path="/bookkeeping/transactions" element={canManageSettings ? <BookkeepingTransactions /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/chart" element={canManageSettings ? <BookkeepingChart /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/reports/pnl" element={canManageSettings ? <BookkeepingPnl /> : <Navigate to="/records" />} />
           <Route path="/bookkeeping/reports/balance-sheet" element={canManageSettings ? <BookkeepingBalanceSheet /> : <Navigate to="/records" />} />

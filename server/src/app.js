@@ -715,6 +715,9 @@ startStorageStatusBackfillCron();
 const { startDbBackupCron } = require('./jobs/dbBackupCron');
 startDbBackupCron();
 
+const { startPlaidSyncCron } = require('./jobs/plaidSyncCron');
+startPlaidSyncCron();
+
 // Auto-migrate: create storage_waitlist if missing
 require('./db/pool').query(`
   CREATE TABLE IF NOT EXISTS storage_waitlist (
