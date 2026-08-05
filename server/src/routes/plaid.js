@@ -109,11 +109,14 @@ router.post('/exchange-token', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/plaid/sync[/:itemId]  - cursor-based transaction sync
 // ---------------------------------------------------------------------------
-router.post(['/sync', '/sync/:itemId'], async (req, res) => {
+// Core sync used by both the manual endpoint and the daily cron. Pass an
+// itemId to sync one institution, or nothing to sync every active item
+// (Chase + Wells Fargo). Returns per-item {added, modified, removed}.
+async function syncActiveItems(itemId) {
   const client = await pool.connect();
   try {
-    const items = req.params.itemId
-      ? await client.query(`SELECT id, plaid_item_id, access_token, cursor FROM plaid_items WHERE id = $1 AND status = 'active'`, [req.params.itemId])
+    const items = itemId
+      ? await client.query(`SELECT id, plaid_item_id, access_token, cursor FROM plaid_items WHERE id = $1 AND status = 'active'`, [itemId])
       : await client.query(`SELECT id, plaid_item_id, access_token, cursor FROM plaid_items WHERE status = 'active'`);
 
     const results = [];
@@ -145,12 +148,71 @@ router.post(['/sync', '/sync/:itemId'], async (req, res) => {
       await client.query(`UPDATE plaid_items SET cursor = $1, last_synced_at = NOW() WHERE id = $2`, [cursor, item.id]);
       results.push({ item_id: item.id, added, modified, removed });
     }
+    return results;
+  } finally {
+    client.release();
+  }
+}
+
+router.post(['/sync', '/sync/:itemId'], async (req, res) => {
+  try {
+    const results = await syncActiveItems(req.params.itemId);
     res.json({ synced: results });
   } catch (err) {
     console.error('Plaid sync error:', err.response?.data || err.message);
     res.status(500).json({ error: err.response?.data || err.message });
-  } finally {
-    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/plaid/transactions - list synced bank/card transactions with filters
+//   query: account_id, start, end, status, q, limit, offset
+// ---------------------------------------------------------------------------
+router.get('/transactions', async (req, res) => {
+  const { account_id, start, end, status, q } = req.query;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+  const offset = parseInt(req.query.offset, 10) || 0;
+
+  const where = ["t.status <> 'excluded'"];
+  const params = [];
+  let i = 1;
+  if (account_id) { where.push(`t.plaid_account_id = $${i++}`); params.push(account_id); }
+  if (start) { where.push(`t.txn_date >= $${i++}`); params.push(start); }
+  if (end) { where.push(`t.txn_date <= $${i++}`); params.push(end); }
+  if (status) { where.push(`t.status = $${i++}`); params.push(status); }
+  if (q) { where.push(`(t.merchant_name ILIKE $${i} OR t.description ILIKE $${i})`); params.push(`%${q}%`); i++; }
+  const whereSql = where.join(' AND ');
+
+  try {
+    const totalRes = await pool.query(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(t.amount), 0) AS sum_amount
+         FROM transactions t WHERE ${whereSql}`,
+      params
+    );
+    const { rows } = await pool.query(
+      `SELECT t.id, t.txn_date, t.posted_date, t.amount, t.merchant_name, t.description,
+              t.status, t.is_transfer, t.categorization_source,
+              pa.nickname, pa.mask, pa.account_type,
+              it.institution_name,
+              acc.account_number AS gl_number, acc.name AS gl_name
+         FROM transactions t
+         JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
+         JOIN plaid_items it ON it.id = pa.plaid_item_id
+         LEFT JOIN accounts acc ON acc.id = t.category_gl_id
+        WHERE ${whereSql}
+        ORDER BY t.txn_date DESC, t.id DESC
+        LIMIT $${i++} OFFSET $${i++}`,
+      [...params, limit, offset]
+    );
+    res.json({
+      total: parseInt(totalRes.rows[0].n, 10),
+      sum_amount: parseFloat(totalRes.rows[0].sum_amount),
+      limit, offset,
+      transactions: rows,
+    });
+  } catch (err) {
+    console.error('GET /api/plaid/transactions error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -339,3 +401,4 @@ router.get('/gl-accounts', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.syncActiveItems = syncActiveItems;

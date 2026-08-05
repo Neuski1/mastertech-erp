@@ -491,6 +491,10 @@ export const api = {
   getPlaidItems: () => request('/plaid/items'),
   getPlaidAccounts: () => request('/plaid/accounts'),
   syncPlaid: (itemId) => request(itemId ? `/plaid/sync/${itemId}` : '/plaid/sync', { method: 'POST' }),
+  getBankTransactions: (params = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null)).toString();
+    return request(`/plaid/transactions${qs ? `?${qs}` : ''}`);
+  },
   setPlaidGlMapping: (plaidAccountId, gl_account_number) =>
     request(`/plaid/accounts/${plaidAccountId}/gl-mapping`, { method: 'PUT', body: JSON.stringify({ gl_account_number }) }),
   getGlAccounts: () => request('/plaid/gl-accounts'),
