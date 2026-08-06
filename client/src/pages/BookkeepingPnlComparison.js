@@ -24,6 +24,9 @@ export default function BookkeepingPnlComparison() {
         .pnl-scroll table { font-size: 6.5pt !important; table-layout: auto !important; width: 100% !important; }
         .pnl-scroll th, .pnl-scroll td { position: static !important; padding: 2px 3px !important; }
         .pnl-scroll thead th { background: #1a2a4a !important; color: #fff !important; }
+        .pnl-print-table { font-size: 8pt !important; }
+        .pnl-print-table th, .pnl-print-table td { padding: 2px 4px !important; white-space: nowrap; }
+        .pnl-print-table thead th { background: #1a2a4a !important; color: #fff !important; }
       }`;
     document.head.appendChild(style);
     const cleanup = () => { const el = document.getElementById('pnl-print-landscape'); if (el) el.remove(); window.removeEventListener('afterprint', cleanup); };
@@ -81,6 +84,70 @@ export default function BookkeepingPnlComparison() {
   const grossBy = (y,m) => sectionMonth(groups.Income, y, m) - sectionMonth(groups.COGS, y, m);
   const netBy = (y,m) => grossBy(y, m) - sectionMonth(groups.Expense, y, m) + sectionMonth(groups['Other Income'], y, m);
 
+  // Print-only half-year table: idxs are REAL month indexes (0-5 or 6-11), so
+  // the data lookup stays correct. YTD (full-year total) is shown on the 2nd half.
+  const printHalf = (idxs, includeYTD, title) => {
+    const sectionRows = (label, accts) => (<>
+      <tr style={section}>
+        <td style={{ ...td, fontWeight: 700 }}>{label}</td>
+        {idxs.map(mi => years.map(y => <td key={`${mi}-${y}`} style={tdR}></td>))}
+        {includeYTD && years.map(y => <td key={`h-${y}`} style={tdR}></td>)}
+      </tr>
+      {accts.map(a => (
+        <tr key={a.account_number}>
+          <td style={td}><span style={mono}>{a.account_number}</span> {a.name}</td>
+          {idxs.map(mi => years.map((y, yi) => (
+            <td key={`${mi}-${y}`} style={{ ...tdR, borderRight: yi === years.length-1 ? '2px solid #ddd' : '1px solid #eee' }}>{fmt((a.years[y] || [])[mi])}</td>
+          )))}
+          {includeYTD && years.map(y => (
+            <td key={`ytd-${y}`} style={{ ...tdR, fontWeight: 700, background: '#eef' }}>{fmt((a.years[y] || []).reduce((sm, n) => sm + Number(n), 0))}</td>
+          ))}
+        </tr>
+      ))}
+    </>);
+    const totalRow = (label, valFn, bg, color='#000') => (
+      <tr style={{ background: bg, color }}>
+        <td style={{ ...td, fontWeight: 700, background: bg, color }}>{label}</td>
+        {idxs.map(mi => years.map((y, yi) => (
+          <td key={`${mi}-${y}`} style={{ ...tdR, fontWeight: 700, color }}>{fmt(valFn(y, mi))}</td>
+        )))}
+        {includeYTD && years.map(y => (
+          <td key={`ytd-${y}`} style={{ ...tdR, fontWeight: 700, color }}>{fmt(MONTHS.reduce((sm, _u, mi) => sm + valFn(y, mi), 0))}</td>
+        ))}
+      </tr>
+    );
+    return (
+      <div style={{ pageBreakInside: 'avoid', marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: '13pt' }}>{title}</h3>
+        <table className="pnl-print-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <thead>
+            <tr style={hdr}>
+              <th style={{ ...th, textAlign: 'left' }}>Account</th>
+              {idxs.map(mi => <th key={mi} colSpan={years.length} style={{ ...th, borderRight: '2px solid #fff' }}>{MONTHS[mi]}</th>)}
+              {includeYTD && <th colSpan={years.length} style={{ ...th, background: '#3949ab' }}>YTD Total</th>}
+            </tr>
+            <tr style={hdr}>
+              <th style={{ ...thSm, textAlign: 'left' }}></th>
+              {idxs.map(mi => years.map((y, i) => <th key={`${mi}-${y}`} style={{ ...thSm, borderRight: i === years.length-1 ? '2px solid #fff' : '1px solid #555' }}>{String(y).slice(2)}</th>))}
+              {includeYTD && years.map(y => <th key={`ytd-${y}`} style={{ ...thSm, background: '#3949ab' }}>{String(y).slice(2)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {sectionRows('INCOME', groups.Income)}
+            {totalRow('Total Income', (y,m) => sectionMonth(groups.Income, y, m), '#e8f5e9')}
+            {sectionRows('COST OF GOODS SOLD', groups.COGS)}
+            {totalRow('Total COGS', (y,m) => sectionMonth(groups.COGS, y, m), '#fff3e0')}
+            {totalRow('GROSS PROFIT', (y,m) => grossBy(y, m), '#c8e6c9')}
+            {sectionRows('EXPENSES', groups.Expense)}
+            {totalRow('Total Expenses', (y,m) => sectionMonth(groups.Expense, y, m), '#fce4ec')}
+            {sectionRows('OTHER INCOME', groups['Other Income'])}
+            {totalRow('NET INCOME', (y,m) => netBy(y, m), '#1a2a4a', '#fff')}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   return (
     <Wrapper>
       <BookkeepingNav />
@@ -129,7 +196,7 @@ export default function BookkeepingPnlComparison() {
         </table>
         </div>
       ) : (
-        <div className="pnl-scroll" style={{ overflowX: 'auto', overflowY: 'auto', width: '100%', maxWidth: '100%', maxHeight: 'calc(100vh - 240px)' }}>
+        <div className="pnl-scroll print-hide" style={{ overflowX: 'auto', overflowY: 'auto', width: '100%', maxWidth: '100%', maxHeight: 'calc(100vh - 240px)' }}>
           <table style={{ ...tbl, fontSize: '0.78rem', tableLayout: 'auto' }}>
             <thead>
               <tr style={hdr}>
@@ -158,6 +225,15 @@ export default function BookkeepingPnlComparison() {
               {renderMonthlyTotal('NET INCOME', years, MONTHS, (y,m) => netBy(y,m), fmt, '#1a2a4a', '#fff')}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Print-only: split the 12 months into two readable pages (Jan-Jun, Jul-Dec) */}
+      {view === 'monthly' && (
+        <div className="print-only">
+          {printHalf([0,1,2,3,4,5], false, 'January \u2013 June')}
+          <div style={{ pageBreakBefore: 'always' }}></div>
+          {printHalf([6,7,8,9,10,11], true, 'July \u2013 December (with YTD Total)')}
         </div>
       )}
 
