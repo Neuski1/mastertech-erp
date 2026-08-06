@@ -40,7 +40,10 @@ router.get('/', requireRole('admin', 'service_writer', 'technician'), async (req
        JOIN customers c ON c.id = r.customer_id
        WHERE pl.deleted_at IS NULL
          AND pl.is_estimate_line IS NOT TRUE
-         AND (pl.order_status IN ('ordered','not_ordered','backordered') OR pl.order_status IS NULL)
+         AND COALESCE(pl.order_status,
+                      CASE WHEN pl.is_inventory_part = TRUE AND pl.inventory_id IS NOT NULL
+                           THEN 'inventory' ELSE 'not_ordered' END)
+             IN ('ordered','not_ordered','backordered')
          AND r.deleted_at IS NULL
          AND ${OPEN_RECORD}
        ORDER BY days_waiting DESC, r.record_number`
