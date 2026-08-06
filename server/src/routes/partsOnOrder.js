@@ -40,7 +40,7 @@ router.get('/', requireRole('admin', 'service_writer', 'technician'), async (req
        JOIN customers c ON c.id = r.customer_id
        WHERE pl.deleted_at IS NULL
          AND pl.is_estimate_line IS NOT TRUE
-         AND pl.order_status IN ('ordered','not_ordered','backordered')
+         AND (pl.order_status IN ('ordered','not_ordered','backordered') OR pl.order_status IS NULL)
          AND r.deleted_at IS NULL
          AND ${OPEN_RECORD}
        ORDER BY days_waiting DESC, r.record_number`
@@ -71,6 +71,66 @@ router.get('/unmatched-emails', requireRole('admin', 'service_writer'), async (r
     // Table may not exist yet on first boot before the migration runs.
     console.error('GET unmatched-emails error:', err.message);
     res.json([]);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/parts-on-order/emails/:id/dismiss — clear a junk / non-PO email
+// so it stops showing in the unmatched list.
+// ---------------------------------------------------------------------------
+router.patch('/emails/:id/dismiss', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "UPDATE order_email_log SET match_status = 'dismissed' WHERE id = $1 RETURNING id",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Email not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('dismiss email error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/parts-on-order/emails/:id/match — link an order email to a part
+// line above. Marks the email matched (clears it from the list) and advances
+// the part to "ordered", filling the supplier order # from the email if blank.
+// ---------------------------------------------------------------------------
+router.post('/emails/:id/match', requireRole('admin', 'service_writer'), async (req, res) => {
+  const { line_id } = req.body || {};
+  if (!line_id) return res.status(400).json({ error: 'line_id is required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const em = await client.query('SELECT id, parsed_po FROM order_email_log WHERE id = $1', [req.params.id]);
+    if (!em.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Email not found' }); }
+    const line = await client.query('SELECT id FROM record_parts_lines WHERE id = $1 AND deleted_at IS NULL', [line_id]);
+    if (!line.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Part line not found' }); }
+
+    const parsedPo = em.rows[0].parsed_po;
+    await client.query(
+      "UPDATE order_email_log SET match_status = 'matched', matched_line_id = $1 WHERE id = $2",
+      [line_id, req.params.id]
+    );
+    await client.query(
+      `UPDATE record_parts_lines
+          SET order_status = CASE WHEN order_status = 'received' THEN order_status ELSE 'ordered' END,
+              order_confirmed_at = COALESCE(order_confirmed_at, NOW()),
+              order_number = COALESCE(NULLIF(order_number, ''), $2),
+              updated_at = NOW()
+        WHERE id = $1 AND deleted_at IS NULL`,
+      [line_id, parsedPo || null]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('match email error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

@@ -174,6 +174,8 @@ export const api = {
   // Parts on Order dashboard
   getPartsOnOrder: () => request('/parts-on-order'),
   getUnmatchedOrderEmails: () => request('/parts-on-order/unmatched-emails'),
+  dismissOrderEmail: (id) => request(`/parts-on-order/emails/${id}/dismiss`, { method: 'PATCH' }),
+  matchOrderEmail: (id, line_id) => request(`/parts-on-order/emails/${id}/match`, { method: 'POST', body: JSON.stringify({ line_id }) }),
 
   // Freight lines
   getFreightLines: (recordId) => request(`/records/${recordId}/freight`),
