@@ -297,6 +297,7 @@ async function sendAppointmentConfirmation({
         <a href="${(process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app'))}/api/appointments/reschedule/${rescheduleToken}" target="_blank" style="display:inline-block;padding:12px 28px;background-color:#1e3a5f;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">
           Request a Different Time
         </a>
+        <p style="margin:14px 0 0;color:#374151;font-size:13px;">Need to cancel? <a href="${(process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app'))}/api/appointments/reschedule/${rescheduleToken}/cancel" target="_blank" style="color:#dc2626;font-weight:bold;text-decoration:none;">Request a cancellation</a></p>
         <p style="margin:10px 0 0;color:#9ca3af;font-size:12px;">Your appointment stays booked until we confirm any change.</p>
       </div>
       ` : ''}
@@ -340,7 +341,7 @@ Add to Your Calendar:
   Google Calendar: ${googleCalUrl}
   Apple Calendar / Outlook: Open the attached appointment.ics file
 
-${rescheduleToken ? 'Request a different time: ' + (process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app')) + '/api/appointments/reschedule/' + rescheduleToken + '\n\n' : ''}If you need to reschedule or cancel, please contact us:
+${rescheduleToken ? 'Request a different time: ' + (process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app')) + '/api/appointments/reschedule/' + rescheduleToken + '\nRequest a cancellation: ' + (process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : 'https://mastertech-erp-production-cb96.up.railway.app')) + '/api/appointments/reschedule/' + rescheduleToken + '/cancel\n\n' : ''}If you need to reschedule or cancel, please contact us:
   Phone: (303) 557-2214
   Email: service@mastertechrvrepair.com
   Web: https://mastertechrvrepair.com/

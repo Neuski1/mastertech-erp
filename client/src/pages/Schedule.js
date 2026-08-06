@@ -486,7 +486,7 @@ export default function Schedule() {
 
       {/* Pending reschedule requests from the customer 'Request a Different Time' button */}
       {(() => {
-        const reqs = (appointments || []).filter(a => a.reschedule_status === 'requested' && a.status !== 'cancelled');
+        const reqs = (appointments || []).filter(a => (a.reschedule_status === 'requested' || a.reschedule_status === 'cancel_requested') && a.status !== 'cancelled');
         if (reqs.length === 0) return null;
         const fmtReq = (a) => {
           if (!a.reschedule_requested_date) return 'a new time';
@@ -506,14 +506,16 @@ export default function Schedule() {
         return (
           <div style={{ marginBottom: '16px', border: '1px solid #fcd34d', borderRadius: '8px', overflow: 'hidden' }}>
             <div style={{ background: '#fffbeb', padding: '10px 14px', fontWeight: 700, color: '#92400e', fontSize: '0.9rem' }}>
-              &#8635; {reqs.length} reschedule request{reqs.length > 1 ? 's' : ''} from customers
+              &#8635; {reqs.length} reschedule/cancellation request{reqs.length > 1 ? 's' : ''} from customers
             </div>
             {reqs.map(a => (
               <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderTop: '1px solid #fde68a', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: '220px', fontSize: '0.85rem' }}>
                   <strong>{[a.first_name, a.last_name].filter(Boolean).join(' ') || 'Customer'}</strong>
                   <span style={{ color: '#6b7280' }}> — currently {formatTime(a.scheduled_at)}</span>
-                  <div style={{ color: '#1e3a5f' }}>Wants: <strong>{fmtReq(a)}</strong> (Mountain)</div>
+                  {a.reschedule_status === 'cancel_requested'
+                    ? <div style={{ color: '#dc2626', fontWeight: 700 }}>Wants to CANCEL this appointment</div>
+                    : <div style={{ color: '#1e3a5f' }}>Wants: <strong>{fmtReq(a)}</strong> (Mountain)</div>}
                   {a.reschedule_note && <div style={{ color: '#6b7280', fontStyle: 'italic', marginTop: '2px' }}>&ldquo;{a.reschedule_note}&rdquo;</div>}
                 </div>
                 <button onClick={() => navigate(`/schedule/${a.id}`)} style={{ padding: '6px 14px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Open</button>
