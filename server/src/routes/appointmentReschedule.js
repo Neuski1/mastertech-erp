@@ -180,8 +180,8 @@ router.get('/:token/cancel', async (req, res) => {
        </div>
        ${already}
        <form method="POST" action="/api/appointments/reschedule/${appt.reschedule_token}/cancel">
-         <label style="display:block;font-size:12px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">Reason (optional)</label>
-         <textarea name="reason" rows="3" placeholder="Let us know why, if you'd like" style="width:100%;padding:11px;font-size:15px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;margin:0 0 20px;font-family:inherit;resize:vertical;"></textarea>
+         <label style="display:block;font-size:12px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">Reason for Cancelling <span style="color:#dc2626;">*</span></label>
+         <textarea name="reason" rows="3" required placeholder="Please tell us why you need to cancel" style="width:100%;padding:11px;font-size:15px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;margin:0 0 20px;font-family:inherit;resize:vertical;"></textarea>
          <button type="submit" style="width:100%;padding:15px;background:#dc2626;color:#fff;font-size:16px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">Request Cancellation</button>
        </form>
        <p style="color:#6b7280;font-size:13px;margin:18px 0 0;text-align:center;">Changed your mind? <a href="/api/appointments/reschedule/${appt.reschedule_token}" style="color:#1e3a5f;font-weight:bold;">Request a different time instead</a></p>
@@ -200,6 +200,12 @@ router.post('/:token/cancel', express.urlencoded({ extended: true }), async (req
     if (!appt || appt.status === 'cancelled') return res.send(invalid());
 
     const { reason } = req.body || {};
+    if (!(reason || '').trim()) {
+      return res.send(page('Reason Required',
+        `<div style="text-align:center"><h2 style="color:#dc2626;margin:0 0 12px;">Please tell us why</h2>
+         <p style="color:#6b7280;">A reason is required to request a cancellation. Please go back and let us know why you need to cancel.</p>
+         <p style="margin-top:18px;"><a href="/api/appointments/reschedule/${appt.reschedule_token}/cancel" style="color:#1e3a5f;font-weight:bold;">Go back</a></p></div>`));
+    }
 
     await pool.query(
       `UPDATE appointments
@@ -210,7 +216,7 @@ router.post('/:token/cancel', express.urlencoded({ extended: true }), async (req
               reschedule_note = $1,
               updated_at = NOW()
         WHERE id = $2`,
-      [(reason || '').trim() || null, appt.id]
+      [reason.trim(), appt.id]
     );
 
     const name = `${appt.first_name || ''} ${appt.last_name || ''}`.trim() || 'Customer';
