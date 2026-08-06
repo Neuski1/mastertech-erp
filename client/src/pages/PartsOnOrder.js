@@ -34,6 +34,7 @@ export default function PartsOnOrder() {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [emailPick, setEmailPick] = useState({});
 
   const load = useCallback(async (opts) => {
     const silent = !!(opts && opts.silent === true);
@@ -61,7 +62,7 @@ export default function PartsOnOrder() {
   const startEdit = (line) => {
     setEditId(line.id);
     setForm({
-      order_status: line.order_status || 'ordered',
+      order_status: line.order_status || 'not_ordered',
       order_supplier: line.order_supplier || '',
       order_number: line.order_number || '',
       order_tracking: line.order_tracking || '',
@@ -91,6 +92,20 @@ export default function PartsOnOrder() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const clearEmail = async (id) => {
+    try { await api.dismissOrderEmail(id); await load({ silent: true }); }
+    catch (err) { alert('Could not clear: ' + (err.message || 'error')); }
+  };
+  const matchEmail = async (id) => {
+    const lineId = emailPick[id];
+    if (!lineId) { alert('Pick a part to match this email to first.'); return; }
+    try {
+      await api.matchOrderEmail(id, lineId);
+      setEmailPick(prev => { const n = { ...prev }; delete n[id]; return n; });
+      await load({ silent: true });
+    } catch (err) { alert('Could not match: ' + (err.message || 'error')); }
   };
 
   const overdueCount = lines.filter(isOverdue).length;
@@ -189,7 +204,7 @@ export default function PartsOnOrder() {
                           <option value="received">Received</option>
                         </select>
                       ) : (() => {
-                        const s = ORDER_STATUS_LABEL[line.order_status] || { label: (line.order_status || '').toUpperCase(), bg: '#f3f4f6', color: '#374151' };
+                        const s = ORDER_STATUS_LABEL[line.order_status] || ORDER_STATUS_LABEL.not_ordered;
                         return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.68rem', fontWeight: 700, background: s.bg, color: s.color }}>{s.label}</span>;
                       })()}
                     </td>
@@ -216,7 +231,7 @@ export default function PartsOnOrder() {
         <h2 style={{ color: NAVY, fontSize: '1.1rem', marginBottom: 6 }}>Unmatched Order Emails</h2>
         {emails.length === 0 ? (
           <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: 0 }}>
-            None. Supplier confirmation emails that cannot be auto-matched to a PO will land here for a quick manual link (email auto-fill is the next phase).
+            None right now. Supplier order emails that couldn't be auto-matched land here so you can match them to a part above or clear them.
           </p>
         ) : (
           <div style={{ overflowX: 'auto', border: `1px solid ${AMBER}`, borderRadius: 8 }}>
@@ -227,6 +242,7 @@ export default function PartsOnOrder() {
                   <th style={th}>From</th>
                   <th style={th}>Subject</th>
                   <th style={th}>PO found</th>
+                  <th style={th}>Match to a part / clear</th>
                 </tr>
               </thead>
               <tbody>
@@ -236,6 +252,22 @@ export default function PartsOnOrder() {
                     <td style={td}>{em.from_addr || '—'}</td>
                     <td style={td}>{em.subject || '—'}</td>
                     <td style={td}>{em.parsed_po || '—'}</td>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                      <select
+                        value={emailPick[em.id] || ''}
+                        onChange={e => setEmailPick(prev => ({ ...prev, [em.id]: e.target.value }))}
+                        style={{ ...input, width: 260, marginRight: 6 }}
+                      >
+                        <option value="">Select a part above…</option>
+                        {lines.map(l => (
+                          <option key={l.id} value={l.id}>
+                            WO {l.record_number} · {l.company_name || l.customer_name || 'Customer'} · {(l.description || 'part').slice(0, 40)}
+                          </option>
+                        ))}
+                      </select>
+                      <button onClick={() => matchEmail(em.id)} style={{ padding: '4px 10px', background: NAVY, color: '#fff', border: 'none', borderRadius: 4, fontSize: '0.75rem', cursor: 'pointer', marginRight: 4 }}>Match</button>
+                      <button onClick={() => clearEmail(em.id)} style={{ padding: '4px 10px', background: '#fff', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 4, fontSize: '0.75rem', cursor: 'pointer' }}>Clear</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
