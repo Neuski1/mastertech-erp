@@ -13,6 +13,25 @@ export default function BookkeepingPnlComparison() {
   const [error, setError] = useState('');
   const [view, setView] = useState('monthly');
 
+  const handlePrint = () => {
+    const style = document.createElement('style');
+    style.id = 'pnl-print-landscape';
+    style.textContent = `
+      @media print {
+        @page { size: landscape; margin: 0.4in; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .pnl-scroll { overflow: visible !important; max-height: none !important; max-width: none !important; }
+        .pnl-scroll table { font-size: 6.5pt !important; table-layout: auto !important; width: 100% !important; }
+        .pnl-scroll th, .pnl-scroll td { position: static !important; padding: 2px 3px !important; }
+        .pnl-scroll thead th { background: #1a2a4a !important; color: #fff !important; }
+      }`;
+    document.head.appendChild(style);
+    const cleanup = () => { const el = document.getElementById('pnl-print-landscape'); if (el) el.remove(); window.removeEventListener('afterprint', cleanup); };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+    setTimeout(cleanup, 1000);
+  };
+
   const toggleYear = (y) => {
     setSelectedYears(prev => prev.includes(y)
       ? prev.filter(x => x !== y).sort((a,b) => b - a)
@@ -82,12 +101,12 @@ export default function BookkeepingPnlComparison() {
         <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
           <button onClick={() => setView('annual')} style={view==='annual'?tabActive:tab}>Annual Totals</button>
           <button onClick={() => setView('monthly')} style={view==='monthly'?tabActive:tab}>Month-by-Month</button>
-          <button onClick={() => window.print()} style={{ ...tab, background: '#1a2a4a', color: '#fff' }}>Print</button>
+          <button onClick={handlePrint} style={{ ...tab, background: '#1a2a4a', color: '#fff' }}>Print (Landscape)</button>
         </div>
       </div>
 
       {view === 'annual' ? (
-        <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 240px)' }}>
+        <div className="pnl-scroll" style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 240px)' }}>
         <table style={tbl}>
           <thead>
             <tr style={hdr}>
@@ -110,7 +129,7 @@ export default function BookkeepingPnlComparison() {
         </table>
         </div>
       ) : (
-        <div style={{ overflowX: 'auto', overflowY: 'auto', maxWidth: '100%', maxHeight: 'calc(100vh - 240px)' }}>
+        <div className="pnl-scroll" style={{ overflowX: 'auto', overflowY: 'auto', width: '100%', maxWidth: '100%', maxHeight: 'calc(100vh - 240px)' }}>
           <table style={{ ...tbl, fontSize: '0.78rem', tableLayout: 'auto' }}>
             <thead>
               <tr style={hdr}>
