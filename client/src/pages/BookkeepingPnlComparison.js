@@ -12,6 +12,7 @@ export default function BookkeepingPnlComparison() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [view, setView] = useState('monthly');
+  const [throughMonth, setThroughMonth] = useState(Math.max(0, new Date().getMonth() - 1)); // default: last completed month
 
   const handlePrint = () => {
     const style = document.createElement('style');
@@ -71,11 +72,12 @@ export default function BookkeepingPnlComparison() {
     return g;
   }, [data]);
 
-  const yearTotal = (acct, year) => (acct.years[year] || Array(12).fill(0)).reduce((s,n) => s + Number(n), 0);
+  const yearTotal = (acct, year) => (acct.years[year] || Array(12).fill(0)).slice(0, throughMonth + 1).reduce((s,n) => s + Number(n), 0);
   const sectionMonth = (accts, year, month) => accts.reduce((s, a) => s + Number((a.years[year] || [])[month] || 0), 0);
   const sectionYear = (accts, year) => accts.reduce((s, a) => s + yearTotal(a, year), 0);
 
   const years = selectedYears;
+  const visMonths = MONTHS.slice(0, throughMonth + 1);
 
   if (loading) return <Wrapper><BookkeepingNav /><p>Loading...</p></Wrapper>;
   if (error) return <Wrapper><BookkeepingNav /><div style={errBox}>{error}</div></Wrapper>;
@@ -100,7 +102,7 @@ export default function BookkeepingPnlComparison() {
             <td key={`${mi}-${y}`} style={{ ...tdR, borderRight: yi === years.length-1 ? '2px solid #ddd' : '1px solid #eee' }}>{fmt((a.years[y] || [])[mi])}</td>
           )))}
           {includeYTD && years.map(y => (
-            <td key={`ytd-${y}`} style={{ ...tdR, fontWeight: 700, background: '#eef' }}>{fmt((a.years[y] || []).reduce((sm, n) => sm + Number(n), 0))}</td>
+            <td key={`ytd-${y}`} style={{ ...tdR, fontWeight: 700, background: '#eef' }}>{fmt((a.years[y] || []).slice(0, throughMonth + 1).reduce((sm, n) => sm + Number(n), 0))}</td>
           ))}
         </tr>
       ))}
@@ -112,7 +114,7 @@ export default function BookkeepingPnlComparison() {
           <td key={`${mi}-${y}`} style={{ ...tdR, fontWeight: 700, color }}>{fmt(valFn(y, mi))}</td>
         )))}
         {includeYTD && years.map(y => (
-          <td key={`ytd-${y}`} style={{ ...tdR, fontWeight: 700, color }}>{fmt(MONTHS.reduce((sm, _u, mi) => sm + valFn(y, mi), 0))}</td>
+          <td key={`ytd-${y}`} style={{ ...tdR, fontWeight: 700, color }}>{fmt(MONTHS.slice(0, throughMonth + 1).reduce((sm, _u, mi) => sm + valFn(y, mi), 0))}</td>
         ))}
       </tr>
     );
@@ -124,7 +126,7 @@ export default function BookkeepingPnlComparison() {
             <tr style={hdr}>
               <th style={{ ...th, textAlign: 'left' }}>Account</th>
               {idxs.map(mi => <th key={mi} colSpan={years.length} style={{ ...th, borderRight: '2px solid #fff' }}>{MONTHS[mi]}</th>)}
-              {includeYTD && <th colSpan={years.length} style={{ ...th, background: '#3949ab' }}>YTD Total</th>}
+              {includeYTD && <th colSpan={years.length} style={{ ...th, background: '#3949ab' }}>Thru {MONTHS[throughMonth]}</th>}
             </tr>
             <tr style={hdr}>
               <th style={{ ...thSm, textAlign: 'left' }}></th>
@@ -154,7 +156,7 @@ export default function BookkeepingPnlComparison() {
       <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
         <h2 style={{ margin: 0 }}>P&L Comparison</h2>
-        <p style={{ margin: 0 }}>{years.join(' vs ')}</p>
+        <p style={{ margin: 0 }}>{years.join(' vs ')} &nbsp;|&nbsp; Through {MONTHS[throughMonth]}</p>
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: 12, flexWrap: 'wrap' }} className="print-hide">
         <h2 style={{ margin: 0 }}>P&L Comparison</h2>
@@ -164,6 +166,12 @@ export default function BookkeepingPnlComparison() {
               <input type="checkbox" checked={selectedYears.includes(y)} onChange={() => toggleYear(y)} style={{ marginRight: 4 }} /> {y}
             </label>
           ))}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:'0.85rem', color:'#555' }}>Through</span>
+          <select value={throughMonth} onChange={(e) => setThroughMonth(Number(e.target.value))} style={{ padding:'4px 8px', border:'1px solid #ccc', borderRadius:4, fontWeight:600 }}>
+            {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
         </div>
         <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
           <button onClick={() => setView('annual')} style={view==='annual'?tabActive:tab}>Annual Totals</button>
@@ -178,7 +186,7 @@ export default function BookkeepingPnlComparison() {
           <thead>
             <tr style={hdr}>
               <th style={{ ...th, textAlign:'left', minWidth: 300, position: 'sticky', top: 0, left: 0, background: '#1a2a4a', zIndex: 5 }}>Account</th>
-              {years.map(y => <th key={y} style={{ ...th, position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{y}</th>)}
+              {years.map(y => <th key={y} style={{ ...th, position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{y}<div style={{ fontSize:'0.65rem', fontWeight:400, opacity:0.8 }}>thru {MONTHS[throughMonth]}</div></th>)}
               {years.length >= 2 && <th style={{ ...th, position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{years[0]} vs {years[1]}</th>}
             </tr>
           </thead>
@@ -201,39 +209,46 @@ export default function BookkeepingPnlComparison() {
             <thead>
               <tr style={hdr}>
                 <th rowSpan={2} style={{ ...th, textAlign:'left', minWidth: 220, position: 'sticky', left: 0, top: 0, background:'#1a2a4a', zIndex: 5 }}>Account</th>
-                {MONTHS.map((m, idx) => (
+                {visMonths.map((m) => (
                   <th key={m} colSpan={years.length} style={{ ...th, borderRight: '2px solid #fff', position: 'sticky', top: 0, background: '#1a2a4a', zIndex: 4 }}>{m}</th>
                 ))}
-                <th colSpan={years.length} style={{ ...th, background:'#3949ab', position: 'sticky', top: 0, zIndex: 4 }}>YTD Total</th>
+                <th colSpan={years.length} style={{ ...th, background:'#3949ab', position: 'sticky', top: 0, zIndex: 4 }}>Thru {MONTHS[throughMonth]}</th>
               </tr>
               <tr style={hdr}>
-                {MONTHS.flatMap((m) =>
+                {visMonths.flatMap((m) =>
                   years.map((y, i) => <th key={`${m}-${y}`} style={{ ...thSm, borderRight: i === years.length-1 ? '2px solid #fff' : '1px solid #555', position: 'sticky', top: 36, background: '#1a2a4a', zIndex: 4 }}>{String(y).slice(2)}</th>)
                 )}
                 {years.map((y) => <th key={`tot-${y}`} style={{ ...thSm, background:'#3949ab', position: 'sticky', top: 36, zIndex: 4 }}>{String(y).slice(2)}</th>)}
               </tr>
             </thead>
             <tbody>
-              {renderMonthlySection('INCOME', groups.Income, years, MONTHS, fmt)}
-              {renderMonthlyTotal('Total Income', years, MONTHS, (y,m) => sectionMonth(groups.Income, y, m), fmt, '#e8f5e9')}
-              {renderMonthlySection('COGS', groups.COGS, years, MONTHS, fmt)}
-              {renderMonthlyTotal('Total COGS', years, MONTHS, (y,m) => sectionMonth(groups.COGS, y, m), fmt, '#fff3e0')}
-              {renderMonthlyTotal('GROSS PROFIT', years, MONTHS, (y,m) => grossBy(y,m), fmt, '#c8e6c9')}
-              {renderMonthlySection('EXPENSES', groups.Expense, years, MONTHS, fmt)}
-              {renderMonthlyTotal('Total Expenses', years, MONTHS, (y,m) => sectionMonth(groups.Expense, y, m), fmt, '#fce4ec')}
-              {renderMonthlySection('OTHER INCOME', groups['Other Income'], years, MONTHS, fmt)}
-              {renderMonthlyTotal('NET INCOME', years, MONTHS, (y,m) => netBy(y,m), fmt, '#1a2a4a', '#fff')}
+              {renderMonthlySection('INCOME', groups.Income, years, visMonths, fmt)}
+              {renderMonthlyTotal('Total Income', years, visMonths, (y,m) => sectionMonth(groups.Income, y, m), fmt, '#e8f5e9')}
+              {renderMonthlySection('COGS', groups.COGS, years, visMonths, fmt)}
+              {renderMonthlyTotal('Total COGS', years, visMonths, (y,m) => sectionMonth(groups.COGS, y, m), fmt, '#fff3e0')}
+              {renderMonthlyTotal('GROSS PROFIT', years, visMonths, (y,m) => grossBy(y,m), fmt, '#c8e6c9')}
+              {renderMonthlySection('EXPENSES', groups.Expense, years, visMonths, fmt)}
+              {renderMonthlyTotal('Total Expenses', years, visMonths, (y,m) => sectionMonth(groups.Expense, y, m), fmt, '#fce4ec')}
+              {renderMonthlySection('OTHER INCOME', groups['Other Income'], years, visMonths, fmt)}
+              {renderMonthlyTotal('NET INCOME', years, visMonths, (y,m) => netBy(y,m), fmt, '#1a2a4a', '#fff')}
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Print-only: split the 12 months into two readable pages (Jan-Jun, Jul-Dec) */}
+      {/* Print-only: split months into readable pages (Jan-Jun, then Jul-through-selected) */}
       {view === 'monthly' && (
         <div className="print-only">
-          {printHalf([0,1,2,3,4,5], false, 'January \u2013 June')}
-          <div style={{ pageBreakBefore: 'always' }}></div>
-          {printHalf([6,7,8,9,10,11], true, 'July \u2013 December (with YTD Total)')}
+          {(() => {
+            const first = []; for (let m = 0; m <= Math.min(5, throughMonth); m++) first.push(m);
+            const second = []; for (let m = 6; m <= throughMonth; m++) second.push(m);
+            const thru = MONTHS[throughMonth];
+            return (<>
+              {printHalf(first, second.length === 0, `January \u2013 ${MONTHS[Math.min(5, throughMonth)]}${second.length === 0 ? ` (Total Thru ${thru})` : ''}`)}
+              {second.length > 0 && <div style={{ pageBreakBefore: 'always' }}></div>}
+              {second.length > 0 && printHalf(second, true, `July \u2013 ${thru} (Total Thru ${thru})`)}
+            </>);
+          })()}
         </div>
       )}
 
