@@ -84,7 +84,8 @@ router.get('/:token', async (req, res) => {
          <textarea name="note" rows="3" placeholder="Anything we should know?" style="width:100%;padding:11px;font-size:15px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;margin:0 0 20px;font-family:inherit;resize:vertical;"></textarea>
          <button type="submit" style="width:100%;padding:15px;background:#1e3a5f;color:#fff;font-size:16px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">Send My Request</button>
        </form>
-       <p style="color:#9ca3af;font-size:12px;margin:16px 0 0;text-align:center;">Prefer to talk? Call (303) 557-2214.</p>`
+       <p style="color:#6b7280;font-size:13px;margin:18px 0 0;text-align:center;">Need to cancel instead? <a href="/api/appointments/reschedule/${appt.reschedule_token}/cancel" style="color:#dc2626;font-weight:bold;">Request a cancellation</a></p>
+       <p style="color:#9ca3af;font-size:12px;margin:10px 0 0;text-align:center;">Prefer to talk? Call (303) 557-2214.</p>`
     ));
   } catch (err) {
     console.error('Reschedule GET error:', err);
@@ -152,6 +153,97 @@ router.post('/:token', express.urlencoded({ extended: true }), async (req, res) 
     ));
   } catch (err) {
     console.error('Reschedule POST error:', err);
+    res.status(500).send(invalid());
+  }
+});
+
+// GET — show the cancellation-request confirmation form
+router.get('/:token/cancel', async (req, res) => {
+  try {
+    const appt = await loadByToken(req.params.token);
+    if (!appt || appt.status === 'cancelled') return res.send(invalid());
+
+    const curDate = appt.scheduled_at
+      ? new Date(appt.scheduled_at).toLocaleDateString('en-US', { timeZone:'America/Denver', weekday:'long', month:'long', day:'numeric', year:'numeric' }) : '—';
+    const curTime = appt.scheduled_at
+      ? new Date(appt.scheduled_at).toLocaleTimeString('en-US', { timeZone:'America/Denver', hour:'numeric', minute:'2-digit' }) : '';
+    const greet = appt.first_name ? ' ' + appt.first_name : '';
+    const already = appt.reschedule_status === 'cancel_requested'
+      ? `<div style="margin:0 0 18px;padding:12px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:13px;">We already have a cancellation request on file for this appointment.</div>` : '';
+
+    res.send(page('Request a Cancellation',
+      `<h2 style="color:#dc2626;margin:0 0 6px;font-size:20px;">Request a Cancellation</h2>
+       <p style="color:#374151;font-size:14px;margin:0 0 18px;">Hi${greet}, you're asking to cancel your <strong>${fmtLabel(appt.appointment_type)}</strong> currently scheduled for:</p>
+       <div style="padding:12px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;margin:0 0 20px;">
+         <div style="font-weight:bold;color:#1e3a5f;font-size:15px;">${curDate}</div>
+         <div style="color:#374151;">${curTime} — Mountain Time</div>
+       </div>
+       ${already}
+       <form method="POST" action="/api/appointments/reschedule/${appt.reschedule_token}/cancel">
+         <label style="display:block;font-size:12px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px;">Reason (optional)</label>
+         <textarea name="reason" rows="3" placeholder="Let us know why, if you'd like" style="width:100%;padding:11px;font-size:15px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;margin:0 0 20px;font-family:inherit;resize:vertical;"></textarea>
+         <button type="submit" style="width:100%;padding:15px;background:#dc2626;color:#fff;font-size:16px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">Request Cancellation</button>
+       </form>
+       <p style="color:#6b7280;font-size:13px;margin:18px 0 0;text-align:center;">Changed your mind? <a href="/api/appointments/reschedule/${appt.reschedule_token}" style="color:#1e3a5f;font-weight:bold;">Request a different time instead</a></p>
+       <p style="color:#9ca3af;font-size:12px;margin:10px 0 0;text-align:center;">Prefer to talk? Call (303) 557-2214.</p>`
+    ));
+  } catch (err) {
+    console.error('Cancel GET error:', err);
+    res.status(500).send(invalid());
+  }
+});
+
+// POST — record the cancellation request + notify the shop
+router.post('/:token/cancel', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const appt = await loadByToken(req.params.token);
+    if (!appt || appt.status === 'cancelled') return res.send(invalid());
+
+    const { reason } = req.body || {};
+
+    await pool.query(
+      `UPDATE appointments
+          SET reschedule_status = 'cancel_requested',
+              reschedule_requested_at = NOW(),
+              reschedule_requested_date = NULL,
+              reschedule_requested_time = NULL,
+              reschedule_note = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [(reason || '').trim() || null, appt.id]
+    );
+
+    const name = `${appt.first_name || ''} ${appt.last_name || ''}`.trim() || 'Customer';
+    const curStr = appt.scheduled_at
+      ? new Date(appt.scheduled_at).toLocaleString('en-US', { timeZone:'America/Denver', dateStyle:'medium', timeStyle:'short' }) : '—';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+
+    sendEmail({
+      to: 'service@mastertechrvrepair.com',
+      subject: `CANCELLATION request — ${name} (${fmtLabel(appt.appointment_type)})`,
+      html: `<p><strong>${name}</strong> requested to <strong style="color:#dc2626;">cancel</strong> their <strong>${fmtLabel(appt.appointment_type)}</strong> appointment.</p>
+             <table style="border-collapse:collapse;font-size:14px;">
+               <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">Currently scheduled:</td><td style="padding:4px 0;"><strong>${curStr}</strong></td></tr>
+               ${(reason||'').trim() ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;vertical-align:top;">Reason:</td><td style="padding:4px 0;">${(reason||'').trim().replace(/</g,'&lt;')}</td></tr>` : ''}
+             </table>
+             <p style="margin-top:14px;">Open the Schedule module to confirm the cancellation.</p>
+             <p><a href="${frontendUrl}/schedule">Go to Schedule</a></p>`,
+      text: `${name} requested to CANCEL their appointment.
+Appointment: ${fmtLabel(appt.appointment_type)}
+Currently: ${curStr}
+${(reason||'').trim() ? 'Reason: ' + reason.trim() + '\n' : ''}
+Open Schedule: ${frontendUrl}/schedule`,
+    }).catch(e => console.error('Cancel notify error:', e.message));
+
+    res.send(page('Cancellation Requested',
+      `<div style="text-align:center"><div style="font-size:60px;margin-bottom:12px;">&#128197;</div>
+       <h2 style="color:#991b1b;margin:0 0 12px;">Cancellation Requested</h2>
+       <p style="color:#374151;font-size:15px;">Thanks${appt.first_name ? ' ' + appt.first_name : ''}, we received your request to cancel your <strong>${fmtLabel(appt.appointment_type)}</strong> appointment.</p>
+       <p style="color:#6b7280;font-size:14px;margin-top:12px;">We'll confirm the cancellation shortly by phone or email. If this was a mistake, just call us.</p>
+       <p style="margin-top:18px;color:#374151;"><strong>(303) 557-2214</strong></p></div>`
+    ));
+  } catch (err) {
+    console.error('Cancel POST error:', err);
     res.status(500).send(invalid());
   }
 });
