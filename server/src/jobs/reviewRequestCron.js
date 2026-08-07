@@ -57,17 +57,25 @@ async function processReviewRequests() {
     FROM records r
     JOIN customers c ON c.id = r.customer_id
     LEFT JOIN units u ON u.id = r.unit_id
+    JOIN (
+      SELECT record_id, MAX(created_at) AS paid_at
+        FROM payments
+       WHERE deleted_at IS NULL
+       GROUP BY record_id
+    ) pay ON pay.record_id = r.id
     WHERE r.status = 'paid'
       AND r.deleted_at IS NULL
       AND r.review_request_sent_at IS NULL
-      AND r.paid_at IS NOT NULL
-      AND r.paid_at <= NOW() - INTERVAL '3 days'
+      -- Ask 3 days after payment, but only for recently-paid invoices so
+      -- turning this on does not blast the entire back catalog.
+      AND pay.paid_at <= NOW() - INTERVAL '3 days'
+      AND pay.paid_at >= NOW() - INTERVAL '30 days'
       AND COALESCE(c.review_opt_out, FALSE) = FALSE
       AND c.email_primary IS NOT NULL
       AND c.email_primary <> ''
       AND (c.last_review_request_at IS NULL
            OR c.last_review_request_at < NOW() - INTERVAL '365 days')
-    ORDER BY r.paid_at ASC
+    ORDER BY pay.paid_at ASC
     LIMIT 50
   `);
 
