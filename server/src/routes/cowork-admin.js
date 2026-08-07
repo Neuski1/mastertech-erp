@@ -195,4 +195,25 @@ router.post('/run-backup', requireCoworkKey, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/cowork-admin/review-test  { to, firstName?, unit? }
+// Sends ONE review-request email (the exact template the cron uses) to a
+// given address so we can preview it without sending to real customers.
+// ---------------------------------------------------------------------------
+router.post('/review-test', requireCoworkKey, async (req, res) => {
+  try {
+    const to = (req.body && req.body.to) || 'service@mastertechrvrepair.com';
+    const firstName = (req.body && req.body.firstName) || 'Carol';
+    const unitDescription = (req.body && req.body.unit) || '2022 Airstream Globetrotter';
+    const { buildReviewRequestHtml } = require('../jobs/reviewRequestCron');
+    const { sendEmail } = require('../services/email');
+    const html = buildReviewRequestHtml({ firstName, unitDescription });
+    const text = `Hi ${firstName},\n\nMark and Carol here from Master Tech RV. Thanks for trusting us with the service for your ${unitDescription}.\n\nIf we earned it, would you take 60 seconds to leave us a Google review? It helps our small family shop stay visible to other RV owners in Denver.\n\nLeave a review: https://g.page/r/CcdbSyhGUgf6EBM/review\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage\n(303) 557-2214`;
+    const result = await sendEmail({ to, subject: `How'd we do, ${firstName}? (TEST PREVIEW)`, html, text });
+    res.json({ ok: !!(result && result.success), to, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
