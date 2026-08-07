@@ -12,8 +12,20 @@ const VALID_LEAD_STATUSES = ['new', 'contacted', 'scheduled', 'converted'];
 // lead with record_id = NULL. No stub unit/record is created anymore; staff
 // decide what to do with the lead from the Records page.
 // ---------------------------------------------------------------------------
+// Recovers a full email address from free text (used when the inbound lead
+// agent truncates the address, e.g. stores "jean.clappier" instead of the
+// full "jean.clappier@gmail.com" that appears in the message body).
+const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+
 router.post('/', async (req, res) => {
-  const { name, phone, email, message, source = 'website' } = req.body;
+  const { name, phone, message, source = 'website' } = req.body;
+  let email = (req.body.email || '').trim();
+  // If the provided email is missing or not a full address, try to pull a
+  // valid one out of the message body before we store or match on it.
+  if (!email || !email.includes('@')) {
+    const m = (message || '').match(EMAIL_RE);
+    if (m) email = m[0];
+  }
 
   if (!name && !email && !phone) {
     return res.status(400).json({ error: 'At least name, email, or phone is required' });

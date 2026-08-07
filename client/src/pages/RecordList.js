@@ -8,6 +8,16 @@ import { telHref } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
 import { parseLeadMessage } from '../utils/parseLead';
 
+// Recover a usable email for a lead: prefer the stored email if it's a full
+// address, otherwise pull the first valid address out of the message body
+// (the inbound lead agent sometimes truncates the address at the "@").
+const LEAD_EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const leadEmail = (l) => {
+  if (l && l.email && l.email.includes('@')) return l.email;
+  const m = ((l && l.message) || '').match(LEAD_EMAIL_RE);
+  return m ? m[0] : ((l && l.email) || '');
+};
+
 const STATUS_GROUPS = [
   {
     key: 'attention',
@@ -203,7 +213,7 @@ export default function RecordList() {
         customerId: lead.customer_id,
         customerName: leadName,
         customerPhone: lead.phone,
-        customerEmail: lead.email,
+        customerEmail: leadEmail(lead),
         leadId: lead.id,
         rvYear: p.rvYear, rvMake: p.rvMake, rvModel: p.rvModel,
         jobDescription: [p.issue, p.services ? `Services: ${p.services}` : ''].filter(Boolean).join('\n\n'),
@@ -245,7 +255,7 @@ export default function RecordList() {
       leadId: lead.id,
       contactName: name,
       contactPhone: lead.phone || '',
-      contactEmail: lead.email || '',
+      contactEmail: leadEmail(lead) || '',
       message: lead.message || '',
       spaceType: p.spaceType,
       rvYear: p.rvYear, rvMake: p.rvMake, rvModel: p.rvModel,
@@ -486,7 +496,7 @@ export default function RecordList() {
             when ? `On ${when} you wrote:` : 'Your original request:',
             quoted,
           ].join('\n');
-          return `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(l.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+          return `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(leadEmail(l))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         };
         const STATUS_LABEL = { new: 'New', contacted: 'Contacted', scheduled: 'Scheduled', converted: 'Converted' };
         const pillColors = (status) => {
