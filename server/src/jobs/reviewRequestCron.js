@@ -217,4 +217,4 @@ function startReviewRequestCron() {
   console.log('[reviewRequestCron] Review request cron scheduled (daily 10 AM Mountain, email + SMS follow-up)');
 }
 
-module.exports = { startReviewRequestCron, processReviewRequests, processSmsFollowUps };
+module.exports = { startReviewRequestCron, processReviewRequests, processSmsFollowUps, buildReviewRequestHtml };
