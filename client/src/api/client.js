@@ -124,6 +124,13 @@ export const api = {
       xhr.send(formData);
     });
   },
+  downloadRecordPdf: async (recordId) => {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/records/${recordId}/pdf`, { headers });
+    if (!res.ok) throw new Error('Download failed');
+    return res.blob();
+  },
   downloadRecordDocument: async (recordId, docId) => {
     const headers = {};
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
