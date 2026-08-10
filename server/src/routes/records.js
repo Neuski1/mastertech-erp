@@ -5,6 +5,7 @@ const { getSetting, recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 const { pullsInventory } = require('../utils/inventoryStatus');
+const { generateRecordPdf } = require('../services/recordPdf');
 
 // ---------------------------------------------------------------------------
 // Status transition rules
@@ -410,6 +411,53 @@ router.get('/:id', async (req, res) => {
     });
   } catch (err) {
     console.error('GET /api/records/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/records/:id/pdf — Download the work order / estimate / invoice as PDF
+// ---------------------------------------------------------------------------
+router.get('/:id/pdf', async (req, res) => {
+  try {
+    const { rows: recordRows } = await pool.query(
+      `SELECT r.*,
+              c.last_name, c.first_name, c.company_name, c.account_number,
+              c.phone_primary, c.phone_secondary, c.email_primary, c.email_secondary, c.tax_exempt,
+              c.address_street, c.address_city, c.address_state, c.address_zip,
+              u.year, u.make, u.model, u.vin, u.license_plate, u.unit_notes
+         FROM records r
+         JOIN customers c ON c.id = r.customer_id
+         JOIN units u ON u.id = r.unit_id
+        WHERE r.id = $1 AND r.deleted_at IS NULL`,
+      [req.params.id]
+    );
+    if (recordRows.length === 0) return res.status(404).json({ error: 'Record not found' });
+    const record = recordRows[0];
+
+    const [laborRes, partsRes, freightRes, paymentsRes] = await Promise.all([
+      pool.query(`SELECT ll.*, t.name AS technician_name FROM record_labor_lines ll LEFT JOIN technicians t ON t.id = ll.technician_id WHERE ll.record_id = $1 AND ll.deleted_at IS NULL ORDER BY ll.sort_order`, [req.params.id]),
+      pool.query(`SELECT * FROM record_parts_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY sort_order`, [req.params.id]),
+      pool.query(`SELECT * FROM record_freight_lines WHERE record_id = $1 AND deleted_at IS NULL ORDER BY created_at`, [req.params.id]),
+      pool.query(`SELECT * FROM payments WHERE record_id = $1 AND deleted_at IS NULL ORDER BY payment_date, id`, [req.params.id]),
+    ]);
+
+    const data = {
+      ...record,
+      labor_lines: laborRes.rows,
+      parts_lines: partsRes.rows,
+      freight_lines: freightRes.rows,
+      payments: paymentsRes.rows,
+    };
+
+    const pdf = await generateRecordPdf(data);
+    const kind = record.status === 'estimate' ? 'Estimate'
+      : ['complete','payment_pending','partial','paid'].includes(record.status) ? 'Invoice' : 'WorkOrder';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${kind}-${record.record_number || record.id}.pdf"`);
+    res.send(pdf);
+  } catch (err) {
+    console.error('GET /api/records/:id/pdf error:', err);
     res.status(500).json({ error: err.message });
   }
 });

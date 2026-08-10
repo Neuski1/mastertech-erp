@@ -357,6 +357,18 @@ export default function RecordDetail() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    try {
+      const blob = await api.downloadRecordPdf(id);
+      const url = URL.createObjectURL(blob);
+      const kind = record.status === 'estimate' ? 'Estimate' : ['complete','payment_pending','partial','paid'].includes(record.status) ? 'Invoice' : 'WorkOrder';
+      const a = document.createElement('a');
+      a.href = url; a.download = `${kind}-${record.record_number || id}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { alert('Could not download PDF: ' + (e.message || 'error')); }
+  };
+
   const handlePrint = async () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) { alert('Please allow pop-ups to print'); return; }
@@ -780,6 +792,7 @@ ${paymentDetailHtml}
         <div className={isMobile ? 'detail-actions' : ''} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           {saving && <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Saving...</span>}
           <button onClick={handlePrint} style={btnPrint}>Print</button>
+          <button onClick={handleDownloadPdf} style={{ ...btnPrint, backgroundColor: '#6d28d9' }}>Download PDF</button>
           <button onClick={openEmailDialog} disabled={emailing} style={{ ...btnPrint, backgroundColor: '#0369a1' }}>
             {emailing ? 'Sending...' : '\u2709 Email Invoice'}
           </button>
