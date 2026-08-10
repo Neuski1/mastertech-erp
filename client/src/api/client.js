@@ -307,6 +307,8 @@ export const api = {
   updateStorage: (id, data) => request(`/storage/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   endStorage: (id, data = {}) => request(`/storage/${id}`, { method: 'DELETE', body: JSON.stringify(data) }),
   moveStorage: (id, new_space_id) => request(`/storage/${id}/move`, { method: 'PATCH', body: JSON.stringify({ new_space_id }) }),
+  getStorageAutopayLink: (billingId) => request(`/storage-autopay/${billingId}/link`, { method: 'POST' }),
+  disableStorageAutopay: (billingId) => request(`/storage-autopay/${billingId}`, { method: 'DELETE' }),
   getStorageSignedContract: async (billingId) => {
     const headers = {};
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;

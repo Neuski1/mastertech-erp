@@ -1773,6 +1773,25 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
     }
   };
 
+  const [autopayMsg, setAutopayMsg] = useState('');
+  const [autopayBusy, setAutopayBusy] = useState(false);
+  const handleAutopayLink = async () => {
+    setAutopayBusy(true); setAutopayMsg('');
+    try {
+      const { url } = await api.getStorageAutopayLink(space.billing_id);
+      try { await navigator.clipboard.writeText(url); setAutopayMsg('Autopay link copied to clipboard \u2014 text or email it to the customer.'); }
+      catch { setAutopayMsg(url); }
+    } catch (err) { setAutopayMsg('Error: ' + (err.message || 'could not create link')); }
+    finally { setAutopayBusy(false); }
+  };
+  const handleAutopayDisable = async () => {
+    if (!window.confirm('Turn off autopay and remove the saved card for this space?')) return;
+    setAutopayBusy(true); setAutopayMsg('');
+    try { await api.disableStorageAutopay(space.billing_id); setAutopayMsg('Autopay turned off.'); onUpdated(); }
+    catch (err) { setAutopayMsg('Error: ' + (err.message || 'could not disable')); }
+    finally { setAutopayBusy(false); }
+  };
+
   const handleEndStorage = async () => {
     const endDate = form.end_date || form.scheduled_move_out || new Date().toISOString().split('T')[0];
     if (!window.confirm(`End storage for ${space.label}? End date: ${endDate}`)) return;
@@ -1900,6 +1919,28 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
                 </button>
               </div>
               <div style={{ fontSize: '0.72rem', color: '#1e40af', marginTop: '4px' }}>Keeps the customer, RV, rate, and payment history. Use this to move an overflow customer into a permanent spot.</div>
+            </div>
+
+            {/* Storage autopay (card on file, auto-charged monthly by Square) */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+              <label style={{ ...labelStyle, color: '#065f46' }}>Monthly Autopay</label>
+              {space.autopay_enabled ? (
+                <div style={{ fontSize: '0.85rem', color: '#065f46' }}>
+                  <strong>ON</strong> \u2014 {space.autopay_card_brand || 'Card'}{space.autopay_card_last4 ? ' ending ' + space.autopay_card_last4 : ''} on file.
+                  <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={handleAutopayLink} disabled={autopayBusy} style={{ ...btnTinyGray, padding: '5px 12px' }}>Resend setup link</button>
+                    <button type="button" onClick={handleAutopayDisable} disabled={autopayBusy} style={{ ...btnTinyGray, padding: '5px 12px', backgroundColor: '#fff', color: '#991b1b', border: '1px solid #fca5a5' }}>Turn off autopay</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: '#374151' }}>
+                  Not set up. Send the customer a secure link to save a card so rent is charged automatically each month.
+                  <div style={{ marginTop: '8px' }}>
+                    <button type="button" onClick={handleAutopayLink} disabled={autopayBusy} style={{ ...btnPrimary, padding: '6px 14px', fontSize: '0.8rem' }}>{autopayBusy ? 'Working...' : 'Get autopay setup link'}</button>
+                  </div>
+                </div>
+              )}
+              {autopayMsg && <div style={{ marginTop: '8px', fontSize: '0.78rem', color: autopayMsg.startsWith('Error') ? '#991b1b' : '#065f46', wordBreak: 'break-all' }}>{autopayMsg}</div>}
             </div>
 
             {/* Scheduled move-out (saved with Save) + immediate End Storage */}

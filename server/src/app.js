@@ -91,6 +91,7 @@ app.use('/api/plaid/webhook', require('./routes/plaid-webhook')); // No auth —
 app.use('/api/plaid', requireAuth, require('./routes/plaid'));
 app.use('/api/storage', requireAuth, require('./routes/storage'));
 app.use('/api/storage-contract', require('./routes/storage-contract')); // Public accept/view + auth'd generate/email
+app.use('/api/storage-autopay', require('./routes/storage-autopay'));
 app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
@@ -183,6 +184,14 @@ const pool = require('./db/pool');
     // Multi-unit storage contracts: links the billings that belong to one lease.
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS contract_group UUID');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS scheduled_move_out DATE');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_card_id VARCHAR(120)');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_card_brand VARCHAR(40)');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_card_last4 VARCHAR(8)');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_card_exp VARCHAR(8)');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_authorized_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_authorized_ip VARCHAR(50)');
+    await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_setup_token UUID');
     await pool.query('ALTER TABLE inventory ADD COLUMN IF NOT EXISTS alert_when_depleted BOOLEAN NOT NULL DEFAULT FALSE');
     // Client-side error capture (diagnoses white-screen render crashes).
     await pool.query(`CREATE TABLE IF NOT EXISTS client_errors (

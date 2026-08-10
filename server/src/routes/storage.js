@@ -156,6 +156,7 @@ router.get('/', async (req, res) => {
               sb.id AS billing_id, sb.customer_id, sb.unit_id,
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
               sb.scheduled_move_out,
+              sb.autopay_enabled, sb.autopay_card_brand, sb.autopay_card_last4,
               (EXISTS (SELECT 1 FROM customer_documents cd
                        WHERE cd.doc_type = 'storage_contract' AND cd.related_id = sb.id)) AS has_signed_contract,
               sb.due_day, sb.square_customer_id, sb.square_sub_id,
