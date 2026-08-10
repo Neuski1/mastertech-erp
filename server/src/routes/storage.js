@@ -434,6 +434,14 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
       [customer_id]
     );
 
+    // Placing a customer in a space clears any open waitlist entry for them,
+    // no matter which flow created the assignment, so their name drops off the
+    // waitlist automatically.
+    await client.query(
+      "UPDATE storage_waitlist SET status = 'assigned', assigned_at = NOW(), updated_at = NOW() WHERE customer_id = $1 AND status IN ('waiting','notified')",
+      [customer_id]
+    );
+
     await client.query('COMMIT');
 
     // Re-fetch with joined data
