@@ -33,6 +33,7 @@ import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
 import ClosedInvoicesReport from './pages/ClosedInvoicesReport';
 import PartsOnOrder from './pages/PartsOnOrder';
 import PayOnline from './pages/PayOnline';
+import StorageAutopaySetup from './pages/StorageAutopaySetup';
 import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
 import QBStatusDot from './components/QBStatusDot';
 
@@ -255,6 +256,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/pay/:paymentToken" element={<PayOnline />} />
+          <Route path="/storage-autopay/:token" element={<StorageAutopaySetup />} />
           <Route path="/*" element={
             <RequireAuth>
               <AppLayout />
