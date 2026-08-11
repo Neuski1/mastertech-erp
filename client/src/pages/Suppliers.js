@@ -28,7 +28,7 @@ export default function Suppliers() {
 
   // Misc Supplier State
   const [addMiscModalOpen, setAddMiscModalOpen] = useState(false);
-  const [miscForm, setMiscForm] = useState({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
+  const [miscForm, setMiscForm] = useState({ vendor_name: '', supplier_type: 'inventory', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
   const [subcategories, setSubcategories] = useState([]);
   const [newSubcategory, setNewSubcategory] = useState('');
 
@@ -212,18 +212,19 @@ export default function Suppliers() {
   const handleAddMiscSupplier = async () => {
     const name = miscForm.vendor_name.trim();
     if (!name) { alert('Supplier name is required'); return; }
+    const isMisc = (miscForm.supplier_type || 'inventory') === 'misc';
     const subcat = newSubcategory.trim() || miscForm.subcategory;
     try {
       await api.updateVendorDetails(name, {
         ...miscForm,
-        supplier_type: 'misc',
-        subcategory: subcat || null
+        supplier_type: isMisc ? 'misc' : 'inventory',
+        subcategory: isMisc ? (subcat || null) : null
       });
       setAddMiscModalOpen(false);
-      setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
+      setMiscForm({ vendor_name: '', supplier_type: 'inventory', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
       setNewSubcategory('');
       await fetchVendors();
-      setActionMsg(`Added misc supplier "${name}"`);
+      setActionMsg(`Added ${isMisc ? 'misc' : 'inventory'} supplier "${name}"`);
     } catch (err) {
       alert('Error: ' + err.message);
     }
@@ -677,8 +678,8 @@ export default function Suppliers() {
                 <button onClick={() => { setMergeMode(true); setMergeSelected(new Set()); setMergeInto(''); }} style={btnSecondary}>
                   Merge Suppliers
                 </button>
-                <button onClick={() => { setMiscForm({ vendor_name: '', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
-                  + Add Misc. Supplier
+                <button onClick={() => { setMiscForm({ vendor_name: '', supplier_type: 'inventory', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
+                  + Add Supplier
                 </button>
                 <input type="text" value={supplierSearch} onChange={(e) => setSupplierSearch(e.target.value)} placeholder="Search suppliers by name, contact..." style={{ ...inputStyle, width: '260px' }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
@@ -1595,11 +1596,19 @@ export default function Suppliers() {
       {addMiscModalOpen && (
         <div style={modalOverlayStyle} onClick={() => setAddMiscModalOpen(false)}>
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ margin: '0 0 20px 0', color: '#0d9488' }}>Add Misc. Supplier</h2>
+            <h2 style={{ margin: '0 0 20px 0', color: '#0d9488' }}>Add Supplier</h2>
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Type *</label>
+              <select value={miscForm.supplier_type} onChange={(e) => setMiscForm({ ...miscForm, supplier_type: e.target.value })} style={inputStyle}>
+                <option value="inventory">Inventory Supplier (stocks parts you buy)</option>
+                <option value="misc">Misc Supplier (occasional / non-inventory)</option>
+              </select>
+            </div>
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Name *</label>
               <input type="text" value={miscForm.vendor_name} onChange={(e) => setMiscForm({ ...miscForm, vendor_name: e.target.value })} style={inputStyle} placeholder="e.g. Home Depot, Lowe's, local shop..." autoFocus />
             </div>
+            {miscForm.supplier_type === 'misc' && (
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Subcategory</label>
               <select value={miscForm.subcategory} onChange={(e) => { setMiscForm({ ...miscForm, subcategory: e.target.value }); if (e.target.value !== '__new__') setNewSubcategory(''); }} style={inputStyle}>
@@ -1611,6 +1620,7 @@ export default function Suppliers() {
                 <input type="text" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} placeholder="Type new subcategory name (e.g. Awnings, Glass, Plumbing)..." style={{ ...inputStyle, marginTop: '6px' }} autoFocus />
               )}
             </div>
+            )}
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Website</label>
               <input type="text" value={miscForm.website} onChange={(e) => setMiscForm({ ...miscForm, website: e.target.value })} style={inputStyle} placeholder="https://example.com" />
