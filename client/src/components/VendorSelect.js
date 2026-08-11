@@ -3,7 +3,7 @@ import { api } from '../api/client';
 
 export default function VendorSelect({ value, onChange, style }) {
   const [inventoryVendors, setInventoryVendors] = useState([]);
-  const [miscVendors, setMiscVendors] = useState([]);
+  const [detailVendors, setDetailVendors] = useState([]);
   const [query, setQuery] = useState(value || '');
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -12,8 +12,7 @@ export default function VendorSelect({ value, onChange, style }) {
   useEffect(() => {
     api.getVendors().then(v => setInventoryVendors(v || [])).catch(() => {});
     api.getVendorDetails().then(details => {
-      const misc = (details || []).filter(d => d.supplier_type === 'misc');
-      setMiscVendors(misc);
+      setDetailVendors(details || []);
     }).catch(() => {});
   }, []);
 
@@ -34,9 +33,12 @@ export default function VendorSelect({ value, onChange, style }) {
       const key = v.name.toLowerCase().trim();
       if (!nameSet.has(key)) { nameSet.add(key); merged.push({ name: v.name, type: 'inventory' }); }
     });
-    miscVendors.forEach(v => {
-      const key = (v.vendor_name || '').toLowerCase().trim();
-      if (!nameSet.has(key)) { nameSet.add(key); merged.push({ name: v.vendor_name, type: 'misc' }); }
+    detailVendors.forEach(v => {
+      const nm = v.vendor_name || '';
+      const key = nm.toLowerCase().trim();
+      if (!key || nameSet.has(key)) return;
+      nameSet.add(key);
+      merged.push({ name: nm, type: v.supplier_type === 'misc' ? 'misc' : 'inventory' });
     });
     return merged.sort((a, b) => a.name.localeCompare(b.name));
   })();
@@ -59,7 +61,7 @@ export default function VendorSelect({ value, onChange, style }) {
     try {
       await api.updateVendorDetails(query.trim(), { supplier_type: 'misc' });
       const newMisc = { vendor_name: query.trim(), supplier_type: 'misc' };
-      setMiscVendors(prev => [...prev, newMisc]);
+      setDetailVendors(prev => [...prev, newMisc]);
       handleSelect(query.trim());
     } catch (err) {
       console.error('Create misc supplier error:', err);
