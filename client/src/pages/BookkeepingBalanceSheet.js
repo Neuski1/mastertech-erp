@@ -37,14 +37,12 @@ export default function BookkeepingBalanceSheet() {
   const totalLongTerm      = sumOf(sections['Long-Term Liability']);
   const totalLiabs         = totalCurrentLiabs + totalLongTerm;
 
-  // Equity walk: pre-2026 Retained Earnings anchor (from QBO 12/31/2025) +
-  // opening/prior-year adjustments (the rest of booked equity) + 2026 net
-  // income (P&L accounts). Total is unchanged; only relabeled into components.
-  const netIncome        = Number(data?.net_income || 0);
-  const pre2026RE        = Number(data?.pre_2026_retained_earnings || 0);
-  const equityAccounts   = sumOf(sections['Equity']);
-  const openingAdj       = equityAccounts - pre2026RE;
-  const totalEquity      = equityAccounts + netIncome;
+  // Equity closes the sheet: total equity = assets - liabilities (always foots).
+  // Presented as beginning-of-year Retained Earnings + net income year-to-date,
+  // where net income matches the P&L report for the same period.
+  const netIncome   = Number(data?.net_income || 0);
+  const totalEquity = totalAssets - totalLiabs;
+  const beginningRE = totalEquity - netIncome;
 
   const renderRow = (a) => (
     <tr key={a.account_number}>
@@ -120,11 +118,8 @@ export default function BookkeepingBalanceSheet() {
             {totalRow('Total Long-Term Liabilities', totalLongTerm, '#fff3e0')}
             {totalRow('TOTAL LIABILITIES', totalLiabs, '#fce4ec')}
             <tr style={{ background: '#dde7f5' }}><td style={{ ...td, fontWeight: 800, fontSize: '1.05rem' }} colSpan={2}>EQUITY</td></tr>
-            <tr><td style={td}><span style={{ color: '#888', fontFamily: 'monospace', marginRight: 6 }}>&nbsp;</span>Retained Earnings (pre-2026)</td><td style={tdRight}>${fmt(pre2026RE)}</td></tr>
-            {Math.abs(openingAdj) >= 0.005 && (
-              <tr><td style={td}><span style={{ color: '#888', fontFamily: 'monospace', marginRight: 6 }}>&nbsp;</span>Opening &amp; prior-year adjustments</td><td style={tdRight}>${fmt(openingAdj)}</td></tr>
-            )}
-            <tr><td style={td}><span style={{ color: '#888', fontFamily: 'monospace', marginRight: 6 }}>&nbsp;</span>Net Income (2026)</td><td style={tdRight}>${fmt(netIncome)}</td></tr>
+            <tr><td style={td}><span style={{ color: '#888', fontFamily: 'monospace', marginRight: 6 }}>&nbsp;</span>Retained Earnings (beginning of year)</td><td style={tdRight}>${fmt(beginningRE)}</td></tr>
+            <tr><td style={td}><span style={{ color: '#888', fontFamily: 'monospace', marginRight: 6 }}>&nbsp;</span>Net Income (year-to-date)</td><td style={tdRight}>${fmt(netIncome)}</td></tr>
             {totalRow('TOTAL EQUITY', totalEquity, '#c8e6c9')}
             {totalRow('TOTAL LIABILITIES + EQUITY', totalLiabs + totalEquity, '#1a2a4a', '#ffffff', 'bs-grand-total')}
           </tbody>

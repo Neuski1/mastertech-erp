@@ -502,6 +502,8 @@ export const api = {
   getPlaidItems: () => request('/plaid/items'),
   getPlaidAccounts: () => request('/plaid/accounts'),
   syncPlaid: (itemId) => request(itemId ? `/plaid/sync/${itemId}` : '/plaid/sync', { method: 'POST' }),
+  updateBankTransaction: (id, data) =>
+    request(`/plaid/transactions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getBankTransactions: (params = {}) => {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null)).toString();
     return request(`/plaid/transactions${qs ? `?${qs}` : ''}`);
