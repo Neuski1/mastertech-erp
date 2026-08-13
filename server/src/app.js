@@ -699,6 +699,30 @@ const pool = require('./db/pool');
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_order_email_log_status ON order_email_log (match_status)');
 
+    // Reporting view: P&L by month = live ledger UNION historical QBO actuals for
+    // pre-cutover months (Jan-Apr 2026 and prior). Ledger owns 2026-05-01 forward.
+    // The Jan-Apr ledger depreciation stays (owner decision), and historical_pnl
+    // carries no depreciation, so there is zero overlap / no double-count. Cutover
+    // boundary hard-coded so a backdated JE can never re-introduce a double-count.
+    await pool.query(`CREATE OR REPLACE VIEW v_pnl_by_month AS
+      SELECT date_trunc('month', je.entry_date)::date AS period,
+             a.account_number, a.name, a.account_type,
+             sum(CASE WHEN a.normal_balance='credit' THEN jl.credit - jl.debit
+                      ELSE jl.debit - jl.credit END) AS amount
+        FROM journal_lines jl
+        JOIN journal_entries je ON je.id = jl.journal_entry_id
+        JOIN accounts a ON a.id = jl.account_id
+       WHERE je.is_posted = true AND a.statement = 'P&L'
+       GROUP BY 1, a.account_number, a.name, a.account_type
+      UNION ALL
+      SELECT make_date(h.year, h.month, 1) AS period,
+             a.account_number, a.name, a.account_type,
+             sum(h.amount) AS amount
+        FROM historical_pnl h
+        JOIN accounts a ON a.account_number = h.account_number
+       WHERE make_date(h.year, h.month, 1) < DATE '2026-05-01'
+       GROUP BY 1, a.account_number, a.name, a.account_type`);
+
     console.log('Migration check: all pending migrations applied');
   } catch (err) {
     console.error('Migration check error (non-fatal):', err.message);
