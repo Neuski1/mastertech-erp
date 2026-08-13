@@ -171,19 +171,34 @@ router.get('/reports/balance-sheet', async (req, res) => {
       [asOf]
     );
 
-    // Current-year net income (P&L accounts) through as_of. The ERP's P&L
-    // accounts hold only 2026 activity (pre-2026 earnings live in the opening
-    // Retained Earnings), so this is 2026 net income. Reported so the balance
-    // sheet can show it in equity and foot (Assets = Liabilities + Equity).
+    // Year-to-date net income through as_of, combining live journal_lines with
+    // the historical_pnl table — the same basis the P&L reports use. This is
+    // what closes the balance sheet: beginning-of-year Retained Earnings +
+    // net income YTD = total equity (Assets - Liabilities).
     const ni = await pool.query(
-      `SELECT COALESCE(SUM(
-                CASE WHEN a.account_type IN ('Income','Other Income') THEN (jl.credit - jl.debit)
-                     WHEN a.account_type IN ('Expense','Other Expense','COGS','Cost of Goods Sold') THEN -(jl.debit - jl.credit)
-                     ELSE 0 END), 0) AS net_income
-         FROM journal_lines jl
-         JOIN journal_entries je ON je.id = jl.journal_entry_id
-         JOIN accounts a ON a.id = jl.account_id
-        WHERE je.is_posted = TRUE AND a.statement = 'P&L' AND je.entry_date <= $1`,
+      `WITH pl AS (
+         SELECT a.account_type,
+                SUM(CASE WHEN a.normal_balance = 'credit'
+                         THEN jl.credit - jl.debit
+                         ELSE jl.debit - jl.credit END) AS amt
+           FROM journal_lines jl
+           JOIN journal_entries je ON je.id = jl.journal_entry_id
+           JOIN accounts a ON a.id = jl.account_id
+          WHERE je.is_posted = TRUE AND a.statement = 'P&L'
+            AND je.entry_date >= date_trunc('year', $1::date)
+            AND je.entry_date <= $1
+          GROUP BY a.account_type
+         UNION ALL
+         SELECT a.account_type, SUM(h.amount) AS amt
+           FROM historical_pnl h
+           JOIN accounts a ON a.account_number = h.account_number
+          WHERE h.year = EXTRACT(YEAR FROM $1::date)
+            AND h.month <= EXTRACT(MONTH FROM $1::date)
+          GROUP BY a.account_type
+       )
+       SELECT COALESCE(SUM(amt) FILTER (WHERE account_type IN ('Income','Other Income')), 0)
+            - COALESCE(SUM(amt) FILTER (WHERE account_type IN ('Expense','Other Expense','COGS','Cost of Goods Sold')), 0) AS net_income
+         FROM pl`,
       [asOf]
     );
 
@@ -191,7 +206,6 @@ router.get('/reports/balance-sheet', async (req, res) => {
       as_of: asOf,
       accounts: rows,
       net_income: parseFloat(ni.rows[0].net_income),
-      pre_2026_retained_earnings: 282020.39,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

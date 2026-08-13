@@ -216,9 +216,58 @@ router.get('/transactions', async (req, res) => {
   }
 });
 
+// PATCH /api/plaid/transactions/:id  { category_number, is_transfer }
+// Re-categorize a single transaction. category_number null/'' clears it.
+router.patch('/transactions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { category_number, is_transfer } = req.body;
+
+    let glId = null;
+    if (category_number !== null && category_number !== undefined && category_number !== '') {
+      const acct = await pool.query(
+        `SELECT id FROM accounts WHERE account_number = $1 AND is_active = TRUE`,
+        [String(category_number)]
+      );
+      if (acct.rows.length === 0) return res.status(400).json({ error: `Unknown GL account ${category_number}` });
+      glId = acct.rows[0].id;
+    }
+
+    const sets = [
+      'category_gl_id = $2',
+      "categorization_source = 'manual'",
+      "status = CASE WHEN status = 'posted' THEN 'posted' WHEN $2 IS NULL THEN 'pending' ELSE 'reviewed' END",
+      'reviewed_at = NOW()',
+      'updated_at = NOW()',
+    ];
+    const params = [id, glId];
+    if (typeof is_transfer === 'boolean') { params.push(is_transfer); sets.push(`is_transfer = $${params.length}`); }
+
+    const { rows } = await pool.query(
+      `UPDATE transactions SET ${sets.join(', ')} WHERE id = $1
+       RETURNING id, category_gl_id, categorization_source, status, is_transfer`,
+      params
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Transaction not found' });
+
+    let gl_number = null, gl_name = null;
+    if (glId) {
+      const a = await pool.query('SELECT account_number, name FROM accounts WHERE id = $1', [glId]);
+      if (a.rows.length) { gl_number = a.rows[0].account_number; gl_name = a.rows[0].name; }
+    }
+    res.json({ ok: true, transaction: { ...rows[0], gl_number, gl_name } });
+  } catch (err) {
+    console.error('PATCH /api/plaid/transactions/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function upsertTransaction(client, txn) {
-  const acct = await client.query(`SELECT id FROM plaid_accounts WHERE plaid_account_id = $1`, [txn.account_id]);
+  const acct = await client.query(`SELECT id, is_active FROM plaid_accounts WHERE plaid_account_id = $1`, [txn.account_id]);
   if (acct.rows.length === 0) return;
+  // Personal / excluded accounts (is_active = false, e.g. the owner's WAY2SAVE
+  // ...5473) must never import transactions.
+  if (acct.rows[0].is_active === false) return;
   const plaidAccountDbId = acct.rows[0].id;
 
   const rawRow = await client.query(

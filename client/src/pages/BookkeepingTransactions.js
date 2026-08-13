@@ -7,18 +7,38 @@ const PAGE = 100;
 
 export default function BookkeepingTransactions() {
   const [accounts, setAccounts] = useState([]);
+  const [glAccounts, setGlAccounts] = useState([]);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [sumAmount, setSumAmount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [offset, setOffset] = useState(0);
+  const [savingId, setSavingId] = useState(null);
+  const [savedId, setSavedId] = useState(null);
 
   const [filters, setFilters] = useState({ account_id: '', start: '', end: '', status: '', q: '' });
 
   useEffect(() => {
     api.getPlaidAccounts().then(setAccounts).catch(() => {});
+    api.getGlAccounts().then(setGlAccounts).catch(() => {});
   }, []);
+
+  const saveCategory = (row, category_number) => {
+    setSavingId(row.id);
+    setSavedId(null);
+    api.updateBankTransaction(row.id, { category_number: category_number || null })
+      .then((res) => {
+        const t = res.transaction || {};
+        setRows(rs => rs.map(r => r.id === row.id
+          ? { ...r, gl_number: t.gl_number || null, gl_name: t.gl_name || null, status: t.status || r.status }
+          : r));
+        setSavedId(row.id);
+        setTimeout(() => setSavedId(s => (s === row.id ? null : s)), 1500);
+      })
+      .catch(e => setError(e.message || String(e)))
+      .finally(() => setSavingId(null));
+  };
 
   const load = useCallback(async (off) => {
     setLoading(true);
@@ -120,7 +140,23 @@ export default function BookkeepingTransactions() {
                   )}
                   {t.is_transfer && <span style={tag}>transfer</span>}
                 </td>
-                <td style={td}>{t.gl_number ? `${t.gl_number} ${t.gl_name}` : <span style={{ color: '#c00' }}>Uncategorized</span>}</td>
+                <td style={td}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <select
+                      value={t.gl_number || ''}
+                      disabled={savingId === t.id}
+                      onChange={(e) => saveCategory(t, e.target.value)}
+                      style={{ ...inp, minWidth: 210, borderColor: t.gl_number ? '#ccc' : '#c00' }}
+                    >
+                      <option value="">— Uncategorized —</option>
+                      {glAccounts.map(g => (
+                        <option key={g.account_number} value={g.account_number}>{g.account_number} {g.name}</option>
+                      ))}
+                    </select>
+                    {savingId === t.id && <span style={{ fontSize: 11, color: '#888' }}>saving…</span>}
+                    {savedId === t.id && <span style={{ fontSize: 11, color: '#0a7d28' }}>✓</span>}
+                  </div>
+                </td>
                 <td style={{ ...td, textAlign: 'right', color: Number(t.amount) < 0 ? '#0a7d28' : '#111', fontWeight: 600 }}>{money(t.amount)}</td>
                 <td style={td}>{t.status}</td>
               </tr>
