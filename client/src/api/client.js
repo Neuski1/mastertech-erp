@@ -519,6 +519,7 @@ export const api = {
   getBookkeepingPnl: (year) => request(`/bookkeeping/reports/pnl?year=${year || new Date().getFullYear()}`),
   getBookkeepingPnlComparison: (years) => request(`/bookkeeping/reports/pnl-comparison${years ? `?years=${years.join(',')}` : ''}`),
   getBookkeepingBalanceSheet: (asOf) => request(`/bookkeeping/reports/balance-sheet${asOf ? `?as_of=${asOf}` : ''}`),
+  getBankReconciliation: (asOf) => request(`/bookkeeping/reports/bank-reconciliation${asOf ? `?as_of=${asOf}` : ''}`),
   getStorageRevenue: (year, month) => request(`/bookkeeping/storage-revenue?year=${year}&month=${month}`),
 
 };
