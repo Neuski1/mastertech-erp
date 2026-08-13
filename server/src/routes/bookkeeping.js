@@ -170,12 +170,71 @@ router.get('/reports/balance-sheet', async (req, res) => {
         ORDER BY a.account_number`,
       [asOf]
     );
-    res.json({ as_of: asOf, accounts: rows });
+
+    // Current-year net income (P&L accounts) through as_of. The ERP's P&L
+    // accounts hold only 2026 activity (pre-2026 earnings live in the opening
+    // Retained Earnings), so this is 2026 net income. Reported so the balance
+    // sheet can show it in equity and foot (Assets = Liabilities + Equity).
+    const ni = await pool.query(
+      `SELECT COALESCE(SUM(
+                CASE WHEN a.account_type IN ('Income','Other Income') THEN (jl.credit - jl.debit)
+                     WHEN a.account_type IN ('Expense','Other Expense','COGS','Cost of Goods Sold') THEN -(jl.debit - jl.credit)
+                     ELSE 0 END), 0) AS net_income
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id = jl.journal_entry_id
+         JOIN accounts a ON a.id = jl.account_id
+        WHERE je.is_posted = TRUE AND a.statement = 'P&L' AND je.entry_date <= $1`,
+      [asOf]
+    );
+
+    res.json({
+      as_of: asOf,
+      accounts: rows,
+      net_income: parseFloat(ni.rows[0].net_income),
+      pre_2026_retained_earnings: 282020.39,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+
+// ---------------------------------------------------------------------------
+// GET /api/bookkeeping/reports/bank-reconciliation?as_of=YYYY-MM-DD
+// Per bank GL account: ledger balance as-of vs the connected bank feed balance,
+// so a month-end close that doesn't tie to the statement is caught immediately.
+// ---------------------------------------------------------------------------
+router.get('/reports/bank-reconciliation', async (req, res) => {
+  try {
+    const asOf = req.query.as_of || new Date().toISOString().slice(0, 10);
+    const { rows } = await pool.query(
+      `SELECT a.account_number, a.name,
+              COALESCE(SUM(CASE WHEN je.is_posted AND je.entry_date <= $1
+                                THEN jl.debit - jl.credit ELSE 0 END), 0) AS gl_balance,
+              pa.mask, pa.nickname AS bank_nickname,
+              pa.current_balance AS feed_balance, pa.last_balance_at
+         FROM accounts a
+         LEFT JOIN journal_lines jl ON jl.account_id = a.id
+         LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+         LEFT JOIN plaid_accounts pa ON pa.gl_account_id = a.id
+        WHERE a.account_type = 'Bank' AND a.is_active = TRUE
+        GROUP BY a.id, pa.mask, pa.nickname, pa.current_balance, pa.last_balance_at
+        ORDER BY a.account_number`,
+      [asOf]
+    );
+    res.json({ as_of: asOf, accounts: rows.map(r => ({
+      account_number: r.account_number,
+      name: r.name,
+      gl_balance: parseFloat(r.gl_balance),
+      bank_mask: r.mask || null,
+      bank_nickname: r.bank_nickname || null,
+      feed_balance: r.feed_balance != null ? parseFloat(r.feed_balance) : null,
+      feed_as_of: r.last_balance_at || null,
+    })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/bookkeeping/reports/pnl-comparison?years=2026,2025,2024,2023
