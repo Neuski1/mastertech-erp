@@ -65,14 +65,15 @@ export default function BookkeepingBalanceSheet() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
-      <h1 style={{ marginTop: 0 }}>Bookkeeping</h1>
+      <h1 className="print-hide" style={{ marginTop: 0 }}>Bookkeeping</h1>
       <BookkeepingNav />
+      <style>{bsPrintCss}</style>
       <div className="print-only" style={{ textAlign: 'center', marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>Master Tech RV Repair & Storage</h1>
         <h2 style={{ margin: 0 }}>Balance Sheet</h2>
         <p style={{ margin: 0 }}>As of {formatDate(asOf)}</p>
       </div>
-      <div style={{ display:'flex', alignItems:'center', gap: 12, marginBottom: 16 }}>
+      <div className="print-hide" style={{ display:'flex', alignItems:'center', gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Balance Sheet</h2>
         <label>
           As of:&nbsp;
@@ -82,7 +83,7 @@ export default function BookkeepingBalanceSheet() {
       </div>
       {error && <div style={{ background:'#fee', color:'#900', padding:12, borderRadius:6, marginBottom:16 }}>{error}</div>}
       {loading ? <p>Loading...</p> : data && (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="bs-print-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#1a2a4a', color: '#fff' }}>
               <th style={{ ...th, textAlign: 'left' }}>Account</th>
@@ -128,6 +129,14 @@ export default function BookkeepingBalanceSheet() {
     </div>
   );
 }
+
+const bsPrintCss = `@media print {
+  @page { size: portrait; margin: 0.5in; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bs-print-table { font-size: 8pt !important; }
+  .bs-print-table th, .bs-print-table td { padding: 1.5px 8px !important; }
+  .bs-print-table thead th { background: #1a2a4a !important; color: #fff !important; }
+}`;
 
 const th = { padding: '10px 12px', fontWeight: 600 };
 const td = { padding: '6px 12px', borderBottom: '1px solid #eee' };
