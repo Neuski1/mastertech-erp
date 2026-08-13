@@ -12,7 +12,7 @@ export default function BookkeepingPnlComparison() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [view, setView] = useState('monthly');
-  const [throughMonth, setThroughMonth] = useState(Math.max(0, new Date().getMonth() - 1)); // default: last completed month
+  const [throughMonth, setThroughMonth] = useState(11); // default: full year Jan-Dec so it reads across and prints complete
 
   const handlePrint = () => {
     const style = document.createElement('style');
@@ -240,13 +240,19 @@ export default function BookkeepingPnlComparison() {
       {view === 'monthly' && (
         <div className="print-only">
           {(() => {
-            const first = []; for (let m = 0; m <= Math.min(5, throughMonth); m++) first.push(m);
-            const second = []; for (let m = 6; m <= throughMonth; m++) second.push(m);
             const thru = MONTHS[throughMonth];
+            // Through July or earlier (<= 7 months) fits on one landscape page.
+            if (throughMonth <= 6) {
+              const all = []; for (let m = 0; m <= throughMonth; m++) all.push(m);
+              return printHalf(all, true, `January \u2013 ${thru} (Total Thru ${thru})`);
+            }
+            // Longer ranges split: Jan-Jun on page 1, Jul-through on page 2.
+            const first = [0, 1, 2, 3, 4, 5];
+            const second = []; for (let m = 6; m <= throughMonth; m++) second.push(m);
             return (<>
-              {printHalf(first, second.length === 0, `January \u2013 ${MONTHS[Math.min(5, throughMonth)]}${second.length === 0 ? ` (Total Thru ${thru})` : ''}`)}
-              {second.length > 0 && <div style={{ pageBreakBefore: 'always' }}></div>}
-              {second.length > 0 && printHalf(second, true, `July \u2013 ${thru} (Total Thru ${thru})`)}
+              {printHalf(first, false, 'January \u2013 June')}
+              <div style={{ pageBreakBefore: 'always' }}></div>
+              {printHalf(second, true, `July \u2013 ${thru} (Total Thru ${thru})`)}
             </>);
           })()}
         </div>
