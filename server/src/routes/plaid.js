@@ -233,18 +233,21 @@ router.patch('/transactions/:id', async (req, res) => {
       glId = acct.rows[0].id;
     }
 
+    // Compute the new review status in JS so no parameter is used in an IS NULL
+    // check (that leaves Postgres unable to infer the parameter's type).
+    const newStatus = glId === null ? 'pending' : 'reviewed';
     const sets = [
-      'category_gl_id = $2',
+      'category_gl_id = $2::int',
       "categorization_source = 'manual'",
-      "status = CASE WHEN status = 'posted' THEN 'posted' WHEN $2 IS NULL THEN 'pending' ELSE 'reviewed' END",
+      "status = CASE WHEN status = 'posted' THEN 'posted' ELSE $3 END",
       'reviewed_at = NOW()',
       'updated_at = NOW()',
     ];
-    const params = [id, glId];
+    const params = [id, glId, newStatus];
     if (typeof is_transfer === 'boolean') { params.push(is_transfer); sets.push(`is_transfer = $${params.length}`); }
 
     const { rows } = await pool.query(
-      `UPDATE transactions SET ${sets.join(', ')} WHERE id = $1
+      `UPDATE transactions SET ${sets.join(', ')} WHERE id = $1::int
        RETURNING id, category_gl_id, categorization_source, status, is_transfer`,
       params
     );
