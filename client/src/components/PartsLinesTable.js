@@ -36,6 +36,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const [orderEditId, setOrderEditId] = useState(null);
   const [orderForm, setOrderForm] = useState({ order_status: 'ordered', order_eta: '', order_date: '', order_supplier: '', order_number: '', order_tracking: '' });
   const [allPartsFormVisible, setAllPartsFormVisible] = useState(false);
+  const [bulkApplyIds, setBulkApplyIds] = useState([]); // other part lines to copy this order info onto
   const [pullFromStock, setPullFromStock] = useState(true);
   const [selectedItemQty, setSelectedItemQty] = useState(0);
   const searchTimeout = useRef(null);
@@ -59,6 +60,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
 
   const openOrderEdit = (line) => {
     setOrderEditId(line.id);
+    setBulkApplyIds([]);
     setOrderForm({
       order_status: line.order_status || 'ordered',
       order_eta: line.order_eta ? line.order_eta.toString().slice(0, 10) : '',
@@ -72,7 +74,15 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const handleSaveOrder = async (lineId) => {
     try {
       await api.updatePart(recordId, lineId, orderForm);
+      // Copy the same order info (supplier, order #, tracking, status, dates)
+      // onto any other part lines the user checked, so one Amazon order number
+      // does not have to be typed in six times.
+      for (const bid of bulkApplyIds) {
+        if (bid === lineId) continue;
+        await api.updatePart(recordId, bid, orderForm);
+      }
       setOrderEditId(null);
+      setBulkApplyIds([]);
       onUpdate();
     } catch (err) {
       console.error('Save order error:', err);
@@ -877,8 +887,31 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                         <label style={{ fontSize: '0.8rem', color: '#374151' }}>ETA:</label>
                         <input type="date" value={orderForm.order_eta} onChange={(e) => setOrderForm({ ...orderForm, order_eta: e.target.value })}
                           style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem' }} />
-                        <button onClick={() => handleSaveOrder(line.id)} style={{ padding: '3px 8px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
-                        <button onClick={() => setOrderEditId(null)} style={{ padding: '3px 8px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={() => handleSaveOrder(line.id)} style={{ padding: '3px 8px', background: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>{bulkApplyIds.length > 0 ? `Save to ${bulkApplyIds.length + 1} parts` : 'Save'}</button>
+                        <button onClick={() => { setOrderEditId(null); setBulkApplyIds([]); }} style={{ padding: '3px 8px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
+                        {(() => {
+                          const others = (partsLines || []).filter(l => l.id !== line.id && !l.is_estimate_line);
+                          if (others.length === 0) return null;
+                          const allChecked = others.every(o => bulkApplyIds.includes(o.id));
+                          return (
+                            <div style={{ width: '100%', marginTop: 6, paddingTop: 6, borderTop: '1px dashed #e5e7eb' }}>
+                              <div style={{ fontSize: '0.75rem', color: '#374151', marginBottom: 4, fontWeight: 600 }}>
+                                Also apply this supplier, order #, tracking &amp; dates to:
+                              </div>
+                              <label style={{ fontSize: '0.75rem', marginRight: 12, fontWeight: 600 }}>
+                                <input type="checkbox" checked={allChecked}
+                                  onChange={(e) => setBulkApplyIds(e.target.checked ? others.map(o => o.id) : [])} /> Select all
+                              </label>
+                              {others.map(o => (
+                                <label key={o.id} style={{ fontSize: '0.75rem', marginRight: 12, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  <input type="checkbox" checked={bulkApplyIds.includes(o.id)}
+                                    onChange={(e) => setBulkApplyIds(prev => e.target.checked ? [...prev, o.id] : prev.filter(x => x !== o.id))} />
+                                  {o.description || o.part_number || `Part ${o.id}`}
+                                </label>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
