@@ -155,7 +155,10 @@ router.get('/reports/balance-sheet', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT a.account_number, a.name, a.account_type, a.normal_balance,
               COALESCE(SUM(
-                CASE WHEN a.normal_balance = 'debit'
+                -- je.id IS NULL means the line's entry is unposted or dated after
+                -- as_of (the LEFT JOIN condition failed); it must not be counted.
+                CASE WHEN je.id IS NULL THEN 0
+                     WHEN a.normal_balance = 'debit'
                      THEN jl.debit - jl.credit
                      ELSE jl.credit - jl.debit END
               ), 0) AS balance
