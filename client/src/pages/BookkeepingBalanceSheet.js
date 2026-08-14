@@ -24,6 +24,7 @@ export default function BookkeepingBalanceSheet() {
   const sections = { 'Bank': [], 'Accounts Receivable': [], 'Other Current Asset': [], 'Fixed Asset': [], 'Fixed Asset (contra)': [],
                      'Credit Card': [], 'Accounts Payable': [], 'Other Current Liability': [], 'Long-Term Liability': [], 'Equity': [] };
   if (data) for (const a of data.accounts) {
+    if (Number(a.balance) === 0) continue; // omit $0.00 accounts
     if (sections[a.account_type]) sections[a.account_type].push(a);
   }
   const sumOf = (arr) => arr.reduce((s, a) => s + Number(a.balance), 0);
@@ -109,7 +110,7 @@ export default function BookkeepingBalanceSheet() {
               </>
             )}
             {totalRow('Total Fixed Assets', totalFixedAssets, '#e8f5e9')}
-            {totalRow('TOTAL ASSETS', totalAssets, '#1a2a4a')}
+            {totalRow('TOTAL ASSETS', totalAssets, '#1a2a4a', '#ffffff')}
             <tr style={{ background: '#dde7f5' }}><td style={{ ...td, fontWeight: 800, fontSize: '1.05rem' }} colSpan={2}>LIABILITIES</td></tr>
             {renderGroup('Credit Cards', sections['Credit Card'])}
             {renderGroup('Accounts Payable', sections['Accounts Payable'])}
