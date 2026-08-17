@@ -10,7 +10,7 @@ const { client: squareClient } = require('../services/square');
 // 1. Go to developer.squareup.com → Your app → Webhooks → Add endpoint
 // 2. URL: https://yourdomain.com/api/square/webhook
 //    (for local testing: ngrok http 3001)
-// 3. Subscribe to: terminal.checkout.updated
+// 3. Subscribe to: payment.created, payment.updated, terminal.checkout.updated
 // 4. Copy signature key → SQUARE_WEBHOOK_SIGNATURE_KEY in .env
 // ---------------------------------------------------------------------------
 
@@ -114,6 +114,23 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       console.error('Square webhook processing error:', err);
     } finally {
       dbClient.release();
+    }
+  }
+
+  // Online / payment-link / card payments (not the in-person terminal flow).
+  // Reuse the reconcile recorder: it resolves the record, dedupes by payment id,
+  // and only records when a balance is still owed, so it is safe to call here.
+  if (event.type === 'payment.created' || event.type === 'payment.updated') {
+    const payment = event.data?.object?.payment;
+    if (!payment) return;
+    try {
+      const { recordSquarePayment } = require('../jobs/squareReconcileCron');
+      const result = await recordSquarePayment(payment);
+      if (result.recorded) {
+        console.log(`Square webhook: payment ${payment.id} recorded for record ${result.recordId}`);
+      }
+    } catch (err) {
+      console.error('Square webhook payment event error:', err.message);
     }
   }
 });

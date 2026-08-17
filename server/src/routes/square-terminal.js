@@ -170,7 +170,7 @@ router.post('/checkout', requireRole('admin', 'service_writer', 'bookkeeper', 't
         deviceOptions: {
           deviceId: deviceId,
           skipReceiptScreen: false,
-          tipSettings: { allowTipping: true, separateTipScreen: true },
+          tipSettings: { allowTipping: true, separateTipScreen: true, customTipField: true },
         },
         referenceId: referenceId,
         note: note,
