@@ -17,6 +17,21 @@ export default function ReviewRequests() {
       .finally(() => setLoading(false));
   }, []);
 
+  const [savingId, setSavingId] = useState(null);
+  const excludeCustomer = async (custId, label) => {
+    if (!custId) return;
+    if (!window.confirm(`Stop all future review requests to ${label}?`)) return;
+    setSavingId(custId);
+    try {
+      await api.updateCustomer(custId, { review_opt_out: true });
+      setRows((rs) => rs.map((x) => (x.customer_id === custId ? { ...x, review_opt_out: true } : x)));
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const name = (r) => [r.first_name, r.last_name].filter(Boolean).join(' ') || '(unknown)';
   const filtered = q.trim()
     ? rows.filter((r) => `${name(r)} ${r.email_primary || ''} ${r.phone_primary || ''} ${r.record_number || ''}`.toLowerCase().includes(q.toLowerCase()))
@@ -57,6 +72,7 @@ export default function ReviewRequests() {
                 <th style={th}>Channel</th>
                 <th style={th}>Sent To</th>
                 <th style={th}>Invoice</th>
+                <th style={th}>Future Requests</th>
               </tr>
             </thead>
             <tbody>
@@ -70,10 +86,23 @@ export default function ReviewRequests() {
                   <td style={td}>{channelBadge(r.channel)}</td>
                   <td style={td}>{r.channel === 'sms' ? (r.phone_primary || '') : (r.email_primary || '')}</td>
                   <td style={td}>{r.record_number ? (r.record_id ? <Link to={`/records/${r.record_id}`}>#{r.record_number}</Link> : `#${r.record_number}`) : ''}</td>
+                  <td style={td}>
+                    {r.review_opt_out ? (
+                      <span style={{ color: '#dc2626', fontWeight: 600, fontSize: '0.75rem' }}>Excluded</span>
+                    ) : (
+                      <button
+                        onClick={() => excludeCustomer(r.customer_id, name(r))}
+                        disabled={savingId === r.customer_id}
+                        style={{ padding: '3px 10px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        {savingId === r.customer_id ? 'Saving…' : 'Exclude'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={5} style={{ ...td, textAlign: 'center', color: '#999', padding: 24 }}>No review requests found.</td></tr>
+                <tr><td colSpan={6} style={{ ...td, textAlign: 'center', color: '#999', padding: 24 }}>No review requests found.</td></tr>
               )}
             </tbody>
           </table>
