@@ -350,4 +350,56 @@ router.get('/square-customer-search', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/storage-attach-card
+// Body: { billing_id, square_customer_id, card_id }
+// Attaches an EXISTING Square card-on-file to a storage billing and turns on
+// ERP autopay. Charges nothing now - the monthly job bills on the last day of
+// the month. Used to migrate customers off Square recurring invoices without
+// making them re-enter a card.
+router.post('/storage-attach-card', requireCoworkKey, async (req, res) => {
+  const { billing_id, square_customer_id, card_id } = req.body || {};
+  if (!billing_id || !square_customer_id || !card_id) {
+    return res.status(400).json({ error: 'billing_id, square_customer_id and card_id are required' });
+  }
+  try {
+    const square = require('../services/square');
+    // Verify the card exists, is enabled, and belongs to that customer.
+    const cr = await square.client.cards.get({ cardId: card_id });
+    const cd = cr?.data || cr?.result || cr || {};
+    const card = cd.card || cd;
+    if (!card || !card.id) return res.status(404).json({ error: 'Card not found in Square' });
+    if (card.enabled === false) return res.status(400).json({ error: 'Card is disabled in Square' });
+    if (card.customerId && card.customerId !== square_customer_id) {
+      return res.status(400).json({ error: 'Card does not belong to that Square customer' });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE storage_billing
+          SET square_customer_id = $1,
+              autopay_card_id = $2,
+              autopay_card_brand = $3,
+              autopay_card_last4 = $4,
+              autopay_card_exp = $5,
+              autopay_enabled = TRUE,
+              autopay_authorized_at = COALESCE(autopay_authorized_at, NOW())
+        WHERE id = $6 AND deleted_at IS NULL
+        RETURNING id, autopay_enabled, autopay_card_brand, autopay_card_last4`,
+      [
+        square_customer_id, card.id,
+        card.cardBrand || card.card_brand || null,
+        card.last4 || null,
+        (card.expMonth && card.expYear)
+          ? String(card.expMonth).padStart(2, '0') + '/' + String(card.expYear).slice(-2)
+          : null,
+        billing_id,
+      ]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Storage billing not found' });
+    res.json({ ok: true, billing: rows[0] });
+  } catch (err) {
+    const detail = err.errors ? err.errors.map(e => e.detail).join('; ') : err.message;
+    res.status(500).json({ error: detail });
+  }
+});
+
 module.exports = router;
