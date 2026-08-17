@@ -1019,7 +1019,7 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           >
             <option value="">— not set —</option>
             <option value="credit_card">Credit card (adds 3.5% fee)</option>
-            <option value="ach">Bank transfer / ACH</option>
+            <option value="ach">Bank transfer / ACH (adds 1% fee)</option>
             <option value="zelle">Zelle</option>
             <option value="check">Check</option>
             <option value="cash">Cash</option>
@@ -1027,7 +1027,9 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 3 }}>
             {space.payment_method === 'credit_card'
               ? 'Monthly invoice will show a 3.5% card processing fee.'
-              : 'No processing fee added to the monthly invoice.'}
+              : space.payment_method === 'ach'
+                ? 'Monthly invoice will show a 1% bank transfer fee ($1 minimum).'
+                : 'No processing fee added to the monthly invoice.'}
           </div>
         </div>
       </div>

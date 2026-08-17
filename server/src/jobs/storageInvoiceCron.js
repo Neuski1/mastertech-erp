@@ -10,7 +10,9 @@ const cron = require('node-cron');
 const pool = require('../db/pool');
 const { sendEmail } = require('../services/email');
 
-const CARD_SURCHARGE_PCT = 0.035;
+const CARD_SURCHARGE_PCT = 0.035;   // Square: manual entry / card on file
+const ACH_SURCHARGE_PCT = 0.01;     // Square: ACH bank transfer
+const ACH_MIN_FEE = 1.00;           // Square bills a $1 minimum on ACH
 
 function isLastDayOfMonth(d = new Date()) {
   const t = new Date(d);
@@ -33,36 +35,37 @@ function methodInfo(method, autopayOn, cardBrand, cardLast4) {
   switch (method) {
     case 'credit_card':
       return {
-        surcharge: true,
+        feePct: CARD_SURCHARGE_PCT, feeMin: 0, feeLabel: 'Card processing fee (3.5%)',
         label: 'Credit card',
         instructions: autopayOn
           ? `No action needed. Your ${cardBrand || 'card'}${cardLast4 ? ' ending ' + cardLast4 : ''} on file will be charged automatically.`
           : 'Please call the office to pay by card, or ask us to send you a secure payment link.',
       };
     case 'ach':
-      return { surcharge: false, label: 'Bank transfer (ACH)',
+      return { feePct: ACH_SURCHARGE_PCT, feeMin: ACH_MIN_FEE, feeLabel: 'Bank transfer fee (1%)',
+        label: 'Bank transfer (ACH)',
         instructions: autopayOn
           ? 'No action needed. Your bank account on file will be debited automatically.'
           : 'Please contact the office to set up your bank transfer.' };
     case 'zelle':
-      return { surcharge: false, label: 'Zelle',
+      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Zelle',
         instructions: 'Please send your Zelle payment to service@mastertechrvrepair.com.' };
     case 'check':
-      return { surcharge: false, label: 'Check',
+      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Check',
         instructions: 'Please mail or drop off your check to Master Tech RV, 6590 East 49th Avenue, Commerce City, CO 80022.' };
     case 'cash':
-      return { surcharge: false, label: 'Cash',
+      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Cash',
         instructions: 'Please drop off your payment at the office during business hours, Monday through Friday 9 to 6.' };
     default:
-      return { surcharge: false, label: 'Not set',
+      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Not set',
         instructions: 'Please contact the office to arrange payment.' };
   }
 }
 
-function buildInvoiceHtml({ firstName, spaceLabel, year, month, rent, surcharge, total, methodLabel, instructions, applySurcharge }) {
+function buildInvoiceHtml({ firstName, spaceLabel, year, month, rent, surcharge, total, methodLabel, instructions, feeLabel }) {
   const period = `${MONTHS[month - 1]} ${year}`;
-  const feeRow = applySurcharge
-    ? `<tr><td style="padding:6px 0;color:#374151;">Card processing fee (3.5%)</td><td style="padding:6px 0;text-align:right;color:#374151;">${money(surcharge)}</td></tr>`
+  const feeRow = (surcharge > 0 && feeLabel)
+    ? `<tr><td style="padding:6px 0;color:#374151;">${feeLabel}</td><td style="padding:6px 0;text-align:right;color:#374151;">${money(surcharge)}</td></tr>`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
@@ -136,7 +139,10 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
   for (const r of list) {
     const rent = parseFloat(r.monthly_rate);
     const info = methodInfo(r.payment_method, r.autopay_enabled, r.autopay_card_brand, r.autopay_card_last4);
-    const surcharge = info.surcharge ? Math.round(rent * CARD_SURCHARGE_PCT * 100) / 100 : 0;
+    // Pass through what Square actually charges, including the ACH $1 minimum.
+    const surcharge = info.feePct > 0
+      ? Math.max(Math.round(rent * info.feePct * 100) / 100, info.feeMin || 0)
+      : 0;
     const total = Math.round((rent + surcharge) * 100) / 100;
     const row = {
       billing_id: r.billing_id, space: r.space_label, customer: r.first_name,
@@ -150,9 +156,9 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
     const html = buildInvoiceHtml({
       firstName: r.first_name, spaceLabel: r.space_label, year: p.year, month: p.month,
       rent, surcharge, total, methodLabel: info.label, instructions: info.instructions,
-      applySurcharge: info.surcharge,
+      feeLabel: info.feeLabel,
     });
-    const text = `Hi ${r.first_name || 'there'},\n\nYour storage invoice for ${MONTHS[p.month - 1]} ${p.year}.\n\nSpace: ${r.space_label}\nMonthly rent: ${money(rent)}\n${info.surcharge ? `Card processing fee (3.5%): ${money(surcharge)}\n` : ''}Total due: ${money(total)}\n\nPayment method: ${info.label}\n${info.instructions}\n\nQuestions? Reply to this email or call (303) 557-2214.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage`;
+    const text = `Hi ${r.first_name || 'there'},\n\nYour storage invoice for ${MONTHS[p.month - 1]} ${p.year}.\n\nSpace: ${r.space_label}\nMonthly rent: ${money(rent)}\n${surcharge > 0 && info.feeLabel ? `${info.feeLabel}: ${money(surcharge)}\n` : ''}Total due: ${money(total)}\n\nPayment method: ${info.label}\n${info.instructions}\n\nQuestions? Reply to this email or call (303) 557-2214.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage`;
 
     try {
       const res = await sendEmail({
