@@ -252,7 +252,7 @@ router.get('/square-card-audit', requireCoworkKey, async (req, res) => {
         // 1) Search Square by email, then by phone.
         if (r.email_primary) {
           const resp = await square.client.customers.search({
-            query: { filter: { emailAddress: { exact: r.email_primary } } }, limit: 5,
+            query: { filter: { emailAddress: { exact: r.email_primary } } },
           });
           const d = resp?.data || resp?.result || resp || {};
           const list = d.customers || [];
@@ -262,7 +262,7 @@ router.get('/square-card-audit', requireCoworkKey, async (req, res) => {
           const ph = digits(r.phone_primary);
           if (ph.length >= 10) {
             const resp = await square.client.customers.search({
-              query: { filter: { phoneNumber: { fuzzy: ph.slice(-10) } } }, limit: 5,
+              query: { filter: { phoneNumber: { fuzzy: ph.slice(-10) } } },
             });
             const d = resp?.data || resp?.result || resp || {};
             const list = d.customers || [];
