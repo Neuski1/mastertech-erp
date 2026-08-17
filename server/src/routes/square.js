@@ -45,6 +45,19 @@ router.get('/config', (req, res) => {
   });
 });
 
+// POST /api/square/reconcile — pull recent Square payments and record any that
+// never registered (e.g. a lost payment-link redirect). Safe to run anytime.
+router.post('/reconcile', requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const { reconcileSquarePayments } = require('../jobs/squareReconcileCron');
+    const hoursBack = Math.min(parseInt(req.body && req.body.hoursBack) || 168, 720);
+    const result = await reconcileSquarePayments({ hoursBack });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/square/create-payment — Process a card charge via Square
 // Body: { record_id, source_id (nonce), amount, payment_type, notes }

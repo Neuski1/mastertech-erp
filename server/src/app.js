@@ -742,6 +742,8 @@ startAppointmentReminderCron();
 
 const { startReviewRequestCron } = require('./jobs/reviewRequestCron');
 startReviewRequestCron();
+const { startSquareReconcileCron } = require('./jobs/squareReconcileCron');
+startSquareReconcileCron();
 
 const { startStorageStatusBackfillCron } = require('./jobs/storageStatusBackfillCron');
 startStorageStatusBackfillCron();

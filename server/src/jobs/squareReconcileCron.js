@@ -1,0 +1,127 @@
+// Reconciles Square payments that never registered in the ERP (e.g. a customer
+// paid a payment link but the browser redirect back to us was lost). Runs every
+// 15 minutes and is fail-safe: it dedupes by Square payment id AND only records
+// against a record that still has a balance owed, so it can never double-record.
+const cron = require('node-cron');
+const pool = require('../db/pool');
+const { recalculateTotals } = require('../db/calculations');
+const { client: squareClient, locationId } = require('../services/square');
+
+async function resolveRecordId(dbClient, payment) {
+  const orderId = payment.orderId || payment.order_id;
+  if (!orderId) return null;
+  let order;
+  try {
+    const resp = await squareClient.orders.get({ orderId });
+    const d = resp?.data || resp?.result || resp || {};
+    order = d.order || d;
+  } catch (e) {
+    return null;
+  }
+  if (!order) return null;
+
+  // Preferred: an explicit reference_id equal to our record id.
+  const ref = order.referenceId || order.reference_id;
+  if (ref && /^\d+$/.test(String(ref))) {
+    const { rows } = await dbClient.query('SELECT id FROM records WHERE id = $1 AND deleted_at IS NULL', [ref]);
+    if (rows.length) return rows[0].id;
+  }
+  // Fallback: parse "WO #<record_number>" from the line item name we set.
+  const items = order.lineItems || order.line_items || [];
+  for (const it of items) {
+    const m = /WO #(\d+)/i.exec(it.name || '');
+    if (m) {
+      const { rows } = await dbClient.query('SELECT id FROM records WHERE record_number = $1 AND deleted_at IS NULL', [m[1]]);
+      if (rows.length) return rows[0].id;
+    }
+  }
+  return null;
+}
+
+async function listRecentPayments(beginTime) {
+  const resp = await squareClient.payments.list({ locationId, beginTime, sortOrder: 'DESC' });
+  if (Array.isArray(resp)) return resp;
+  if (resp?.data && Array.isArray(resp.data)) return resp.data;
+  if (resp?.result?.payments) return resp.result.payments;
+  if (resp?.payments) return resp.payments;
+  if (resp && typeof resp[Symbol.asyncIterator] === 'function') {
+    const out = [];
+    for await (const item of resp) { out.push(item); if (out.length >= 200) break; }
+    return out;
+  }
+  return [];
+}
+
+async function reconcileSquarePayments({ hoursBack = 72 } = {}) {
+  if (!locationId) return { checked: 0, recorded: 0, error: 'no location' };
+  const beginTime = new Date(Date.now() - hoursBack * 3600 * 1000).toISOString();
+
+  let payments = [];
+  try {
+    payments = await listRecentPayments(beginTime);
+  } catch (e) {
+    console.error('[squareReconcile] list payments failed:', e.message);
+    return { checked: 0, recorded: 0, error: e.message };
+  }
+
+  let checked = 0, recorded = 0;
+  for (const p of payments) {
+    if (p.status !== 'COMPLETED' && p.status !== 'APPROVED') continue;
+    checked++;
+    const payId = p.id;
+    if (!payId) continue;
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query('BEGIN');
+      const { rows: exist } = await dbClient.query('SELECT id FROM payments WHERE square_transaction_id = $1', [payId]);
+      if (exist.length) { await dbClient.query('ROLLBACK'); continue; }
+
+      const recordId = await resolveRecordId(dbClient, p);
+      if (!recordId) { await dbClient.query('ROLLBACK'); continue; }
+
+      // Safety: only auto-record when the record still owes money.
+      const { rows: recRows } = await dbClient.query('SELECT status, amount_due FROM records WHERE id = $1', [recordId]);
+      if (!recRows.length || parseFloat(recRows[0].amount_due) <= 0.01) { await dbClient.query('ROLLBACK'); continue; }
+
+      const amount = Number(p.amountMoney?.amount || p.amount_money?.amount || 0) / 100;
+      if (amount <= 0) { await dbClient.query('ROLLBACK'); continue; }
+
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+      await dbClient.query(
+        `INSERT INTO payments (record_id, payment_type, payment_method, amount, payment_date, square_transaction_id, notes)
+         VALUES ($1, 'final_payment', 'credit_card', $2, $3, $4, $5)`,
+        [recordId, amount, today, payId, `Square payment auto-reconciled ${payId}`]
+      );
+      await recalculateTotals(recordId, dbClient);
+
+      const { rows: r2 } = await dbClient.query('SELECT status, amount_due, total_collected FROM records WHERE id = $1', [recordId]);
+      const rec = r2[0];
+      if (parseFloat(rec.amount_due) <= 0 && parseFloat(rec.total_collected) > 0 && !['estimate', 'approved', 'void'].includes(rec.status)) {
+        await dbClient.query("UPDATE records SET status = 'paid', payment_pending_since = NULL, reminder_count = 0, last_reminder_sent_at = NULL WHERE id = $1", [recordId]);
+      } else if (parseFloat(rec.total_collected) > 0 && parseFloat(rec.amount_due) > 0 && ['complete', 'payment_pending'].includes(rec.status)) {
+        await dbClient.query("UPDATE records SET status = 'partial' WHERE id = $1", [recordId]);
+      }
+      await dbClient.query('COMMIT');
+      recorded++;
+      console.log(`[squareReconcile] Recorded $${amount} for record ${recordId} (Square payment ${payId})`);
+    } catch (e) {
+      try { await dbClient.query('ROLLBACK'); } catch (_) {}
+      console.error('[squareReconcile] error for payment', payId, e.message);
+    } finally {
+      dbClient.release();
+    }
+  }
+
+  if (recorded) console.log(`[squareReconcile] Recorded ${recorded} missed payment(s) of ${checked} checked.`);
+  return { checked, recorded };
+}
+
+function startSquareReconcileCron() {
+  cron.schedule('*/15 * * * *', async () => {
+    try { await reconcileSquarePayments({ hoursBack: 72 }); }
+    catch (e) { console.error('[squareReconcile] fatal:', e.message); }
+  });
+  console.log('[squareReconcile] Square payment reconcile cron scheduled (every 15 min)');
+}
+
+module.exports = { startSquareReconcileCron, reconcileSquarePayments };
