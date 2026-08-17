@@ -273,7 +273,7 @@ router.get('/square-card-audit', requireCoworkKey, async (req, res) => {
 
         // 2) Cards on file for that Square customer.
         if (sqCustomerId) {
-          const cardResp = await square.client.cards.list({ customerId: sqCustomerId });
+          const cardResp = await square.client.cards.list({ customerId: sqCustomerId, sortOrder: 'ASC' });
           let cards = [];
           if (Array.isArray(cardResp)) cards = cardResp;
           else if (cardResp?.data && Array.isArray(cardResp.data)) cards = cardResp.data;
