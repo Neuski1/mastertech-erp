@@ -97,48 +97,55 @@ async function processReviewRequests() {
     const phone = row.phone_primary || row.phone_secondary;
     const hasSms = !row.sms_opt_out && phone && String(phone).trim() !== '';
 
-    // Stamp the record + customer so the same person is never asked twice.
-    const markSent = async (channel, detail) => {
-      const now = new Date();
-      await pool.query('UPDATE records SET review_request_sent_at = $1 WHERE id = $2', [now, row.record_id]);
-      await pool.query('UPDATE customers SET last_review_request_at = $1 WHERE id = $2', [now, row.customer_id]);
-      await pool.query(
-        `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
-         VALUES ($1, $2, $3, 'review_request_sent', $4)`,
-        [row.customer_id, row.record_id, channel, detail]
-      );
-    };
+    const logComm = (channel, detail) => pool.query(
+      `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
+       VALUES ($1, $2, $3, 'review_request_sent', $4)`,
+      [row.customer_id, row.record_id, channel, detail]
+    );
+
+    let anySent = false;
 
     try {
+      // Send BOTH channels at once (email + text) for this one review request.
       if (hasEmail) {
         const html = buildReviewRequestHtml({ firstName: row.first_name, unitDescription });
         const text = `Hi ${firstName},\n\nMark and Carol here from Master Tech RV. Thanks for trusting us with the service${unitDescription ? ' for your ' + unitDescription : ''}.\n\nIf we earned it, would you take 60 seconds to leave us a Google review? It genuinely helps our small family shop stay visible to other RV owners in Denver.\n\nLeave a review: ${REVIEW_URL}\n\nIf something didn't go right, hit reply and tell us directly. We'd rather fix it than read about it online.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage\n(303) 557-2214`;
         const result = await sendEmail({ to: row.email_primary, subject: `How'd we do, ${firstName}?`, html, text });
         if (result && result.success) {
-          await markSent('email', `Review request emailed to ${row.email_primary} for invoice #${row.record_number}`);
-          email++;
+          await logComm('email', `Review request emailed to ${row.email_primary} for invoice #${row.record_number}`);
+          anySent = true; email++;
         } else {
           failed++;
           console.error('[reviewRequestCron] Email failed for record', row.record_number, result?.error);
         }
-      } else if (hasSms) {
+      }
+
+      if (hasSms) {
         const rvShort = [row.unit_year, row.unit_make].filter(Boolean).join(' ') || 'RV';
         const body = `Hi ${firstName}, Carol at Master Tech RV. Thanks for bringing in your ${rvShort}. If we did right by you, a quick Google review would mean a lot: ${REVIEW_URL} If not, just text back. Reply STOP to opt out.`;
         const result = await sendSMS(phone, body);
         if (result.success) {
-          await markSent('sms', `Review request SMS to ${phone} for invoice #${row.record_number}`);
-          sms++;
+          await logComm('sms', `Review request SMS to ${phone} for invoice #${row.record_number}`);
+          anySent = true; sms++;
         } else if (result.skipped) {
-          await markSent('skipped', `Review request skipped (SMS opt-out/invalid) for invoice #${row.record_number}`);
           skipped++;
         } else {
           failed++;
           console.error('[reviewRequestCron] SMS failed for record', row.record_number, result.error);
         }
-      } else {
-        // No email and no usable phone: stamp so we do not re-check every day.
-        await markSent('skipped', `Review request skipped (no contact method) for invoice #${row.record_number}`);
-        skipped++;
+      }
+
+      // Stamp the customer/record once (either channel counts) so nobody is
+      // ever asked again. If there was no contact method at all, stamp anyway
+      // so we do not re-check this record every day.
+      if (anySent || (!hasEmail && !hasSms)) {
+        const now = new Date();
+        await pool.query('UPDATE records SET review_request_sent_at = $1 WHERE id = $2', [now, row.record_id]);
+        await pool.query('UPDATE customers SET last_review_request_at = $1 WHERE id = $2', [now, row.customer_id]);
+        if (!anySent) {
+          await logComm('skipped', `Review request skipped (no contact method) for invoice #${row.record_number}`);
+          skipped++;
+        }
       }
     } catch (err) {
       failed++;
