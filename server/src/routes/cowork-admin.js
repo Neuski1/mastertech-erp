@@ -415,4 +415,59 @@ router.post('/storage-invoice-run', requireCoworkKey, async (req, res) => {
   }
 });
 
+// GET /api/cowork-admin/square-series-lookup?series=1495 — READ-ONLY.
+// Finds the Square customer behind a recurring invoice series and lists their
+// cards on file. Used when a storage customer's ERP email/phone does not match
+// their Square profile.
+router.get('/square-series-lookup', requireCoworkKey, async (req, res) => {
+  try {
+    const series = String(req.query.series || '').trim();
+    if (!series) return res.status(400).json({ error: 'series required' });
+    const square = require('../services/square');
+    if (!square.locationId) return res.status(503).json({ error: 'SQUARE_LOCATION_ID not configured' });
+
+    const seriesOf = (inv) => {
+      const num = inv.invoiceNumber || inv.invoice_number;
+      if (!num) return null;
+      const i = String(num).indexOf('-R-');
+      return i > 0 ? String(num).slice(0, i).trim() : null;
+    };
+
+    let customerId = null, sample = null, scanned = 0;
+    const page = await square.client.invoices.list({ locationId: square.locationId, limit: 200 });
+    for await (const inv of page) {
+      scanned++;
+      if (seriesOf(inv) !== series) continue;
+      const pr = inv.primaryRecipient || inv.primary_recipient;
+      if (pr && (pr.customerId || pr.customer_id)) {
+        customerId = pr.customerId || pr.customer_id;
+        sample = { invoice_number: inv.invoiceNumber || inv.invoice_number,
+                   name: [pr.givenName || pr.given_name, pr.familyName || pr.family_name].filter(Boolean).join(' '),
+                   email: pr.emailAddress || pr.email_address || null };
+        break;
+      }
+    }
+    if (!customerId) return res.json({ series, scanned, found: false });
+
+    let cards = [];
+    try {
+      const cr = await square.client.cards.list({ customerId, sortOrder: 'ASC' });
+      let arr = [];
+      if (Array.isArray(cr)) arr = cr;
+      else if (cr?.data && Array.isArray(cr.data)) arr = cr.data;
+      else if (cr?.cards) arr = cr.cards;
+      else if (cr && typeof cr[Symbol.asyncIterator] === 'function') {
+        for await (const x of cr) { arr.push(x); if (arr.length >= 20) break; }
+      }
+      cards = arr.filter(c => c.enabled !== false)
+                 .map(c => ({ id: c.id, brand: c.cardBrand || c.card_brand, last4: c.last4,
+                              customer_id: c.customerId || c.customer_id }));
+    } catch (e) { /* ignore */ }
+
+    res.json({ series, scanned, found: true, square_customer_id: customerId, invoice: sample, cards });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
