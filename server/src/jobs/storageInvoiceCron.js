@@ -120,6 +120,13 @@ async function eligible(dbc, year, month) {
            WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3
              AND si.status = 'sent'
         )
+        -- Already paid for that month (green on the billing grid, e.g. someone
+        -- who prepaid several months by check). Never invoice a paid month.
+        AND NOT EXISTS (
+          SELECT 1 FROM storage_payment_status ps
+           WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3
+             AND ps.status = 'paid'
+        )
       ORDER BY sp.label`,
     [periodStart, year, month]
   );
@@ -132,6 +139,23 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
   let list;
   try { list = await eligible(dbc, p.year, p.month); }
   finally { dbc.release(); }
+
+  // Report which spaces were held back because that month is already paid.
+  const dbc2 = await pool.connect();
+  let prepaid = [];
+  try {
+    const { rows } = await dbc2.query(
+      `SELECT sp.label AS space, c.last_name
+         FROM storage_payment_status ps
+         JOIN storage_billing sb ON sb.id = ps.storage_billing_id
+         LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE ps.year = $1 AND ps.month = $2 AND ps.status = 'paid'
+          AND sb.deleted_at IS NULL AND sb.billing_end_date IS NULL`,
+      [p.year, p.month]
+    );
+    prepaid = rows.map(r => `${r.space} (${r.last_name || ''})`.trim());
+  } finally { dbc2.release(); }
 
   const results = [];
   let sent = 0, skipped = 0, failed = 0;
@@ -187,7 +211,7 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
 
   const totals = results.reduce((a, r) => ({ rent: a.rent + r.rent, surcharge: a.surcharge + r.surcharge, total: a.total + r.total }), { rent: 0, surcharge: 0, total: 0 });
   console.log(`[storageInvoice] ${p.year}-${p.month} ${dryRun ? '(dry run) ' : ''}${results.length} invoices, sent ${sent}, skipped ${skipped}, failed ${failed}`);
-  return { period: p, dryRun, count: results.length, sent, skipped, failed, totals, results };
+  return { period: p, dryRun, count: results.length, sent, skipped, failed, totals, results, already_paid_skipped: prepaid };
 }
 
 // Disabled by default. Enable by setting STORAGE_INVOICE_CRON=on once the
