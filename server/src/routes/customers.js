@@ -256,7 +256,7 @@ router.patch('/:id', async (req, res) => {
     'first_name', 'last_name', 'company_name', 'phone_primary', 'phone_secondary',
     'email_primary', 'email_secondary', 'address_street', 'address_city',
     'address_state', 'address_zip', 'tax_exempt', 'notes', 'marketing_opt_out',
-    'email_invalid', 'sms_opt_out',
+    'email_invalid', 'sms_opt_out', 'review_opt_out',
   ];
   const updates = [];
   const values = [];

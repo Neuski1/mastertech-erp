@@ -120,4 +120,28 @@ router.get('/record/:recordId', async (req, res) => {
   }
 });
 
+// GET /api/communications/review-requests — who received a review request
+router.get('/review-requests', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
+    const { rows } = await pool.query(
+      `SELECT cl.id, cl.created_at, cl.channel, cl.message_content,
+              cl.customer_id, cl.record_id,
+              c.first_name, c.last_name, c.email_primary, c.phone_primary,
+              COALESCE(c.review_opt_out, FALSE) AS review_opt_out,
+              r.record_number
+         FROM communication_log cl
+         LEFT JOIN customers c ON c.id = cl.customer_id
+         LEFT JOIN records r ON r.id = cl.record_id
+        WHERE cl.trigger_event = 'review_request_sent'
+        ORDER BY cl.created_at DESC
+        LIMIT $1`,
+      [limit]
+    );
+    res.json({ requests: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
