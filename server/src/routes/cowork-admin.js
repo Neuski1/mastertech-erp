@@ -308,4 +308,46 @@ router.get('/square-card-audit', requireCoworkKey, async (req, res) => {
   }
 });
 
+// GET /api/cowork-admin/square-customer-search?q=Name — READ-ONLY lookup of a
+// Square customer by name/email, with any cards on file. Used to resolve
+// storage customers whose ERP contact info does not match Square.
+router.get('/square-customer-search', requireCoworkKey, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.status(400).json({ error: 'q required' });
+    const square = require('../services/square');
+    const resp = await square.client.customers.search({
+      query: { filter: { textFilter: { fuzzy: q } } },
+    });
+    const d = resp?.data || resp?.result || resp || {};
+    const list = d.customers || [];
+    const out = [];
+    for (const cu of list.slice(0, 8)) {
+      let cards = [];
+      try {
+        const cr = await square.client.cards.list({ customerId: cu.id, sortOrder: 'ASC' });
+        let arr = [];
+        if (Array.isArray(cr)) arr = cr;
+        else if (cr?.data && Array.isArray(cr.data)) arr = cr.data;
+        else if (cr?.cards) arr = cr.cards;
+        else if (cr && typeof cr[Symbol.asyncIterator] === 'function') {
+          for await (const x of cr) { arr.push(x); if (arr.length >= 20) break; }
+        }
+        cards = arr.filter(c => c.enabled !== false)
+                   .map(c => ({ id: c.id, brand: c.cardBrand || c.card_brand, last4: c.last4 }));
+      } catch (e) { /* ignore */ }
+      out.push({
+        square_customer_id: cu.id,
+        name: [cu.givenName, cu.familyName].filter(Boolean).join(' ') || cu.companyName || null,
+        email: cu.emailAddress || null,
+        phone: cu.phoneNumber || null,
+        cards,
+      });
+    }
+    res.json({ query: q, results: out });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
