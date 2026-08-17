@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
+import CommunicationLog from '../components/CommunicationLog';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import { formatDate } from '../utils/dateFormat';
 
@@ -795,6 +796,12 @@ export default function CustomerDetail() {
           }}
         />
       )}
+
+      {/* ─── Communication History (emails, texts, review requests) ─── */}
+      <div style={sectionStyle}>
+        <h2 style={sectionTitle}>Communication History</h2>
+        <CommunicationLog customerId={id} />
+      </div>
 
       {/* ─── Filed Estimates ─── */}
       {filedRecords.length > 0 && (
