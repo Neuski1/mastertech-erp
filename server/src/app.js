@@ -192,6 +192,25 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_authorized_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_authorized_ip VARCHAR(50)');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_setup_token UUID');
+    // Migration 060: how each storage customer pays, and the monthly invoice log.
+    await pool.query("ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20)");
+    await pool.query(`ALTER TABLE storage_billing DROP CONSTRAINT IF EXISTS storage_billing_payment_method_check`);
+    await pool.query(`ALTER TABLE storage_billing ADD CONSTRAINT storage_billing_payment_method_check
+      CHECK (payment_method IS NULL OR payment_method IN ('credit_card','ach','zelle','check','cash'))`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS storage_invoices (
+      id SERIAL PRIMARY KEY,
+      storage_billing_id INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      rent NUMERIC(10,2),
+      surcharge NUMERIC(10,2) DEFAULT 0,
+      total NUMERIC(10,2),
+      payment_method VARCHAR(20),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (storage_billing_id, year, month)
+    )`);
     await pool.query(`CREATE TABLE IF NOT EXISTS storage_autopay_charges (
       id SERIAL PRIMARY KEY,
       storage_billing_id INTEGER NOT NULL,
@@ -761,6 +780,8 @@ const { startSquareReconcileCron } = require('./jobs/squareReconcileCron');
 startSquareReconcileCron();
 const { startStorageAutopayCron } = require('./jobs/storageAutopayCron');
 startStorageAutopayCron();
+const { startStorageInvoiceCron } = require('./jobs/storageInvoiceCron');
+startStorageInvoiceCron();
 
 const { startStorageStatusBackfillCron } = require('./jobs/storageStatusBackfillCron');
 startStorageStatusBackfillCron();

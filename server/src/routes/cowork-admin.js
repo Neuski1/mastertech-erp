@@ -402,4 +402,17 @@ router.post('/storage-attach-card', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/storage-invoice-run  { dryRun, year, month }
+router.post('/storage-invoice-run', requireCoworkKey, async (req, res) => {
+  try {
+    const { runInvoices } = require('../jobs/storageInvoiceCron');
+    const dryRun = req.body?.dryRun !== false;
+    const year = req.body?.year ? parseInt(req.body.year) : undefined;
+    const month = req.body?.month ? parseInt(req.body.month) : undefined;
+    res.json(await runInvoices({ year, month, dryRun }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

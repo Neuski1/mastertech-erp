@@ -159,7 +159,7 @@ router.get('/', async (req, res) => {
               sb.autopay_enabled, sb.autopay_card_brand, sb.autopay_card_last4,
               (EXISTS (SELECT 1 FROM customer_documents cd
                        WHERE cd.doc_type = 'storage_contract' AND cd.related_id = sb.id)) AS has_signed_contract,
-              sb.due_day, sb.square_customer_id, sb.square_sub_id,
+              sb.due_day, sb.square_customer_id, sb.square_sub_id, sb.payment_method,
               sb.notes AS billing_notes,
               sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at, sb.special_terms,
               c.last_name, c.first_name, c.company_name, c.account_number,
@@ -474,7 +474,7 @@ router.post('/assign', requireRole('admin', 'service_writer', 'technician'), asy
 // Allowed: monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes
 // ---------------------------------------------------------------------------
 router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
-  const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type, special_terms, scheduled_move_out } = req.body;
+  const { monthly_rate, due_day, unit_id, square_customer_id, square_sub_id, notes, billing_start_date, space_type, special_terms, scheduled_move_out, payment_method } = req.body;
 
   const updates = [];
   const values = [];
@@ -515,6 +515,10 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   if (scheduled_move_out !== undefined) {
     updates.push(`scheduled_move_out = $${idx++}`);
     values.push(scheduled_move_out || null);
+  }
+  if (payment_method !== undefined) {
+    updates.push(`payment_method = $${idx++}`);
+    values.push(payment_method || null);
   }
 
   if (updates.length === 0 && !space_type) {

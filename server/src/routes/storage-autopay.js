@@ -201,4 +201,19 @@ router.post('/run', requireRole('admin'), async (req, res) => {
   }
 });
 
+// --- Staff: preview or send the monthly storage invoices ------------------
+// Body: { dryRun: true|false, year?, month? }. Defaults to a safe preview of
+// next month. dryRun lists every invoice and total without emailing anyone.
+router.post('/invoices/run', requireRole('admin'), async (req, res) => {
+  try {
+    const { runInvoices } = require('../jobs/storageInvoiceCron');
+    const dryRun = req.body?.dryRun !== false;
+    const year = req.body?.year ? parseInt(req.body.year) : undefined;
+    const month = req.body?.month ? parseInt(req.body.month) : undefined;
+    res.json(await runInvoices({ year, month, dryRun }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
