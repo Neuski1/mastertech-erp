@@ -192,6 +192,21 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_authorized_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_authorized_ip VARCHAR(50)');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_setup_token UUID');
+    await pool.query(`CREATE TABLE IF NOT EXISTS storage_autopay_charges (
+      id SERIAL PRIMARY KEY,
+      storage_billing_id INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      month INTEGER NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      amount NUMERIC(10,2),
+      square_payment_id VARCHAR(120),
+      last_error TEXT,
+      last_attempt_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (storage_billing_id, year, month)
+    )`);
     await pool.query('ALTER TABLE inventory ADD COLUMN IF NOT EXISTS alert_when_depleted BOOLEAN NOT NULL DEFAULT FALSE');
     // Client-side error capture (diagnoses white-screen render crashes).
     await pool.query(`CREATE TABLE IF NOT EXISTS client_errors (
@@ -744,6 +759,8 @@ const { startReviewRequestCron } = require('./jobs/reviewRequestCron');
 startReviewRequestCron();
 const { startSquareReconcileCron } = require('./jobs/squareReconcileCron');
 startSquareReconcileCron();
+const { startStorageAutopayCron } = require('./jobs/storageAutopayCron');
+startStorageAutopayCron();
 
 const { startStorageStatusBackfillCron } = require('./jobs/storageStatusBackfillCron');
 startStorageStatusBackfillCron();

@@ -185,4 +185,20 @@ router.delete('/:billingId', requireRole('admin', 'service_writer', 'technician'
   }
 });
 
+// --- Staff: run (or preview) the monthly autopay charge on demand ----------
+// Body: { dryRun: true|false, year?, month? }. dryRun lists who would be charged
+// and how much, charging no one. Defaults to next month.
+router.post('/run', requireRole('admin'), async (req, res) => {
+  try {
+    const { runCharges } = require('../jobs/storageAutopayCron');
+    const dryRun = req.body?.dryRun !== false; // default to a safe preview
+    const year = req.body?.year ? parseInt(req.body.year) : undefined;
+    const month = req.body?.month ? parseInt(req.body.month) : undefined;
+    const result = await runCharges({ year, month, dryRun });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
