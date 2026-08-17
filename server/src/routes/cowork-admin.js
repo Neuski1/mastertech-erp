@@ -216,4 +216,96 @@ router.post('/review-test', requireCoworkKey, async (req, res) => {
   }
 });
 
+// GET /api/cowork-admin/square-card-audit
+// READ-ONLY. For each active storage billing, find the customer in Square and
+// report whether they already have a card on file we could charge directly.
+// This decides whether converting off Square invoices requires customers to
+// re-enter their cards, or whether we can migrate them silently.
+router.get('/square-card-audit', requireCoworkKey, async (req, res) => {
+  try {
+    const square = require('../services/square');
+    const { rows } = await pool.query(
+      `SELECT sb.id AS billing_id, sp.label AS space, sb.monthly_rate,
+              sb.square_customer_id, sb.square_sub_id,
+              c.id AS customer_id, c.first_name, c.last_name,
+              c.email_primary, c.phone_primary
+         FROM storage_billing sb
+         LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL
+        ORDER BY sp.label`
+    );
+
+    const digits = (s) => String(s || '').replace(/\D/g, '');
+    const out = [];
+
+    for (const r of rows) {
+      const entry = {
+        billing_id: r.billing_id, space: r.space, rate: r.monthly_rate,
+        customer: [r.first_name, r.last_name].filter(Boolean).join(' '),
+        email: r.email_primary || null,
+        square_customer_id: null, cards: [], matched_by: null, note: null,
+      };
+      try {
+        let sqCustomerId = null;
+
+        // 1) Search Square by email, then by phone.
+        if (r.email_primary) {
+          const resp = await square.client.customers.search({
+            query: { filter: { emailAddress: { exact: r.email_primary } } }, limit: 5,
+          });
+          const d = resp?.data || resp?.result || resp || {};
+          const list = d.customers || [];
+          if (list.length) { sqCustomerId = list[0].id; entry.matched_by = 'email'; }
+        }
+        if (!sqCustomerId && r.phone_primary) {
+          const ph = digits(r.phone_primary);
+          if (ph.length >= 10) {
+            const resp = await square.client.customers.search({
+              query: { filter: { phoneNumber: { fuzzy: ph.slice(-10) } } }, limit: 5,
+            });
+            const d = resp?.data || resp?.result || resp || {};
+            const list = d.customers || [];
+            if (list.length) { sqCustomerId = list[0].id; entry.matched_by = 'phone'; }
+          }
+        }
+        entry.square_customer_id = sqCustomerId;
+
+        // 2) Cards on file for that Square customer.
+        if (sqCustomerId) {
+          const cardResp = await square.client.cards.list({ customerId: sqCustomerId });
+          let cards = [];
+          if (Array.isArray(cardResp)) cards = cardResp;
+          else if (cardResp?.data && Array.isArray(cardResp.data)) cards = cardResp.data;
+          else if (cardResp?.result?.cards) cards = cardResp.result.cards;
+          else if (cardResp?.cards) cards = cardResp.cards;
+          else if (cardResp && typeof cardResp[Symbol.asyncIterator] === 'function') {
+            for await (const c of cardResp) { cards.push(c); if (cards.length >= 25) break; }
+          }
+          entry.cards = cards
+            .filter(c => c.enabled !== false)
+            .map(c => ({ id: c.id, brand: c.cardBrand || c.card_brand, last4: c.last4,
+                         exp: (c.expMonth || c.exp_month) + '/' + (c.expYear || c.exp_year) }));
+        } else {
+          entry.note = 'no Square customer match';
+        }
+      } catch (e) {
+        entry.note = 'lookup error: ' + (e.message || 'unknown');
+      }
+      out.push(entry);
+    }
+
+    const withCard = out.filter(e => e.cards.length > 0).length;
+    res.json({
+      total_active: out.length,
+      square_customer_matched: out.filter(e => e.square_customer_id).length,
+      with_card_on_file: withCard,
+      needs_customer_action: out.length - withCard,
+      spaces: out,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
