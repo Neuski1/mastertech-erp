@@ -30,7 +30,6 @@ import PartsSaleDetail from './pages/PartsSaleDetail';
 import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
 import Reports from './pages/Reports';
-import ReviewRequests from './pages/ReviewRequests';
 import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
 import ClosedInvoicesReport from './pages/ClosedInvoicesReport';
 import PartsOnOrder from './pages/PartsOnOrder';
@@ -93,7 +92,6 @@ function AppLayout() {
     { to: '/storage', label: 'Storage' },
     { to: '/partners', label: 'Partners' },
     ...(canManageSettings ? [{ to: '/marketing', label: 'Marketing' }] : []),
-    ...(canManageSettings ? [{ to: '/review-requests', label: 'Reviews' }] : []),
     ...(canManageSettings ? [{ to: '/reports', label: 'Reports' }] : []),
     ...(canManageSettings ? [{ to: '/bookkeeping', label: 'Bookkeeping' }] : []),
     ...(canManageSettings ? [{ to: '/settings', label: 'Settings' }] : []),
@@ -233,7 +231,6 @@ function AppLayout() {
           <Route path="/marketing/new" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />
-          <Route path="/review-requests" element={canManageSettings ? <ReviewRequests /> : <Navigate to="/records" />} />
           <Route path="/reports/active-workorders" element={<ActiveWorkOrdersReport />} />
           <Route path="/reports/closed-invoices" element={canManageSettings ? <ClosedInvoicesReport /> : <Navigate to="/records" />} />
           <Route path="/payments/online" element={canManageSettings ? <OnlinePaymentsHistory /> : <Navigate to="/records" />} />
