@@ -1248,6 +1248,21 @@ ${paymentDetailHtml}
               <span>{formatCurrency(record.tax_amount)}</span>
             </div>
 
+            {/* Skip automatic review request for this job */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '0.8rem', borderTop: '1px dashed #e5e7eb', marginTop: '4px' }}>
+              <span style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Skip review request for this job
+                {isEditable && (
+                  <ToggleSwitch
+                    checked={!!record.review_request_skip}
+                    onChange={() => handleToggleFlag('review_request_skip', !!record.review_request_skip)}
+                  />
+                )}
+                {record.review_request_skip && <span style={{ color: '#dc2626', fontSize: '0.75rem', fontWeight: 600 }}>WILL NOT SEND</span>}
+              </span>
+              <span></span>
+            </div>
+
             {/* Discount/Credit — always editable on active records */}
             {(isEditable || parseFloat(record.discount_amount) > 0) && (
               <DiscountRow record={record} isEditable={isEditable} formatCurrency={formatCurrency} onSaved={fetchRecord} />

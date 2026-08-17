@@ -675,6 +675,7 @@ const pool = require('./db/pool');
     // Migration 052: review request tracking (Day-3-after-paid Google review automation)
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_sent_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_sms_sent_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS review_request_skip BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS review_opt_out BOOLEAN DEFAULT FALSE');
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_review_request_at TIMESTAMPTZ');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_records_review_pending ON records (status, paid_at) WHERE review_request_sent_at IS NULL');

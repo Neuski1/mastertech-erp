@@ -477,6 +477,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     'under_warranty_amount', 'no_charge_amount', 'deductible_amount', 'deposit_amount',
     'discount_amount', 'discount_description',
     'cc_fee_applied', 'shop_supplies_exempt', 'tax_waived',
+    'review_request_skip',
   ];
 
   const updates = [];

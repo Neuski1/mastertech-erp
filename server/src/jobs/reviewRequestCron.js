@@ -43,14 +43,21 @@ function buildReviewRequestHtml({ firstName, unitDescription }) {
 }
 
 async function processReviewRequests() {
-  // Find paid records >= 3 days old that haven't had a review request,
-  // for customers who have not opted out and have not been asked in last 365 days.
+  // ONE review request per customer after a completed+paid job. Email if we have
+  // an address, otherwise a single SMS. Never a repeat: we skip customers already
+  // asked in the last 365 days, anyone opted out, and any record flagged to skip.
+  // DISTINCT ON (customer_id) guarantees a customer with several paid invoices
+  // only gets a single message per run.
   const { rows } = await pool.query(`
-    SELECT r.id           AS record_id,
+    SELECT DISTINCT ON (r.customer_id)
+           r.id           AS record_id,
            r.record_number,
            r.customer_id,
            c.first_name,
            c.email_primary,
+           c.phone_primary,
+           c.phone_secondary,
+           COALESCE(c.sms_opt_out, FALSE) AS sms_opt_out,
            u.year         AS unit_year,
            u.make         AS unit_make,
            u.model        AS unit_model
@@ -66,155 +73,95 @@ async function processReviewRequests() {
     WHERE r.status = 'paid'
       AND r.deleted_at IS NULL
       AND r.review_request_sent_at IS NULL
-      -- Ask 3 days after payment, but only for recently-paid invoices so
-      -- turning this on does not blast the entire back catalog.
+      AND COALESCE(r.review_request_skip, FALSE) = FALSE
       AND pay.paid_at <= NOW() - INTERVAL '3 days'
       AND pay.paid_at >= NOW() - INTERVAL '30 days'
       AND COALESCE(c.review_opt_out, FALSE) = FALSE
-      AND c.email_primary IS NOT NULL
-      AND c.email_primary <> ''
       AND (c.last_review_request_at IS NULL
            OR c.last_review_request_at < NOW() - INTERVAL '365 days')
-    ORDER BY pay.paid_at ASC
+    ORDER BY r.customer_id, pay.paid_at ASC
     LIMIT 50
   `);
 
   if (rows.length === 0) {
-    console.log('[reviewRequestCron] No records eligible for review request.');
-    return { sent: 0, failed: 0 };
+    console.log('[reviewRequestCron] No customers eligible for a review request.');
+    return { email: 0, sms: 0, skipped: 0, failed: 0 };
   }
 
-  let sent = 0;
-  let failed = 0;
+  let email = 0, sms = 0, skipped = 0, failed = 0;
 
   for (const row of rows) {
     const unitDescription = [row.unit_year, row.unit_make, row.unit_model].filter(Boolean).join(' ') || '';
-    const html = buildReviewRequestHtml({
-      firstName: row.first_name,
-      unitDescription,
-    });
-    const text = `Hi ${row.first_name || 'there'},\n\nMark and Carol here from Master Tech RV. Thanks for trusting us with the service${unitDescription ? ' for your ' + unitDescription : ''}.\n\nIf we earned it, would you take 60 seconds to leave us a Google review? It genuinely helps our small family shop stay visible to other RV owners in Denver.\n\nLeave a review: ${REVIEW_URL}\n\nIf something didn't go right, hit reply and tell us directly. We'd rather fix it than read about it online.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage\n(303) 557-2214`;
-
-    try {
-      const result = await sendEmail({
-        to: row.email_primary,
-        subject: `How'd we do, ${row.first_name || 'there'}?`,
-        html,
-        text,
-      });
-
-      if (result && result.success) {
-        const now = new Date();
-        await pool.query('UPDATE records SET review_request_sent_at = $1 WHERE id = $2', [now, row.record_id]);
-        await pool.query('UPDATE customers SET last_review_request_at = $1 WHERE id = $2', [now, row.customer_id]);
-        await pool.query(
-          `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
-           VALUES ($1, $2, 'email', 'review_request_sent', $3)`,
-          [row.customer_id, row.record_id, `Review request emailed to ${row.email_primary} for invoice #${row.record_number}`]
-        );
-        sent++;
-      } else {
-        failed++;
-        console.error('[reviewRequestCron] Send failed for record', row.record_number, result?.error);
-      }
-    } catch (err) {
-      failed++;
-      console.error('[reviewRequestCron] Error sending for record', row.record_number, err.message);
-    }
-  }
-
-  console.log(`[reviewRequestCron] Sent ${sent}, failed ${failed}, total candidates ${rows.length}`);
-  return { sent, failed, total: rows.length };
-}
-
-/**
- * Day-10 SMS follow-up: customers who got the email but haven't been reminded by SMS yet.
- * Stops at Day 21 (no third nag).
- */
-async function processSmsFollowUps() {
-  const { rows } = await pool.query(`
-    SELECT r.id          AS record_id,
-           r.record_number,
-           r.customer_id,
-           c.first_name,
-           c.phone_primary,
-           c.phone_secondary,
-           u.year         AS unit_year,
-           u.make         AS unit_make,
-           u.model        AS unit_model
-    FROM records r
-    JOIN customers c ON c.id = r.customer_id
-    LEFT JOIN units u ON u.id = r.unit_id
-    WHERE r.status = 'paid'
-      AND r.deleted_at IS NULL
-      AND r.review_request_sent_at IS NOT NULL
-      AND r.review_request_sent_at <= NOW() - INTERVAL '7 days'
-      AND r.review_request_sent_at >= NOW() - INTERVAL '18 days'
-      AND r.review_request_sms_sent_at IS NULL
-      AND COALESCE(c.sms_opt_out, FALSE) = FALSE
-      AND COALESCE(c.review_opt_out, FALSE) = FALSE
-      AND COALESCE(c.phone_primary, c.phone_secondary, '') <> ''
-    ORDER BY r.review_request_sent_at ASC
-    LIMIT 50
-  `);
-
-  if (rows.length === 0) {
-    console.log('[reviewRequestCron] No records eligible for SMS follow-up.');
-    return { sent: 0, failed: 0, skipped: 0 };
-  }
-
-  let sent = 0;
-  let failed = 0;
-  let skipped = 0;
-
-  for (const row of rows) {
     const firstName = row.first_name || 'there';
-    const rvShort = [row.unit_year, row.unit_make].filter(Boolean).join(' ') || 'RV';
-    const body = `Hi ${firstName}, Carol at Master Tech RV. Thanks again for bringing in your ${rvShort}. If we did right by you, a quick Google review would mean a lot: ${REVIEW_URL} If not, just text back. Reply STOP to opt out.`;
-
+    const hasEmail = row.email_primary && row.email_primary.trim() !== '';
     const phone = row.phone_primary || row.phone_secondary;
-    try {
-      const result = await sendSMS(phone, body);
+    const hasSms = !row.sms_opt_out && phone && String(phone).trim() !== '';
 
-      if (result.success) {
-        await pool.query('UPDATE records SET review_request_sms_sent_at = NOW() WHERE id = $1', [row.record_id]);
-        await pool.query(
-          `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
-           VALUES ($1, $2, 'sms', 'review_request_sent', $3)`,
-          [row.customer_id, row.record_id, `Review request SMS to ${phone} for invoice #${row.record_number}`]
-        );
-        sent++;
-      } else if (result.skipped) {
-        // Opt-out or invalid phone — mark sent so we don't keep trying
-        await pool.query('UPDATE records SET review_request_sms_sent_at = NOW() WHERE id = $1', [row.record_id]);
-        skipped++;
+    // Stamp the record + customer so the same person is never asked twice.
+    const markSent = async (channel, detail) => {
+      const now = new Date();
+      await pool.query('UPDATE records SET review_request_sent_at = $1 WHERE id = $2', [now, row.record_id]);
+      await pool.query('UPDATE customers SET last_review_request_at = $1 WHERE id = $2', [now, row.customer_id]);
+      await pool.query(
+        `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
+         VALUES ($1, $2, $3, 'review_request_sent', $4)`,
+        [row.customer_id, row.record_id, channel, detail]
+      );
+    };
+
+    try {
+      if (hasEmail) {
+        const html = buildReviewRequestHtml({ firstName: row.first_name, unitDescription });
+        const text = `Hi ${firstName},\n\nMark and Carol here from Master Tech RV. Thanks for trusting us with the service${unitDescription ? ' for your ' + unitDescription : ''}.\n\nIf we earned it, would you take 60 seconds to leave us a Google review? It genuinely helps our small family shop stay visible to other RV owners in Denver.\n\nLeave a review: ${REVIEW_URL}\n\nIf something didn't go right, hit reply and tell us directly. We'd rather fix it than read about it online.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage\n(303) 557-2214`;
+        const result = await sendEmail({ to: row.email_primary, subject: `How'd we do, ${firstName}?`, html, text });
+        if (result && result.success) {
+          await markSent('email', `Review request emailed to ${row.email_primary} for invoice #${row.record_number}`);
+          email++;
+        } else {
+          failed++;
+          console.error('[reviewRequestCron] Email failed for record', row.record_number, result?.error);
+        }
+      } else if (hasSms) {
+        const rvShort = [row.unit_year, row.unit_make].filter(Boolean).join(' ') || 'RV';
+        const body = `Hi ${firstName}, Carol at Master Tech RV. Thanks for bringing in your ${rvShort}. If we did right by you, a quick Google review would mean a lot: ${REVIEW_URL} If not, just text back. Reply STOP to opt out.`;
+        const result = await sendSMS(phone, body);
+        if (result.success) {
+          await markSent('sms', `Review request SMS to ${phone} for invoice #${row.record_number}`);
+          sms++;
+        } else if (result.skipped) {
+          await markSent('skipped', `Review request skipped (SMS opt-out/invalid) for invoice #${row.record_number}`);
+          skipped++;
+        } else {
+          failed++;
+          console.error('[reviewRequestCron] SMS failed for record', row.record_number, result.error);
+        }
       } else {
-        failed++;
-        console.error('[reviewRequestCron] SMS failed for record', row.record_number, result.error);
+        // No email and no usable phone: stamp so we do not re-check every day.
+        await markSent('skipped', `Review request skipped (no contact method) for invoice #${row.record_number}`);
+        skipped++;
       }
     } catch (err) {
       failed++;
-      console.error('[reviewRequestCron] SMS error for record', row.record_number, err.message);
+      console.error('[reviewRequestCron] Error for record', row.record_number, err.message);
     }
   }
 
-  console.log(`[reviewRequestCron] SMS follow-ups: sent ${sent}, skipped ${skipped}, failed ${failed}, candidates ${rows.length}`);
-  return { sent, failed, skipped, total: rows.length };
+  console.log(`[reviewRequestCron] Review requests: ${email} email, ${sms} SMS, ${skipped} skipped, ${failed} failed (of ${rows.length}).`);
+  return { email, sms, skipped, failed, total: rows.length };
 }
 
 function startReviewRequestCron() {
-  // Daily at 10:00 AM America/Denver — runs both Day-3 email and Day-10 SMS passes
+  // Daily at 10:00 AM America/Denver. One request per customer, no follow-up.
   cron.schedule('0 10 * * *', async () => {
     console.log('[reviewRequestCron] Starting daily review request run...');
     try {
-      const emailResult = await processReviewRequests();
-      const smsResult = await processSmsFollowUps();
-      console.log('[reviewRequestCron] Complete:', { email: emailResult, sms: smsResult });
+      const result = await processReviewRequests();
+      console.log('[reviewRequestCron] Complete:', result);
     } catch (err) {
       console.error('[reviewRequestCron] Fatal error:', err);
     }
   }, { timezone: 'America/Denver' });
-  console.log('[reviewRequestCron] Review request cron scheduled (daily 10 AM Mountain, email + SMS follow-up)');
+  console.log('[reviewRequestCron] Review request cron scheduled (daily 10 AM Mountain, one message per customer)');
 }
 
-module.exports = { startReviewRequestCron, processReviewRequests, processSmsFollowUps, buildReviewRequestHtml };
+module.exports = { startReviewRequestCron, processReviewRequests, buildReviewRequestHtml };

@@ -583,6 +583,21 @@ export default function CustomerDetail() {
               {customer.sms_opt_out ? 'Opted out of SMS messages — toggle off to re-enable' : 'Exclude from SMS messages'}
             </span>
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!customer.review_opt_out}
+              onChange={async (e) => {
+                try {
+                  const updated = await api.updateCustomer(id, { review_opt_out: e.target.checked });
+                  setCustomer(updated);
+                } catch (err) { setError(err.message); }
+              }}
+            />
+            <span style={{ color: customer.review_opt_out ? '#dc2626' : '#374151' }}>
+              {customer.review_opt_out ? 'Will NOT receive review requests' : 'Do not send review requests to this customer'}
+            </span>
+          </label>
         </div>
       </div>
 
