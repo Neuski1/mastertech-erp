@@ -88,6 +88,64 @@ async function recordSquarePayment(payment) {
   }
 }
 
+// A storage pay-link payment carries the invoice number in its order line item
+// ("RV Storage — Invoice S202609-643"). When one completes, mark every space on
+// that customer+period paid so the billing grid flips green on its own.
+async function recordStoragePayment(payment) {
+  const payId = payment && payment.id;
+  if (!payId) return { recorded: false };
+  if (payment.status !== 'COMPLETED' && payment.status !== 'APPROVED') return { recorded: false };
+  // Skip refunded payments (e.g. system tests).
+  const refunded = Number(payment.refundedMoney?.amount || payment.refunded_money?.amount || 0);
+  if (refunded > 0) return { recorded: false, reason: 'refunded' };
+
+  const orderId = payment.orderId || payment.order_id;
+  if (!orderId) return { recorded: false };
+  let order;
+  try {
+    const resp = await squareClient.orders.get({ orderId });
+    const d = resp?.data || resp?.result || resp || {};
+    order = d.order || d;
+  } catch (e) { return { recorded: false }; }
+  if (!order) return { recorded: false };
+
+  let m = null;
+  for (const it of (order.lineItems || order.line_items || [])) {
+    m = /Invoice S(\d{4})(\d{2})-(\d+)/.exec(it.name || '');
+    if (m) break;
+  }
+  if (!m) return { recorded: false };
+  const year = parseInt(m[1]), month = parseInt(m[2]), customerId = parseInt(m[3]);
+
+  const dbc = await pool.connect();
+  try {
+    const { rows } = await dbc.query(
+      `SELECT si.storage_billing_id, si.rent
+         FROM storage_invoices si
+         JOIN storage_billing sb ON sb.id = si.storage_billing_id
+        WHERE sb.customer_id = $1 AND si.year = $2 AND si.month = $3`,
+      [customerId, year, month]
+    );
+    if (!rows.length) return { recorded: false };
+    for (const r of rows) {
+      await dbc.query(
+        `INSERT INTO storage_payment_status (storage_billing_id, year, month, status, source, amount)
+         VALUES ($1, $2, $3, 'paid', 'square', $4)
+         ON CONFLICT (storage_billing_id, year, month)
+         DO UPDATE SET status='paid', source='square', amount=EXCLUDED.amount
+         WHERE storage_payment_status.source <> 'manual'`,
+        [r.storage_billing_id, year, month, r.rent]
+      );
+      await dbc.query(
+        `UPDATE storage_invoices SET status='paid' WHERE storage_billing_id=$1 AND year=$2 AND month=$3`,
+        [r.storage_billing_id, year, month]
+      );
+    }
+    console.log(`[squareReconcile] Storage invoice S${m[1]}${m[2]}-${customerId} marked paid (${rows.length} space(s), payment ${payId})`);
+    return { recorded: true, spaces: rows.length };
+  } finally { dbc.release(); }
+}
+
 async function listRecentPayments(beginTime) {
   const resp = await squareClient.payments.list({ locationId, beginTime, sortField: 'CREATED_AT', sortOrder: 'DESC' });
   if (Array.isArray(resp)) return resp;
@@ -114,13 +172,19 @@ async function reconcileSquarePayments({ hoursBack = 72 } = {}) {
     return { checked: 0, recorded: 0, error: e.message };
   }
 
-  let checked = 0, recorded = 0;
+  let checked = 0, recorded = 0, storageMarked = 0;
   for (const p of payments) {
     if (p.status !== 'COMPLETED' && p.status !== 'APPROVED') continue;
     checked++;
     const r = await recordSquarePayment(p);
-    if (r.recorded) recorded++;
+    if (r.recorded) { recorded++; continue; }
+    // Not a work-order payment: check whether it settles a storage invoice.
+    try {
+      const s = await recordStoragePayment(p);
+      if (s.recorded) storageMarked++;
+    } catch (e) { /* non-fatal */ }
   }
+  if (storageMarked) console.log(`[squareReconcile] Marked ${storageMarked} storage invoice payment(s) paid.`);
   if (recorded) console.log(`[squareReconcile] Recorded ${recorded} missed payment(s) of ${checked} checked.`);
   return { checked, recorded };
 }
@@ -133,4 +197,4 @@ function startSquareReconcileCron() {
   console.log('[squareReconcile] Square payment reconcile cron scheduled (every 15 min)');
 }
 
-module.exports = { startSquareReconcileCron, reconcileSquarePayments, recordSquarePayment };
+module.exports = { startSquareReconcileCron, reconcileSquarePayments, recordSquarePayment, recordStoragePayment };

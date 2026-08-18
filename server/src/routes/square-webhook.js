@@ -124,10 +124,13 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
     const payment = event.data?.object?.payment;
     if (!payment) return;
     try {
-      const { recordSquarePayment } = require('../jobs/squareReconcileCron');
+      const { recordSquarePayment, recordStoragePayment } = require('../jobs/squareReconcileCron');
       const result = await recordSquarePayment(payment);
       if (result.recorded) {
         console.log(`Square webhook: payment ${payment.id} recorded for record ${result.recordId}`);
+      } else {
+        const s = await recordStoragePayment(payment);
+        if (s.recorded) console.log(`Square webhook: storage payment ${payment.id} marked paid`);
       }
     } catch (err) {
       console.error('Square webhook payment event error:', err.message);
