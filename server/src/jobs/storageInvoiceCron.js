@@ -1,115 +1,173 @@
-// Monthly storage invoice engine. Emails every active storage customer an
-// invoice for the coming month on the last day of the current month, matching
-// how Carol has always billed. Records what was sent in storage_invoices so an
-// invoice is never emailed twice for the same space and period.
+// Monthly storage invoice engine, formatted to match the Square invoices
+// customers are used to receiving. Bills on the last day of the month for the
+// coming month. One invoice per CUSTOMER (a customer renting two spaces gets a
+// single invoice with a line per space, the way Square did it).
 //
-// Payment-method aware: when a space is set to 'credit_card' the invoice shows
-// the card processing fee as its own line. Zelle / check / cash / ACH show no
-// fee and get pay-by instructions instead.
+// Fee handling: credit card adds 3.5%, ACH adds 1% (Square's $1 minimum),
+// Zelle / check / cash add nothing. A month already marked paid on the billing
+// grid is never invoiced.
 const cron = require('node-cron');
 const pool = require('../db/pool');
 const { sendEmail } = require('../services/email');
 
-const CARD_SURCHARGE_PCT = 0.035;   // Square: manual entry / card on file
-const ACH_SURCHARGE_PCT = 0.01;     // Square: ACH bank transfer
-const ACH_MIN_FEE = 1.00;           // Square bills a $1 minimum on ACH
-
-function isLastDayOfMonth(d = new Date()) {
-  const t = new Date(d);
-  t.setDate(t.getDate() + 1);
-  return t.getDate() === 1;
-}
-
-function nextPeriod(d = new Date()) {
-  let y = d.getFullYear();
-  let m = d.getMonth() + 2;
-  if (m > 12) { m -= 12; y += 1; }
-  return { year: y, month: m };
-}
+const CARD_SURCHARGE_PCT = 0.035;
+const ACH_SURCHARGE_PCT = 0.01;
+const ACH_MIN_FEE = 1.00;
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// How each payment type is described and whether it carries the card fee.
-function methodInfo(method, autopayOn, cardBrand, cardLast4) {
+function isLastDayOfMonth(d = new Date()) {
+  const t = new Date(d); t.setDate(t.getDate() + 1); return t.getDate() === 1;
+}
+function nextPeriod(d = new Date()) {
+  let y = d.getFullYear(); let m = d.getMonth() + 2;
+  if (m > 12) { m -= 12; y += 1; }
+  return { year: y, month: m };
+}
+// Storage bills in advance: the invoice for service month M is due the last day
+// of month M-1.
+function dueDateFor(year, month) {
+  const d = new Date(year, month - 1, 1); // first of the service month
+  d.setDate(0);                           // back up to last day of prior month
+  return d;
+}
+const longDate = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+
+function feeConfig(method, autopayOn) {
   switch (method) {
     case 'credit_card':
-      return {
-        feePct: CARD_SURCHARGE_PCT, feeMin: 0, feeLabel: 'Card processing fee (3.5%)',
-        label: 'Credit card',
-        instructions: autopayOn
-          ? `No action needed. Your ${cardBrand || 'card'}${cardLast4 ? ' ending ' + cardLast4 : ''} on file will be charged automatically.`
-          : 'Please call the office to pay by card, or ask us to send you a secure payment link.',
-      };
+      return { pct: CARD_SURCHARGE_PCT, min: 0,
+               label: autopayOn ? 'Autopay Convenience Fee' : 'Credit Card Convenience Fee' };
     case 'ach':
-      return { feePct: ACH_SURCHARGE_PCT, feeMin: ACH_MIN_FEE, feeLabel: 'Bank transfer fee (1%)',
-        label: 'Bank transfer (ACH)',
-        instructions: autopayOn
-          ? 'No action needed. Your bank account on file will be debited automatically.'
-          : 'Please contact the office to set up your bank transfer.' };
-    case 'zelle':
-      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Zelle',
-        instructions: 'Please send your Zelle payment to carol@mastertechrvrepair.com.' };
-    case 'check':
-      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Check',
-        instructions: 'Please mail or drop off your check to Master Tech RV, 6590 East 49th Avenue, Commerce City, CO 80022.' };
-    case 'cash':
-      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Cash',
-        instructions: 'Please drop off your payment at the office during business hours, Monday through Friday 9 to 6.' };
+      return { pct: ACH_SURCHARGE_PCT, min: ACH_MIN_FEE, label: 'Bank Transfer Fee' };
     default:
-      return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Not set',
-        instructions: 'Please contact the office to arrange payment.' };
+      return { pct: 0, min: 0, label: null };
   }
 }
 
-function buildInvoiceHtml({ firstName, spaceLabel, year, month, rent, surcharge, total, methodLabel, instructions, feeLabel }) {
-  const period = `${MONTHS[month - 1]} ${year}`;
-  const feeRow = (surcharge > 0 && feeLabel)
-    ? `<tr><td style="padding:6px 0;color:#374151;">${feeLabel}</td><td style="padding:6px 0;text-align:right;color:#374151;">${money(surcharge)}</td></tr>`
-    : '';
+function payInstructions(method, autopayOn, brand, last4) {
+  switch (method) {
+    case 'credit_card':
+      return autopayOn
+        ? `No action needed. Your ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} on file will be charged automatically on the due date.`
+        : 'Please call the office at (303) 557-2214 to pay by card, or ask us to send you a secure payment link.';
+    case 'ach':
+      return autopayOn
+        ? 'No action needed. Your bank account on file will be debited automatically on the due date.'
+        : 'Please contact the office to set up your bank transfer.';
+    case 'zelle':  return 'Please send your Zelle payment to carol@mastertechrvrepair.com.';
+    case 'check':  return 'Please mail or drop off your check to Master Tech RV Repair and Storage, 6590 E. 49th Ave., Commerce City, CO 80022.';
+    case 'cash':   return 'Please drop off your payment at the office, Monday through Friday, 9 to 6.';
+    default:       return 'Please contact the office at (303) 557-2214 to arrange payment.';
+  }
+}
+const methodLabel = (m) => ({ credit_card:'Credit card', ach:'Bank transfer (ACH)', zelle:'Zelle', check:'Check', cash:'Cash' }[m] || 'Not set');
+
+function buildInvoiceHtml(inv) {
+  const rows = inv.items.map(it => `
+      <tr>
+        <td style="padding:9px 0;border-bottom:1px solid #eee;color:#111;">${it.name}${it.sub ? `<div style="color:#6b7280;font-size:11.5px;margin-top:2px;">${it.sub}</div>` : ''}</td>
+        <td style="padding:9px 0;border-bottom:1px solid #eee;text-align:center;color:#374151;">1</td>
+        <td style="padding:9px 0;border-bottom:1px solid #eee;text-align:right;color:#374151;">${money(it.amount)}</td>
+        <td style="padding:9px 0;border-bottom:1px solid #eee;text-align:right;color:#111;">${money(it.amount)}</td>
+      </tr>`).join('');
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
-<div style="max-width:600px;margin:0 auto;background:#fff;">
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+<div style="max-width:640px;margin:0 auto;background:#fff;">
   <div style="background:#1e3a5f;padding:20px 32px;">
-    <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
-    <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;font-style:italic;">Our Service Makes Happy Campers!</p>
-  </div>
-  <div style="padding:28px 32px;">
-    <p style="font-size:15px;color:#111;margin:0 0 6px;">Hi ${firstName || 'there'},</p>
-    <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 18px;">
-      Here is your storage invoice for <strong>${period}</strong>.
-    </p>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:8px;">
-      <tr><td style="padding:6px 0;color:#374151;">Space</td><td style="padding:6px 0;text-align:right;color:#111;font-weight:bold;">${spaceLabel || ''}</td></tr>
-      <tr><td style="padding:6px 0;color:#374151;">Monthly rent</td><td style="padding:6px 0;text-align:right;color:#374151;">${money(rent)}</td></tr>
-      ${feeRow}
-      <tr><td style="padding:10px 0 0;border-top:2px solid #1e3a5f;color:#111;font-weight:bold;font-size:15px;">Total due</td>
-          <td style="padding:10px 0 0;border-top:2px solid #1e3a5f;text-align:right;color:#111;font-weight:bold;font-size:15px;">${money(total)}</td></tr>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="color:#fff;font-size:17px;font-weight:bold;">MASTER TECH RV REPAIR AND STORAGE</td>
+        <td style="text-align:right;color:#cbd5e1;font-size:12px;">Invoice ${inv.number}</td>
+      </tr>
     </table>
-    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:14px 16px;margin-top:18px;">
-      <p style="margin:0 0 4px;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;">Payment method: ${methodLabel}</p>
-      <p style="margin:0;font-size:13.5px;color:#374151;line-height:1.55;">${instructions}</p>
-    </div>
-    <p style="font-size:13px;color:#374151;line-height:1.6;margin:20px 0 0;">
-      Questions about your bill? Just reply to this email or call us at (303) 557-2214.
-    </p>
-    <p style="font-size:14px;color:#111;margin:18px 0 0;">Thanks,<br/>Carol and Mark</p>
+    <p style="color:#93c5fd;margin:6px 0 0;font-size:11px;">6590 E. 49th Ave., Commerce City, CO 80022<br/>service@mastertechrvrepair.com | (303) 557-2214</p>
   </div>
+
+  <div style="padding:24px 32px 8px;">
+    <h2 style="margin:0;font-size:15px;color:#1e3a5f;letter-spacing:.03em;">${inv.title}</h2>
+    ${inv.subtitle ? `<p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${inv.subtitle}</p>` : ''}
+  </div>
+
+  <div style="padding:12px 32px 0;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr>
+        <td style="vertical-align:top;padding-right:12px;">
+          <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Customer</div>
+          <div style="color:#111;font-weight:bold;">${inv.customerName}</div>
+          <div style="color:#374151;">${inv.customerEmail || ''}</div>
+        </td>
+        <td style="vertical-align:top;padding-right:12px;">
+          <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Invoice Details</div>
+          <div style="color:#374151;">Created ${inv.createdDate}</div>
+          <div style="color:#111;font-weight:bold;">${money(inv.total)}</div>
+        </td>
+        <td style="vertical-align:top;">
+          <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Payment</div>
+          <div style="color:#374151;">Due ${inv.dueDate}</div>
+          <div style="color:#111;font-weight:bold;">${money(inv.total)}</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="padding:18px 32px 0;">
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px 0;border-bottom:2px solid #1e3a5f;color:#1e3a5f;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">Items</th>
+          <th style="text-align:center;padding:6px 0;border-bottom:2px solid #1e3a5f;color:#1e3a5f;font-size:11px;text-transform:uppercase;width:60px;">Qty</th>
+          <th style="text-align:right;padding:6px 0;border-bottom:2px solid #1e3a5f;color:#1e3a5f;font-size:11px;text-transform:uppercase;width:80px;">Price</th>
+          <th style="text-align:right;padding:6px 0;border-bottom:2px solid #1e3a5f;color:#1e3a5f;font-size:11px;text-transform:uppercase;width:90px;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}
+        <tr>
+          <td colspan="2"></td>
+          <td style="padding:9px 0;text-align:right;color:#374151;">Subtotal</td>
+          <td style="padding:9px 0;text-align:right;color:#374151;">${money(inv.total)}</td>
+        </tr>
+        <tr>
+          <td colspan="2"></td>
+          <td style="padding:9px 0;text-align:right;color:#111;font-weight:bold;font-size:14px;border-top:2px solid #1e3a5f;">Total Due</td>
+          <td style="padding:9px 0;text-align:right;color:#111;font-weight:bold;font-size:14px;border-top:2px solid #1e3a5f;">${money(inv.total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="padding:18px 32px 0;">
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:14px 16px;">
+      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Payment method: ${inv.methodLabel}</div>
+      <div style="font-size:13px;color:#374151;line-height:1.55;">${inv.instructions}</div>
+    </div>
+    <p style="font-size:11.5px;color:#6b7280;margin:12px 0 0;">Recurring monthly on the last day of the month.</p>
+  </div>
+
+  <div style="padding:18px 32px 26px;">
+    <p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">Questions about your bill? Reply to this email or call us at (303) 557-2214.</p>
+    <p style="font-size:13.5px;color:#111;margin:14px 0 0;">Thanks,<br/>Carol and Mark</p>
+  </div>
+
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;text-align:center;">
-    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage<br/>6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
   </div>
 </div></body></html>`;
 }
 
-async function eligible(dbc, year, month) {
+async function eligibleRows(dbc, year, month) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
-            sp.label AS space_label,
-            c.id AS customer_id, c.first_name, c.email_primary
+            sp.label AS space_label, sp.space_type,
+            u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
+            c.id AS customer_id, c.first_name, c.last_name, c.email_primary
        FROM storage_billing sb
        LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+       LEFT JOIN units u ON u.id = sb.unit_id
        LEFT JOIN customers c ON c.id = sb.customer_id
       WHERE sb.deleted_at IS NULL
         AND (sb.billing_end_date IS NULL OR sb.billing_end_date >= $1::date)
@@ -117,17 +175,11 @@ async function eligible(dbc, year, month) {
         AND COALESCE(sb.monthly_rate, 0) > 0
         AND NOT EXISTS (
           SELECT 1 FROM storage_invoices si
-           WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3
-             AND si.status = 'sent'
-        )
-        -- Already paid for that month (green on the billing grid, e.g. someone
-        -- who prepaid several months by check). Never invoice a paid month.
+           WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3 AND si.status = 'sent')
         AND NOT EXISTS (
           SELECT 1 FROM storage_payment_status ps
-           WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3
-             AND ps.status = 'paid'
-        )
-      ORDER BY sp.label`,
+           WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3 AND ps.status = 'paid')
+      ORDER BY c.id, sp.label`,
     [periodStart, year, month]
   );
   return rows;
@@ -136,15 +188,10 @@ async function eligible(dbc, year, month) {
 async function runInvoices({ year, month, dryRun = true } = {}) {
   const p = (year && month) ? { year, month } : nextPeriod();
   const dbc = await pool.connect();
-  let list;
-  try { list = await eligible(dbc, p.year, p.month); }
-  finally { dbc.release(); }
-
-  // Report which spaces were held back because that month is already paid.
-  const dbc2 = await pool.connect();
-  let prepaid = [];
+  let rows, prepaid = [];
   try {
-    const { rows } = await dbc2.query(
+    rows = await eligibleRows(dbc, p.year, p.month);
+    const { rows: pp } = await dbc.query(
       `SELECT sp.label AS space, c.last_name
          FROM storage_payment_status ps
          JOIN storage_billing sb ON sb.id = ps.storage_billing_id
@@ -154,68 +201,100 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
           AND sb.deleted_at IS NULL AND sb.billing_end_date IS NULL`,
       [p.year, p.month]
     );
-    prepaid = rows.map(r => `${r.space} (${r.last_name || ''})`.trim());
-  } finally { dbc2.release(); }
+    prepaid = pp.map(r => `${r.space} (${r.last_name || ''})`.trim());
+  } finally { dbc.release(); }
 
+  // One invoice per customer.
+  const byCustomer = new Map();
+  for (const r of rows) {
+    if (!byCustomer.has(r.customer_id)) byCustomer.set(r.customer_id, []);
+    byCustomer.get(r.customer_id).push(r);
+  }
+
+  const due = dueDateFor(p.year, p.month);
   const results = [];
   let sent = 0, skipped = 0, failed = 0;
 
-  for (const r of list) {
-    const rent = parseFloat(r.monthly_rate);
-    const info = methodInfo(r.payment_method, r.autopay_enabled, r.autopay_card_brand, r.autopay_card_last4);
-    // Pass through what Square actually charges, including the ACH $1 minimum.
-    const surcharge = info.feePct > 0
-      ? Math.max(Math.round(rent * info.feePct * 100) / 100, info.feeMin || 0)
-      : 0;
-    const total = Math.round((rent + surcharge) * 100) / 100;
-    const row = {
-      billing_id: r.billing_id, space: r.space_label, customer: r.first_name,
-      email: r.email_primary || null, method: r.payment_method || 'not set',
-      rent, surcharge, total,
+  for (const [customerId, spaces] of byCustomer) {
+    const first = spaces[0];
+    const items = [];
+    let total = 0;
+
+    for (const s of spaces) {
+      const rent = parseFloat(s.monthly_rate);
+      const rv = [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ');
+      const typeName = (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage';
+      items.push({ name: `${typeName} — ${s.space_label}`, sub: rv || null, amount: rent });
+      total += rent;
+    }
+    // Fee is driven by how this customer pays; charge it on the rent total.
+    const cfg = feeConfig(first.payment_method, first.autopay_enabled);
+    const fee = cfg.pct > 0 ? Math.max(Math.round(total * cfg.pct * 100) / 100, cfg.min || 0) : 0;
+    if (fee > 0) {
+      items.push({ name: cfg.label, sub: cfg.pct === CARD_SURCHARGE_PCT ? '3.5% of storage total' : '1% of storage total', amount: fee });
+      total += fee;
+    }
+    total = Math.round(total * 100) / 100;
+
+    const rvList = spaces.map(s => [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ')).filter(Boolean);
+    const allIndoor = spaces.every(s => s.space_type === 'indoor');
+    const allOutdoor = spaces.every(s => s.space_type === 'outdoor');
+    const inv = {
+      number: `S${p.year}${String(p.month).padStart(2, '0')}-${customerId}`,
+      title: (allIndoor ? 'INDOOR RV STORAGE' : allOutdoor ? 'OUTDOOR RV STORAGE' : 'RV STORAGE'),
+      subtitle: `MONTHLY BILLING FOR ${MONTHS[p.month - 1].toUpperCase()} ${p.year}` + (rvList.length ? ` — ${rvList.join(' AND ').toUpperCase()}` : ''),
+      customerName: [first.first_name, first.last_name].filter(Boolean).join(' '),
+      customerEmail: first.email_primary,
+      createdDate: longDate(new Date()),
+      dueDate: longDate(due),
+      items, total,
+      methodLabel: methodLabel(first.payment_method),
+      instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4),
     };
 
-    if (!r.email_primary) { row.result = 'no email on file'; skipped++; results.push(row); continue; }
+    const row = { customer_id: customerId, customer: inv.customerName, email: first.email_primary || null,
+                  spaces: spaces.map(s => s.space_label), method: first.payment_method || 'not set',
+                  rent: Math.round((total - fee) * 100) / 100, fee, total, invoice: inv.number };
+
+    if (!first.email_primary) { row.result = 'no email on file'; skipped++; results.push(row); continue; }
     if (dryRun) { row.result = 'would send'; results.push(row); continue; }
 
-    const html = buildInvoiceHtml({
-      firstName: r.first_name, spaceLabel: r.space_label, year: p.year, month: p.month,
-      rent, surcharge, total, methodLabel: info.label, instructions: info.instructions,
-      feeLabel: info.feeLabel,
-    });
-    const text = `Hi ${r.first_name || 'there'},\n\nYour storage invoice for ${MONTHS[p.month - 1]} ${p.year}.\n\nSpace: ${r.space_label}\nMonthly rent: ${money(rent)}\n${surcharge > 0 && info.feeLabel ? `${info.feeLabel}: ${money(surcharge)}\n` : ''}Total due: ${money(total)}\n\nPayment method: ${info.label}\n${info.instructions}\n\nQuestions? Reply to this email or call (303) 557-2214.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage`;
+    const html = buildInvoiceHtml(inv);
+    const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
+      + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
+      + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}\n\nQuestions? Reply to this email or call (303) 557-2214.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair and Storage`;
 
     try {
       const res = await sendEmail({
-        to: r.email_primary,
-        subject: `Master Tech RV storage invoice - ${MONTHS[p.month - 1]} ${p.year} - ${r.space_label || ''}`.trim(),
+        to: first.email_primary,
+        subject: `Master Tech RV storage invoice — ${MONTHS[p.month - 1]} ${p.year}`,
         html, text,
       });
       if (res && res.success) {
-        await pool.query(
-          `INSERT INTO storage_invoices (storage_billing_id, year, month, rent, surcharge, total, payment_method, status, sent_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'sent',NOW())
-           ON CONFLICT (storage_billing_id, year, month)
-           DO UPDATE SET rent=EXCLUDED.rent, surcharge=EXCLUDED.surcharge, total=EXCLUDED.total,
-                         payment_method=EXCLUDED.payment_method, status='sent', sent_at=NOW()`,
-          [r.billing_id, p.year, p.month, rent, surcharge, total, r.payment_method || null]
-        );
+        for (const s of spaces) {
+          const share = parseFloat(s.monthly_rate);
+          await pool.query(
+            `INSERT INTO storage_invoices (storage_billing_id, year, month, rent, surcharge, total, payment_method, status, sent_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,'sent',NOW())
+             ON CONFLICT (storage_billing_id, year, month)
+             DO UPDATE SET rent=EXCLUDED.rent, surcharge=EXCLUDED.surcharge, total=EXCLUDED.total,
+                           payment_method=EXCLUDED.payment_method, status='sent', sent_at=NOW()`,
+            [s.billing_id, p.year, p.month, share, spaces.length === 1 ? fee : 0, spaces.length === 1 ? total : share, s.payment_method || null]
+          );
+        }
         row.result = 'sent'; sent++;
-      } else {
-        row.result = 'send failed: ' + (res?.error || 'unknown'); failed++;
-      }
-    } catch (e) {
-      row.result = 'error: ' + e.message; failed++;
-    }
+      } else { row.result = 'send failed: ' + (res?.error || 'unknown'); failed++; }
+    } catch (e) { row.result = 'error: ' + e.message; failed++; }
     results.push(row);
   }
 
-  const totals = results.reduce((a, r) => ({ rent: a.rent + r.rent, surcharge: a.surcharge + r.surcharge, total: a.total + r.total }), { rent: 0, surcharge: 0, total: 0 });
+  const totals = results.reduce((a, r) => ({ rent: a.rent + r.rent, fee: a.fee + r.fee, total: a.total + r.total }), { rent: 0, fee: 0, total: 0 });
   console.log(`[storageInvoice] ${p.year}-${p.month} ${dryRun ? '(dry run) ' : ''}${results.length} invoices, sent ${sent}, skipped ${skipped}, failed ${failed}`);
-  return { period: p, dryRun, count: results.length, sent, skipped, failed, totals, results, already_paid_skipped: prepaid };
+  return { period: p, dryRun, due_date: longDate(due), count: results.length, sent, skipped, failed, totals, results, already_paid_skipped: prepaid };
 }
 
-// Disabled by default. Enable by setting STORAGE_INVOICE_CRON=on once the
-// owner has reviewed a dry run and is ready for invoices to go out on their own.
+async function runRetriesNoop() { return {}; }
+
 function startStorageInvoiceCron() {
   if (String(process.env.STORAGE_INVOICE_CRON || '').toLowerCase() !== 'on') {
     console.log('[storageInvoice] cron NOT enabled (set STORAGE_INVOICE_CRON=on to turn it on)');
