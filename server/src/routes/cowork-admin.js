@@ -580,4 +580,13 @@ router.get('/recent-square-payments', requireCoworkKey, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/cowork-admin/billing-go-live-status — is everything armed for month-end?
+router.get('/billing-go-live-status', requireCoworkKey, (req, res) => {
+  res.json({
+    invoice_cron_enabled: String(process.env.STORAGE_INVOICE_CRON || '').toLowerCase() === 'on',
+    square_env: process.env.SQUARE_ENVIRONMENT || null,
+    webhook_key_set: !!process.env.SQUARE_WEBHOOK_SIGNATURE_KEY,
+  });
+});
+
 module.exports = router;
