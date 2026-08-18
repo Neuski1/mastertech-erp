@@ -555,4 +555,29 @@ router.post('/refund-payment', requireCoworkKey, async (req, res) => {
   }
 });
 
+// GET /api/cowork-admin/recent-square-payments?hours=4 — READ-ONLY list of the
+// latest Square payments (id, amount, status, note) for verification/refunds.
+router.get('/recent-square-payments', requireCoworkKey, async (req, res) => {
+  try {
+    const square = require('../services/square');
+    const hours = Math.min(parseInt(req.query.hours) || 4, 168);
+    const beginTime = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+    const resp = await square.client.payments.list({ locationId: square.locationId, beginTime, sortOrder: 'DESC' });
+    let payments = [];
+    if (Array.isArray(resp)) payments = resp;
+    else if (resp?.data && Array.isArray(resp.data)) payments = resp.data;
+    else if (resp?.payments) payments = resp.payments;
+    else if (resp && typeof resp[Symbol.asyncIterator] === 'function') {
+      for await (const x of resp) { payments.push(x); if (payments.length >= 25) break; }
+    }
+    res.json({ payments: payments.slice(0, 25).map(p => ({
+      id: p.id, status: p.status,
+      amount: Number(p.amountMoney?.amount || p.amount_money?.amount || 0) / 100,
+      created_at: p.createdAt || p.created_at,
+      note: p.note || null,
+      last4: p.cardDetails?.card?.last4 || p.card_details?.card?.last_4 || null,
+    })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
