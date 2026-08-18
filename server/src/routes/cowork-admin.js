@@ -488,4 +488,70 @@ router.get('/autopay-link-candidates', requireCoworkKey, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/cowork-admin/autopay-test-charge  { billing_id, amount }
+// Charges the stored card a SMALL test amount (capped at $5) to prove the
+// production charge path end to end before month-end. Returns the Square
+// payment id so it can be refunded right after.
+router.post('/autopay-test-charge', requireCoworkKey, async (req, res) => {
+  try {
+    const { billing_id } = req.body || {};
+    const amount = Math.min(parseFloat(req.body?.amount) || 1.00, 5.00);
+    if (!billing_id) return res.status(400).json({ error: 'billing_id required' });
+
+    const { rows } = await pool.query(
+      `SELECT sb.id, sb.autopay_card_id, sb.square_customer_id, sp.label
+         FROM storage_billing sb LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+        WHERE sb.id = $1 AND sb.autopay_enabled = TRUE AND sb.deleted_at IS NULL`,
+      [billing_id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No autopay-enabled billing with that id' });
+    const b = rows[0];
+
+    const square = require('../services/square');
+    const crypto = require('crypto');
+    const resp = await square.client.payments.create({
+      idempotencyKey: crypto.randomUUID(),
+      sourceId: b.autopay_card_id,
+      customerId: b.square_customer_id,
+      amountMoney: { amount: BigInt(Math.round(amount * 100)), currency: 'USD' },
+      locationId: square.locationId,
+      note: `Autopay TEST charge - ${b.label || 'storage'} - will be refunded`,
+    });
+    const d = resp?.data || resp?.result || resp || {};
+    const pay = d.payment || d;
+    res.json({ ok: pay.status === 'COMPLETED' || pay.status === 'APPROVED',
+               payment_id: pay.id, status: pay.status, amount });
+  } catch (err) {
+    const detail = err.errors ? err.errors.map(e => e.detail).join('; ') : err.message;
+    res.status(502).json({ error: detail });
+  }
+});
+
+// POST /api/cowork-admin/refund-payment  { payment_id }
+// Refunds a payment in full (used to undo the test charge).
+router.post('/refund-payment', requireCoworkKey, async (req, res) => {
+  try {
+    const { payment_id } = req.body || {};
+    if (!payment_id) return res.status(400).json({ error: 'payment_id required' });
+    const square = require('../services/square');
+    const crypto = require('crypto');
+    const pr = await square.client.payments.get({ paymentId: payment_id });
+    const pd = pr?.data || pr?.result || pr || {};
+    const pay = pd.payment || pd;
+    const amt = pay.amountMoney?.amount || pay.amount_money?.amount;
+    const resp = await square.client.refunds.refundPayment({
+      idempotencyKey: crypto.randomUUID(),
+      paymentId: payment_id,
+      amountMoney: { amount: BigInt(amt), currency: 'USD' },
+      reason: 'Autopay system test - full refund',
+    });
+    const d = resp?.data || resp?.result || resp || {};
+    const refund = d.refund || d;
+    res.json({ ok: true, refund_id: refund.id, status: refund.status });
+  } catch (err) {
+    const detail = err.errors ? err.errors.map(e => e.detail).join('; ') : err.message;
+    res.status(502).json({ error: detail });
+  }
+});
+
 module.exports = router;

@@ -18,7 +18,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const pool = require('../db/pool');
-const { requireRole } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 const square = require('../services/square');
 
@@ -143,7 +143,7 @@ router.post('/setup/:token', express.json(), async (req, res) => {
 });
 
 // --- Staff: create/return the autopay setup link for a billing ------------
-router.post('/:billingId/link', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+router.post('/:billingId/link', requireAuth, requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT id, autopay_setup_token FROM storage_billing WHERE id = $1 AND deleted_at IS NULL AND billing_end_date IS NULL',
@@ -166,7 +166,7 @@ router.post('/:billingId/link', requireRole('admin', 'service_writer', 'technici
 });
 
 // --- Staff: disable autopay (forget the card) -----------------------------
-router.delete('/:billingId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+router.delete('/:billingId', requireAuth, requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT autopay_card_id FROM storage_billing WHERE id = $1', [req.params.billingId]);
     if (rows.length && rows[0].autopay_card_id) {
@@ -189,7 +189,7 @@ router.delete('/:billingId', requireRole('admin', 'service_writer', 'technician'
 // --- Staff: run (or preview) the monthly autopay charge on demand ----------
 // Body: { dryRun: true|false, year?, month? }. dryRun lists who would be charged
 // and how much, charging no one. Defaults to next month.
-router.post('/run', requireRole('admin'), async (req, res) => {
+router.post('/run', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { runCharges } = require('../jobs/storageAutopayCron');
     const dryRun = req.body?.dryRun !== false; // default to a safe preview
@@ -205,7 +205,7 @@ router.post('/run', requireRole('admin'), async (req, res) => {
 // --- Staff: preview or send the monthly storage invoices ------------------
 // Body: { dryRun: true|false, year?, month? }. Defaults to a safe preview of
 // next month. dryRun lists every invoice and total without emailing anyone.
-router.post('/invoices/run', requireRole('admin'), async (req, res) => {
+router.post('/invoices/run', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { runInvoices } = require('../jobs/storageInvoiceCron');
     const dryRun = req.body?.dryRun !== false;
@@ -221,7 +221,7 @@ router.post('/invoices/run', requireRole('admin'), async (req, res) => {
 // Body: { dryRun: true|false, billing_ids?: [] }
 // Targets every ACTIVE space that is not already on autopay and has an email.
 // dryRun (the default) lists who would be emailed without sending anything.
-router.post('/send-links', requireRole('admin'), async (req, res) => {
+router.post('/send-links', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const dryRun = req.body?.dryRun !== false;
     const only = Array.isArray(req.body?.billing_ids) && req.body.billing_ids.length
