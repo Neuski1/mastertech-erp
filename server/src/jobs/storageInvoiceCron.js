@@ -83,11 +83,16 @@ function buildInvoiceHtml(inv) {
         <td style="text-align:right;color:#cbd5e1;font-size:12px;">Invoice ${inv.number}</td>
       </tr>
     </table>
-    <p style="color:#93c5fd;margin:6px 0 0;font-size:11px;">6590 E. 49th Ave., Commerce City, CO 80022<br/>service@mastertechrvrepair.com | (303) 557-2214</p>
+    <table style="width:100%;border-collapse:collapse;margin-top:6px;">
+      <tr>
+        <td style="color:#93c5fd;font-size:11px;vertical-align:top;">6590 E. 49th Ave., Commerce City, CO 80022<br/>service@mastertechrvrepair.com | (303) 557-2214</td>
+        <td style="text-align:right;color:#cbd5e1;font-size:11px;vertical-align:top;">Issue date<br/><span style="color:#fff;">${inv.issueDate}</span></td>
+      </tr>
+    </table>
   </div>
 
   <div style="padding:24px 32px 8px;">
-    <h2 style="margin:0;font-size:15px;color:#1e3a5f;letter-spacing:.03em;">${inv.title}</h2>
+    <h2 style="margin:0;font-size:16px;color:#1e3a5f;">${inv.title}</h2>
     ${inv.subtitle ? `<p style="margin:4px 0 0;font-size:12px;color:#6b7280;">${inv.subtitle}</p>` : ''}
   </div>
 
@@ -98,11 +103,13 @@ function buildInvoiceHtml(inv) {
           <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Customer</div>
           <div style="color:#111;font-weight:bold;">${inv.customerName}</div>
           <div style="color:#374151;">${inv.customerEmail || ''}</div>
+          ${inv.customerPhone ? `<div style="color:#374151;">${inv.customerPhone}</div>` : ''}
         </td>
         <td style="vertical-align:top;padding-right:12px;">
           <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Invoice Details</div>
-          <div style="color:#374151;">Created ${inv.createdDate}</div>
+          <div style="color:#374151;">PDF created ${inv.createdDate}</div>
           <div style="color:#111;font-weight:bold;">${money(inv.total)}</div>
+          <div style="color:#374151;">Service date ${inv.serviceDate}</div>
         </td>
         <td style="vertical-align:top;">
           <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Payment</div>
@@ -146,10 +153,7 @@ function buildInvoiceHtml(inv) {
     <p style="font-size:11.5px;color:#6b7280;margin:12px 0 0;">Recurring monthly on the last day of the month.</p>
   </div>
 
-  <div style="padding:18px 32px 26px;">
-    <p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">Questions about your bill? Reply to this email or call us at (303) 557-2214.</p>
-    <p style="font-size:13.5px;color:#111;margin:14px 0 0;">Thanks,<br/>Carol and Mark</p>
-  </div>
+  <div style="padding:0 32px 22px;"></div>
 
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage<br/>6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
@@ -164,7 +168,7 @@ async function eligibleRows(dbc, year, month) {
             sb.autopay_card_brand, sb.autopay_card_last4,
             sp.label AS space_label, sp.space_type,
             u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
-            c.id AS customer_id, c.first_name, c.last_name, c.email_primary
+            c.id AS customer_id, c.first_name, c.last_name, c.email_primary, c.phone_primary
        FROM storage_billing sb
        LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
        LEFT JOIN units u ON u.id = sb.unit_id
@@ -224,7 +228,8 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
       const rent = parseFloat(s.monthly_rate);
       const rv = [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ');
       const typeName = (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage';
-      items.push({ name: `${typeName} — ${s.space_label}`, sub: rv || null, amount: rent });
+      const sub = [s.space_label, rv].filter(Boolean).join(' · ');
+      items.push({ name: typeName, sub: sub || null, amount: rent });
       total += rent;
     }
     // Fee is driven by how this customer pays; charge it on the rent total.
@@ -241,11 +246,14 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
     const allOutdoor = spaces.every(s => s.space_type === 'outdoor');
     const inv = {
       number: `S${p.year}${String(p.month).padStart(2, '0')}-${customerId}`,
-      title: (allIndoor ? 'INDOOR RV STORAGE' : allOutdoor ? 'OUTDOOR RV STORAGE' : 'RV STORAGE'),
-      subtitle: `MONTHLY BILLING FOR ${MONTHS[p.month - 1].toUpperCase()} ${p.year}` + (rvList.length ? ` — ${rvList.join(' AND ').toUpperCase()}` : ''),
+      title: (allIndoor ? 'Indoor RV Storage Invoice' : allOutdoor ? 'Outdoor RV Storage Invoice' : 'RV Storage Invoice'),
+      subtitle: rvList.join(' and '),
       customerName: [first.first_name, first.last_name].filter(Boolean).join(' '),
       customerEmail: first.email_primary,
+      customerPhone: first.phone_primary || null,
       createdDate: longDate(new Date()),
+      issueDate: longDate(due),
+      serviceDate: longDate(due),
       dueDate: longDate(due),
       items, total,
       methodLabel: methodLabel(first.payment_method),
@@ -262,7 +270,7 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
     const html = buildInvoiceHtml(inv);
     const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
       + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
-      + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}\n\nQuestions? Reply to this email or call (303) 557-2214.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair and Storage`;
+      + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}\n\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
 
     try {
       const res = await sendEmail({
