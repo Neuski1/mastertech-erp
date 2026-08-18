@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const square = require('../services/square');
 
 const publicBase = () => process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
-const logoUrl = () => `${publicBase()}/master-rvtech-logo-dark.jpg`;
+const logoUrl = () => `${publicBase()}/logo-mark.png`;
 
 // One-time Square checkout link so a card customer can pay this invoice without
 // enrolling in autopay. Returns null if Square is not configured.
@@ -122,14 +122,21 @@ function buildInvoiceHtml(inv) {
     <table style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="vertical-align:middle;">
-          <img src="${logoUrl()}" alt="Master Tech RV Repair and Storage" style="height:56px;max-width:230px;object-fit:contain;display:block;" />
+          <table style="border-collapse:collapse;"><tr>
+            <td style="vertical-align:middle;padding-right:12px;">
+              <img src="${logoUrl()}" alt="Master Tech RV" style="height:54px;width:auto;display:block;" />
+            </td>
+            <td style="vertical-align:middle;">
+              <span style="color:#5FD584;font-size:17px;font-weight:bold;letter-spacing:.02em;">MASTER TECH RV<br/>REPAIR AND STORAGE</span>
+            </td>
+          </tr></table>
         </td>
         <td style="text-align:right;color:#cbd5e1;font-size:12px;vertical-align:middle;">Invoice ${inv.number}</td>
       </tr>
     </table>
     <table style="width:100%;border-collapse:collapse;margin-top:6px;">
       <tr>
-        <td style="color:#93c5fd;font-size:11px;vertical-align:top;">6590 E. 49th Ave., Commerce City, CO 80022<br/>service@mastertechrvrepair.com | (303) 557-2214</td>
+        <td style="color:#e2e8f0;font-size:11px;vertical-align:top;">6590 E. 49th Ave., Commerce City, CO 80022<br/><span style="color:#ffffff;">service@mastertechrvrepair.com</span> | (303) 557-2214</td>
         <td style="text-align:right;color:#cbd5e1;font-size:11px;vertical-align:top;">Issue date<br/><span style="color:#fff;">${inv.issueDate}</span></td>
       </tr>
     </table>
@@ -220,8 +227,9 @@ function buildInvoiceHtml(inv) {
   <div style="padding:18px 32px 0;">
     <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:6px;padding:13px 16px;">
       <p style="margin:0;font-size:12.5px;color:#065f46;line-height:1.6;">
-        <strong>Prefer to pay by bank transfer?</strong> ACH costs 1% instead of the 3.5% card fee${inv.achSavings ? `, which would save you <strong>${money(inv.achSavings)} a month</strong>` : ''}.
-        If you would like to switch to ACH, just reply to this email or call us at (303) 557-2214 and we will set it up.
+        <strong>Don't want to pay the credit card convenience fee?</strong> We offer other payment options
+        such as Zelle, check and ACH bank transfer. Just reply to this email or call us at (303) 557-2214
+        and we will switch you over.
       </p>
     </div>
   </div>` : ''}
@@ -377,7 +385,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
       + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
       + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}`
-      + (inv.achNote ? `\n\nPrefer to pay by bank transfer? ACH costs 1% instead of the 3.5% card fee${inv.achSavings ? `, saving you ${money(inv.achSavings)} a month` : ''}. Reply to this email or call (303) 557-2214 and we will set it up.` : '')
+      + (inv.achNote ? `\n\nDon't want to pay the credit card convenience fee? We offer other payment options such as Zelle, check and ACH bank transfer. Reply to this email or call (303) 557-2214 and we will switch you over.` : '')
       + `\n\nPICKUP & DROP-OFF HOURS\nMonday through Friday, 9:00 AM to 6:00 PM. Closed Saturday, Sunday and major holidays.\n`
       + `Give us at least 2 hours notice to have your unit pulled out. Drop off at least 30 minutes before close.\n`
       + `\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
