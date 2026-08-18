@@ -123,6 +123,15 @@ async function chargeOne(b, year, month, { dryRun }) {
          WHERE storage_payment_status.source <> 'manual'`,
         [b.billing_id, year, month, amountCents / 100]
       );
+      // Customer-record billing history (same table the manual billing run used)
+      await dbc.query(
+        `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes)
+         SELECT $1, sb.customer_id, sb.space_id, $2, $3, $4
+           FROM storage_billing sb WHERE sb.id = $1
+            AND NOT EXISTS (SELECT 1 FROM storage_charges sc WHERE sc.billing_id = $1 AND sc.charge_month = $3)`,
+        [b.billing_id, amountCents / 100, `${year}-${String(month).padStart(2, '0')}`,
+         `Storage autopay - ${b.space_label || ''} (Square ${payment.id})`]
+      );
       await dbc.query('COMMIT');
       console.log(`[storageAutopay] Charged $${amountCents / 100} for billing ${b.billing_id} (${label})`);
       dbc.release();

@@ -140,6 +140,14 @@ async function recordStoragePayment(payment) {
         `UPDATE storage_invoices SET status='paid' WHERE storage_billing_id=$1 AND year=$2 AND month=$3`,
         [r.storage_billing_id, year, month]
       );
+      await dbc.query(
+        `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes)
+         SELECT $1, sb.customer_id, sb.space_id, $2, $3, $4
+           FROM storage_billing sb WHERE sb.id = $1
+            AND NOT EXISTS (SELECT 1 FROM storage_charges sc WHERE sc.billing_id = $1 AND sc.charge_month = $3)`,
+        [r.storage_billing_id, r.rent, `${year}-${String(month).padStart(2, '0')}`,
+         `Storage paid online (Square ${payId})`]
+      );
     }
     console.log(`[squareReconcile] Storage invoice S${m[1]}${m[2]}-${customerId} marked paid (${rows.length} space(s), payment ${payId})`);
     return { recorded: true, spaces: rows.length };
