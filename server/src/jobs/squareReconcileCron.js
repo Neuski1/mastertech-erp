@@ -89,7 +89,7 @@ async function recordSquarePayment(payment) {
 }
 
 async function listRecentPayments(beginTime) {
-  const resp = await squareClient.payments.list({ locationId, beginTime, sortOrder: 'DESC' });
+  const resp = await squareClient.payments.list({ locationId, beginTime, sortField: 'CREATED_AT', sortOrder: 'DESC' });
   if (Array.isArray(resp)) return resp;
   if (resp?.data && Array.isArray(resp.data)) return resp.data;
   if (resp?.result?.payments) return resp.result.payments;
