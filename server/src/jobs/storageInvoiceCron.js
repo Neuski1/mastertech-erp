@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const square = require('../services/square');
 
 const publicBase = () => process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+const logoUrl = () => `${publicBase()}/master-rvtech-logo-dark.jpg`;
 
 // One-time Square checkout link so a card customer can pay this invoice without
 // enrolling in autopay. Returns null if Square is not configured.
@@ -120,8 +121,10 @@ function buildInvoiceHtml(inv) {
   <div style="background:#1e3a5f;padding:20px 32px;">
     <table style="width:100%;border-collapse:collapse;">
       <tr>
-        <td style="color:#fff;font-size:17px;font-weight:bold;">MASTER TECH RV REPAIR AND STORAGE</td>
-        <td style="text-align:right;color:#cbd5e1;font-size:12px;">Invoice ${inv.number}</td>
+        <td style="vertical-align:middle;">
+          <img src="${logoUrl()}" alt="Master Tech RV Repair and Storage" style="height:56px;max-width:230px;object-fit:contain;display:block;" />
+        </td>
+        <td style="text-align:right;color:#cbd5e1;font-size:12px;vertical-align:middle;">Invoice ${inv.number}</td>
       </tr>
     </table>
     <table style="width:100%;border-collapse:collapse;margin-top:6px;">
@@ -213,7 +216,17 @@ function buildInvoiceHtml(inv) {
     <p style="font-size:11.5px;color:#6b7280;margin:12px 0 0;">Recurring monthly on the last day of the month.</p>
   </div>
 
-  <div style="padding:0 32px 22px;"></div>
+  <div style="padding:20px 32px 4px;">
+    <div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:6px;padding:14px 16px;">
+      <p style="margin:0 0 8px;font-size:11px;color:#c2410c;text-transform:uppercase;letter-spacing:.05em;font-weight:bold;">Pickup &amp; Drop-Off Hours</p>
+      <p style="margin:0 0 6px;font-size:12.5px;color:#111;font-weight:bold;">Monday through Friday, 9:00 AM to 6:00 PM. Closed Saturday, Sunday and major holidays.</p>
+      <ul style="margin:6px 0 0;padding-left:18px;color:#374151;font-size:12px;line-height:1.65;">
+        <li>Give us at least <strong>2 hours notice</strong> by call or text to have your unit pulled out.</li>
+        <li>Drop off at least <strong>30 minutes before we close</strong> so we have time to put it away.</li>
+        <li>Dropping off on <strong>Sunday</strong>? Let us know, park in front of the building and drop the keys in the mail slot. We will move it inside Monday morning.</li>
+      </ul>
+    </div>
+  </div>
 
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage<br/>6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
@@ -343,7 +356,10 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
     const html = buildInvoiceHtml(inv);
     const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
       + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
-      + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}\n\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
+      + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}`
+      + `\n\nPICKUP & DROP-OFF HOURS\nMonday through Friday, 9:00 AM to 6:00 PM. Closed Saturday, Sunday and major holidays.\n`
+      + `Give us at least 2 hours notice to have your unit pulled out. Drop off at least 30 minutes before close.\n`
+      + `\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
 
     try {
       const res = await sendEmail({
