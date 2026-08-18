@@ -194,6 +194,7 @@ const pool = require('./db/pool');
     await pool.query('ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS autopay_setup_token UUID');
     // Migration 060: how each storage customer pays, and the monthly invoice log.
     await pool.query("ALTER TABLE storage_billing ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20)");
+    await pool.query("ALTER TABLE customers ADD COLUMN IF NOT EXISTS square_customer_id VARCHAR(64)");
     await pool.query(`ALTER TABLE storage_billing DROP CONSTRAINT IF EXISTS storage_billing_payment_method_check`);
     await pool.query(`ALTER TABLE storage_billing ADD CONSTRAINT storage_billing_payment_method_check
       CHECK (payment_method IS NULL OR payment_method IN ('credit_card','ach','zelle','check','cash'))`);
