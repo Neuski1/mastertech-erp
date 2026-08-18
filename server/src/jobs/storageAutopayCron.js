@@ -13,6 +13,15 @@ const { sendEmail } = require('../services/email');
 
 const OWNER_EMAIL = process.env.OWNER_ALERT_EMAIL || 'service@mastertechrvrepair.com';
 
+// Convenience fee passed through on autopay charges, matching the invoice.
+// A stored-card charge carries the 3.5% card-on-file fee; ACH (when built)
+// carries 1% with Square's $1 minimum. Falls back to the card fee when no
+// payment method is set, since the charge itself runs on a card.
+function chargeFee(method, rent) {
+  if (method === 'ach') return Math.max(Math.round(rent * 0.01 * 100) / 100, 1.00);
+  return Math.round(rent * 0.035 * 100) / 100;
+}
+
 function isLastDayOfMonth(d = new Date()) {
   const t = new Date(d);
   t.setDate(t.getDate() + 1);
@@ -30,7 +39,7 @@ function nextPeriod(d = new Date()) {
 async function eligibleBillings(dbc, year, month) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const { rows } = await dbc.query(
-    `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate,
+    `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
             sb.autopay_card_id, sb.square_customer_id,
             sp.label AS space_label,
             c.first_name, c.last_name, c.email_primary
@@ -60,10 +69,12 @@ function pickPayment(resp) {
 }
 
 async function chargeOne(b, year, month, { dryRun }) {
-  const amountCents = Math.round(parseFloat(b.monthly_rate) * 100);
+  const rent = parseFloat(b.monthly_rate);
+  const fee = chargeFee(b.payment_method, rent);
+  const amountCents = Math.round((rent + fee) * 100);
   const label = `${b.space_label || 'Storage'} ${year}-${String(month).padStart(2, '0')}`;
   if (dryRun) {
-    return { billing_id: b.billing_id, space: b.space_label, amount: amountCents / 100, would_charge: true };
+    return { billing_id: b.billing_id, space: b.space_label, rent, fee, amount: amountCents / 100, would_charge: true };
   }
 
   const dbc = await pool.connect();
@@ -88,7 +99,7 @@ async function chargeOne(b, year, month, { dryRun }) {
         amountMoney: { amount: BigInt(amountCents), currency: 'USD' },
         locationId: square.locationId,
         referenceId: `storage-billing-${b.billing_id}`,
-        note: `Storage autopay - ${label}`,
+        note: `Storage autopay - ${label} (rent ${rent.toFixed(2)} + fee ${fee.toFixed(2)})`,
       });
       payment = pickPayment(resp);
     } catch (e) {
@@ -177,7 +188,7 @@ async function runRetries() {
   let due;
   try {
     const { rows } = await dbc.query(
-      `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate,
+      `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
               c.first_name, c.last_name, c.customer_id
          FROM storage_autopay_charges ac
