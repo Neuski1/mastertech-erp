@@ -9,6 +9,47 @@
 const cron = require('node-cron');
 const pool = require('../db/pool');
 const { sendEmail } = require('../services/email');
+const crypto = require('crypto');
+const square = require('../services/square');
+
+const publicBase = () => process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+
+// One-time Square checkout link so a card customer can pay this invoice without
+// enrolling in autopay. Returns null if Square is not configured.
+async function createPayLink({ invoiceNumber, customerName, totalCents }) {
+  try {
+    if (!square.locationId) return null;
+    const resp = await square.client.checkout.paymentLinks.create({
+      idempotencyKey: crypto.randomUUID(),
+      quickPay: {
+        name: `RV Storage — Invoice ${invoiceNumber}`,
+        priceMoney: { amount: BigInt(totalCents), currency: 'USD' },
+        locationId: square.locationId,
+      },
+      checkoutOptions: { askForShippingAddress: false },
+    });
+    const d = resp?.data || resp?.result || resp || {};
+    const link = d.paymentLink || d.payment_link || {};
+    return link.url || link.longUrl || link.long_url || null;
+  } catch (e) {
+    console.error('[storageInvoice] pay link failed:', e.message);
+    return null;
+  }
+}
+
+// Make sure the space has an autopay setup token and return its public URL.
+async function autopayUrlFor(billingId) {
+  const { rows } = await pool.query('SELECT autopay_setup_token FROM storage_billing WHERE id = $1', [billingId]);
+  let token = rows.length ? rows[0].autopay_setup_token : null;
+  if (!token) {
+    const upd = await pool.query(
+      'UPDATE storage_billing SET autopay_setup_token = gen_random_uuid() WHERE id = $1 RETURNING autopay_setup_token',
+      [billingId]
+    );
+    token = upd.rows[0].autopay_setup_token;
+  }
+  return `${publicBase()}/storage-autopay/${token}`;
+}
 
 const CARD_SURCHARGE_PCT = 0.035;
 const ACH_SURCHARGE_PCT = 0.01;
@@ -51,7 +92,7 @@ function payInstructions(method, autopayOn, brand, last4) {
     case 'credit_card':
       return autopayOn
         ? `No action needed. Your ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} on file will be charged automatically on the due date.`
-        : 'Please call the office at (303) 557-2214 to pay by card, or ask us to send you a secure payment link.';
+        : 'Use one of the buttons above to set up automatic monthly payment or to pay this invoice now. Prefer to pay by phone? Call us at (303) 557-2214.';
     case 'ach':
       return autopayOn
         ? 'No action needed. Your bank account on file will be debited automatically on the due date.'
@@ -144,6 +185,25 @@ function buildInvoiceHtml(inv) {
       </tbody>
     </table>
   </div>
+
+  ${(inv.payUrl || inv.autopayUrl) ? `
+  <div style="padding:20px 32px 0;">
+    <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:18px 20px;text-align:center;">
+      <p style="margin:0 0 14px;font-size:13.5px;color:#1e3a5f;font-weight:bold;">Choose how you would like to pay</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          ${inv.autopayUrl ? `<td style="text-align:center;padding:4px 6px;">
+            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">Set Up Automatic Payment</a>
+            <div style="font-size:11px;color:#475569;margin-top:6px;">Save your card once. Billed automatically each month.</div>
+          </td>` : ''}
+          ${inv.payUrl ? `<td style="text-align:center;padding:4px 6px;">
+            <a href="${inv.payUrl}" style="display:inline-block;padding:13px 20px;background:#fff;color:#1e3a5f;border:2px solid #1e3a5f;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay This Invoice</a>
+            <div style="font-size:11px;color:#475569;margin-top:6px;">One-time payment for this month only.</div>
+          </td>` : ''}
+        </tr>
+      </table>
+    </div>
+  </div>` : ''}
 
   <div style="padding:18px 32px 0;">
     <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:14px 16px;">
@@ -260,9 +320,22 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
       instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4),
     };
 
+    // Card customer with no card on file: give them both options right on the
+    // invoice - enroll in autopay, or pay this one invoice.
+    const needsAction = first.payment_method === 'credit_card' && !first.autopay_enabled;
+    if (needsAction && !dryRun) {
+      inv.autopayUrl = await autopayUrlFor(first.billing_id);
+      inv.payUrl = await createPayLink({
+        invoiceNumber: inv.number,
+        customerName: inv.customerName,
+        totalCents: Math.round(total * 100),
+      });
+    }
+
     const row = { customer_id: customerId, customer: inv.customerName, email: first.email_primary || null,
                   spaces: spaces.map(s => s.space_label), method: first.payment_method || 'not set',
-                  rent: Math.round((total - fee) * 100) / 100, fee, total, invoice: inv.number };
+                  rent: Math.round((total - fee) * 100) / 100, fee, total, invoice: inv.number,
+                  needs_action: needsAction };
 
     if (!first.email_primary) { row.result = 'no email on file'; skipped++; results.push(row); continue; }
     if (dryRun) { row.result = 'would send'; results.push(row); continue; }
