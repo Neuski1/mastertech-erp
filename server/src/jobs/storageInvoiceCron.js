@@ -244,7 +244,7 @@ function buildInvoiceHtml(inv) {
 </div></body></html>`;
 }
 
-async function eligibleRows(dbc, year, month) {
+async function eligibleRows(dbc, year, month, billingIds = null) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
@@ -266,18 +266,19 @@ async function eligibleRows(dbc, year, month) {
         AND NOT EXISTS (
           SELECT 1 FROM storage_payment_status ps
            WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3 AND ps.status = 'paid')
+        ${billingIds && billingIds.length ? 'AND sb.id = ANY($4::int[])' : ''}
       ORDER BY c.id, sp.label`,
-    [periodStart, year, month]
+    billingIds && billingIds.length ? [periodStart, year, month, billingIds] : [periodStart, year, month]
   );
   return rows;
 }
 
-async function runInvoices({ year, month, dryRun = true } = {}) {
+async function runInvoices({ year, month, dryRun = true, billingIds = null } = {}) {
   const p = (year && month) ? { year, month } : nextPeriod();
   const dbc = await pool.connect();
   let rows, prepaid = [];
   try {
-    rows = await eligibleRows(dbc, p.year, p.month);
+    rows = await eligibleRows(dbc, p.year, p.month, billingIds);
     const { rows: pp } = await dbc.query(
       `SELECT sp.label AS space, c.last_name
          FROM storage_payment_status ps

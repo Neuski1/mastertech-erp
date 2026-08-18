@@ -409,7 +409,8 @@ router.post('/storage-invoice-run', requireCoworkKey, async (req, res) => {
     const dryRun = req.body?.dryRun !== false;
     const year = req.body?.year ? parseInt(req.body.year) : undefined;
     const month = req.body?.month ? parseInt(req.body.month) : undefined;
-    res.json(await runInvoices({ year, month, dryRun }));
+    const billingIds = Array.isArray(req.body?.billing_ids) ? req.body.billing_ids.map(Number) : null;
+    res.json(await runInvoices({ year, month, dryRun, billingIds }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
