@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const square = require('../services/square');
 
 const publicBase = () => process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
-const logoUrl = () => `${publicBase()}/logo-mark.png`;
+const logoUrl = () => `${publicBase()}/logo-mark.png?v=2`; // version query busts stale email-proxy caches
 
 // One-time Square checkout link so a card customer can pay this invoice without
 // enrolling in autopay. Returns null if Square is not configured.
