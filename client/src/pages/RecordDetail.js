@@ -424,7 +424,7 @@ export default function RecordDetail() {
 
     // Build parts rows
     const partsRows = (r.parts_lines || []).filter(isCommitted).map(p =>
-      `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
+      `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}${p.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${p.no_charge ? '<span style="color:#9ca3af">'+fmtCur(p.sale_price_each)+'</span>' : fmtCur(p.sale_price_each)}</td><td style="text-align:right">${p.no_charge ? '$0.00' : fmtCur(p.line_total)}</td></tr>`
     ).join('');
 
     // Build pending estimate rows (Inspection Findings / Estimate). These
@@ -440,7 +440,7 @@ export default function RecordDetail() {
       `<tr><td>${i+1}</td><td>L</td><td>${l.description || ''}${l.technician_name ? '<div style="font-size:9px;color:#555;margin-top:1px">Tech: ' + l.technician_name + '</div>' : ''}</td><td style="text-align:right">${parseFloat(l.hours || 0).toFixed(2)}</td><td style="text-align:right">${fmtCur(l.rate)}</td><td style="text-align:right">${fmtCur(l.line_total)}</td></tr>`
     ).join('');
     const pendingEstPartsRows = pendingEstParts.map(p =>
-      `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${fmtCur(p.sale_price_each)}</td><td style="text-align:right">${fmtCur(p.line_total)}</td></tr>`
+      `<tr><td>P</td><td>${p.part_number ? p.part_number + ' — ' : ''}${p.description || ''}${p.no_charge ? ' <span style="font-size:9px;font-weight:bold;color:#1e40af;background:#dbeafe;padding:1px 4px;border-radius:2px;margin-left:4px">N/C</span>' : ''}</td><td style="text-align:right">${parseFloat(p.quantity || 0)}</td><td style="text-align:right">${p.no_charge ? '<span style="color:#9ca3af">'+fmtCur(p.sale_price_each)+'</span>' : fmtCur(p.sale_price_each)}</td><td style="text-align:right">${p.no_charge ? '$0.00' : fmtCur(p.line_total)}</td></tr>`
     ).join('');
 
     // Build freight rows

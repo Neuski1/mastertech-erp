@@ -5,6 +5,21 @@ const { recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
 const { pullsInventory } = require('../utils/inventoryStatus');
 
+// Check if no_charge column exists (cached after first check).
+// Mirrors the same guard in routes/labor.js so the API keeps working if the
+// 052 migration hasn't been applied yet.
+let _hasPartsNoChargeCol = null;
+async function hasNoChargeColumn() {
+  if (_hasPartsNoChargeCol !== null) return _hasPartsNoChargeCol;
+  try {
+    await pool.query('SELECT no_charge FROM record_parts_lines LIMIT 1');
+    _hasPartsNoChargeCol = true;
+  } catch {
+    _hasPartsNoChargeCol = false;
+  }
+  return _hasPartsNoChargeCol;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/parts/search?q=<term> — Unified search across inventory + parts catalog
 // ---------------------------------------------------------------------------
@@ -67,7 +82,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
     inventory_id, is_inventory_part,
     part_number, description, quantity,
     cost_each, sale_price_each, taxable, vendor,
-    skip_deduct, is_estimate_line
+    skip_deduct, is_estimate_line, no_charge
   } = req.body;
 
   if ((!description && !is_inventory_part) || quantity === undefined) {
@@ -79,6 +94,9 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
   if (isNaN(parsedQty) || parsedQty <= 0) {
     return res.status(400).json({ error: 'quantity must be a positive number' });
   }
+
+  const hasNcCol = await hasNoChargeColumn();
+  const isNoCharge = hasNcCol && !!no_charge;
 
   const client = await pool.connect();
   try {
@@ -142,7 +160,9 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       }
     }
 
-    const lineTotal = parseFloat((parsedQty * finalSalePrice).toFixed(2));
+    // No-charge parts still pull stock (above) and keep their cost so we can
+    // see what goodwill/warranty work costs us — they just bill at zero.
+    const lineTotal = isNoCharge ? 0 : parseFloat((parsedQty * finalSalePrice).toFixed(2));
 
     // Get next sort_order
     const sortRes = await client.query(
@@ -172,20 +192,31 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     const isEstimate = !!is_estimate_line;
 
-    const { rows } = await client.query(
-      `INSERT INTO record_parts_lines
-         (record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description,
+    const baseCols = `(record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description,
           quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor,
-          order_status, order_supplier, is_estimate_line)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-       RETURNING *`,
-      [recordId, finalInventoryId, isInvPart, finalPartNumber,
+          order_status, order_supplier, is_estimate_line`;
+    const baseVals = [recordId, finalInventoryId, isInvPart, finalPartNumber,
        typeof finalVendorPartNumber === 'undefined' ? null : finalVendorPartNumber,
        finalDescription,
        parsedQty, finalCostEach, finalSalePrice, lineTotal,
        taxable !== undefined ? taxable : true, sortRes.rows[0].next_sort, finalVendor,
-       autoOrderStatus, autoOrderSupplier, isEstimate]
-    );
+       autoOrderStatus, autoOrderSupplier, isEstimate];
+
+    const { rows } = hasNcCol
+      ? await client.query(
+          `INSERT INTO record_parts_lines
+             ${baseCols}, no_charge)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+           RETURNING *`,
+          [...baseVals, isNoCharge]
+        )
+      : await client.query(
+          `INSERT INTO record_parts_lines
+             ${baseCols})
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           RETURNING *`,
+          baseVals
+        );
 
     await recalculateTotals(recordId, client);
     await client.query('COMMIT');
@@ -318,8 +349,9 @@ router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer
 // ---------------------------------------------------------------------------
 router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { recordId, lineId } = req.params;
-  const { description, part_number, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_date, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved } = req.body;
+  const { description, part_number, quantity, sale_price_each, taxable, cost_each, order_status, order_eta, order_date, order_supplier, order_number, order_tracking, is_estimate_line, customer_approved, no_charge } = req.body;
 
+  const hasNcCol = await hasNoChargeColumn();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -433,9 +465,19 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       values.push(part_number || null);
     }
 
-    // Recalc line_total if qty or price changed
-    if (quantity !== undefined || sale_price_each !== undefined) {
-      const lineTotal = parseFloat((newQty * newPrice).toFixed(2));
+    // No-charge toggle. Determine the effective state first so line_total
+    // below lands on zero (or back on the real price) in the same update.
+    if (no_charge !== undefined && hasNcCol) {
+      updates.push(`no_charge = $${idx++}`);
+      values.push(!!no_charge);
+    }
+    const effectiveNoCharge = hasNcCol
+      ? (no_charge !== undefined ? !!no_charge : !!existing.no_charge)
+      : false;
+
+    // Recalc line_total if qty, price, or the no-charge flag changed
+    if (quantity !== undefined || sale_price_each !== undefined || (no_charge !== undefined && hasNcCol)) {
+      const lineTotal = effectiveNoCharge ? 0 : parseFloat((newQty * newPrice).toFixed(2));
       updates.push(`line_total = $${idx++}`);
       values.push(lineTotal);
     }

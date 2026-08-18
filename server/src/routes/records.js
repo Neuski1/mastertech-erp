@@ -225,11 +225,14 @@ router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), a
           }
         }
 
-        const lineTotal = parseFloat((parseFloat(pl.quantity) * parseFloat(salePriceEach)).toFixed(2));
+        const plNoCharge = !!pl.no_charge;
+        const lineTotal = plNoCharge
+          ? 0
+          : parseFloat((parseFloat(pl.quantity) * parseFloat(salePriceEach)).toFixed(2));
         await client.query(
-          `INSERT INTO record_parts_lines (record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description, quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.vendor_part_number || null, pl.description, pl.quantity, costEach, salePriceEach, lineTotal, pl.taxable, pl.sort_order, pl.vendor]
+          `INSERT INTO record_parts_lines (record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description, quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor, no_charge)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.vendor_part_number || null, pl.description, pl.quantity, costEach, salePriceEach, lineTotal, pl.taxable, pl.sort_order, pl.vendor, plNoCharge]
         );
       }
     }

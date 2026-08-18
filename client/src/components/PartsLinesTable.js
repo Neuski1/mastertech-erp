@@ -27,7 +27,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const [showAddForm, setShowAddForm] = useState(false);
   const [isInventory, setIsInventory] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ description: '', part_number: '', quantity: '', sale_price_each: '', cost_each: '', vendor: '', markup: '50', taxable: true, inventory_id: null });
+  const [form, setForm] = useState({ description: '', part_number: '', quantity: '', sale_price_each: '', cost_each: '', vendor: '', markup: '50', taxable: true, no_charge: false, inventory_id: null });
   const [searchResults, setSearchResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
@@ -47,7 +47,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
   const partsSubtotal = (partsLines || []).reduce((sum, l) => sum + parseFloat(l.line_total || 0), 0);
 
   const resetForm = () => {
-    setForm({ description: '', part_number: '', quantity: '', sale_price_each: '', cost_each: '', vendor: '', markup: '50', taxable: true, inventory_id: null });
+    setForm({ description: '', part_number: '', quantity: '', sale_price_each: '', cost_each: '', vendor: '', markup: '50', taxable: true, no_charge: false, inventory_id: null });
     setSearchQuery('');
     setSearchResults([]);
     setCatalogQuery('');
@@ -187,6 +187,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         vendor: item.vendor || '',
         markup,
         taxable: true,
+        no_charge: false,
         inventory_id: null,
       });
     }
@@ -206,6 +207,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       vendor: item.vendor || '',
       markup: '0',
       taxable: true,
+      no_charge: false,
       inventory_id: item.id,
     });
     setSelectedItemQty(qty);
@@ -248,6 +250,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         cost_each: form.cost_each ? parseFloat(form.cost_each) : null,
         sale_price_each: parseFloat(form.sale_price_each),
         taxable: form.taxable,
+        no_charge: form.no_charge,
         vendor: !isInventory ? form.vendor : null,
         skip_deduct: isInventory && !!form.inventory_id && !shouldPull,
         is_estimate_line: isEstimate,
@@ -276,6 +279,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       vendor: line.vendor || '',
       markup: eMarkup,
       taxable: line.taxable,
+      no_charge: !!line.no_charge,
       inventory_id: line.inventory_id,
     });
     setError('');
@@ -292,6 +296,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
         sale_price_each: parseFloat(form.sale_price_each),
         cost_each: form.cost_each ? parseFloat(form.cost_each) : null,
         taxable: form.taxable,
+        no_charge: form.no_charge,
       });
       setEditingId(null);
       resetForm();
@@ -309,6 +314,8 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       const data = {};
       if (field === 'customer_approved') {
         data.customer_approved = value;
+      } else if (field === 'no_charge') {
+        data.no_charge = value;
       } else {
         const numVal = parseFloat(value);
         if (isNaN(numVal) || numVal < 0) return;
@@ -452,14 +459,20 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <div>
                 <label style={labelStyle}>Line Total</label>
                 <div style={{ padding: '6px 0', fontWeight: 600 }}>
-                  {form.quantity && form.sale_price_each
-                    ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each))
-                    : '—'}
+                  {form.no_charge
+                    ? <span style={{ color: '#9ca3af' }}>$0.00 <span style={ncBadge}>N/C</span></span>
+                    : (form.quantity && form.sale_price_each
+                      ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each))
+                      : '—')}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '16px' }}>
                 <input type="checkbox" checked={form.taxable} onChange={(e) => setForm({ ...form, taxable: e.target.checked })} />
                 <label style={{ fontSize: '0.8rem' }}>Taxable</label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '16px' }}>
+                <input type="checkbox" checked={form.no_charge} onChange={(e) => setForm({ ...form, no_charge: e.target.checked })} />
+                <label style={{ fontSize: '0.8rem' }} title="Bills at $0.00. Stock still comes out and cost is still tracked.">No Charge</label>
               </div>
             </div>
           )}
@@ -633,14 +646,20 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <div>
                 <label style={labelStyle}>Line Total</label>
                 <div style={{ padding: '6px 0', fontWeight: 600 }}>
-                  {form.quantity && form.sale_price_each
-                    ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each))
-                    : '—'}
+                  {form.no_charge
+                    ? <span style={{ color: '#9ca3af' }}>$0.00 <span style={ncBadge}>N/C</span></span>
+                    : (form.quantity && form.sale_price_each
+                      ? formatCurrency(parseFloat(form.quantity) * parseFloat(form.sale_price_each))
+                      : '—')}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '16px' }}>
                 <input type="checkbox" checked={form.taxable} onChange={(e) => setForm({ ...form, taxable: e.target.checked })} />
                 <label style={{ fontSize: '0.8rem' }}>Taxable</label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '16px' }}>
+                <input type="checkbox" checked={form.no_charge} onChange={(e) => setForm({ ...form, no_charge: e.target.checked })} />
+                <label style={{ fontSize: '0.8rem' }} title="Bills at $0.00. Stock still comes out and cost is still tracked.">No Charge</label>
               </div>
             </div>
           )}
@@ -680,6 +699,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Cost</th>}
             {canSeeFinancials && <th style={{ ...thStyle, textAlign: 'right' }}>Markup</th>}
             {isEditable && <th style={{ ...thStyle, textAlign: 'center', width: '120px' }}>Order Status</th>}
+            {isEditable && <th style={{ ...thStyle, textAlign: 'center', width: '40px' }}>N/C</th>}
             {isEditable && <th style={{ ...thStyle, width: '120px' }}></th>}
           </tr>
         </thead>
@@ -720,6 +740,15 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   <input type="number" step="1" value={form.markup} onChange={(e) => handleMarkupChange(e.target.value)} placeholder="%" style={{ ...inlineInput, width: '55px', textAlign: 'right' }} />
                 </td>
                 <td style={tdStyle}></td>
+                <td style={{ ...tdStyle, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.no_charge}
+                    onChange={(e) => setForm({ ...form, no_charge: e.target.checked })}
+                    title="No Charge - bills at $0.00, stock still comes out"
+                    style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                  />
+                </td>
                 <td style={tdStyle}>
                   <button onClick={handleSaveEdit} disabled={saving} style={btnTiny}>Save</button>
                   <button onClick={() => { setEditingId(null); resetForm(); }} style={btnTinyGray}>Cancel</button>
@@ -727,7 +756,13 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               </tr>
             ) : (
               <React.Fragment key={line.id}>
-              <tr style={isEstimate && !line.customer_approved ? { opacity: 0.7, backgroundColor: '#f9fafb' } : undefined}>
+              <tr style={
+                isEstimate && !line.customer_approved
+                  ? { opacity: 0.7, backgroundColor: '#f9fafb' }
+                  : line.no_charge
+                    ? { backgroundColor: '#f0f9ff' }
+                    : undefined
+              }>
                 {showApproval && (
                   <td style={{ ...tdStyle, textAlign: 'center' }}>
                     <input
@@ -752,6 +787,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   {line.description}
                   {line.is_inventory_part && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#6b7280', backgroundColor: '#f3f4f6', padding: '1px 5px', borderRadius: '3px' }}>INV</span>}
                   {line.vendor && <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '1px 5px', borderRadius: '3px' }}>{line.vendor}</span>}
+                  {line.no_charge && <span style={ncBadge}>N/C</span>}
                 </td>
                 {canSeeFinancials && (
                   <td style={{ ...tdStyle, textAlign: 'center', color: line.taxable ? '#10b981' : '#9ca3af' }}>
@@ -788,7 +824,15 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     ) : formatCurrency(line.sale_price_each)}
                   </td>
                 )}
-                {canSeeFinancials && <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(line.line_total)}</td>}
+                {canSeeFinancials && (
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    {line.no_charge ? (
+                      <span style={{ color: '#9ca3af' }}>$0.00 <span style={ncBadge}>N/C</span></span>
+                    ) : (
+                      formatCurrency(line.line_total)
+                    )}
+                  </td>
+                )}
                 {canSeeFinancials && (
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     {isEditable ? (
@@ -819,9 +863,11 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     const pct = ((sale - cost) / cost) * 100;
                     return pct >= 40 ? '#065f46' : pct >= 20 ? '#92400e' : '#dc2626';
                   })() }}>
-                    {line.cost_each && parseFloat(line.cost_each) > 0
-                      ? (((parseFloat(line.sale_price_each) - parseFloat(line.cost_each)) / parseFloat(line.cost_each)) * 100).toFixed(1) + '%'
-                      : '—'}
+                    {line.no_charge
+                      ? 'N/C'
+                      : line.cost_each && parseFloat(line.cost_each) > 0
+                        ? (((parseFloat(line.sale_price_each) - parseFloat(line.cost_each)) / parseFloat(line.cost_each)) * 100).toFixed(1) + '%'
+                        : '—'}
                   </td>
                 )}
                 {isEditable && (
@@ -854,6 +900,17 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   </td>
                 )}
                 {isEditable && (
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!line.no_charge}
+                      onChange={(e) => handleInlineSave(line.id, 'no_charge', e.target.checked)}
+                      title="No Charge - bills at $0.00, stock still comes out"
+                      style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                    />
+                  </td>
+                )}
+                {isEditable && (
                   <td style={tdStyle}>
                     <button onClick={() => handleEdit(line)} style={btnTinyGray}>Edit</button>
                     {!line.is_inventory_part && !line.inventory_id && (
@@ -866,7 +923,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               {/* Order tracking row for parts that are ordered or received */}
               {(line.order_status === 'ordered' || line.order_status === 'received' || orderEditId === line.id) && (
                 <tr key={`order-${line.id}`} style={{ backgroundColor: line.order_status === 'received' ? '#f0fdf4' : '#fffbeb' }}>
-                  <td colSpan={canSeeFinancials ? 11 : 5} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                  <td colSpan={canSeeFinancials ? 12 : 6} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
                     {orderEditId === line.id ? (
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <select value={orderForm.order_status} onChange={(e) => setOrderForm({ ...orderForm, order_status: e.target.value })}
@@ -938,7 +995,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               {/* "Pulled from Stock" label for inventory parts that were deducted (no order_status) */}
               {!line.order_status && line.is_inventory_part && orderEditId !== line.id && (
                 <tr key={`stock-${line.id}`}>
-                  <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
+                  <td colSpan={canSeeFinancials ? 11 : 5} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
                     <span style={{ padding: '2px 8px', background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7', borderRadius: '3px', fontSize: '0.7rem', fontWeight: 600 }}>
                       Pulled from Stock
                     </span>
@@ -948,7 +1005,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               {/* "Mark as Ordered" button for parts that need ordering */}
               {(line.order_status === 'not_ordered' || (!line.order_status && !line.is_inventory_part)) && isEditable && orderEditId !== line.id && (
                 <tr key={`order-btn-${line.id}`}>
-                  <td colSpan={canSeeFinancials ? 10 : 4} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
+                  <td colSpan={canSeeFinancials ? 11 : 5} style={{ padding: '2px 12px 6px', borderBottom: '1px solid #e5e7eb' }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                       {line.order_status === 'not_ordered' && (
                         <span style={{ padding: '2px 8px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '3px', fontSize: '0.7rem', fontWeight: 600 }}>NOT ORDERED</span>
@@ -975,6 +1032,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
               <td style={{ ...tdStyle, textAlign: 'right', borderTop: '2px solid #e5e7eb' }}>{formatCurrency(partsSubtotal)}</td>
               <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>
               <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>
+              {isEditable && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
               {isEditable && <td style={{ ...tdStyle, borderTop: '2px solid #e5e7eb' }}></td>}
             </tr>
           </tfoot>
@@ -1161,6 +1219,7 @@ const sectionStyle = { marginBottom: '24px', padding: '20px', backgroundColor: '
 const sectionTitle = { fontSize: '1rem', fontWeight: 700, color: '#1e3a5f', marginTop: 0, marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid #e5e7eb' };
 const thStyle = { textAlign: 'left', padding: '8px 12px', backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', color: '#6b7280' };
 const tdStyle = { padding: '8px 12px', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' };
+const ncBadge = { display: 'inline-block', marginLeft: '6px', padding: '1px 6px', borderRadius: '3px', fontSize: '0.65rem', fontWeight: 700, backgroundColor: '#dbeafe', color: '#1e40af' };
 const inlineInput = { padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' };
 const labelStyle = { display: 'block', fontSize: '0.65rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '2px' };
 const formGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' };
