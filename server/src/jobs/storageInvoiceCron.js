@@ -49,7 +49,7 @@ function methodInfo(method, autopayOn, cardBrand, cardLast4) {
           : 'Please contact the office to set up your bank transfer.' };
     case 'zelle':
       return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Zelle',
-        instructions: 'Please send your Zelle payment to service@mastertechrvrepair.com.' };
+        instructions: 'Please send your Zelle payment to carol@mastertechrvrepair.com.' };
     case 'check':
       return { feePct: 0, feeMin: 0, feeLabel: null, label: 'Check',
         instructions: 'Please mail or drop off your check to Master Tech RV, 6590 East 49th Avenue, Commerce City, CO 80022.' };
