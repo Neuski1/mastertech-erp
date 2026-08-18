@@ -216,6 +216,16 @@ function buildInvoiceHtml(inv) {
     <p style="font-size:11.5px;color:#6b7280;margin:12px 0 0;">Recurring monthly on the last day of the month.</p>
   </div>
 
+  ${inv.achNote ? `
+  <div style="padding:18px 32px 0;">
+    <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:6px;padding:13px 16px;">
+      <p style="margin:0;font-size:12.5px;color:#065f46;line-height:1.6;">
+        <strong>Prefer to pay by bank transfer?</strong> ACH costs 1% instead of the 3.5% card fee${inv.achSavings ? `, which would save you <strong>${money(inv.achSavings)} a month</strong>` : ''}.
+        If you would like to switch to ACH, just reply to this email or call us at (303) 557-2214 and we will set it up.
+      </p>
+    </div>
+  </div>` : ''}
+
   <div style="padding:20px 32px 4px;">
     <div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:6px;padding:14px 16px;">
       <p style="margin:0 0 8px;font-size:11px;color:#c2410c;text-transform:uppercase;letter-spacing:.05em;font-weight:bold;">Pickup &amp; Drop-Off Hours</p>
@@ -345,6 +355,15 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
       });
     }
 
+    // Offer ACH to card payers, showing what they would actually save.
+    if (first.payment_method === 'credit_card' && fee > 0) {
+      const rentOnly = Math.round((total - fee) * 100) / 100;
+      const achFee = Math.max(Math.round(rentOnly * ACH_SURCHARGE_PCT * 100) / 100, ACH_MIN_FEE);
+      const saving = Math.round((fee - achFee) * 100) / 100;
+      inv.achNote = true;
+      inv.achSavings = saving > 0 ? saving : null;
+    }
+
     const row = { customer_id: customerId, customer: inv.customerName, email: first.email_primary || null,
                   spaces: spaces.map(s => s.space_label), method: first.payment_method || 'not set',
                   rent: Math.round((total - fee) * 100) / 100, fee, total, invoice: inv.number,
@@ -357,6 +376,7 @@ async function runInvoices({ year, month, dryRun = true } = {}) {
     const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
       + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
       + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}`
+      + (inv.achNote ? `\n\nPrefer to pay by bank transfer? ACH costs 1% instead of the 3.5% card fee${inv.achSavings ? `, saving you ${money(inv.achSavings)} a month` : ''}. Reply to this email or call (303) 557-2214 and we will set it up.` : '')
       + `\n\nPICKUP & DROP-OFF HOURS\nMonday through Friday, 9:00 AM to 6:00 PM. Closed Saturday, Sunday and major holidays.\n`
       + `Give us at least 2 hours notice to have your unit pulled out. Drop off at least 30 minutes before close.\n`
       + `\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
