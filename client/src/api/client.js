@@ -317,6 +317,7 @@ export const api = {
   moveStorage: (id, new_space_id) => request(`/storage/${id}/move`, { method: 'PATCH', body: JSON.stringify({ new_space_id }) }),
   getStorageAutopayLink: (billingId) => request(`/storage-autopay/${billingId}/link`, { method: 'POST' }),
   disableStorageAutopay: (billingId) => request(`/storage-autopay/${billingId}`, { method: 'DELETE' }),
+  sendStorageReminder: (billingId) => request(`/storage-autopay/${billingId}/remind`, { method: 'POST' }),
   getStorageSignedContract: async (billingId) => {
     const headers = {};
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;

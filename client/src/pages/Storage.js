@@ -1957,8 +1957,19 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
               ) : (
                 <div style={{ fontSize: '0.85rem', color: '#374151' }}>
                   Not set up. Send the customer a secure link to save a card so rent is charged automatically each month.
-                  <div style={{ marginTop: '8px' }}>
+                  <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button type="button" onClick={handleAutopayLink} disabled={autopayBusy} style={{ ...btnPrimary, padding: '6px 14px', fontSize: '0.8rem' }}>{autopayBusy ? 'Working...' : 'Get autopay setup link'}</button>
+                    <button type="button" disabled={autopayBusy}
+                      onClick={async () => {
+                        if (!window.confirm('Email this customer a reminder to pay by the 5th (or a $25 late fee applies)?')) return;
+                        setAutopayBusy(true); setAutopayMsg('');
+                        try { const r = await api.sendStorageReminder(space.billing_id); setAutopayMsg('Reminder sent to ' + r.sent_to); }
+                        catch (err) { setAutopayMsg('Error: ' + (err.message || 'could not send')); }
+                        finally { setAutopayBusy(false); }
+                      }}
+                      style={{ ...btnPrimary, padding: '6px 14px', fontSize: '0.8rem', backgroundColor: '#b45309' }}>
+                      Send payment reminder
+                    </button>
                   </div>
                 </div>
               )}

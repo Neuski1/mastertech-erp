@@ -306,4 +306,106 @@ router.post('/send-links', requireAuth, requireRole('admin'), async (req, res) =
   }
 });
 
+// --- Staff: payment reminder for the current month ------------------------
+// POST /:billingId/remind — emails the customer that rent is due by the 5th or
+// a $25 late fee applies, with the same two payment buttons as the invoice.
+router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const now = new Date();
+    const year = now.getFullYear(), month = now.getMonth() + 1;
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const { rows } = await pool.query(
+      `SELECT sb.id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled, sb.autopay_setup_token,
+              sp.label AS space_label, c.first_name, c.email_primary,
+              (SELECT si.total FROM storage_invoices si WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3) AS invoice_total,
+              (SELECT ps.status FROM storage_payment_status ps WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3) AS pay_status
+         FROM storage_billing sb
+         LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE sb.id = $1 AND sb.deleted_at IS NULL`,
+      [req.params.billingId, year, month]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Billing not found' });
+    const b = rows[0];
+    if (!b.email_primary) return res.status(400).json({ error: 'Customer has no email on file' });
+    if (b.pay_status === 'paid') return res.status(400).json({ error: `${MONTHS[month-1]} is already marked paid` });
+
+    const rent = parseFloat(b.monthly_rate);
+    const isCard = b.payment_method === 'credit_card';
+    const fee = isCard ? Math.round(rent * 0.035 * 100) / 100
+              : b.payment_method === 'ach' ? Math.max(Math.round(rent * 0.01 * 100) / 100, 1.00) : 0;
+    const total = Number(b.invoice_total) || Math.round((rent + fee) * 100) / 100;
+
+    // Autopay setup link
+    let token = b.autopay_setup_token;
+    if (!token) {
+      const upd = await pool.query('UPDATE storage_billing SET autopay_setup_token = gen_random_uuid() WHERE id = $1 RETURNING autopay_setup_token', [b.id]);
+      token = upd.rows[0].autopay_setup_token;
+    }
+    const autopayUrl = `${publicBase(req)}/storage-autopay/${token}`;
+
+    // One-time pay link for card payers
+    let payUrl = null;
+    if (isCard && square.locationId) {
+      try {
+        const resp = await square.client.checkout.paymentLinks.create({
+          idempotencyKey: crypto.randomUUID(),
+          quickPay: {
+            name: `RV Storage — Invoice S${year}${String(month).padStart(2, '0')}-reminder-${b.id}`,
+            priceMoney: { amount: BigInt(Math.round(total * 100)), currency: 'USD' },
+            locationId: square.locationId,
+          },
+          checkoutOptions: { askForShippingAddress: false },
+        });
+        const d = resp?.data || resp?.result || resp || {};
+        const link = d.paymentLink || d.payment_link || {};
+        payUrl = link.url || link.longUrl || link.long_url || null;
+      } catch (e) { /* reminder still goes without the link */ }
+    }
+
+    const monthName = `${MONTHS[month-1]} ${year}`;
+    const name = b.first_name || 'there';
+    const payHow = b.payment_method === 'zelle' ? 'Send your Zelle payment to carol@mastertechrvrepair.com.'
+      : b.payment_method === 'check' ? 'Mail or drop off your check to 6590 E. 49th Ave., Commerce City, CO 80022.'
+      : b.payment_method === 'cash' ? 'Drop off your payment at the office, Monday through Friday, 9 to 6.'
+      : 'Use one of the buttons below.';
+    const buttons = (isCard) ? `
+      <div style="text-align:center;margin:22px 0;">
+        ${payUrl ? `<a href="${payUrl}" style="display:inline-block;margin:4px 8px;padding:13px 22px;background:#1e3a5f;color:#fff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay ${'$'}${total.toFixed(2)} Now</a>` : ''}
+        <a href="${autopayUrl}" style="display:inline-block;margin:4px 8px;padding:13px 22px;background:#fff;color:#1e3a5f;border:2px solid #1e3a5f;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;">Set Up Autopay</a>
+      </div>` : '';
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#1e3a5f;padding:18px 32px;">
+    <span style="color:#5FD584;font-size:16px;font-weight:bold;">MASTER TECH RV REPAIR AND STORAGE</span>
+  </div>
+  <div style="padding:26px 32px;">
+    <p style="font-size:15px;color:#111;margin:0 0 12px;">Hi ${name},</p>
+    <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 12px;">
+      A friendly reminder that your <strong>${monthName}</strong> storage rent of
+      <strong>${'$'}${total.toFixed(2)}</strong> is due.
+    </p>
+    <p style="font-size:14px;color:#991b1b;line-height:1.6;margin:0 0 12px;">
+      <strong>Please pay by the 5th to avoid a ${'$'}25 late fee.</strong>
+    </p>
+    <p style="font-size:13.5px;color:#374151;line-height:1.6;margin:0 0 6px;">${payHow}</p>
+    ${buttons}
+    <p style="font-size:13px;color:#374151;margin:14px 0 0;">Questions? Reply to this email or call (303) 557-2214.</p>
+  </div>
+  <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:12px 32px;text-align:center;">
+    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214</p>
+  </div>
+</div></body></html>`;
+    const text = `Hi ${name},\n\nA friendly reminder that your ${monthName} storage rent of ${'$'}${total.toFixed(2)} is due.\n\nPlease pay by the 5th to avoid a ${'$'}25 late fee.\n\n${payHow}${payUrl ? `\n\nPay now: ${payUrl}` : ''}\nSet up autopay: ${autopayUrl}\n\nQuestions? Reply or call (303) 557-2214.\n\nMaster Tech RV Repair and Storage`;
+
+    const result = await sendEmail({ to: b.email_primary, subject: `Payment reminder — ${monthName} RV storage`, html, text });
+    if (!result || !result.success) return res.status(502).json({ error: result?.error || 'Email failed' });
+    res.json({ ok: true, sent_to: b.email_primary, total });
+  } catch (err) {
+    console.error('POST storage-autopay/:id/remind error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

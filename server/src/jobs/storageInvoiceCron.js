@@ -160,7 +160,7 @@ function buildInvoiceHtml(inv) {
           <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Invoice Details</div>
           <div style="color:#374151;">PDF created ${inv.createdDate}</div>
           <div style="color:#111;font-weight:bold;">${money(inv.total)}</div>
-          <div style="color:#374151;">Service date ${inv.serviceDate}</div>
+          <div style="color:#374151;">Storage for ${inv.storageMonth}</div>
         </td>
         <td style="vertical-align:top;">
           <div style="color:#6b7280;text-transform:uppercase;font-size:10px;letter-spacing:.05em;margin-bottom:3px;">Payment</div>
@@ -320,8 +320,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       const rent = parseFloat(s.monthly_rate);
       const rv = [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ');
       const typeName = (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage';
-      const sub = [s.space_label, rv].filter(Boolean).join(' · ');
-      items.push({ name: typeName, sub: sub || null, amount: rent });
+      items.push({ name: typeName, sub: rv || null, amount: rent });
       total += rent;
     }
     // Fee is driven by how this customer pays; charge it on the rent total.
@@ -345,7 +344,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       customerPhone: first.phone_primary || null,
       createdDate: longDate(new Date()),
       issueDate: longDate(due),
-      serviceDate: longDate(due),
+      storageMonth: `${MONTHS[p.month - 1]} ${p.year}`,
       dueDate: longDate(due),
       items, total,
       methodLabel: methodLabel(first.payment_method),
