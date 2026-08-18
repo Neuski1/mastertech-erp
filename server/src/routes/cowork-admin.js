@@ -470,4 +470,22 @@ router.get('/square-series-lookup', requireCoworkKey, async (req, res) => {
   }
 });
 
+// GET /api/cowork-admin/autopay-link-candidates — who is NOT on autopay yet
+router.get('/autopay-link-candidates', requireCoworkKey, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT sb.id AS billing_id, sp.label AS space, sb.monthly_rate, sb.payment_method,
+              c.first_name, c.last_name, c.email_primary
+         FROM storage_billing sb
+         LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
+          AND COALESCE(sb.autopay_enabled, FALSE) = FALSE
+          AND (sb.scheduled_move_out IS NULL OR sb.scheduled_move_out > NOW())
+        ORDER BY sp.label`
+    );
+    res.json({ count: rows.length, candidates: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

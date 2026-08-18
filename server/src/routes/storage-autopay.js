@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
+const { sendEmail } = require('../services/email');
 const square = require('../services/square');
 
 function publicBase(req) {
@@ -213,6 +214,95 @@ router.post('/invoices/run', requireRole('admin'), async (req, res) => {
     res.json(await runInvoices({ year, month, dryRun }));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Staff: email autopay setup links in bulk -----------------------------
+// Body: { dryRun: true|false, billing_ids?: [] }
+// Targets every ACTIVE space that is not already on autopay and has an email.
+// dryRun (the default) lists who would be emailed without sending anything.
+router.post('/send-links', requireRole('admin'), async (req, res) => {
+  try {
+    const dryRun = req.body?.dryRun !== false;
+    const only = Array.isArray(req.body?.billing_ids) && req.body.billing_ids.length
+      ? req.body.billing_ids.map(Number) : null;
+
+    const { rows } = await pool.query(
+      `SELECT sb.id AS billing_id, sb.monthly_rate, sb.autopay_setup_token, sb.payment_method,
+              sp.label AS space_label, c.first_name, c.email_primary
+         FROM storage_billing sb
+         LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
+          AND COALESCE(sb.autopay_enabled, FALSE) = FALSE
+          AND (sb.scheduled_move_out IS NULL OR sb.scheduled_move_out > NOW())
+        ORDER BY sp.label`
+    );
+    const targets = only ? rows.filter(r => only.includes(r.billing_id)) : rows;
+
+    const base = publicBase(req);
+    const out = [];
+    let sent = 0, skipped = 0, failed = 0;
+
+    for (const r of targets) {
+      const item = { billing_id: r.billing_id, space: r.space_label,
+                     customer: r.first_name, email: r.email_primary || null,
+                     method: r.payment_method || 'not set', rate: r.monthly_rate };
+      if (!r.email_primary) { item.result = 'no email on file'; skipped++; out.push(item); continue; }
+      if (dryRun) { item.result = 'would send'; out.push(item); continue; }
+
+      let token = r.autopay_setup_token;
+      if (!token) {
+        const upd = await pool.query(
+          'UPDATE storage_billing SET autopay_setup_token = gen_random_uuid() WHERE id = $1 RETURNING autopay_setup_token',
+          [r.billing_id]
+        );
+        token = upd.rows[0].autopay_setup_token;
+      }
+      const url = `${base}/storage-autopay/${token}`;
+      const name = r.first_name || 'there';
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#1e3a5f;padding:20px 32px;">
+    <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
+    <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;font-style:italic;">Our Service Makes Happy Campers!</p>
+  </div>
+  <div style="padding:28px 32px;">
+    <p style="font-size:15px;color:#111;margin:0 0 14px;">Hi ${name},</p>
+    <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 14px;">
+      We are moving our storage billing in house, and you can now put your monthly rent for
+      <strong>${r.space_label || 'your space'}</strong> on automatic payment.
+    </p>
+    <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 18px;">
+      It takes about a minute. Your card is stored securely with Square, and we never see the number.
+    </p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${url}" style="display:inline-block;padding:14px 32px;background:#1e3a5f;color:#fff;font-size:15px;font-weight:bold;text-decoration:none;border-radius:8px;">Set Up Automatic Payment</a>
+    </div>
+    <p style="font-size:12.5px;color:#6b7280;line-height:1.5;margin:16px 0 0;">
+      Prefer to keep paying the way you do now? No problem, just ignore this email and nothing changes.
+    </p>
+    <p style="font-size:14px;color:#111;margin:20px 0 0;">Thanks,<br/>Carol and Mark</p>
+  </div>
+  <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;text-align:center;">
+    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+  </div>
+</div></body></html>`;
+      const text = `Hi ${name},\n\nWe are moving our storage billing in house, and you can now put your monthly rent for ${r.space_label || 'your space'} on automatic payment.\n\nSet it up here: ${url}\n\nIt takes about a minute. Your card is stored securely with Square and we never see the number.\n\nPrefer to keep paying the way you do now? Just ignore this email and nothing changes.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage\n(303) 557-2214`;
+
+      try {
+        const r2 = await sendEmail({ to: r.email_primary, subject: 'Set up automatic payment for your RV storage', html, text });
+        if (r2 && r2.success) { item.result = 'sent'; sent++; }
+        else { item.result = 'failed: ' + (r2?.error || 'unknown'); failed++; }
+      } catch (e) { item.result = 'error: ' + e.message; failed++; }
+      out.push(item);
+    }
+
+    res.json({ dryRun, count: out.length, sent, skipped, failed, results: out });
+  } catch (err) {
+    console.error('POST storage-autopay/send-links error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
