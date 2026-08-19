@@ -84,10 +84,10 @@ function AppLayout() {
   const allNavLinks = [
     { to: '/customers', label: 'Customers' },
     { to: '/records', label: 'Records' },
+    { to: '/schedule', label: 'Schedule' },
     { to: '/inventory', label: 'Inventory' },
     { to: '/parts-on-order', label: 'Parts on Order' },
     { to: '/suppliers', label: 'Suppliers' },
-    { to: '/schedule', label: 'Schedule' },
     { to: '/parts-sales', label: 'Parts Sale' },
     { to: '/storage', label: 'Storage' },
     { to: '/partners', label: 'Partners' },
@@ -155,7 +155,7 @@ function AppLayout() {
               <Link
                 key={link.to}
                 to={link.to}
-                style={link.to === '/records' ? recordsNavLink : navLink}
+                style={link.to === '/records' ? recordsNavLink : link.to === '/schedule' ? scheduleNavLink : navLink}
               >
                 {link.label}
               </Link>
@@ -189,7 +189,9 @@ function AppLayout() {
                 to={link.to}
                 style={link.to === '/records'
                   ? { ...mobileNavLinkStyle, backgroundColor: '#f59e0b', color: '#1e3a5f', fontSize: '1.15rem', fontWeight: 800, padding: '16px 12px', borderRadius: '6px', marginBottom: '4px', borderBottom: 'none' }
-                  : mobileNavLinkStyle}
+                  : link.to === '/schedule'
+                    ? { ...mobileNavLinkStyle, backgroundColor: '#5FD584', color: '#1e3a5f', fontSize: '1.15rem', fontWeight: 800, padding: '16px 12px', borderRadius: '6px', marginBottom: '4px', borderBottom: 'none' }
+                    : mobileNavLinkStyle}
                 onClick={closeMobileNav}
               >
                 {link.label}
@@ -294,6 +296,13 @@ const recordsNavLink = {
   borderRadius: '999px',
   letterSpacing: '0.02em',
   boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+};
+
+// Schedule sits beside Records with the same pill treatment in brand mint
+// green, so the two daily-driver modules stand out together.
+const scheduleNavLink = {
+  ...recordsNavLink,
+  backgroundColor: '#5FD584',
 };
 
 const logoutBtn = {
