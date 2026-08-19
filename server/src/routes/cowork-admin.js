@@ -589,4 +589,64 @@ router.get('/billing-go-live-status', requireCoworkKey, (req, res) => {
   });
 });
 
+// GET /api/cowork-admin/db-backup — full logical backup as gzipped SQL.
+// Runs server-side with Railway's always-current DATABASE_URL, so the nightly
+// OneDrive backup script never breaks on a rotated database password again.
+// Includes ALL columns (bytea as hex literals, json stringified), unlike the
+// emailable nightly dump which omits binaries.
+router.get('/db-backup', requireCoworkKey, async (req, res) => {
+  const zlib = require('zlib');
+  try {
+    const { rows: tables } = await pool.query(
+      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+    );
+    let sql = '-- Master Tech ERP Database Backup (full, server-side)\n';
+    sql += `-- Generated: ${new Date().toISOString()}\n\n`;
+    sql += 'BEGIN;\n\n';
+
+    const lit = (val) => {
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+      if (typeof val === 'number') return String(val);
+      if (val instanceof Date) return `'${val.toISOString()}'`;
+      if (Buffer.isBuffer(val)) return `'\\x${val.toString('hex')}'`;
+      if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+      return `'${String(val).replace(/'/g, "''")}'`;
+    };
+
+    for (const { tablename } of tables) {
+      const { rows: cols } = await pool.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position",
+        [tablename]
+      );
+      const { rows: data } = await pool.query(`SELECT * FROM "${tablename}"`);
+      sql += `-- Table: ${tablename} (${data.length} rows)\n`;
+      if (data.length > 0) {
+        const colNames = cols.map(c => `"${c.column_name}"`).join(', ');
+        for (const row of data) {
+          const values = cols.map(c => lit(row[c.column_name])).join(', ');
+          sql += `INSERT INTO "${tablename}" (${colNames}) VALUES (${values});\n`;
+        }
+      }
+      sql += '\n';
+    }
+
+    const { rows: seqs } = await pool.query(
+      "SELECT sequencename, last_value FROM pg_sequences WHERE schemaname = 'public'"
+    );
+    for (const seq of seqs) {
+      if (seq.last_value) sql += `SELECT setval('"${seq.sequencename}"', ${seq.last_value});\n`;
+    }
+    sql += '\nCOMMIT;\n';
+
+    const gz = zlib.gzipSync(Buffer.from(sql, 'utf8'), { level: 9 });
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="mastertech-erp-backup-${new Date().toISOString().split('T')[0]}.sql.gz"`);
+    res.send(gz);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
