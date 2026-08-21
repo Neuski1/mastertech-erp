@@ -7,6 +7,7 @@ import RecordList from './pages/RecordList';
 import RecordDetail from './pages/RecordDetail';
 import RecordNew from './pages/RecordNew';
 import InventoryList from './pages/InventoryList';
+import InventoryNeedsAttention from './pages/InventoryNeedsAttention';
 import InventoryForm from './pages/InventoryForm';
 import Schedule from './pages/Schedule';
 import AppointmentForm from './pages/AppointmentForm';
@@ -219,6 +220,7 @@ function AppLayout() {
           <Route path="/records/:id" element={<RecordDetail />} />
           <Route path="/suppliers" element={<Suppliers />} />
           <Route path="/inventory" element={<InventoryList />} />
+          <Route path="/inventory/needs-attention" element={<InventoryNeedsAttention />} />
           <Route path="/parts-on-order" element={<PartsOnOrder />} />
           <Route path="/inventory/new" element={<InventoryForm />} />
           <Route path="/inventory/:id" element={<InventoryForm />} />

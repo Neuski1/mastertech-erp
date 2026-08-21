@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,7 @@ export default function InventoryList() {
   const [page, setPage] = useState(parseInt(searchParams.get('page')) || 1);
   const [loading, setLoading] = useState(true);
   const [reorderCount, setReorderCount] = useState(0);
+  const [attentionCount, setAttentionCount] = useState(0);
   const [sortField, setSortField] = useState(searchParams.get('sort') || 'qty_on_hand');
   const [sortDirection, setSortDirection] = useState(searchParams.get('order') || 'desc');
   const [reportsOpen, setReportsOpen] = useState(false);
@@ -319,6 +320,12 @@ export default function InventoryList() {
     } catch (err) {
       console.error('Failed to load reorder alerts:', err);
     }
+    try {
+      const na = await api.getInventoryNeedsAttention();
+      setAttentionCount(na?.counts?.total || 0);
+    } catch (err) {
+      console.error('Failed to load needs-attention count:', err);
+    }
   }, []);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
@@ -556,6 +563,25 @@ export default function InventoryList() {
           )}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Link
+            to="/inventory/needs-attention"
+            style={{
+              ...btnSecondary,
+              display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none',
+              backgroundColor: attentionCount > 0 ? '#fef3c7' : '#f3f4f6',
+              color: attentionCount > 0 ? '#92400e' : '#374151',
+              border: attentionCount > 0 ? '1px solid #fcd34d' : undefined,
+              fontWeight: 600,
+            }}
+            title="Negative stock, duplicates, missing cost/price/supplier/location"
+          >
+            Needs Attention
+            {attentionCount > 0 && (
+              <span style={{ background: '#b45309', color: '#fff', borderRadius: 999, padding: '0 7px', fontSize: '0.72rem', fontWeight: 700 }}>
+                {attentionCount}
+              </span>
+            )}
+          </Link>
           <div ref={reportsRef} style={{ position: 'relative' }}>
             <button
               onClick={() => setReportsOpen(!reportsOpen)}

@@ -211,6 +211,7 @@ export const api = {
   deleteInventoryItem: (id) => request(`/inventory/${id}`, { method: 'DELETE' }),
   bulkDeleteInventory: (ids) => request('/inventory/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   getReorderAlerts: () => request('/inventory/reorder-alerts'),
+  getInventoryNeedsAttention: () => request('/inventory/needs-attention'),
   getLowStockReport: () => request('/inventory/reports/low-stock'),
   getInStockReport: () => request('/inventory/reports/in-stock'),
   getInventoryCategories: () => request('/inventory-categories'),

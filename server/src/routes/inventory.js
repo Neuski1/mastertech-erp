@@ -195,6 +195,82 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/inventory/:id — Single inventory item
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// GET /api/inventory/needs-attention — one screen of everything wrong with the
+// catalog, grouped by issue so cleanup is a checklist instead of archaeology.
+// Read-only; fixes go through the normal PATCH /api/inventory/:id.
+// ---------------------------------------------------------------------------
+router.get('/needs-attention', async (req, res) => {
+  try {
+    const base = `FROM inventory i WHERE i.deleted_at IS NULL AND i.is_active`;
+
+    const negative = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.vendor, i.cost_each ${base}
+         AND i.qty_on_hand < 0 ORDER BY i.qty_on_hand ASC`);
+
+    // Duplicate part numbers: same part_number on more than one active row.
+    const duplicates = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.vendor, i.cost_each, i.location::text AS location
+         FROM inventory i
+        WHERE i.deleted_at IS NULL AND i.is_active
+          AND COALESCE(i.part_number,'') <> ''
+          AND i.part_number IN (
+            SELECT part_number FROM inventory
+             WHERE deleted_at IS NULL AND is_active AND COALESCE(part_number,'') <> ''
+             GROUP BY part_number HAVING COUNT(*) > 1)
+        ORDER BY i.part_number, i.id`);
+
+    const noCost = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.sale_price_each, i.vendor ${base}
+         AND (i.cost_each IS NULL OR i.cost_each = 0) ORDER BY i.qty_on_hand DESC`);
+
+    const noPrice = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.cost_each, i.vendor ${base}
+         AND (i.sale_price_each IS NULL OR i.sale_price_each = 0) ORDER BY i.qty_on_hand DESC`);
+
+    const noSupplier = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.cost_each ${base}
+         AND i.supplier_id IS NULL AND COALESCE(i.vendor,'') = '' ORDER BY i.description`);
+
+    const noLocation = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.vendor ${base}
+         AND (i.location IS NULL OR i.location::text = 'unassigned') ORDER BY i.description`);
+
+    // Priced below cost: we would lose money selling it.
+    const belowCost = await pool.query(
+      `SELECT i.id, i.part_number, i.description, i.qty_on_hand, i.cost_each, i.sale_price_each ${base}
+         AND i.cost_each > 0 AND i.sale_price_each > 0 AND i.sale_price_each < i.cost_each
+       ORDER BY (i.cost_each - i.sale_price_each) DESC`);
+
+    const counts = {
+      negative: negative.rows.length,
+      duplicates: duplicates.rows.length,
+      no_cost: noCost.rows.length,
+      no_price: noPrice.rows.length,
+      no_supplier: noSupplier.rows.length,
+      no_location: noLocation.rows.length,
+      below_cost: belowCost.rows.length,
+    };
+    counts.total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    res.json({
+      counts,
+      groups: {
+        negative: negative.rows,
+        duplicates: duplicates.rows,
+        no_cost: noCost.rows,
+        no_price: noPrice.rows,
+        no_supplier: noSupplier.rows,
+        no_location: noLocation.rows,
+        below_cost: belowCost.rows,
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/inventory/needs-attention error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
