@@ -189,7 +189,11 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
   try {
     const allowed = ['name', 'website', 'contact_name', 'contact_email', 'contact_phone',
       'account_number', 'notes', 'supplier_type', 'subcategory', 'default_ship_days',
-      'order_method', 'is_active'];
+      'order_method', 'is_active',
+      // Buying-decision fields (no payment terms by design: everything prepaid by card)
+      'shipping_cost', 'free_shipping_threshold', 'brands_carried', 'login_url',
+      'payment_method_note', 'return_policy', 'return_window_days', 'restocking_fee',
+      'preferred', 'last_verified_date'];
     const updates = [];
     const params = [];
     let idx = 1;
@@ -211,6 +215,80 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
     res.json(rows[0]);
   } catch (err) {
     console.error('PATCH /api/suppliers/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/suppliers/recompute-lead-times — backfill/refresh actual lead times
+// from order-to-receipt history. Sources, best first:
+//   1. purchase_orders.order_date -> received_at (clean when present)
+//   2. record_parts_lines: order_date -> updated_at where order_status='received'
+//      (proxy: updated_at is when the line was marked received; bounded 0-60d)
+// Reports avg, worst, and order count per supplier. Fewer than 3 orders is
+// flagged not_enough_data (stored anyway so the UI can show the caveat).
+// ---------------------------------------------------------------------------
+router.post('/recompute-lead-times', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const norm = (v) => String(v || '').toLowerCase()
+      .replace(/\.com$|\.us$/i, '').replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const { rows: suppliers } = await pool.query(
+      'SELECT id, name FROM suppliers WHERE is_active IS DISTINCT FROM false'
+    );
+
+    // Collect samples per normalized vendor key
+    const samples = new Map(); // key -> [days]
+    const add = (vend, days) => {
+      const k = norm(vend);
+      if (!k || days == null || days <= 0 || days > 60) return;
+      if (!samples.has(k)) samples.set(k, []);
+      samples.get(k).push(Number(days));
+    };
+
+    const { rows: poRows } = await pool.query(
+      `SELECT COALESCE(s.name, po.vendor) AS vend,
+              EXTRACT(EPOCH FROM (po.received_at - po.order_date))/86400 AS days
+         FROM purchase_orders po LEFT JOIN suppliers s ON s.id = po.supplier_id
+        WHERE po.received_at IS NOT NULL AND po.order_date IS NOT NULL`
+    );
+    for (const r of poRows) add(r.vend, r.days);
+
+    const { rows: plRows } = await pool.query(
+      `SELECT COALESCE(order_supplier, vendor) AS vend,
+              EXTRACT(EPOCH FROM (updated_at - order_date))/86400 AS days
+         FROM record_parts_lines
+        WHERE order_status = 'received' AND order_date IS NOT NULL AND deleted_at IS NULL
+          AND updated_at > order_date`
+    );
+    for (const r of plRows) add(r.vend, r.days);
+
+    const results = [];
+    for (const s of suppliers) {
+      const key = norm(s.name);
+      // fuzzy containment: "ntp" matches "ntp distribution", "amazon" matches "amazon business"
+      let list = samples.get(key) || [];
+      if (!list.length) {
+        for (const [k, v] of samples) {
+          if (k && key && (k.includes(key) || key.includes(k)) && Math.min(k.length, key.length) >= 3) {
+            list = list.concat(v);
+          }
+        }
+      }
+      if (!list.length) { results.push({ supplier: s.name, orders: 0, status: 'no_data' }); continue; }
+      const avg = Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10;
+      const worst = Math.round(Math.max(...list) * 10) / 10;
+      await pool.query(
+        `UPDATE suppliers SET lead_time_avg_days = $1, lead_time_worst_days = $2,
+                lead_time_order_count = $3, lead_time_computed_at = NOW() WHERE id = $4`,
+        [avg, worst, list.length, s.id]
+      );
+      results.push({ supplier: s.name, orders: list.length, avg_days: avg, worst_days: worst,
+                     status: list.length < 3 ? 'not_enough_data' : 'ok' });
+    }
+    res.json({ computed: results.filter(r => r.orders > 0).length, results });
+  } catch (err) {
+    console.error('POST /api/suppliers/recompute-lead-times error:', err);
     res.status(500).json({ error: err.message });
   }
 });

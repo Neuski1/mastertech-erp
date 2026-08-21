@@ -198,6 +198,24 @@ const pool = require('./db/pool');
     // Migration 052: no-charge flag on parts lines (mirrors labor N/C). Stock still
     // deducts and cost is kept; the line just bills at zero.
     await pool.query("ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS no_charge BOOLEAN NOT NULL DEFAULT false");
+    // Migration 053: supplier buying-decision fields. We prepay everything by
+    // card, so there is deliberately NO payment-terms field and NO AP aging.
+    // Lead time is the key variable: computed columns are backfilled from real
+    // order-to-receipt history, default_ship_days remains the manual estimate.
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS shipping_cost NUMERIC(10,2)");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS free_shipping_threshold NUMERIC(10,2)");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS brands_carried TEXT");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS login_url TEXT");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payment_method_note TEXT");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS return_policy TEXT");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS return_window_days INTEGER");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS restocking_fee TEXT");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS preferred BOOLEAN NOT NULL DEFAULT false");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS last_verified_date DATE");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS lead_time_avg_days NUMERIC(6,1)");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS lead_time_worst_days NUMERIC(6,1)");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS lead_time_order_count INTEGER");
+    await pool.query("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS lead_time_computed_at TIMESTAMPTZ");
     await pool.query(`ALTER TABLE storage_billing DROP CONSTRAINT IF EXISTS storage_billing_payment_method_check`);
     await pool.query(`ALTER TABLE storage_billing ADD CONSTRAINT storage_billing_payment_method_check
       CHECK (payment_method IS NULL OR payment_method IN ('credit_card','ach','zelle','check','cash'))`);

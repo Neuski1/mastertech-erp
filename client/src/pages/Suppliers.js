@@ -180,7 +180,17 @@ export default function Suppliers() {
       supplier_type: vendor.supplier_type || 'inventory',
       subcategory: vendor.subcategory || '',
       order_method: vendor.order_method || '',
-      default_ship_days: vendor.default_ship_days || ''
+      default_ship_days: vendor.default_ship_days || '',
+      preferred: !!vendor.preferred,
+      brands_carried: vendor.brands_carried || '',
+      shipping_cost: vendor.shipping_cost ?? '',
+      free_shipping_threshold: vendor.free_shipping_threshold ?? '',
+      login_url: vendor.login_url || '',
+      payment_method_note: vendor.payment_method_note || '',
+      return_policy: vendor.return_policy || '',
+      return_window_days: vendor.return_window_days ?? '',
+      restocking_fee: vendor.restocking_fee || '',
+      last_verified_date: vendor.last_verified_date ? String(vendor.last_verified_date).slice(0, 10) : ''
     });
     setEditModalOpen(true);
   };
@@ -271,9 +281,16 @@ export default function Suppliers() {
     if (!editingVendor) return;
     try {
       const subcat = editFormData._newSubcategory ? editFormData._newSubcategory.trim() : editFormData.subcategory;
+      const buyingKeys = ['preferred', 'brands_carried', 'shipping_cost', 'free_shipping_threshold',
+        'login_url', 'payment_method_note', 'return_policy', 'return_window_days',
+        'restocking_fee', 'last_verified_date'];
       const payload = { ...editFormData, subcategory: subcat || null };
       delete payload._newSubcategory;
-      await api.updateVendorDetails(editingVendor.name, payload);
+      const buying = {};
+      for (const k of buyingKeys) { buying[k] = payload[k]; delete payload[k]; }
+      const saved = await api.updateVendorDetails(editingVendor.name, payload);
+      const supplierId = editingVendor.id || saved?.id;
+      if (supplierId) await api.updateSupplierFields(supplierId, buying);
       setEditModalOpen(false);
       await fetchVendors();
     } catch (error) {
@@ -1237,6 +1254,57 @@ export default function Suppliers() {
                 <input type="number" min="0" value={editFormData.default_ship_days} onChange={(e) => setEditFormData({ ...editFormData, default_ship_days: e.target.value })} style={inputStyle} placeholder="e.g. 5" />
               </div>
             </div>
+            <div style={{ margin: '4px 0 12px', padding: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#065f46', marginBottom: '10px' }}>
+                Buying Details
+                <label style={{ float: 'right', fontWeight: 600, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!editFormData.preferred} onChange={(e) => setEditFormData({ ...editFormData, preferred: e.target.checked })} style={{ marginRight: 5 }} />
+                  Preferred supplier
+                </label>
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Brand Lines Carried</label>
+                <input type="text" value={editFormData.brands_carried} onChange={(e) => setEditFormData({ ...editFormData, brands_carried: e.target.value })} style={inputStyle} placeholder="Dometic, Lippert, Victron, Airstream, Furrion" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Typical Shipping Cost ($)</label>
+                  <input type="number" step="0.01" min="0" value={editFormData.shipping_cost} onChange={(e) => setEditFormData({ ...editFormData, shipping_cost: e.target.value })} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Free Shipping Over ($)</label>
+                  <input type="number" step="0.01" min="0" value={editFormData.free_shipping_threshold} onChange={(e) => setEditFormData({ ...editFormData, free_shipping_threshold: e.target.value })} style={inputStyle} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Login / Portal URL</label>
+                  <input type="text" value={editFormData.login_url} onChange={(e) => setEditFormData({ ...editFormData, login_url: e.target.value })} style={inputStyle} placeholder="https://..." />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Payment Method</label>
+                  <input type="text" value={editFormData.payment_method_note} onChange={(e) => setEditFormData({ ...editFormData, payment_method_note: e.target.value })} style={inputStyle} placeholder="Chase card on file in portal" />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Return Window (days)</label>
+                  <input type="number" min="0" value={editFormData.return_window_days} onChange={(e) => setEditFormData({ ...editFormData, return_window_days: e.target.value })} style={inputStyle} placeholder="30" />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Restocking Fee</label>
+                  <input type="text" value={editFormData.restocking_fee} onChange={(e) => setEditFormData({ ...editFormData, restocking_fee: e.target.value })} style={inputStyle} placeholder="15% or none" />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Last Verified</label>
+                  <input type="date" value={editFormData.last_verified_date} onChange={(e) => setEditFormData({ ...editFormData, last_verified_date: e.target.value })} style={inputStyle} />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: '3px' }}>Return Policy Notes</label>
+                <input type="text" value={editFormData.return_policy} onChange={(e) => setEditFormData({ ...editFormData, return_policy: e.target.value })} style={inputStyle} placeholder="RMA required, buyer pays return shipping" />
+              </div>
+            </div>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Notes</label>
               <textarea value={editFormData.notes} onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })} style={{ ...inputStyle, minHeight: '80px', fontFamily: 'inherit' }} />
@@ -1261,6 +1329,13 @@ export default function Suppliers() {
                   {supplierDetail.supplier?.order_method && <span>Order via: <strong style={{ textTransform: 'capitalize' }}>{supplierDetail.supplier.order_method}</strong></span>}
                   {supplierDetail.supplier?.account_number && <span>Acct #: <strong>{supplierDetail.supplier.account_number}</strong></span>}
                   {supplierDetail.supplier?.default_ship_days != null && supplierDetail.supplier?.default_ship_days !== '' && <span>Ships in ~{supplierDetail.supplier.default_ship_days}d</span>}
+                  {supplierDetail.supplier?.lead_time_avg_days != null && (
+                    <span style={{ color: Number(supplierDetail.supplier.lead_time_order_count) < 3 ? '#92400e' : '#065f46', fontWeight: 600 }}>
+                      Actual: {supplierDetail.supplier.lead_time_avg_days}d avg / {supplierDetail.supplier.lead_time_worst_days}d worst
+                      {' '}({supplierDetail.supplier.lead_time_order_count} order{Number(supplierDetail.supplier.lead_time_order_count) === 1 ? '' : 's'}{Number(supplierDetail.supplier.lead_time_order_count) < 3 ? ' - not enough data' : ''})
+                    </span>
+                  )}
+                  {supplierDetail.supplier?.preferred && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 8px', borderRadius: 4, fontWeight: 700, fontSize: '0.75rem' }}>PREFERRED</span>}
                 </div>
               </div>
               <button onClick={() => setSupplierDetailOpen(false)} style={btnSecondary}>Close</button>
