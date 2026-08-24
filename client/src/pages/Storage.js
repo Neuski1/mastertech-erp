@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import NewCustomerModal from '../components/NewCustomerModal';
+import HelpYouSellTab from '../components/HelpYouSellTab';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import { formatDate, formatDateTime } from '../utils/dateFormat';
 
@@ -45,7 +46,7 @@ export default function Storage() {
   const [showAddSpace, setShowAddSpace] = useState(false);
 
   // Waitlist state
-  const [activeTab, setActiveTab] = useState('spaces'); // 'spaces' | 'waitlist'
+  const [activeTab, setActiveTab] = useState('spaces'); // 'spaces' | 'waitlist' | 'helpyousell'
   const [waitlist, setWaitlist] = useState([]);
   const [waitlistCounts, setWaitlistCounts] = useState({ indoor: 0, outdoor: 0 });
   const [waitlistLoading, setWaitlistLoading] = useState(false);
@@ -331,6 +332,12 @@ export default function Storage() {
             }}>{waitlistCounts.indoor + waitlistCounts.outdoor}</span>
           )}
         </button>
+        <button onClick={() => setActiveTab('helpyousell')} style={{
+          padding: '10px 24px', fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer',
+          border: 'none', borderBottom: activeTab === 'helpyousell' ? '2px solid #1e3a5f' : '2px solid transparent',
+          color: activeTab === 'helpyousell' ? '#1e3a5f' : '#6b7280',
+          backgroundColor: 'transparent', marginBottom: '-2px',
+        }}>Help You Sell</button>
       </div>
 
       {error && <div style={errorBanner}>{error} <button onClick={() => setError('')} style={closeBtnStyle}>x</button></div>}
@@ -631,6 +638,11 @@ export default function Storage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ===== HELP YOU SELL TAB ===== */}
+      {activeTab === 'helpyousell' && (
+        <HelpYouSellTab flash={(msg) => setActionMsg(msg)} />
       )}
 
       {/* Waitlist Edit Modal */}

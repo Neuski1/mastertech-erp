@@ -369,6 +369,26 @@ export const api = {
   getStorageContractPreviewUrl: (billing_id) => request('/storage-contract/preview-link', { method: 'POST', body: JSON.stringify({ billing_id }) }),
   sendStorageGuidelines: (data) => request('/storage-contract/send-guidelines', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Help You Sell — sales facilitation agreements
+  getHelpYouSellAgreements: () => request('/help-you-sell'),
+  getHelpYouSellCandidates: () => request('/help-you-sell/candidates'),
+  createHelpYouSell: (data) => request('/help-you-sell', { method: 'POST', body: JSON.stringify(data) }),
+  updateHelpYouSell: (id, data) => request(`/help-you-sell/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteHelpYouSell: (id) => request(`/help-you-sell/${id}`, { method: 'DELETE' }),
+  getHelpYouSellPreviewUrl: (id) => request(`/help-you-sell/${id}/preview-link`, { method: 'POST' }),
+  emailHelpYouSell: (id, data = {}) => request(`/help-you-sell/${id}/email`, { method: 'POST', body: JSON.stringify(data) }),
+  getHelpYouSellSigned: async (id) => {
+    const headers = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/help-you-sell/${id}/signed`, { headers });
+    if (!res.ok) {
+      let msg = 'No signed agreement on file';
+      try { msg = (await res.json()).error || msg; } catch (e) { /* ignore */ }
+      throw new Error(msg);
+    }
+    return res.blob();
+  },
+
   // CRM — Customer detail sub-resources
   getCustomerRecords: (customerId) => request(`/customers/${customerId}/records`),
   getCustomerStorage: (customerId) => request(`/customers/${customerId}/storage`),

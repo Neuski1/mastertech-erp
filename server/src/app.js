@@ -92,6 +92,7 @@ app.use('/api/plaid', requireAuth, require('./routes/plaid'));
 app.use('/api/storage', requireAuth, require('./routes/storage'));
 app.use('/api/storage-contract', require('./routes/storage-contract')); // Public accept/view + auth'd generate/email
 app.use('/api/storage-autopay', require('./routes/storage-autopay'));
+app.use('/api/help-you-sell', require('./routes/help-you-sell')); // Public view/accept + auth'd staff routes
 app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
@@ -902,6 +903,45 @@ require('./db/pool').query(`
   CREATE INDEX IF NOT EXISTS idx_ela_record ON estimate_line_approvals(record_id);
 `).then(() => console.log('Migration 043 (estimate lines) ready'))
   .catch(err => console.error('Migration 043 error:', err.message));
+
+// Migration 053: Help You Sell — sales facilitation agreements for storage customers.
+// Standalone from the storage lease on purpose: ending storage never touches the
+// sales agreement and vice versa. billing_id is a soft link for convenience only.
+require('./db/pool').query(`
+  CREATE TABLE IF NOT EXISTS help_you_sell_agreements (
+    id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    billing_id INTEGER,
+    unit_id INTEGER,
+    rv_description VARCHAR(255),
+    asking_price NUMERIC(12,2),
+    monthly_storage_rate NUMERIC(10,2),
+    commission_pct NUMERIC(5,2) NOT NULL DEFAULT 5.00,
+    cancellation_fee_pct NUMERIC(5,2) NOT NULL DEFAULT 1.00,
+    notice_days INTEGER NOT NULL DEFAULT 30,
+    payment_days INTEGER NOT NULL DEFAULT 5,
+    special_terms TEXT,
+    staff_notes TEXT,
+    agreement_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    token UUID,
+    sent_at TIMESTAMPTZ,
+    accepted_at TIMESTAMPTZ,
+    accepted_ip VARCHAR(64),
+    signature_name VARCHAR(150),
+    sale_price NUMERIC(12,2),
+    sold_at DATE,
+    commission_collected_at DATE,
+    created_by INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_hys_token ON help_you_sell_agreements(token);
+  CREATE INDEX IF NOT EXISTS idx_hys_customer ON help_you_sell_agreements(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_hys_billing ON help_you_sell_agreements(billing_id);
+`).then(() => console.log('Migration 053 (help you sell) ready'))
+  .catch(err => console.error('Migration 053 error:', err.message));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
