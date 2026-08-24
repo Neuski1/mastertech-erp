@@ -636,8 +636,20 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     const customerEmail = lesseeEmail || r.email_primary || '';
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 
-    // Generate accepted contract PDF with final RV details and email copy to customer
-    const monthlyRate = combinedRate;
+    // Generate accepted contract PDF with final RV details and email copy to customer.
+    // Group-aware like the view route: a multi-unit lease bills the combined rate.
+    // (This used to reference `combinedRate`, which only exists in the GET /view
+    // handler — a ReferenceError that 500'd every acceptance after the DB was
+    // already updated, so the customer got "Server error" and no PDF or email.)
+    let monthlyRate = parseFloat(r.monthly_rate) || 0;
+    if (r.contract_group) {
+      const g = await pool.query(
+        `SELECT COALESCE(SUM(monthly_rate), 0) AS total FROM storage_billing
+          WHERE contract_group = $1 AND deleted_at IS NULL`,
+        [r.contract_group]
+      );
+      monthlyRate = parseFloat(g.rows[0].total) || monthlyRate;
+    }
     const { calcProrated } = require('../services/storageContract');
     const startDateRaw = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
 
