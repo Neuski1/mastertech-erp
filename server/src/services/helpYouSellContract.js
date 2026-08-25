@@ -18,6 +18,13 @@ function money(n) {
   return `$${v.toFixed(2)}`;
 }
 
+// Whole-dollar listing price with thousands separators. Blank if not a number.
+function price(n) {
+  const v = parseFloat(n);
+  if (!isFinite(v)) return '';
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
 function pct(n, fallback) {
   const v = parseFloat(n);
   if (!isFinite(v)) return `${fallback}%`;
@@ -86,6 +93,10 @@ function generateHelpYouSellPDF(d = {}) {
     h('2.  Recitals');
     p(`The Client owns a ${rvDesc} (the “RV”).`);
     p('The Business agrees to provide sales-support services to help the Client sell the RV.');
+    const askingPrice = price(d.asking_price);
+    if (askingPrice) {
+      p(`The Client intends to list the RV for ${askingPrice} (the “Asking Price”). The Client may change the listing price at any time.`);
+    }
 
     // ── 3. Services ──
     h('3.  Services');
@@ -114,7 +125,11 @@ function generateHelpYouSellPDF(d = {}) {
     // ── 6. Term & Termination ──
     h('6.  Term & Termination');
     p(`Term: This Agreement commences on the date above and continues until the earlier of (a) closing of the RV sale, or (b) ${noticeDays} days written notice by either party.`);
-    p(`Early Termination: If Client terminates early without cause, Client owes Business a “good-faith” cancellation fee equal to ${cancelPct} of the last listed asking price.`);
+    const cancelPctNum = parseFloat(d.cancellation_fee_pct);
+    const cancelAmount = (askingPrice && isFinite(cancelPctNum))
+      ? ` Based on the Asking Price stated above, that fee is ${money(parseFloat(d.asking_price) * cancelPctNum / 100)}.`
+      : '';
+    p(`Early Termination: If Client terminates early without cause, Client owes Business a “good-faith” cancellation fee equal to ${cancelPct} of the last listed asking price.${cancelAmount}`);
 
     // ── 7. Indemnification ──
     h('7.  Indemnification');
