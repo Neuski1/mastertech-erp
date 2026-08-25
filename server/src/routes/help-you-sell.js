@@ -25,6 +25,26 @@ const esc = (s) => String(s == null ? '' : s)
 
 const money = (n) => `$${(parseFloat(n) || 0).toFixed(2)}`;
 
+// Whole-dollar display for the listing price: $45,000 reads better than $45000.00.
+const priceDisplay = (n) => {
+  const v = parseFloat(n);
+  if (!isFinite(v)) return '';
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+};
+
+// Customers type prices however they like: "45,000", "$45000", "45k".
+// Accept all of it and store a number, or null when it isn't one.
+function parsePrice(input) {
+  if (input == null) return null;
+  let s = String(input).trim().toLowerCase();
+  if (!s) return null;
+  const isK = /k$/.test(s);
+  s = s.replace(/[$,\s]/g, '').replace(/k$/, '');
+  const v = parseFloat(s);
+  if (!isFinite(v) || v < 0) return null;
+  return isK ? v * 1000 : v;
+}
+
 const denver = (ts) => new Date(ts).toLocaleString('en-US', { timeZone: 'America/Denver' });
 
 function baseUrlFrom(req) {
@@ -66,6 +86,7 @@ function toPdfData(r, overrides = {}) {
     cancellation_fee_pct: r.cancellation_fee_pct,
     notice_days: r.notice_days,
     payment_days: r.payment_days,
+    asking_price: r.asking_price,
     special_terms: r.special_terms,
     agreement_date: r.agreement_date
       ? new Date(r.agreement_date).toLocaleDateString('en-US', { timeZone: 'UTC' })
@@ -441,11 +462,16 @@ function agreementBodyHtml(r, editable) {
     <h3 style="color:#1e3a5f;margin:0 0 12px;font-size:15px;">2. Recitals</h3>
     <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
       ${field('The RV', rvLabel(r), 'rv_description', 'e.g. 2006 Airstream Safari')}
+      ${field('Asking Price', priceDisplay(r.asking_price), 'asking_price', 'What you plan to list it for, e.g. $45,000')}
     </table>
     <p style="font-size:13px;color:#374151;line-height:1.6;margin:12px 0 0;">
       The Client owns the RV described above (the &ldquo;RV&rdquo;). The Business agrees to provide
       sales-support services to help the Client sell the RV.
     </p>
+    ${editable ? `<p style="font-size:12px;color:#1e3a5f;background:#dbeafe;border-left:3px solid #1e3a5f;border-radius:4px;padding:8px 12px;margin:12px 0 0;line-height:1.5;">
+      The asking price is the price you intend to list the RV for. You can change your listing price at any
+      time; this figure is the starting point and the reference used in Section 6 below.
+    </p>` : ''}
   </div>
 
   <div style="font-size:13px;color:#374151;line-height:1.7;">
@@ -474,7 +500,11 @@ function agreementBodyHtml(r, editable) {
 
     <h3 style="color:#1e3a5f;margin:20px 0 8px;font-size:15px;">6. Term &amp; Termination</h3>
     <p style="margin:0;"><strong>Term:</strong> This Agreement commences on the date above and continues until the earlier of (a) closing of the RV sale, or (b) ${noticeDays} days written notice by either party.</p>
-    <p style="margin:6px 0 0;"><strong>Early Termination:</strong> If Client terminates early without cause, Client owes Business a &ldquo;good-faith&rdquo; cancellation fee equal to ${isFinite(cancelPct) ? cancelPct : 1}% of the last listed asking price.</p>
+    <p style="margin:6px 0 0;"><strong>Early Termination:</strong> If Client terminates early without cause, Client owes Business a &ldquo;good-faith&rdquo; cancellation fee equal to ${isFinite(cancelPct) ? cancelPct : 1}% of the last listed asking price${
+      parseFloat(r.asking_price) > 0 && isFinite(cancelPct)
+        ? ` (based on the asking price above, that is ${money(parseFloat(r.asking_price) * cancelPct / 100)})`
+        : ''
+    }.</p>
 
     <h3 style="color:#1e3a5f;margin:20px 0 8px;font-size:15px;">7. Indemnification</h3>
     <p style="margin:0;">Client will indemnify and hold harmless Business from any third-party claims arising out of the RV&rsquo;s condition or misrepresentation of its features.</p>
@@ -584,6 +614,10 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     const clientEmail = String(form.client_email || '').trim() || r.email_primary || '';
     const clientPhone = String(form.client_phone || '').trim() || r.phone_primary || '';
     const rvDescription = String(form.rv_description || '').trim() || rvLabel(r);
+    // The customer types their own listing price. Keep the staff-entered value
+    // if they left it blank or typed something that isn't a number.
+    const askingPrice = parsePrice(form.asking_price);
+    const finalAskingPrice = askingPrice != null ? askingPrice : (r.asking_price != null ? parseFloat(r.asking_price) : null);
 
     const acceptedAtIso = new Date();
 
@@ -591,9 +625,10 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       `UPDATE help_you_sell_agreements
           SET accepted_at = NOW(), accepted_ip = $1, signature_name = $2,
               rv_description = COALESCE(NULLIF($3, ''), rv_description),
+              asking_price = COALESCE($4, asking_price),
               status = 'accepted', updated_at = NOW()
-        WHERE id = $4`,
-      [req.ip, signatureName, rvDescription, r.id]
+        WHERE id = $5`,
+      [req.ip, signatureName, rvDescription, finalAskingPrice, r.id]
     );
 
     // Update customer contact info if the client corrected it on the form.
@@ -616,6 +651,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       accepted_at: denver(acceptedAtIso),
       accepted_ip: req.ip,
       signature_name: signatureName,
+      asking_price: finalAskingPrice,
     });
     const pdfBuffer = await generateHelpYouSellPDF(pdfData);
 
@@ -664,6 +700,9 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       to: 'service@mastertechrvrepair.com',
       subject: `Help You Sell Agreement Signed — ${clientName}`,
       html: `<p><strong>${esc(clientName)}</strong> signed the Help You Sell agreement for <strong>${esc(rvDescription || 'their RV')}</strong> at ${esc(denver(acceptedAtIso))}.</p>
+             <p>Asking price: <strong>${finalAskingPrice != null ? esc(priceDisplay(finalAskingPrice)) : 'not stated'}</strong>${
+               finalAskingPrice != null ? ` &middot; a full-price sale pays us ${money(finalAskingPrice * (parseFloat(r.commission_pct) || 5) / 100)}` : ''
+             }</p>
              <p>Commission: ${parseFloat(r.commission_pct) || 5}% of gross sale price. Storage rate: ${money(r.monthly_storage_rate)}/month.</p>
              <p><a href="${frontendUrl}/storage">Open the Storage module &rarr; Help You Sell</a></p>`,
       attachments: [{

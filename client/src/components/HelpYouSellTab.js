@@ -213,7 +213,11 @@ function AgreementCard({ a, canEdit, isAdmin, expanded, onToggle, onPreview, onS
               backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px',
               padding: '8px 12px', fontSize: '0.78rem', color: '#065f46', marginBottom: '12px',
             }}>
-              Signed agreements are locked. Terms cannot be edited &mdash; cancel and issue a new one if the deal changes.
+              Asking price at signing: <strong>{a.asking_price ? money(a.asking_price) : 'not stated'}</strong>
+              {a.asking_price && <> &middot; full-price sale pays us <strong>{money(parseFloat(a.asking_price) * commission / 100)}</strong></>}
+              <div style={{ marginTop: '4px' }}>
+                Signed agreements are locked. Terms cannot be edited, cancel and issue a new one if the deal changes.
+              </div>
             </div>
           )}
 
@@ -227,7 +231,7 @@ function AgreementCard({ a, canEdit, isAdmin, expanded, onToggle, onPreview, onS
                 onSave={(v) => save({ commission_pct: v }, 'Commission')} placeholder="5" />
               <Field label="Cancellation Fee %" defaultValue={a.cancellation_fee_pct || ''} type="number"
                 onSave={(v) => save({ cancellation_fee_pct: v }, 'Cancellation fee')} placeholder="1" />
-              <Field label="Asking Price" defaultValue={a.asking_price || ''} type="number"
+              <Field label="Asking Price (customer confirms)" defaultValue={a.asking_price || ''} type="number"
                 onSave={(v) => save({ asking_price: v }, 'Asking price')} placeholder="45000" />
               <Field label="Notice Days" defaultValue={a.notice_days || ''} type="number"
                 onSave={(v) => save({ notice_days: v }, 'Notice period')} placeholder="30" />
@@ -448,6 +452,9 @@ function NewAgreementModal({ onClose, onCreated, flash }) {
                 <input type="number" step="1" value={form.asking_price}
                   onChange={(e) => setForm({ ...form, asking_price: e.target.value })}
                   placeholder="45000" style={inputStyleFull} />
+                <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: '3px' }}>
+                  Leave blank if you do not know. The customer enters what they plan to list it for when they sign.
+                </div>
               </div>
               <div>
                 <label style={labelStyle}>Notice Days</label>
