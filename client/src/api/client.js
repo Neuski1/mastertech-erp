@@ -451,6 +451,8 @@ export const api = {
   updatePartner: (id, data) => request(`/partners/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePartner: (id) => request(`/partners/${id}`, { method: 'DELETE' }),
   getPartnerFunnelStats: () => request('/partners/funnel-stats'),
+  getPartnersDue: () => request('/partners?due=true'),
+  getPartnersDueCount: () => request('/partners/due-count'),
   getPartnerActivities: (partnerId) => request(`/partners/${partnerId}/activities`),
   addPartnerActivity: (partnerId, data) => request(`/partners/${partnerId}/activities`, { method: 'POST', body: JSON.stringify(data) }),
   deletePartnerActivity: (partnerId, actId) => request(`/partners/${partnerId}/activities/${actId}`, { method: 'DELETE' }),

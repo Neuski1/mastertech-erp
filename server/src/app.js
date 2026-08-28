@@ -432,6 +432,105 @@ const pool = require('./db/pool');
       `);
       console.log('Seeded', seedResult.rowCount, 'partner records');
     }
+    // Migration 054: partners next-step tracking (Terri handoff 2026-08-28).
+    // Next steps used to live in the free-text notes column, so nothing could
+    // be flagged overdue and nothing enforced the priority order. See
+    // database/migrations/054_partners_next_step.sql for the standalone copy.
+    await pool.query(`ALTER TABLE partners
+      ADD COLUMN IF NOT EXISTS partner_type        VARCHAR(32),
+      ADD COLUMN IF NOT EXISTS next_step           TEXT,
+      ADD COLUMN IF NOT EXISTS next_step_due       DATE,
+      ADD COLUMN IF NOT EXISTS do_not_pitch        BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS do_not_pitch_reason TEXT,
+      ADD COLUMN IF NOT EXISTS referral_terms      TEXT,
+      ADD COLUMN IF NOT EXISTS owner_agent         VARCHAR(32) NOT NULL DEFAULT 'Terri'`);
+    await pool.query('ALTER TABLE partners DROP CONSTRAINT IF EXISTS partners_partner_type_chk');
+    await pool.query(`ALTER TABLE partners ADD CONSTRAINT partners_partner_type_chk
+      CHECK (partner_type IS NULL OR partner_type IN
+        ('storage_facility','campground','rv_club','dealer','mobile_tech','other'))`);
+    await pool.query('ALTER TABLE partners DROP CONSTRAINT IF EXISTS partners_status_chk');
+    await pool.query(`ALTER TABLE partners ADD CONSTRAINT partners_status_chk
+      CHECK (status IN
+        ('new','attempted','contacted','in_conversation','active','declined','not_a_fit','dormant'))`);
+    await pool.query('CREATE INDEX IF NOT EXISTS partners_next_step_due_idx ON partners (next_step_due)');
+    await pool.query('CREATE INDEX IF NOT EXISTS partners_type_idx ON partners (partner_type)');
+    await pool.query(`ALTER TABLE partner_activities
+      ADD COLUMN IF NOT EXISTS direction     VARCHAR(16) NOT NULL DEFAULT 'outbound',
+      ADD COLUMN IF NOT EXISTS outcome       VARCHAR(32),
+      ADD COLUMN IF NOT EXISTS next_step     TEXT,
+      ADD COLUMN IF NOT EXISTS next_step_due DATE`);
+    await pool.query('ALTER TABLE partner_activities DROP CONSTRAINT IF EXISTS partner_activities_type_chk');
+    await pool.query(`ALTER TABLE partner_activities ADD CONSTRAINT partner_activities_type_chk
+      CHECK (activity_type IN
+        ('email_sent','email_reply','call','voicemail','visit','meeting','referral_received','note'))`);
+    await pool.query('ALTER TABLE partner_activities DROP CONSTRAINT IF EXISTS partner_activities_outcome_chk');
+    await pool.query(`ALTER TABLE partner_activities ADD CONSTRAINT partner_activities_outcome_chk
+      CHECK (outcome IS NULL OR outcome IN
+        ('no_answer','left_message','spoke','interested','not_interested','asked_to_follow_up','agreed'))`);
+    await pool.query('ALTER TABLE partner_activities DROP CONSTRAINT IF EXISTS partner_activities_direction_chk');
+    await pool.query(`ALTER TABLE partner_activities ADD CONSTRAINT partner_activities_direction_chk
+      CHECK (direction IN ('outbound','inbound'))`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS partner_activities_partner_idx
+      ON partner_activities (partner_id, contact_date DESC)`);
+    // Logging a contact pulls the partner record forward. Without this a
+    // partner can show "never contacted" while its activity log says otherwise.
+    // contact_date is timestamptz and the server runs UTC, so cast in Denver
+    // time or an evening entry stamps tomorrow.
+    await pool.query(`CREATE OR REPLACE FUNCTION partners_sync_from_activity() RETURNS trigger AS $fn$
+      DECLARE
+        act_date date := (NEW.contact_date AT TIME ZONE 'America/Denver')::date;
+      BEGIN
+        UPDATE partners p SET
+          date_contacted = GREATEST(COALESCE(p.date_contacted, act_date), act_date),
+          next_step      = COALESCE(NEW.next_step, p.next_step),
+          next_step_due  = COALESCE(NEW.next_step_due, p.next_step_due),
+          status         = CASE
+                             WHEN p.status IN ('new','attempted') AND NEW.outcome IN
+                                  ('spoke','interested','asked_to_follow_up') THEN 'contacted'
+                             WHEN NEW.outcome = 'agreed'         THEN 'active'
+                             WHEN NEW.outcome = 'not_interested' THEN 'declined'
+                             WHEN p.status = 'new' AND NEW.outcome IN ('no_answer','left_message')
+                                  THEN 'attempted'
+                             ELSE p.status
+                           END,
+          updated_at     = NOW()
+        WHERE p.id = NEW.partner_id;
+        RETURN NEW;
+      END;
+      $fn$ LANGUAGE plpgsql`);
+    await pool.query('DROP TRIGGER IF EXISTS partner_activities_sync ON partner_activities');
+    await pool.query(`CREATE TRIGGER partner_activities_sync
+      AFTER INSERT ON partner_activities
+      FOR EACH ROW EXECUTE FUNCTION partners_sync_from_activity()`);
+    // The view the weekly partner sweep reads. One query, no prose parsing.
+    await pool.query(`CREATE OR REPLACE VIEW partners_due AS
+      SELECT
+        p.id, p.business_name, p.partner_type, p.status, p.contact_name,
+        p.email, p.contact_phone, p.location, p.date_contacted,
+        p.next_step, p.next_step_due, p.owner_agent,
+        CASE
+          WHEN p.next_step IS NULL OR p.next_step = ''  THEN 'no_next_step'
+          WHEN p.date_contacted IS NULL                 THEN 'never_contacted'
+          WHEN p.next_step_due < CURRENT_DATE           THEN 'overdue'
+          WHEN p.date_contacted < CURRENT_DATE - 14     THEN 'stale_14_day'
+        END AS due_reason,
+        CASE p.partner_type
+          WHEN 'storage_facility' THEN 1
+          WHEN 'campground'       THEN 2
+          WHEN 'rv_club'          THEN 3
+          ELSE 9
+        END AS priority_rank,
+        CURRENT_DATE - p.date_contacted AS days_since_contact
+      FROM partners p
+      WHERE p.do_not_pitch = false
+        AND p.status NOT IN ('declined','not_a_fit')
+        AND (
+              p.next_step IS NULL OR p.next_step = ''
+           OR p.date_contacted IS NULL
+           OR p.next_step_due < CURRENT_DATE
+           OR p.date_contacted < CURRENT_DATE - 14
+        )
+      ORDER BY priority_rank, p.next_step_due NULLS FIRST, p.date_contacted NULLS FIRST`);
     // Migration 045: customer documents table (stores signed contracts, etc.)
     await pool.query(`CREATE TABLE IF NOT EXISTS customer_documents (
       id SERIAL PRIMARY KEY,
