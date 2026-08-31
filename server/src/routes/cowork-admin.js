@@ -668,4 +668,76 @@ router.post('/storage-autopay-run', requireCoworkKey, async (req, res) => {
   }
 });
 
+// GET /api/cowork-admin/square-fee-summary?year=2026 — READ-ONLY.
+// Square deducts its processing fee before the payout reaches the bank, so the
+// fee never appears in the bank feed and has never been booked (account 6010
+// held $65.00 for all of 2026). This totals, by month, what customers actually
+// paid (the gross Square reports on the 1099-K), what Square kept, and what
+// landed. Use it to build the monthly gross-up: debit Bank Charges & Fees,
+// credit Income, same amount, so reported receipts match the 1099-K without
+// moving net profit.
+router.get('/square-fee-summary', requireCoworkKey, async (req, res) => {
+  try {
+    const square = require('../services/square');
+    if (!square.locationId) return res.status(400).json({ error: 'Square not configured' });
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const beginTime = `${year}-01-01T00:00:00Z`;
+    const endTime = `${year + 1}-01-01T00:00:00Z`;
+
+    // v44 returns an async-iterable page object; the other shapes are defensive,
+    // matching listRecentPayments in squareReconcileCron.
+    const resp = await square.client.payments.list({
+      locationId: square.locationId, beginTime, endTime, sortOrder: 'ASC',
+    });
+    let payments = [];
+    if (Array.isArray(resp)) payments = resp;
+    else if (resp?.data && Array.isArray(resp.data)) payments = resp.data;
+    else if (resp?.result?.payments) payments = resp.result.payments;
+    else if (resp?.payments) payments = resp.payments;
+    else if (resp && typeof resp[Symbol.asyncIterator] === 'function') {
+      for await (const item of resp) { payments.push(item); if (payments.length >= 20000) break; }
+    }
+
+    const cents = (m) => Number(m?.amount ?? 0);
+    const months = new Map();
+    let skipped = 0;
+    for (const p of payments) {
+      const status = p.status;
+      if (status !== 'COMPLETED' && status !== 'APPROVED') { skipped++; continue; }
+      const key = String(p.createdAt || p.created_at || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(key)) { skipped++; continue; }
+      if (!months.has(key)) months.set(key, { count: 0, gross: 0, fees: 0, refunded: 0 });
+      const m = months.get(key);
+      m.count += 1;
+      m.gross += cents(p.totalMoney || p.total_money);
+      m.refunded += cents(p.refundedMoney || p.refunded_money);
+      for (const f of (p.processingFee || p.processing_fee || [])) {
+        m.fees += cents(f.amountMoney || f.amount_money);
+      }
+    }
+
+    const round = (c) => Math.round(c) / 100;
+    const rows = [...months.keys()].sort().map((k) => {
+      const m = months.get(k);
+      return {
+        month: k, payments: m.count,
+        gross: round(m.gross), fees: round(m.fees), refunded: round(m.refunded),
+        net_deposited: round(m.gross - m.fees - m.refunded),
+        effective_rate_pct: m.gross ? Math.round((m.fees / m.gross) * 10000) / 100 : 0,
+      };
+    });
+    const sum = (f) => Math.round(rows.reduce((a, r) => a + r[f] * 100, 0)) / 100;
+    res.json({
+      year, scanned: payments.length, skipped,
+      months: rows,
+      totals: { payments: rows.reduce((a, r) => a + r.payments, 0),
+                gross: sum('gross'), fees: sum('fees'),
+                refunded: sum('refunded'), net_deposited: sum('net_deposited') },
+    });
+  } catch (e) {
+    const detail = e.errors ? e.errors.map((x) => x.detail).join('; ') : e.message;
+    res.status(500).json({ error: detail });
+  }
+});
+
 module.exports = router;
