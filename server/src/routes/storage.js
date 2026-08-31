@@ -1138,6 +1138,14 @@ router.post('/payment-grid/sync', requireRole('admin', 'service_writer', 'techni
 // ---------------------------------------------------------------------------
 router.post('/payment-grid', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { storage_billing_id, year, month, status } = req.body;
+  // Amount actually collected. A Zelle or check rarely equals the invoice, so
+  // the person marking the cell green types what really landed.
+  const rawAmount = req.body.amount;
+  const amount = (rawAmount === undefined || rawAmount === null || rawAmount === '')
+    ? null : Number(rawAmount);
+  if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+    return res.status(400).json({ error: 'amount must be a positive number' });
+  }
 
   if (!storage_billing_id || !year || !month) {
     return res.status(400).json({ error: 'storage_billing_id, year, and month are required' });
@@ -1163,19 +1171,67 @@ router.post('/payment-grid', requireRole('admin', 'service_writer', 'technician'
       return res.status(400).json({ error: 'status must be paid, unpaid, partial, or auto' });
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO storage_payment_status
-         (storage_billing_id, year, month, status, source)
-       VALUES ($1, $2, $3, $4, 'manual')
-       ON CONFLICT (storage_billing_id, year, month) DO UPDATE
-         SET status = EXCLUDED.status,
-             source = 'manual',
-             updated_at = NOW()
-       RETURNING *`,
-      [storage_billing_id, y, m, status]
-    );
+    const client = await pool.connect();
+    let statusRow, charge = null;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `INSERT INTO storage_payment_status
+           (storage_billing_id, year, month, status, source, amount)
+         VALUES ($1, $2, $3, $4, 'manual', $5)
+         ON CONFLICT (storage_billing_id, year, month) DO UPDATE
+           SET status = EXCLUDED.status,
+               source = 'manual',
+               amount = COALESCE(EXCLUDED.amount, storage_payment_status.amount),
+               updated_at = NOW()
+         RETURNING *`,
+        [storage_billing_id, y, m, status, amount]
+      );
+      statusRow = rows[0];
 
-    res.json(rows[0]);
+      // Marking a month collected has to reach the books. storage_charges is
+      // what the ledger bridge mirrors to GL 4000, so a green cell with no
+      // charge row is income that never gets counted. Clearing or marking
+      // unpaid deliberately leaves any existing charge alone: nothing already
+      // posted gets deleted from here.
+      if (status === 'paid' || status === 'partial') {
+        const chargeMonth = `${y}-${String(m).padStart(2, '0')}`;
+        const collected = statusRow.amount != null ? Number(statusRow.amount) : null;
+        if (collected != null && collected > 0) {
+          const { rows: existing } = await client.query(
+            `SELECT id FROM storage_charges WHERE billing_id = $1::int AND charge_month = $2::varchar`,
+            [storage_billing_id, chargeMonth]
+          );
+          if (existing.length) {
+            const { rows: upd } = await client.query(
+              `UPDATE storage_charges SET amount = $2::numeric WHERE id = $1::int RETURNING *`,
+              [existing[0].id, collected]
+            );
+            charge = upd[0];
+          } else {
+            const { rows: ins } = await client.query(
+              `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes)
+               SELECT $1::int, sb.customer_id, sb.space_id, $2::numeric, $3::varchar, $4::text
+                 FROM storage_billing sb WHERE sb.id = $1::int
+               RETURNING *`,
+              [storage_billing_id, collected, chargeMonth, 'Storage paid (marked manually)']
+            );
+            charge = ins[0] || null;
+          }
+          if (charge) await syncChargeToLedger(client, charge.id);
+        }
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    res.json({ ...statusRow, charge_id: charge ? charge.id : null,
+               needs_amount: (status === 'paid' || status === 'partial')
+                             && !(statusRow.amount > 0) });
   } catch (err) {
     console.error('POST /api/storage/payment-grid error:', err);
     res.status(500).json({ error: err.message });

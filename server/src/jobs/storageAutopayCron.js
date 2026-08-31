@@ -10,6 +10,35 @@ const cron = require('node-cron');
 const pool = require('../db/pool');
 const square = require('../services/square');
 const { sendEmail } = require('../services/email');
+const { syncChargeToLedger } = require('../services/storageLedger');
+
+// Mirror a storage charge into the general ledger. storage_charges is the
+// source of storage income: the bridge posts each row to GL 4000 and the
+// Revenue Summary reads the ledger, not the charge table. Only the old manual
+// billing-run button ever called this, so every space collected by autopay or
+// by an online payment showed collected on the grid while the income never
+// reached the books. Best effort and idempotent (UNIQUE on storage_charge_id):
+// a bookkeeping failure must never undo a charge the customer already paid.
+async function mirrorChargeToLedger(dbc, billingId, chargeMonth, tag) {
+  try {
+    const { rows } = await dbc.query(
+      `SELECT id FROM storage_charges WHERE billing_id = $1::int AND charge_month = $2::varchar`,
+      [billingId, chargeMonth]
+    );
+    if (!rows.length) return;
+    await dbc.query('BEGIN');
+    try {
+      await syncChargeToLedger(dbc, rows[0].id);
+      await dbc.query('COMMIT');
+    } catch (e) {
+      try { await dbc.query('ROLLBACK'); } catch (_) {}
+      throw e;
+    }
+  } catch (e) {
+    console.error(`[${tag}] ledger mirror failed for billing ${billingId} ${chargeMonth}:`, e.message);
+  }
+}
+
 
 const OWNER_EMAIL = process.env.OWNER_ALERT_EMAIL || 'service@mastertechrvrepair.com';
 
@@ -165,6 +194,8 @@ async function chargeOne(b, year, month, { dryRun }) {
         [b.billing_id, amountCents / 100, `${year}-${String(month).padStart(2, '0')}`,
          `Storage autopay - ${b.space_label || ''} (Square ${payment.id})`], 'billing history'
       );
+      await mirrorChargeToLedger(dbc, b.billing_id,
+        `${year}-${String(month).padStart(2, '0')}`, 'storageAutopay');
       console.log(`[storageAutopay] Charged $${amountCents / 100} for billing ${b.billing_id} (${label})`);
       dbc.release();
       return { billing_id: b.billing_id, charged: amountCents / 100, payment_id: payment.id };
