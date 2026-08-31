@@ -129,7 +129,10 @@ async function chargeOne(b, year, month, { dryRun }) {
          VALUES ($1, $2, $3, 'paid', 'auto', $4)
          ON CONFLICT (storage_billing_id, year, month)
          DO UPDATE SET status='paid', source='auto', amount=EXCLUDED.amount
-         WHERE storage_payment_status.source <> 'manual'`,
+         -- Protect a manual PAID record (Carol's green click wins), but never
+         -- let a stale manual 'unpaid' row block a charge that just cleared.
+         WHERE NOT (storage_payment_status.source = 'manual'
+                    AND storage_payment_status.status = 'paid')`,
         [b.billing_id, year, month, amountCents / 100], 'payment status'
       );
       // Customer-record billing history (same table the manual billing run used).
