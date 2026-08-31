@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { api } from './api/client';
 import Login from './pages/Login';
 import RecordList from './pages/RecordList';
 import RecordDetail from './pages/RecordDetail';
@@ -58,6 +59,7 @@ function AppLayout() {
   const { user, logout, canManageUsers, canManageSettings } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [partnersDue, setPartnersDue] = useState(0);
   const location = useLocation();
 
   const roleLabelMap = {
@@ -80,6 +82,17 @@ function AppLayout() {
   }, []);
 
   const closeMobileNav = () => setMobileNavOpen(false);
+
+  // Partners due count for the nav badge. If it is not visible it does not get
+  // done — that is the lesson from 20 records sitting untouched since April.
+  // Refetched on navigation so logging a contact updates the badge.
+  useEffect(() => {
+    let cancelled = false;
+    api.getPartnersDueCount()
+      .then(d => { if (!cancelled) setPartnersDue(d.count || 0); })
+      .catch(() => { /* badge is informational, never block the nav */ });
+    return () => { cancelled = true; };
+  }, [location.pathname]);
 
   // Nav links: all pages, always active and clickable
   const allNavLinks = [
@@ -159,6 +172,9 @@ function AppLayout() {
                 style={link.to === '/records' ? recordsNavLink : link.to === '/schedule' ? scheduleNavLink : navLink}
               >
                 {link.label}
+                {link.to === '/partners' && partnersDue > 0 && (
+                  <span style={dueBadge}>{partnersDue}</span>
+                )}
               </Link>
             ))}
           </nav>
@@ -196,6 +212,9 @@ function AppLayout() {
                 onClick={closeMobileNav}
               >
                 {link.label}
+                {link.to === '/partners' && partnersDue > 0 && (
+                  <span style={dueBadge}>{partnersDue}</span>
+                )}
               </Link>
             ))}
           </nav>
@@ -284,6 +303,14 @@ function LoginRoute() {
 const navLink = {
   color: '#cbd5e1', textDecoration: 'none', fontSize: '0.875rem',
   fontWeight: 500, padding: '4px 0', borderBottom: '2px solid transparent',
+};
+
+// Count of partners needing a next step or a follow-up. Red so it reads as
+// work owed, not decoration.
+const dueBadge = {
+  display: 'inline-block', marginLeft: 6, padding: '1px 7px',
+  borderRadius: 10, backgroundColor: '#dc2626', color: '#fff',
+  fontSize: '0.7rem', fontWeight: 700, lineHeight: '16px', verticalAlign: 'middle',
 };
 
 // Records is the highest-traffic module — give it a warm amber pill so it's the

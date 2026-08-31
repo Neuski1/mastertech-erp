@@ -2,11 +2,35 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 
+// Fields a partner record carries beyond the original contact columns.
+// partner_type drives the priority order; next_step and next_step_due are
+// what make a record answerable without reading its notes.
+const PARTNER_FIELDS = [
+  'business_name', 'location', 'contact_phone', 'website', 'contact_name',
+  'email', 'date_contacted', 'status', 'notes',
+  'partner_type', 'next_step', 'next_step_due', 'do_not_pitch',
+  'do_not_pitch_reason', 'referral_terms', 'owner_agent',
+];
+
 // ---------------------------------------------------------------------------
 // GET /api/partners — List all partners with optional filtering
+// ?due=true returns the partners_due view instead: everything with no next
+// step, never contacted, past its due date, or untouched for 14 days, already
+// sorted by priority. This is what the weekly sweep calls.
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
-  const { status, search } = req.query;
+  const { status, search, due } = req.query;
+
+  if (due === 'true' || due === '1') {
+    try {
+      const { rows } = await pool.query('SELECT * FROM partners_due');
+      return res.json({ partners: rows, due_count: rows.length });
+    } catch (err) {
+      console.error('GET /api/partners?due=true error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   const conditions = [];
   const params = [];
   let idx = 1;
@@ -65,26 +89,57 @@ router.get('/funnel-stats', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/partners/due-count — Just the number, for the nav badge.
+// Must stay above GET /:id or Express matches it as an id.
+// ---------------------------------------------------------------------------
+router.get('/due-count', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS count FROM partners_due');
+    res.json({ count: rows[0].count });
+  } catch (err) {
+    console.error('GET /api/partners/due-count error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/partners — Create new partner
+// partner_type and next_step are required: a record with nothing to do next
+// is how the first 20 sat untouched from April to August.
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
   const {
     business_name, location, contact_phone, website, contact_name, email,
     date_contacted, status, notes,
+    partner_type, next_step, next_step_due, do_not_pitch, do_not_pitch_reason,
+    referral_terms, owner_agent,
   } = req.body;
 
   if (!business_name) {
     return res.status(400).json({ error: 'business_name is required' });
   }
+  if (!partner_type) {
+    return res.status(400).json({ error: 'partner_type is required' });
+  }
+  const dnp = do_not_pitch === true || do_not_pitch === 'true';
+  // Dealers and mobile techs are never pitched, so they are allowed in
+  // without a next step as long as they are flagged do_not_pitch.
+  if (!dnp && (!next_step || !next_step.trim())) {
+    return res.status(400).json({ error: 'next_step is required (or mark the record do_not_pitch)' });
+  }
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO partners (business_name, location, contact_phone, website, contact_name, email, date_contacted, status, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO partners (business_name, location, contact_phone, website, contact_name, email,
+                             date_contacted, status, notes, partner_type, next_step, next_step_due,
+                             do_not_pitch, do_not_pitch_reason, referral_terms, owner_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16, 'Terri'))
        RETURNING *`,
       [business_name, location || null, contact_phone || null, website || null,
        contact_name || null, email || null, date_contacted || null,
-       status || 'new', notes || null]
+       status || 'new', notes || null, partner_type,
+       next_step ? next_step.trim() : null, next_step_due || null,
+       dnp, do_not_pitch_reason || null, referral_terms || null, owner_agent || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -116,18 +171,19 @@ router.get('/:id', async (req, res) => {
 // PATCH /api/partners/:id — Update partner
 // ---------------------------------------------------------------------------
 router.patch('/:id', async (req, res) => {
-  const allowedFields = [
-    'business_name', 'location', 'contact_phone', 'website', 'contact_name',
-    'email', 'date_contacted', 'status', 'notes',
-  ];
+  const allowedFields = PARTNER_FIELDS;
   const updates = [];
   const values = [];
   let idx = 1;
 
+  const NULLABLE_ON_BLANK = ['date_contacted', 'next_step_due', 'partner_type'];
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) {
+      let v = req.body[field];
+      // An empty date or type input from the UI means "clear it", not ''.
+      if (v === '' && NULLABLE_ON_BLANK.includes(field)) v = null;
       updates.push(`${field} = $${idx++}`);
-      values.push(req.body[field]);
+      values.push(v);
     }
   }
 
@@ -193,25 +249,51 @@ router.get('/:id/activities', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/partners/:id/activities — Add activity log entry
+// POST /api/partners/:id/activities — Log a contact.
+// Rejects with 400 unless next_step and next_step_due are both present. That
+// single rule is the whole fix: you cannot log a contact and walk away without
+// saying what happens next. The partner_activities_sync trigger then moves the
+// partner record forward on its own — date_contacted, next step, and status.
+// /:id/activity is accepted as an alias.
 // ---------------------------------------------------------------------------
-router.post('/:id/activities', async (req, res) => {
-  const { activity_type, contact_date, summary } = req.body;
+async function logActivity(req, res) {
+  const {
+    activity_type, contact_date, summary, direction, outcome,
+    next_step, next_step_due,
+  } = req.body;
+
   if (!summary || !summary.trim()) {
     return res.status(400).json({ error: 'Summary is required' });
   }
+  if (!next_step || !next_step.trim()) {
+    return res.status(400).json({ error: 'next_step is required — say what happens next' });
+  }
+  if (!next_step_due) {
+    return res.status(400).json({ error: 'next_step_due is required — say when it is due' });
+  }
+
   try {
     const { rows } = await pool.query(
-      `INSERT INTO partner_activities (partner_id, activity_type, contact_date, summary, created_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [req.params.id, activity_type || 'note', contact_date || new Date(), summary.trim(), req.user?.id || null]
+      `INSERT INTO partner_activities
+         (partner_id, activity_type, contact_date, summary, created_by,
+          direction, outcome, next_step, next_step_due)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [req.params.id, activity_type || 'note', contact_date || new Date(),
+       summary.trim(), req.user?.id || null,
+       direction || 'outbound', outcome || null,
+       next_step.trim(), next_step_due]
     );
-    res.status(201).json(rows[0]);
+    // Return the partner too so the UI can repaint the header without refetching.
+    const partner = await pool.query('SELECT * FROM partners WHERE id = $1', [req.params.id]);
+    res.status(201).json({ activity: rows[0], partner: partner.rows[0] || null });
   } catch (err) {
     console.error('POST /api/partners/:id/activities error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}
+
+router.post('/:id/activities', logActivity);
+router.post('/:id/activity', logActivity);
 
 // ---------------------------------------------------------------------------
 // DELETE /api/partners/:id/activities/:actId — Delete an activity entry
