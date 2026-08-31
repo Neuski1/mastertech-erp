@@ -97,10 +97,14 @@ module.exports = async function shopToBankBridge(req, res) {
     );
 
     // ---- 4. Storage collected, by COLLECTION date -------------------------
-    // storage_charges carries charge_date (when the money was taken) and the
-    // amount actually charged including the card fee. storage_payment_status is
-    // keyed to the billing month with no payment date, so it is the wrong basis
-    // for cash and is returned only as a cross-check.
+    // storage_charges carries charge_date (when the money was taken) and, as of
+    // the Aug 31 2026 rent-only decision, RENT ONLY. Square deducts its fee
+    // before the money reaches the bank, so the 3.5% convenience fee is never
+    // income received and is deliberately not recorded. That makes this column
+    // line up with the bank deposit, which is the whole point.
+    // storage_payment_status.amount still carries the gross the customer paid,
+    // but it is keyed to the billing month with no payment date, so it is the
+    // wrong basis for cash and is returned only as a cross-check.
     const stCash = await pool.query(
       `SELECT EXTRACT(MONTH FROM sc.charge_date)::int AS m,
               COALESCE(SUM(sc.amount), 0) AS collected, COUNT(*) AS n
@@ -235,11 +239,13 @@ module.exports = async function shopToBankBridge(req, res) {
       const producedParts = partsGross[i] - partsTax[i] - partsFee[i];
       const totalProduced = producedWo + producedStorage + producedParts;
 
+      // Mixed bases, on purpose, because that is how each stream is booked.
+      // Work orders and parts are gross (Option A: surcharge is income, Square's
+      // fee is expensed to 6010). Storage is rent only (Option B: net). Each
+      // line therefore matches the way its own cash lands in the bank.
       const collectedGross = cashGross[i] + storageCash[i] + partsPaid[i];
       const taxCollected = cashTax[i] + partsTax[i];
-      // Storage cash already includes its surcharge; the fee portion is not
-      // separable from storage_charges.amount, so it is reported inside the
-      // storage line rather than guessed at.
+      // Work orders and parts only. Storage carries no surcharge in the ERP.
       const feeCollected = cashFee[i] + partsFee[i];
       const netRevenueCash = collectedGross - taxCollected;
 

@@ -123,17 +123,17 @@ export default function ShopToBankBridge() {
                 <Row label="Parts counter sales" indent values={col((m) => m.produced.parts)} total={sum((m) => m.produced.parts)} />
                 <Row label="Total produced" bold tone="total" values={col((m) => m.produced.total)} total={sum((m) => m.produced.total)} />
 
-                <SectionHead title="COLLECTED" sub="cash in the door, gross, by payment date" />
+                <SectionHead title="COLLECTED" sub="cash in the door, by payment date. Storage is rent only, the card fee never reaches the bank" />
                 <Row label="Work order payments" indent values={col((m) => m.collected.workOrders)} total={sum((m) => m.collected.workOrders)} />
-                <Row label="Storage collected" indent values={col((m) => m.collected.storage)} total={sum((m) => m.collected.storage)} />
+                <Row label="Storage collected" indent note="rent only" values={col((m) => m.collected.storage)} total={sum((m) => m.collected.storage)} />
                 <Row label="Parts sales collected" indent values={col((m) => m.collected.parts)} total={sum((m) => m.collected.parts)} />
-                <Row label="Gross cash collected" bold tone="total" values={col((m) => m.collected.grossTotal)} total={sum((m) => m.collected.grossTotal)} />
+                <Row label="Cash collected" bold tone="total" values={col((m) => m.collected.grossTotal)} total={sum((m) => m.collected.grossTotal)} />
                 <Row label="of which deposits on open jobs" indent note="memo" values={col((m) => m.collected.deposits)} total={sum((m) => m.collected.deposits)} />
                 <Row label="of which refunds" indent note="memo" values={col((m) => m.collected.refunds)} total={sum((m) => m.collected.refunds)} />
 
                 <SectionHead title="BRIDGE TO THE BOOKS" sub="strip what is not income, then compare to the general ledger" />
                 <Row label="Less sales tax collected" indent note="liability, not income" values={col((m) => -m.adjustments.salesTaxCollected)} total={-sum((m) => m.adjustments.salesTaxCollected)} />
-                <Row label="Card surcharge in the above" indent note="memo, is income" values={col((m) => m.adjustments.cardSurchargeCollected)} total={sum((m) => m.adjustments.cardSurchargeCollected)} />
+                <Row label="Card surcharge in the above" indent note="memo, work orders and parts only" values={col((m) => m.adjustments.cardSurchargeCollected)} total={sum((m) => m.adjustments.cardSurchargeCollected)} />
                 <Row label="Expected income, cash basis" bold tone="total" values={col((m) => m.adjustments.netRevenueCash)} total={sum((m) => m.adjustments.netRevenueCash)} />
                 <Row label="Income per the general ledger" bold values={col((m) => m.books.glIncome)} total={sum((m) => m.books.glIncome)} />
                 {data.months.map((m) => m.variance.unexplained).some((v) => v !== 0) && (
@@ -173,7 +173,7 @@ export default function ShopToBankBridge() {
               title="Year to date"
               lines={[
                 ['Produced', fmt(data.totals.produced)],
-                ['Gross cash collected', fmt(data.totals.collectedGross)],
+                ['Cash collected', fmt(data.totals.collectedGross)],
                 ['Income per the books', fmt(data.totals.glIncome)],
                 ['Unexplained', fmt(data.totals.unexplained)],
               ]}
@@ -182,7 +182,7 @@ export default function ShopToBankBridge() {
             <Card
               title="Read this first"
               lines={[]}
-              foot={`Months before ${MONTHS[cutover - 1]} ${data.year} are QBO summary data in historical_pnl, not journal lines, so they carry a produced side but cannot be tied at the penny. Storage cash is dated by when the card was charged; parts counter sales use the sale date because that table has no payment date.`}
+              foot={`Months before ${MONTHS[cutover - 1]} ${data.year} are QBO summary data in historical_pnl, not journal lines, so they carry a produced side but cannot be tied at the penny. Storage is booked rent only, without the 3.5% convenience fee, so it lines up with the bank deposit; the produced row above it is billed rent, same basis. Storage cash is dated by when the card was charged. Parts counter sales use the sale date because that table has no payment date.`}
             />
           </div>
         </>
