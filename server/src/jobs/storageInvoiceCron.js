@@ -441,4 +441,4 @@ function startStorageInvoiceCron() {
   console.log('[storageInvoice] Monthly storage invoice cron scheduled (last day of month, 7 AM Mountain)');
 }
 
-module.exports = { startStorageInvoiceCron, runInvoices, buildInvoiceHtml };
+module.exports = { startStorageInvoiceCron, runInvoices, buildInvoiceHtml, autopayUrlFor, createPayLink };
