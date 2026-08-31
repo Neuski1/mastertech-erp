@@ -8,8 +8,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const FIRST_TIEABLE = { 2026: 5 };
 
 function fmt(v) {
-  const n = parseFloat(v || 0);
-  if (n === 0) return '—';
+  if (v === null || v === undefined) return '—';
+  const n = parseFloat(v);
+  if (!isFinite(n) || n === 0) return '—';
   const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   return n < 0 ? `(${s})` : s;
 }
@@ -111,7 +112,9 @@ export default function ShopToBankBridge() {
                 <tr>
                   <th style={{ ...TH, textAlign: 'left' }}>{data.year}</th>
                   {MONTHS.map((m, i) => (
-                    <th key={m} style={{ ...TH, color: i + 1 < cutover ? '#94a3b8' : '#1e3a5f' }}>{m}</th>
+                    <th key={m} style={{ ...TH, color: data.monthsClosed && data.monthsClosed[i] ? '#1e3a5f' : '#94a3b8' }}>
+                      {m}{data.monthsClosed && !data.monthsClosed[i] ? '*' : ''}
+                    </th>
                   ))}
                   <th style={{ ...TH, borderLeft: '2px solid #1e3a5f' }}>Year</th>
                 </tr>
@@ -140,7 +143,7 @@ export default function ShopToBankBridge() {
                   <Row
                     label="UNEXPLAINED"
                     bold
-                    note={`tolerance $${data.tolerance}`}
+                    note={`tolerance $${data.tolerance}, blank where the month is not closed`}
                     tone={Math.abs(sum((m) => m.variance.unexplained)) > data.tolerance ? 'bad' : 'good'}
                     values={col((m) => m.variance.unexplained)}
                     total={sum((m) => m.variance.unexplained)}
@@ -166,7 +169,7 @@ export default function ShopToBankBridge() {
                 ['Drift', fmt(data.rollForward.drift)],
               ]}
               foot={Math.abs(data.rollForward.drift) > 1
-                ? 'The roll-forward lost something: a record voided after payment, a deleted payment, or a total changed after collection. Fix before trusting a month.'
+                ? `Drift means collections are missing from the months above, not that the open invoice list is wrong.${data.collectionsDataFrom ? ` Recorded payments only start ${String(data.collectionsDataFrom).slice(0, 10)}, so work completed and paid before then shows as invoiced and never collected.` : ''} Expect this to clear once a full year sits inside the payments table.`
                 : 'Roll-forward ties to the open invoice list.'}
             />
             <Card
@@ -182,7 +185,7 @@ export default function ShopToBankBridge() {
             <Card
               title="Read this first"
               lines={[]}
-              foot={`Months before ${MONTHS[cutover - 1]} ${data.year} are QBO summary data in historical_pnl, not journal lines, so they carry a produced side but cannot be tied at the penny. Storage is booked rent only, without the 3.5% convenience fee, so it lines up with the bank deposit; the produced row above it is billed rent, same basis. Storage cash is dated by when the card was charged. Parts counter sales use the sale date because that table has no payment date.`}
+              foot={`A month marked * is not closed yet, so it has no GL income and no variance is shown. Months before ${MONTHS[cutover - 1]} ${data.year} are QBO summary data in historical_pnl, not journal lines, so they cannot be tied at the penny.${data.collectionsDataFrom ? ` Recorded payments start ${String(data.collectionsDataFrom).slice(0, 10)}; production before that has no collections behind it.` : ''} Storage is booked rent only, without the 3.5% convenience fee, so it lines up with the bank deposit; the produced row above it is billed rent, same basis. Storage cash is dated by when the card was charged, so rent taken on the last day of a month for the next month lands in the month it was charged. Parts counter sales use the sale date because that table has no payment date.`}
             />
           </div>
         </>

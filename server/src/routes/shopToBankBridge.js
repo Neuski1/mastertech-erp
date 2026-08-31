@@ -88,11 +88,24 @@ module.exports = async function shopToBankBridge(req, res) {
     );
 
     // ---- 3. Storage billed for the month (the produced side) --------------
+    // The invoice engine only started writing storage_invoices for September
+    // 2026, so earlier months have no invoice row even though rent was billed
+    // and collected. Fall back to the box's own monthly_rate for any month the
+    // engine predates, or the produced side reads zero for most of the year.
     const stBilled = await pool.query(
-      `SELECT si.month::int AS m, COALESCE(SUM(si.rent), 0) AS billed, COUNT(*) AS n
-         FROM storage_invoices si
-        WHERE si.year = $1
-        GROUP BY 1`,
+      `SELECT m, COALESCE(SUM(billed), 0) AS billed, COUNT(*) AS n FROM (
+         SELECT si.month::int AS m, si.rent AS billed
+           FROM storage_invoices si
+          WHERE si.year = $1
+         UNION ALL
+         SELECT sps.month::int AS m, sb.monthly_rate AS billed
+           FROM storage_payment_status sps
+           JOIN storage_billing sb ON sb.id = sps.storage_billing_id
+          WHERE sps.year = $1
+            AND NOT EXISTS (SELECT 1 FROM storage_invoices si2
+                             WHERE si2.storage_billing_id = sps.storage_billing_id
+                               AND si2.year = sps.year AND si2.month = sps.month)
+       ) t GROUP BY m`,
       [year]
     );
 
@@ -164,21 +177,49 @@ module.exports = async function shopToBankBridge(req, res) {
       [year, INCOME_ACCOUNTS]
     );
 
-    // ---- 7. Opening uncollected, everything before Jan 1 ------------------
+    // ---- 7. Opening uncollected -------------------------------------------
+    // Read the carry-in from what is ACTUALLY still open on records completed
+    // before the year, using the record's own total_collected. The obvious
+    // alternative (invoiced before Jan 1 minus payments before Jan 1) is wrong
+    // here: the payments table only started being written in March 2026, so
+    // every older record looks invoiced and never paid. That produced a $1.87M
+    // phantom opening balance on the first live run.
     const { rows: [prior] } = await pool.query(
-      `SELECT
-         (SELECT COALESCE(SUM(r.total_sales), 0)
-            FROM records r
-           WHERE r.deleted_at IS NULL AND r.status <> ALL($2)
-             AND r.actual_completion_date IS NOT NULL
-             AND r.actual_completion_date < $1::date) AS invoiced_prior,
-         (SELECT COALESCE(SUM(p.amount), 0)
-            FROM payments p JOIN records r ON r.id = p.record_id
-           WHERE p.deleted_at IS NULL AND r.deleted_at IS NULL
-             AND r.status <> ALL($2)
-             AND p.payment_date < $1::date) AS collected_prior`,
+      `SELECT COALESCE(SUM(r.total_sales - COALESCE(r.total_collected, 0)), 0) AS open_prior
+         FROM records r
+        WHERE r.deleted_at IS NULL AND r.status <> ALL($2)
+          AND r.actual_completion_date IS NOT NULL
+          AND r.actual_completion_date < $1::date
+          AND COALESCE(r.total_sales, 0) > COALESCE(r.total_collected, 0)`,
       [jan1, NON_PRODUCING]
     );
+
+    // Earliest payment on file. Months before this have production but no
+    // recorded collections, so their variance and roll-forward are meaningless
+    // and the report says so rather than printing a confident wrong number.
+    const { rows: [pmtStart] } = await pool.query(
+      `SELECT MIN(payment_date)::date AS first_payment FROM payments WHERE deleted_at IS NULL`
+    );
+
+    // A month is closed when summary journal entries exist for it. An open
+    // month has no GL income yet, so comparing to it would report the entire
+    // month as unexplained. August did exactly that on the first run.
+    const closedRows = await pool.query(
+      `SELECT EXTRACT(MONTH FROM je.entry_date)::int AS m, COUNT(*) AS n
+         FROM journal_entries je
+        WHERE je.is_posted = TRUE AND EXTRACT(YEAR FROM je.entry_date) = $1
+        GROUP BY 1`,
+      [year]
+    );
+    const histRows = await pool.query(
+      `SELECT h.month::int AS m, COUNT(*) AS n FROM historical_pnl h
+        WHERE h.year = $1 GROUP BY 1`,
+      [year]
+    );
+    const closed = Array(12).fill(false);
+    for (const row of [...closedRows.rows, ...histRows.rows]) {
+      if (row.m >= 1 && row.m <= 12 && Number(row.n) > 0) closed[row.m - 1] = true;
+    }
 
     // ---- 8. Actual open balance right now, the roll-forward's check -------
     const { rows: [openNow] } = await pool.query(
@@ -229,7 +270,10 @@ module.exports = async function shopToBankBridge(req, res) {
     // Roll-forward of uncollected work-order value. Opening balance can be
     // negative when deposits held exceed work invoiced, which is normal and
     // worth seeing rather than clamping to zero.
-    let running = num(prior.invoiced_prior) - num(prior.collected_prior);
+    const firstPaymentMonth = pmtStart.first_payment
+      && new Date(pmtStart.first_payment).getUTCFullYear() === year
+      ? new Date(pmtStart.first_payment).getUTCMonth() + 1 : 1;
+    let running = num(prior.open_prior);
     const openingBalance = running;
 
     const months = [];
@@ -253,9 +297,11 @@ module.exports = async function shopToBankBridge(req, res) {
       running = running + woGross[i] - cashGross[i];
       const openEnd = running;
 
+      // Only a closed month with collections data behind it can be tied.
       const books = gl.total[i];
-      const tieable = books !== 0 || totalProduced !== 0;
-      const unexplained = netRevenueCash - books;
+      const hasCollections = i + 1 >= firstPaymentMonth;
+      const tieable = closed[i] && hasCollections;
+      const unexplained = tieable ? netRevenueCash - books : null;
 
       months.push({
         month: i + 1,
@@ -287,9 +333,11 @@ module.exports = async function shopToBankBridge(req, res) {
         },
         variance: {
           producedVsCollected: r2(totalProduced - netRevenueCash),
-          unexplained: r2(unexplained),
-          withinTolerance: Math.abs(unexplained) <= TOLERANCE,
+          unexplained: unexplained === null ? null : r2(unexplained),
+          withinTolerance: unexplained === null ? null : Math.abs(unexplained) <= TOLERANCE,
           tieable,
+          monthClosed: closed[i],
+          hasCollectionsData: hasCollections,
         },
         rollForward: {
           openingUncollected: r2(openStart),
@@ -319,8 +367,10 @@ module.exports = async function shopToBankBridge(req, res) {
         salesTaxCollected: sum((m) => m.adjustments.salesTaxCollected),
         netRevenueCash: sum((m) => m.adjustments.netRevenueCash),
         glIncome: sum((m) => m.books.glIncome),
-        unexplained: sum((m) => m.variance.unexplained),
+        unexplained: sum((m) => m.variance.unexplained || 0),
       },
+      collectionsDataFrom: pmtStart.first_payment || null,
+      monthsClosed: closed,
       rollForward: {
         openingUncollected: r2(openingBalance),
         closingUncollected: r2(running),
