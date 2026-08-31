@@ -105,17 +105,14 @@ async function buildPaymentGrid() {
       const key = `${box.billing_id}|${cellKey(year, month)}`;
       const persisted = statusMap.get(key);
 
-      // manual override wins; otherwise the cached Square status; otherwise unpaid.
-      if (persisted && persisted.source === 'manual') {
+      // One row per (billing, year, month) is enforced by a unique constraint,
+      // so whatever is persisted is the answer. This used to name 'manual' and
+      // 'square' explicitly and fall through to unpaid for anything else, which
+      // meant every space collected by the autopay engine (source 'auto') stayed
+      // red on the grid even though the card had cleared.
+      if (persisted) {
         return {
-          year, month, status: persisted.status, source: 'manual',
-          square_invoice_id: persisted.square_invoice_id,
-          amount: persisted.amount != null ? parseFloat(persisted.amount) : null,
-        };
-      }
-      if (persisted && persisted.source === 'square') {
-        return {
-          year, month, status: persisted.status, source: 'square',
+          year, month, status: persisted.status, source: persisted.source,
           square_invoice_id: persisted.square_invoice_id,
           amount: persisted.amount != null ? parseFloat(persisted.amount) : null,
         };
