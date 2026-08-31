@@ -1,7 +1,8 @@
 // Monthly storage invoice engine, formatted to match the Square invoices
 // customers are used to receiving. Bills on the last day of the month for the
-// coming month. One invoice per CUSTOMER (a customer renting two spaces gets a
-// single invoice with a line per space, the way Square did it).
+// coming month. One invoice per SPACE: a customer renting two spaces gets two
+// invoices. That keeps the emailed total, the stored storage_invoices row and
+// the autopay charge (which always runs per space) in agreement.
 //
 // Fee handling: credit card adds 3.5%, ACH adds 1% (Square's $1 minimum),
 // Zelle / check / cash add nothing. A month already marked paid on the billing
@@ -300,19 +301,25 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     prepaid = pp.map(r => `${r.space} (${r.last_name || ''})`.trim());
   } finally { dbc.release(); }
 
-  // One invoice per customer.
+  // One invoice per space.
   const byCustomer = new Map();
   for (const r of rows) {
-    if (!byCustomer.has(r.customer_id)) byCustomer.set(r.customer_id, []);
-    byCustomer.get(r.customer_id).push(r);
+    if (!byCustomer.has(r.billing_id)) byCustomer.set(r.billing_id, []);
+    byCustomer.get(r.billing_id).push(r);
   }
+  // Customers with more than one space get the space id appended to the invoice
+  // number so the two invoices are distinguishable; everyone else keeps the
+  // invoice number they have always had.
+  const spacesPerCustomer = new Map();
+  for (const r of rows) spacesPerCustomer.set(r.customer_id, (spacesPerCustomer.get(r.customer_id) || 0) + 1);
 
   const due = dueDateFor(p.year, p.month);
   const results = [];
   let sent = 0, skipped = 0, failed = 0;
 
-  for (const [customerId, spaces] of byCustomer) {
+  for (const [, spaces] of byCustomer) {
     const first = spaces[0];
+    const customerId = first.customer_id;
     const items = [];
     let total = 0;
 
@@ -336,7 +343,9 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     const allIndoor = spaces.every(s => s.space_type === 'indoor');
     const allOutdoor = spaces.every(s => s.space_type === 'outdoor');
     const inv = {
-      number: `S${p.year}${String(p.month).padStart(2, '0')}-${customerId}`,
+      number: (spacesPerCustomer.get(customerId) || 1) > 1
+        ? `S${p.year}${String(p.month).padStart(2, '0')}-${customerId}-${first.billing_id}`
+        : `S${p.year}${String(p.month).padStart(2, '0')}-${customerId}`,
       title: (allIndoor ? 'Indoor RV Storage Invoice' : allOutdoor ? 'Outdoor RV Storage Invoice' : 'RV Storage Invoice'),
       subtitle: rvList.join(' and '),
       customerName: [first.first_name, first.last_name].filter(Boolean).join(' '),

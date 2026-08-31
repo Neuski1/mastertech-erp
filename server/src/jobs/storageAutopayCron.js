@@ -108,31 +108,43 @@ async function chargeOne(b, year, month, { dryRun }) {
 
     const ok = payment && (payment.status === 'COMPLETED' || payment.status === 'APPROVED');
     if (ok) {
-      await dbc.query('BEGIN');
-      await dbc.query(
+      // The card has already been charged at this point. Record what we can and
+      // never let a bookkeeping error make a completed charge look unpaid, so
+      // each statement is guarded on its own instead of sharing a transaction.
+      // (A shared transaction is what broke the Aug 31 2026 go-live: one bad
+      // INSERT aborted it, the client was released without a ROLLBACK, and
+      // node-pg handed that same poisoned client to every charge behind it.)
+      const rec = async (sql, params, what) => {
+        try { await dbc.query(sql, params); }
+        catch (e) { console.error(`[storageAutopay] record ${what} failed for billing ${b.billing_id}:`, e.message); }
+      };
+      await rec(
         `UPDATE storage_autopay_charges SET status='paid', attempts=attempts+1,
                 square_payment_id=$2, last_error=NULL, last_attempt_at=NOW(), updated_at=NOW()
            WHERE storage_billing_id=$1 AND year=$3 AND month=$4`,
-        [b.billing_id, payment.id, year, month]
+        [b.billing_id, payment.id, year, month], 'charge row'
       );
-      await dbc.query(
+      await rec(
         `INSERT INTO storage_payment_status (storage_billing_id, year, month, status, source, amount)
          VALUES ($1, $2, $3, 'paid', 'auto', $4)
          ON CONFLICT (storage_billing_id, year, month)
          DO UPDATE SET status='paid', source='auto', amount=EXCLUDED.amount
          WHERE storage_payment_status.source <> 'manual'`,
-        [b.billing_id, year, month, amountCents / 100]
+        [b.billing_id, year, month, amountCents / 100], 'payment status'
       );
-      // Customer-record billing history (same table the manual billing run used)
-      await dbc.query(
+      // Customer-record billing history (same table the manual billing run used).
+      // Every parameter is cast explicitly: without the casts Postgres deduces
+      // conflicting types for $3 in an INSERT ... SELECT and rejects the whole
+      // statement.
+      await rec(
         `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes)
-         SELECT $1, sb.customer_id, sb.space_id, $2, $3, $4
-           FROM storage_billing sb WHERE sb.id = $1
-            AND NOT EXISTS (SELECT 1 FROM storage_charges sc WHERE sc.billing_id = $1 AND sc.charge_month = $3)`,
+         SELECT $1::int, sb.customer_id, sb.space_id, $2::numeric, $3::varchar, $4::text
+           FROM storage_billing sb WHERE sb.id = $1::int
+            AND NOT EXISTS (SELECT 1 FROM storage_charges sc
+                             WHERE sc.billing_id = $1::int AND sc.charge_month = $3::varchar)`,
         [b.billing_id, amountCents / 100, `${year}-${String(month).padStart(2, '0')}`,
-         `Storage autopay - ${b.space_label || ''} (Square ${payment.id})`]
+         `Storage autopay - ${b.space_label || ''} (Square ${payment.id})`], 'billing history'
       );
-      await dbc.query('COMMIT');
       console.log(`[storageAutopay] Charged $${amountCents / 100} for billing ${b.billing_id} (${label})`);
       dbc.release();
       return { billing_id: b.billing_id, charged: amountCents / 100, payment_id: payment.id };
@@ -149,8 +161,20 @@ async function chargeOne(b, year, month, { dryRun }) {
       return { billing_id: b.billing_id, failed: error || 'declined', attempts, final: finalFail };
     }
   } catch (e) {
+    // Roll back before releasing. A client returned to the pool mid-transaction
+    // is reused (node-pg hands back the most recently released client first) and
+    // takes down every charge behind it.
+    try { await dbc.query('ROLLBACK'); } catch (_) {}
     try { dbc.release(); } catch (_) {}
     console.error('[storageAutopay] chargeOne error', b.billing_id, e.message);
+    try {
+      await pool.query(
+        `UPDATE storage_autopay_charges SET status='failed', attempts=GREATEST(attempts, 1),
+                last_error=$2, last_attempt_at=NOW(), updated_at=NOW()
+           WHERE storage_billing_id=$1 AND year=$3 AND month=$4 AND status='pending'`,
+        [b.billing_id, String(e.message).slice(0, 500), year, month]
+      );
+    } catch (_) {}
     return { billing_id: b.billing_id, failed: e.message };
   }
 }
@@ -199,13 +223,17 @@ async function runRetries() {
     const { rows } = await dbc.query(
       `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
-              c.first_name, c.last_name, c.customer_id
+              c.first_name, c.last_name, sb.customer_id
          FROM storage_autopay_charges ac
          JOIN storage_billing sb ON sb.id = ac.storage_billing_id
          LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
          LEFT JOIN customers c ON c.id = sb.customer_id
-        WHERE ac.status = 'failed' AND ac.attempts = 1
-          AND ac.last_attempt_at <= NOW() - INTERVAL '3 days'
+        WHERE (
+                (ac.status = 'failed' AND ac.attempts = 1
+                 AND ac.last_attempt_at <= NOW() - INTERVAL '3 days')
+             OR (ac.status = 'pending' AND ac.created_at <= NOW() - INTERVAL '1 hour')
+              )
+          AND sb.deleted_at IS NULL
           AND sb.autopay_enabled = TRUE AND sb.autopay_card_id IS NOT NULL`
     );
     due = rows;
@@ -217,11 +245,27 @@ async function runRetries() {
   return { retried };
 }
 
+// Catch-up pass. If the last-day run dies partway through, or the server
+// restarts during it, nothing else would retry until the end of the NEXT month.
+// On the first five days of a month, re-run charges for the month we are now in.
+// Everything downstream is idempotent: spaces already marked paid are filtered
+// out, and Square's deterministic key returns the original payment rather than
+// charging a card a second time.
+async function runCatchUp(d = new Date()) {
+  if (d.getDate() > 5) return { skipped: 'outside catch-up window' };
+  const period = { year: d.getFullYear(), month: d.getMonth() + 1 };
+  const res = await runCharges(period);
+  if (res.charged || res.failed) console.log(`[storageAutopay] Catch-up: ${res.charged} charged, ${res.failed} failed.`);
+  return res;
+}
+
 function startStorageAutopayCron() {
-  // Daily 06:00 America/Denver. Charge on the last day of the month; retry any day.
+  // Daily 06:00 America/Denver. Charge on the last day of the month; catch up on
+  // the first five days of a month; retry declines and stalled rows any day.
   cron.schedule('0 6 * * *', async () => {
     try {
       if (isLastDayOfMonth()) await runCharges({});
+      else await runCatchUp();
       await runRetries();
     } catch (e) {
       console.error('[storageAutopay] fatal:', e.message);
@@ -230,4 +274,4 @@ function startStorageAutopayCron() {
   console.log('[storageAutopay] Storage autopay cron scheduled (charges last day of month, retries daily)');
 }
 
-module.exports = { startStorageAutopayCron, runCharges, runRetries };
+module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp };
