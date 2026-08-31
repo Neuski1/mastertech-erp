@@ -91,10 +91,22 @@ async function chargeOne(b, year, month, { dryRun }) {
     const row = cur[0];
     if (row.status === 'paid' || row.status === 'failed_final') { dbc.release(); return { billing_id: b.billing_id, skipped: row.status }; }
 
+    // Idempotency key. Attempt 1 keeps the original deterministic key, which is
+    // what makes a re-run of a stalled charge return the existing payment
+    // instead of charging the card twice (it is why Coover was not billed twice
+    // on Aug 31 2026). Attempt 2 onward must use a FRESH key: Square replays the
+    // stored result for a key it has already seen, so the 3-day retry was
+    // handing back the original decline without ever asking the bank again.
+    const attemptNo = (row.attempts || 0) + 1;
+    const period = `${year}-${String(month).padStart(2, '0')}`;
+    const idempotencyKey = attemptNo <= 1
+      ? `sap-${b.billing_id}-${period}`
+      : `sap-${b.billing_id}-${period}-a${attemptNo}`;
+
     let payment, error;
     try {
       const resp = await square.client.payments.create({
-        idempotencyKey: `sap-${b.billing_id}-${year}-${String(month).padStart(2, '0')}`, // deterministic: no double charge
+        idempotencyKey,
         sourceId: b.autopay_card_id,
         customerId: b.square_customer_id,
         amountMoney: { amount: BigInt(amountCents), currency: 'USD' },
