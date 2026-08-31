@@ -26,7 +26,7 @@ const STATUS_GROUPS = [
   {
     key: 'attention',
     label: 'Needs Attention',
-    statuses: ['estimate', 'awaiting_approval', 'order_parts', 'on_hold'],
+    statuses: ['estimate', 'awaiting_approval', 'order_parts'],
     bg: '#fff1f2', border: '#fecdd3', headerBg: '#ffe4e6', headerColor: '#9f1239',
   },
   {
@@ -46,6 +46,16 @@ const STATUS_GROUPS = [
     label: 'Billing',
     statuses: ['complete', 'payment_pending', 'partial'],
     bg: '#fffbeb', border: '#fde68a', headerBg: '#fef3c7', headerColor: '#92400e',
+  },
+  {
+    // On Hold is parked work, not work that needs a decision today. It used to
+    // sit in Needs Attention, where a job held for a month kept shouting from
+    // the top of the page. It gets its own group down here instead, collapsed
+    // by default, so nothing is lost and nothing nags.
+    key: 'hold',
+    label: 'On Hold',
+    statuses: ['on_hold'],
+    bg: '#fafaf9', border: '#e7e5e4', headerBg: '#f5f5f4', headerColor: '#57534e',
   },
   {
     key: 'filed',
@@ -88,7 +98,7 @@ export default function RecordList() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [collapsed, setCollapsed] = useState({ closed: true, filed: true });
+  const [collapsed, setCollapsed] = useState({ closed: true, filed: true, hold: true });
   const [groupSort, setGroupSort] = useState({}); // { groupKey: { field, dir } }
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -821,9 +831,9 @@ export default function RecordList() {
                       sortGroupRecords(groupRecords, group.key).map(r => renderMobileCard(r, group.key === 'closed'))
                     ) : (
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        {renderTableHead(!['closed', 'filed'].includes(group.key), group.key, group.key === 'closed')}
+                        {renderTableHead(!['closed', 'filed', 'hold'].includes(group.key), group.key, group.key === 'closed')}
                         <tbody>
-                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, !['closed', 'filed'].includes(group.key), group.key === 'closed'))}
+                          {sortGroupRecords(groupRecords, group.key).map(r => renderRow(r, !['closed', 'filed', 'hold'].includes(group.key), group.key === 'closed'))}
                         </tbody>
                       </table>
                     )}
