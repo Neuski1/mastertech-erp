@@ -10,34 +10,7 @@ const cron = require('node-cron');
 const pool = require('../db/pool');
 const square = require('../services/square');
 const { sendEmail } = require('../services/email');
-const { syncChargeToLedger } = require('../services/storageLedger');
 
-// Mirror a storage charge into the general ledger. storage_charges is the
-// source of storage income: the bridge posts each row to GL 4000 and the
-// Revenue Summary reads the ledger, not the charge table. Only the old manual
-// billing-run button ever called this, so every space collected by autopay or
-// by an online payment showed collected on the grid while the income never
-// reached the books. Best effort and idempotent (UNIQUE on storage_charge_id):
-// a bookkeeping failure must never undo a charge the customer already paid.
-async function mirrorChargeToLedger(dbc, billingId, chargeMonth, tag) {
-  try {
-    const { rows } = await dbc.query(
-      `SELECT id FROM storage_charges WHERE billing_id = $1::int AND charge_month = $2::varchar`,
-      [billingId, chargeMonth]
-    );
-    if (!rows.length) return;
-    await dbc.query('BEGIN');
-    try {
-      await syncChargeToLedger(dbc, rows[0].id);
-      await dbc.query('COMMIT');
-    } catch (e) {
-      try { await dbc.query('ROLLBACK'); } catch (_) {}
-      throw e;
-    }
-  } catch (e) {
-    console.error(`[${tag}] ledger mirror failed for billing ${billingId} ${chargeMonth}:`, e.message);
-  }
-}
 
 
 const OWNER_EMAIL = process.env.OWNER_ALERT_EMAIL || 'service@mastertechrvrepair.com';
@@ -185,17 +158,29 @@ async function chargeOne(b, year, month, { dryRun }) {
       // Every parameter is cast explicitly: without the casts Postgres deduces
       // conflicting types for $3 in an INSERT ... SELECT and rejects the whole
       // statement.
+      // The books record RENT ONLY. Square deducts its processing fee before
+      // the money ever reaches the bank, so the 3.5% convenience fee is not
+      // income we receive. The customer is still charged rent + fee; only what
+      // we keep is booked. Owner decision, Aug 31 2026.
+      //
+      // Update first, then insert. The old insert-if-absent alone meant a
+      // re-charge after a refund or a correction silently recorded nothing,
+      // because a row for that month already existed.
+      const chargeMonth = `${year}-${String(month).padStart(2, '0')}`;
+      const chargeNote = `Storage autopay - ${b.space_label || ''} (Square ${payment.id})`;
+      await rec(
+        `UPDATE storage_charges SET amount = $2::numeric, notes = $4::text
+          WHERE billing_id = $1::int AND charge_month = $3::varchar`,
+        [b.billing_id, rent, chargeMonth, chargeNote], 'billing history update'
+      );
       await rec(
         `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes)
          SELECT $1::int, sb.customer_id, sb.space_id, $2::numeric, $3::varchar, $4::text
            FROM storage_billing sb WHERE sb.id = $1::int
             AND NOT EXISTS (SELECT 1 FROM storage_charges sc
                              WHERE sc.billing_id = $1::int AND sc.charge_month = $3::varchar)`,
-        [b.billing_id, amountCents / 100, `${year}-${String(month).padStart(2, '0')}`,
-         `Storage autopay - ${b.space_label || ''} (Square ${payment.id})`], 'billing history'
+        [b.billing_id, rent, chargeMonth, chargeNote], 'billing history'
       );
-      await mirrorChargeToLedger(dbc, b.billing_id,
-        `${year}-${String(month).padStart(2, '0')}`, 'storageAutopay');
       console.log(`[storageAutopay] Charged $${amountCents / 100} for billing ${b.billing_id} (${label})`);
       dbc.release();
       return { billing_id: b.billing_id, charged: amountCents / 100, payment_id: payment.id };
