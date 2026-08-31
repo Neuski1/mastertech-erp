@@ -649,4 +649,23 @@ router.get('/db-backup', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/storage-autopay-run  { dry_run, year, month }
+// Manual trigger for the storage autopay charge engine. Defaults to a dry run.
+// Safe to re-run live: spaces already marked paid are filtered out, and Square's
+// deterministic idempotency key returns the original payment instead of charging
+// a card twice.
+router.post('/storage-autopay-run', requireCoworkKey, async (req, res) => {
+  try {
+    const { runCharges, runRetries } = require('../jobs/storageAutopayCron');
+    const dryRun = req.body?.dry_run !== false;
+    const year = req.body?.year ? parseInt(req.body.year) : undefined;
+    const month = req.body?.month ? parseInt(req.body.month) : undefined;
+    const charges = await runCharges({ year, month, dryRun });
+    const retries = dryRun ? { skipped: 'dry run' } : await runRetries();
+    res.json({ ok: true, charges, retries });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
