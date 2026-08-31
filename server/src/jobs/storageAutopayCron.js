@@ -41,6 +41,7 @@ async function eligibleBillings(dbc, year, month) {
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
             sb.autopay_card_id, sb.square_customer_id,
+            sb.autopay_card_brand, sb.autopay_card_last4,
             sp.label AS space_label,
             c.first_name, c.last_name, c.email_primary
        FROM storage_billing sb
@@ -167,7 +168,10 @@ async function chargeOne(b, year, month, { dryRun }) {
         [b.billing_id, attempts, String(error || 'declined').slice(0, 500), finalFail ? 'failed_final' : 'failed', year, month]
       );
       dbc.release();
-      if (finalFail) await notifyOwnerFailure(b, year, month, error);
+      // Both notices go out on the first decline. Carol asked not to wait for
+      // the 3-day retry to find out, and neither should the customer.
+      await notifyCustomerDecline(b, year, month, error, amountCents / 100, finalFail);
+      await notifyOwnerFailure(b, year, month, error, finalFail);
       return { billing_id: b.billing_id, failed: error || 'declined', attempts, final: finalFail };
     }
   } catch (e) {
@@ -189,16 +193,87 @@ async function chargeOne(b, year, month, { dryRun }) {
   }
 }
 
-async function notifyOwnerFailure(b, year, month, error) {
+// Tell the customer the moment their card is refused, with the two buttons
+// that actually fix it. Waiting for the 3-day retry meant a decline sat silent
+// while the space showed unpaid and nobody knew.
+async function notifyCustomerDecline(b, year, month, error, amount, finalAttempt) {
+  if (!b.email_primary) return;
+  const name = b.first_name || 'there';
+  const space = b.space_label || 'your storage space';
+  const period = `${MONTH_NAMES[month - 1]} ${year}`;
+  const card = b.autopay_card_last4
+    ? `${b.autopay_card_brand || 'card'} ending ${b.autopay_card_last4}`
+    : 'card on file';
+  const expired = /EXPIRED/i.test(error || '');
+
+  let autopayUrl = null, payUrl = null;
+  try {
+    const invoiceCron = require('./storageInvoiceCron');
+    autopayUrl = await invoiceCron.autopayUrlFor(b.billing_id);
+    payUrl = await invoiceCron.createPayLink({
+      invoiceNumber: `S${year}${String(month).padStart(2, '0')}-${b.customer_id}`,
+      customerName: [b.first_name, b.last_name].filter(Boolean).join(' '),
+      totalCents: Math.round(amount * 100),
+    });
+  } catch (e) {
+    console.error('[storageAutopay] decline email links failed:', e.message);
+  }
+
+  const reason = expired
+    ? `Your ${card} has expired.`
+    : `Your ${card} was declined by the bank.`;
+  const next = finalAttempt
+    ? 'We have stopped retrying, so the space stays unpaid until you take care of it.'
+    : 'We will try once more in about three days, but updating the card now saves the wait.';
+  const btn = (href, text, bg) => href
+    ? `<a href="${href}" style="display:inline-block;padding:12px 22px;margin:6px 8px 6px 0;background:${bg};color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:0.95rem">${text}</a>`
+    : '';
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;color:#1f2937;line-height:1.5">
+    <p>Hi ${name},</p>
+    <p>${reason} We were not able to collect <strong>$${amount.toFixed(2)}</strong> for ${period} storage on ${space}.</p>
+    <p>${next}</p>
+    <p>${btn(autopayUrl, 'Update Card on File', '#1e3a5f')}${btn(payUrl, 'Pay This Invoice', '#0f766e')}</p>
+    <p>Prefer not to pay the credit card convenience fee? We also take Zelle, check and bank transfer. Reply to this email or call us and we will switch you over.</p>
+    <p style="margin-top:22px;color:#6b7280;font-size:0.85rem">
+      Master Tech RV Repair and Storage<br/>
+      6590 E. 49th Ave., Commerce City, CO 80022<br/>
+      (303) 557-2214
+    </p>
+  </div>`;
+
+  const text = `Hi ${name},\n\n${reason} We were not able to collect $${amount.toFixed(2)} for ${period} storage on ${space}.\n\n${next}\n\n`
+    + (autopayUrl ? `Update your card: ${autopayUrl}\n` : '')
+    + (payUrl ? `Pay this invoice: ${payUrl}\n` : '')
+    + `\nPrefer not to pay the credit card convenience fee? We also take Zelle, check and bank transfer. Reply to this email or call (303) 557-2214.\n\n`
+    + `Master Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
+
+  try {
+    await sendEmail({
+      to: b.email_primary,
+      subject: `Your ${period} storage payment did not go through`,
+      html, text,
+    });
+    console.log(`[storageAutopay] Decline notice emailed to ${b.email_primary} (billing ${b.billing_id})`);
+  } catch (e) {
+    console.error('[storageAutopay] decline email failed:', e.message);
+  }
+}
+
+const MONTH_NAMES = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+
+async function notifyOwnerFailure(b, year, month, error, finalFail) {
   const name = [b.first_name, b.last_name].filter(Boolean).join(' ') || `customer ${b.customer_id}`;
+  const stage = finalFail ? 'after the retry, no further attempts' : 'first attempt, one retry left';
   try {
     await sendEmail({
       to: OWNER_EMAIL,
       subject: `Autopay declined: ${name} (${b.space_label || 'space'})`,
-      html: `<p>The autopay card for <strong>${name}</strong> (${b.space_label || 'space'}) was declined for ${year}-${String(month).padStart(2, '0')} after a retry.</p>
+      html: `<p>The autopay card for <strong>${name}</strong> (${b.space_label || 'space'}) was declined for ${year}-${String(month).padStart(2, '0')} (${stage}).</p>
              <p>Amount: $${parseFloat(b.monthly_rate).toFixed(2)}<br/>Reason: ${error || 'declined'}</p>
-             <p>The space is still marked unpaid. Follow up with the customer for another payment method.</p>`,
-      text: `Autopay declined for ${name} (${b.space_label || 'space'}) ${year}-${String(month).padStart(2, '0')}. Amount $${parseFloat(b.monthly_rate).toFixed(2)}. Reason: ${error || 'declined'}. Space still unpaid.`,
+             <p>The customer has already been emailed with a link to update the card and a link to pay this invoice. The space stays unpaid until one of those happens.</p>`,
+      text: `Autopay declined for ${name} (${b.space_label || 'space'}) ${year}-${String(month).padStart(2, '0')} (${stage}). Amount $${parseFloat(b.monthly_rate).toFixed(2)}. Reason: ${error || 'declined'}. Customer emailed with update-card and pay-now links. Space still unpaid.`,
     });
   } catch (e) {
     console.error('[storageAutopay] owner notify failed:', e.message);
@@ -233,6 +308,7 @@ async function runRetries() {
     const { rows } = await dbc.query(
       `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
+              sb.autopay_card_brand, sb.autopay_card_last4,
               c.first_name, c.last_name, c.email_primary, sb.customer_id
          FROM storage_autopay_charges ac
          JOIN storage_billing sb ON sb.id = ac.storage_billing_id
