@@ -8,6 +8,75 @@ import HelpYouSellTab from '../components/HelpYouSellTab';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import { formatDate, formatDateTime } from '../utils/dateFormat';
 
+// Billing visibility for one storage box: what invoice actually went out, and
+// what the card actually did. Added Aug 31, 2026 — before this there was no way
+// to see either without waiting for the 3rd-of-month payment summary email.
+const BILLING_MONTHS = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+
+const TONE = {
+  ok:   { bg: '#f0fdf4', border: '#bbf7d0', text: '#065f46' },
+  warn: { bg: '#fffbeb', border: '#fcd34d', text: '#92400e' },
+  bad:  { bg: '#fef2f2', border: '#fecaca', text: '#991b1b' },
+};
+
+function billingLines(space) {
+  const money = (n) => '$' + Number(n || 0).toFixed(2);
+  const when = (v) => v
+    ? new Date(v).toLocaleString('en-US', { timeZone: 'America/Denver',
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : null;
+  const period = space.inv_month ? `${BILLING_MONTHS[space.inv_month - 1]} ${space.inv_year}` : null;
+
+  const invoice = space.inv_sent_at
+    ? { tone: 'ok', text: `${period} invoice, ${money(space.inv_total)}, emailed ${when(space.inv_sent_at)}` }
+    : { tone: 'warn', text: 'No invoice has ever been emailed for this space' };
+
+  // A decline for the current period is always worth showing, even after the
+  // box has been taken off autopay, otherwise the reason silently disappears.
+  const samePeriod = space.charge_year === space.inv_year && space.charge_month === space.inv_month;
+  const thisPeriodCharge = space.charge_status && samePeriod ? space.charge_status : null;
+  let charge;
+  if (thisPeriodCharge === 'paid') {
+    charge = { tone: 'ok', text: `Card charged ${money(space.charge_amount)} on ${when(space.charge_attempted_at)}` };
+  } else if (space.paid_status === 'paid') {
+    charge = { tone: 'ok', text: `Marked paid${space.paid_source ? ` (${space.paid_source})` : ''}` };
+  } else if (thisPeriodCharge === 'failed' || thisPeriodCharge === 'failed_final') {
+    const tail = thisPeriodCharge === 'failed_final'
+      ? ' Retried once and gave up.'
+      : space.autopay_enabled ? ' Will retry in about 3 days.' : ' Autopay is now off for this space.';
+    charge = { tone: 'bad', text: `Card DECLINED ${when(space.charge_attempted_at)} — ${space.charge_error || 'no reason recorded'}.${tail}` };
+  } else if (thisPeriodCharge === 'pending') {
+    charge = { tone: 'bad', text: 'Charge started and never finished — check Square before retrying' };
+  } else if (!space.autopay_enabled) {
+    charge = { tone: 'warn', text: 'Not on autopay — waiting on the customer to pay' };
+  } else {
+    charge = { tone: 'warn', text: `No charge has been attempted for ${period || 'this period'}` };
+  }
+  return { invoice, charge };
+}
+
+function BillingStatusPanel({ space, compact }) {
+  if (!space || !space.billing_id) return null;
+  const { invoice, charge } = billingLines(space);
+  const row = (item, label) => (
+    <div style={{ fontSize: compact ? '0.75rem' : '0.8rem', padding: '6px 9px', borderRadius: '4px',
+                  marginBottom: '6px', backgroundColor: TONE[item.tone].bg,
+                  border: `1px solid ${TONE[item.tone].border}`, color: TONE[item.tone].text }}>
+      <strong>{label}: </strong>{item.text}
+    </div>
+  );
+  return (
+    <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#f8fafc',
+                  borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e3a5f', marginBottom: '8px',
+                    textTransform: 'uppercase', letterSpacing: '0.5px' }}>Billing</div>
+      {row(invoice, 'Invoice')}
+      {row(charge, 'Payment')}
+    </div>
+  );
+}
+
 export default function Storage() {
   const { isAdmin, canEditRecords, canSeeFinancials } = useAuth();
   const location = useLocation();
@@ -1136,6 +1205,8 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
         )}
       </div>
 
+      <BillingStatusPanel space={space} compact />
+
       {/* Contract status + Special Terms — visible right here in the inline
           editor so Carol doesn't have to dig into Full details to see what's
           been sent / accepted / needs editing. */}
@@ -2040,6 +2111,8 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
                 style={{ ...inputStyleFull, fontFamily: 'inherit', resize: 'vertical' }}
               />
             </div>
+
+            <BillingStatusPanel space={space} />
 
             {/* Contract status — always visible so Carol can see what's been
                 sent and accepted without hunting through emails. */}
