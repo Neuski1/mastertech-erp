@@ -127,25 +127,46 @@ async function recordStoragePayment(payment) {
       [customerId, year, month]
     );
     if (!rows.length) return { recorded: false };
+    // Record what the customer ACTUALLY paid, not the bare rent. The invoice
+    // total carries the 3.5% card fee, so writing si.rent understated every
+    // card payment (Hadank paid 99.36 and the ERP filed 96.00) and the month
+    // would not tie at close. Split the payment across the customer's spaces
+    // in proportion to rent when there is more than one.
+    const paidTotal = Number(payment.amountMoney?.amount || payment.amount_money?.amount || 0) / 100;
+    const rentTotal = rows.reduce((a, r) => a + parseFloat(r.rent || 0), 0);
+    const shareFor = (r) => {
+      if (!(paidTotal > 0)) return parseFloat(r.rent || 0);
+      if (rows.length === 1 || !(rentTotal > 0)) return paidTotal;
+      return Math.round(paidTotal * (parseFloat(r.rent || 0) / rentTotal) * 100) / 100;
+    };
     for (const r of rows) {
+      const share = shareFor(r);
       await dbc.query(
         `INSERT INTO storage_payment_status (storage_billing_id, year, month, status, source, amount)
          VALUES ($1, $2, $3, 'paid', 'square', $4)
          ON CONFLICT (storage_billing_id, year, month)
          DO UPDATE SET status='paid', source='square', amount=EXCLUDED.amount
-         WHERE storage_payment_status.source <> 'manual'`,
-        [r.storage_billing_id, year, month, r.rent]
+         -- Protect a manual PAID record, but never let a stale manual 'unpaid'
+         -- row block a payment that actually cleared (same bug as the autopay
+         -- engine had: Conklin's grid stayed red on a completed charge).
+         WHERE NOT (storage_payment_status.source = 'manual'
+                    AND storage_payment_status.status = 'paid')`,
+        [r.storage_billing_id, year, month, share]
       );
       await dbc.query(
         `UPDATE storage_invoices SET status='paid' WHERE storage_billing_id=$1 AND year=$2 AND month=$3`,
         [r.storage_billing_id, year, month]
       );
       await dbc.query(
+        // Every parameter cast explicitly. Without the casts Postgres deduces
+        // conflicting types for $3 and rejects the whole statement, which is why
+        // online storage payments never wrote a billing-history row.
         `INSERT INTO storage_charges (billing_id, customer_id, space_id, amount, charge_month, notes)
-         SELECT $1, sb.customer_id, sb.space_id, $2, $3, $4
-           FROM storage_billing sb WHERE sb.id = $1
-            AND NOT EXISTS (SELECT 1 FROM storage_charges sc WHERE sc.billing_id = $1 AND sc.charge_month = $3)`,
-        [r.storage_billing_id, r.rent, `${year}-${String(month).padStart(2, '0')}`,
+         SELECT $1::int, sb.customer_id, sb.space_id, $2::numeric, $3::varchar, $4::text
+           FROM storage_billing sb WHERE sb.id = $1::int
+            AND NOT EXISTS (SELECT 1 FROM storage_charges sc
+                             WHERE sc.billing_id = $1::int AND sc.charge_month = $3::varchar)`,
+        [r.storage_billing_id, share, `${year}-${String(month).padStart(2, '0')}`,
          `Storage paid online (Square ${payId})`]
       );
     }
