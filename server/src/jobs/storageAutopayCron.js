@@ -100,6 +100,10 @@ async function chargeOne(b, year, month, { dryRun }) {
         locationId: square.locationId,
         referenceId: `storage-billing-${b.billing_id}`,
         note: `Storage autopay - ${label} (rent ${rent.toFixed(2)} + fee ${fee.toFixed(2)})`,
+        // Square emails its own receipt whenever a buyer email is supplied.
+        // Without this the customer's card is charged in total silence, which
+        // is how the Aug 31 2026 run went out.
+        ...(b.email_primary ? { buyerEmailAddress: b.email_primary } : {}),
       });
       payment = pickPayment(resp);
     } catch (e) {
@@ -129,7 +133,10 @@ async function chargeOne(b, year, month, { dryRun }) {
          VALUES ($1, $2, $3, 'paid', 'auto', $4)
          ON CONFLICT (storage_billing_id, year, month)
          DO UPDATE SET status='paid', source='auto', amount=EXCLUDED.amount
-         WHERE storage_payment_status.source <> 'manual'`,
+         -- Protect a manual PAID record (Carol's green click wins), but never
+         -- let a stale manual 'unpaid' row block a charge that just cleared.
+         WHERE NOT (storage_payment_status.source = 'manual'
+                    AND storage_payment_status.status = 'paid')`,
         [b.billing_id, year, month, amountCents / 100], 'payment status'
       );
       // Customer-record billing history (same table the manual billing run used).
@@ -152,9 +159,12 @@ async function chargeOne(b, year, month, { dryRun }) {
       const attempts = (row.attempts || 0) + 1;
       const finalFail = attempts >= 2;
       await dbc.query(
-        `UPDATE storage_autopay_charges SET status=$5, attempts=$2, last_error=$3, last_attempt_at=NOW(), updated_at=NOW()
-           WHERE storage_billing_id=$1 AND year=$6 AND month=$7`,
-        [b.billing_id, attempts, error || 'declined', null, finalFail ? 'failed_final' : 'failed', year, month]
+        // Every parameter must appear in the SQL. The stray unused $4 here made
+        // Postgres reject this statement, so real declines were recorded with a
+        // SQL error instead of the card's actual decline reason.
+        `UPDATE storage_autopay_charges SET status=$4, attempts=$2, last_error=$3, last_attempt_at=NOW(), updated_at=NOW()
+           WHERE storage_billing_id=$1 AND year=$5 AND month=$6`,
+        [b.billing_id, attempts, String(error || 'declined').slice(0, 500), finalFail ? 'failed_final' : 'failed', year, month]
       );
       dbc.release();
       if (finalFail) await notifyOwnerFailure(b, year, month, error);
@@ -223,7 +233,7 @@ async function runRetries() {
     const { rows } = await dbc.query(
       `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
-              c.first_name, c.last_name, sb.customer_id
+              c.first_name, c.last_name, c.email_primary, sb.customer_id
          FROM storage_autopay_charges ac
          JOIN storage_billing sb ON sb.id = ac.storage_billing_id
          LEFT JOIN storage_spaces sp ON sp.id = sb.space_id

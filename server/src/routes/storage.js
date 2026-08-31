@@ -165,13 +165,45 @@ router.get('/', async (req, res) => {
               c.last_name, c.first_name, c.company_name, c.account_number,
               c.phone_primary,
               u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
-              u.license_plate, u.linear_feet AS unit_linear_feet
+              u.license_plate, u.linear_feet AS unit_linear_feet,
+              inv.year AS inv_year, inv.month AS inv_month, inv.total AS inv_total,
+              inv.status AS inv_status, inv.sent_at AS inv_sent_at,
+              chg.year AS charge_year, chg.month AS charge_month,
+              chg.status AS charge_status, chg.amount AS charge_amount,
+              chg.attempts AS charge_attempts, chg.last_error AS charge_error,
+              chg.last_attempt_at AS charge_attempted_at,
+              chg.square_payment_id AS charge_payment_id,
+              pst.status AS paid_status, pst.source AS paid_source
        FROM storage_spaces s
        LEFT JOIN storage_billing sb ON sb.space_id = s.id
          AND sb.billing_end_date IS NULL
          AND sb.deleted_at IS NULL
        LEFT JOIN customers c ON c.id = sb.customer_id
        LEFT JOIN units u ON u.id = sb.unit_id
+       -- Billing visibility: the newest invoice, the newest autopay charge, and
+       -- the paid flag for that same period, so the Storage module can show what
+       -- actually went out and what the card did without waiting for the
+       -- 3rd-of-month summary email.
+       LEFT JOIN LATERAL (
+         SELECT si.year, si.month, si.total, si.status, si.sent_at
+           FROM storage_invoices si
+          WHERE si.storage_billing_id = sb.id
+          ORDER BY si.year DESC, si.month DESC LIMIT 1
+       ) inv ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT ac.year, ac.month, ac.status, ac.amount, ac.attempts,
+                ac.last_error, ac.last_attempt_at, ac.square_payment_id
+           FROM storage_autopay_charges ac
+          WHERE ac.storage_billing_id = sb.id
+          ORDER BY ac.year DESC, ac.month DESC LIMIT 1
+       ) chg ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT ps.status, ps.source
+           FROM storage_payment_status ps
+          WHERE ps.storage_billing_id = sb.id
+            AND ps.year = inv.year AND ps.month = inv.month
+          LIMIT 1
+       ) pst ON TRUE
        WHERE s.deleted_at IS NULL AND s.is_active = TRUE
        ORDER BY s.space_type, s.label`
     );
