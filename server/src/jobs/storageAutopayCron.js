@@ -100,6 +100,10 @@ async function chargeOne(b, year, month, { dryRun }) {
         locationId: square.locationId,
         referenceId: `storage-billing-${b.billing_id}`,
         note: `Storage autopay - ${label} (rent ${rent.toFixed(2)} + fee ${fee.toFixed(2)})`,
+        // Square emails its own receipt whenever a buyer email is supplied.
+        // Without this the customer's card is charged in total silence, which
+        // is how the Aug 31 2026 run went out.
+        ...(b.email_primary ? { buyerEmailAddress: b.email_primary } : {}),
       });
       payment = pickPayment(resp);
     } catch (e) {
@@ -229,7 +233,7 @@ async function runRetries() {
     const { rows } = await dbc.query(
       `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
-              c.first_name, c.last_name, sb.customer_id
+              c.first_name, c.last_name, c.email_primary, sb.customer_id
          FROM storage_autopay_charges ac
          JOIN storage_billing sb ON sb.id = ac.storage_billing_id
          LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
