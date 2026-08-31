@@ -833,7 +833,7 @@ const STATUS_COLORS = {
   unpaid:  { bg: '#dc2626', text: '#fff' }, // red
   partial: { bg: '#eab308', text: '#422006' }, // yellow
 };
-const SOURCE_LABELS = { square: 'Square', manual: 'Manual' };
+const SOURCE_LABELS = { square: 'Square', manual: 'Manual', auto: 'Autopay' };
 
 function PaymentLegend() {
   const Item = ({ color, label }) => (
