@@ -237,12 +237,33 @@ export default function Storage() {
   const handleCellToggle = async (billingId, cell) => {
     if (!canEditRecords) return;
     const status = nextManualStatus(cell);
+
+    // Marking a month collected posts income to the books, so it needs the
+    // amount that actually landed. A Zelle or check is rarely the invoice
+    // figure to the penny. Prefill with whatever the cell already knows.
+    let amount;
+    if (status === 'paid' || status === 'partial') {
+      const suggested = cell.amount != null ? Number(cell.amount).toFixed(2) : '';
+      const entered = window.prompt(
+        `Amount actually collected for ${cell.month}/${cell.year}?`,
+        suggested
+      );
+      if (entered === null) return; // cancelled, leave the cell alone
+      const parsed = Number(String(entered).replace(/[$,\s]/g, ''));
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setError('Enter a dollar amount, for example 124.25');
+        return;
+      }
+      amount = parsed;
+    }
+
     try {
       await api.setStoragePaymentOverride({
         storage_billing_id: billingId,
         year: cell.year,
         month: cell.month,
         status,
+        ...(amount !== undefined ? { amount } : {}),
       });
       await fetchGrid();
     } catch (err) {
