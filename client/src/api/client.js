@@ -61,6 +61,8 @@ export const api = {
   getLeads: (opts) => request('/leads' + (opts && opts.archived ? '?archived=true' : '')),
   updateLead: (id, data) => request(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   logLeadCall: (id, data) => request(`/leads/${id}/contact`, { method: 'POST', body: JSON.stringify(data) }),
+  addLeadNote: (id, note) => request(`/leads/${id}/note`, { method: 'POST', body: JSON.stringify({ note }) }),
+  deleteLeadNote: (id, noteId) => request(`/leads/${id}/note/${noteId}`, { method: 'DELETE' }),
   deleteLead: (id) => request(`/leads/${id}`, { method: 'DELETE' }),
   createEstimateFromLead: (id) => request(`/leads/${id}/create-estimate`, { method: 'POST' }),
   fileLead: (id, data = {}) => request(`/leads/${id}/file`, { method: 'POST', body: JSON.stringify(data) }),

@@ -119,9 +119,12 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
        LEFT JOIN customers c ON c.id = l.customer_id
        LEFT JOIN records r ON r.id = l.record_id
        LEFT JOIN LATERAL (
-         SELECT json_agg(json_build_object('id', x.id, 'contacted_at', x.contacted_at, 'note', x.note)
+         SELECT json_agg(json_build_object('id', x.id, 'contacted_at', x.contacted_at, 'note', x.note,
+                                           'entry_type', COALESCE(x.entry_type, 'call'), 'author', u.name)
                          ORDER BY x.contacted_at DESC) AS contacts
-           FROM lead_contacts x WHERE x.lead_id = l.id
+           FROM lead_contacts x
+           LEFT JOIN users u ON u.id = x.created_by
+          WHERE x.lead_id = l.id
        ) lc ON true
        WHERE l.deleted_at IS ${archived ? 'NOT NULL' : 'NULL'}
        ORDER BY ${archived ? 'l.deleted_at' : 'l.created_at'} DESC
@@ -174,12 +177,13 @@ router.patch('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) 
 // Appends to lead_contacts (a running history) and refreshes the lead summary.
 router.post('/:id/contact', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   const { contacted_at, note } = req.body || {};
+  const entryType = (req.body || {}).entry_type === 'email' ? 'email' : 'call';
   try {
     const when = contacted_at || new Date().toISOString();
     const { rows } = await pool.query(
-      `INSERT INTO lead_contacts (lead_id, contacted_at, note, created_by)
-       VALUES ($1, $2, $3, $4) RETURNING id, contacted_at, note`,
-      [req.params.id, when, (note || '').trim() || null, req.user.id]
+      `INSERT INTO lead_contacts (lead_id, contacted_at, note, created_by, entry_type)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, contacted_at, note, entry_type`,
+      [req.params.id, when, (note || '').trim() || null, req.user.id, entryType]
     );
     await pool.query(
       `UPDATE leads
@@ -191,6 +195,50 @@ router.post('/:id/contact', requireAuth, requireRole(...STAFF_ROLES), async (req
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error('POST /api/leads/:id/contact error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/leads/:id/note — Add a free-text note against a lead (staff only).
+// Notes live in lead_contacts beside the call log, separated by entry_type.
+// Unlike a logged call, a note never sets contacted_at and never advances the
+// lead's status: writing yourself a reminder is not the same as reaching the
+// customer.
+router.post('/:id/note', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const note = ((req.body || {}).note || '').trim();
+  if (!note) return res.status(400).json({ error: 'note is required' });
+  try {
+    const { rows: leadRows } = await pool.query(
+      'SELECT id FROM leads WHERE id = $1 AND deleted_at IS NULL',
+      [req.params.id]
+    );
+    if (leadRows.length === 0) return res.status(404).json({ error: 'Lead not found' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO lead_contacts (lead_id, contacted_at, note, created_by, entry_type)
+       VALUES ($1, NOW(), $2, $3, 'note')
+       RETURNING id, contacted_at, note, entry_type`,
+      [req.params.id, note, req.user.id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('POST /api/leads/:id/note error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/leads/:id/note/:noteId — Remove a note (staff only). Only notes
+// can be deleted; the call/email log is a record of what was actually done.
+router.delete('/:id/note/:noteId', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "DELETE FROM lead_contacts WHERE id = $1 AND lead_id = $2 AND entry_type = 'note' RETURNING id",
+      [req.params.noteId, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Note not found' });
+    res.json({ id: rows[0].id });
+  } catch (err) {
+    console.error('DELETE /api/leads/:id/note/:noteId error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -257,13 +305,14 @@ router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), as
     // Carry the lead's call history into the customer record so it isn't lost.
     if (lead.customer_id) {
       const { rows: cts } = await client.query(
-        'SELECT contacted_at, note FROM lead_contacts WHERE lead_id = $1 ORDER BY contacted_at',
+        "SELECT contacted_at, note, COALESCE(entry_type, 'call') AS entry_type FROM lead_contacts WHERE lead_id = $1 ORDER BY contacted_at",
         [lead.id]
       );
       if (cts.length) {
         const block = cts.map((ct) => {
           const d = new Date(ct.contacted_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' });
-          return `[Call ${d}]` + (ct.note ? ` ${ct.note}` : '');
+          const kind = ct.entry_type === 'note' ? 'Note' : (ct.entry_type === 'email' ? 'Email' : 'Call');
+          return `[${kind} ${d}]` + (ct.note ? ` ${ct.note}` : '');
         }).join('\n');
         await client.query(
           "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || CHR(10) || $1 END WHERE id = $2",
@@ -318,13 +367,14 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
         [note, targetCustomerId]
       );
       const { rows: cts } = await client.query(
-        'SELECT contacted_at, note FROM lead_contacts WHERE lead_id = $1 ORDER BY contacted_at',
+        "SELECT contacted_at, note, COALESCE(entry_type, 'call') AS entry_type FROM lead_contacts WHERE lead_id = $1 ORDER BY contacted_at",
         [lead.id]
       );
       if (cts.length) {
         const block = cts.map((ct) => {
           const d = new Date(ct.contacted_at).toLocaleDateString('en-US', { timeZone: 'America/Denver' });
-          return `[Call ${d}]` + (ct.note ? ` ${ct.note}` : '');
+          const kind = ct.entry_type === 'note' ? 'Note' : (ct.entry_type === 'email' ? 'Email' : 'Call');
+          return `[${kind} ${d}]` + (ct.note ? ` ${ct.note}` : '');
         }).join('\n');
         await client.query(
           "UPDATE customers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN $1 ELSE notes || CHR(10) || $1 END WHERE id = $2",
