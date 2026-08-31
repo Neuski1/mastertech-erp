@@ -152,9 +152,12 @@ async function chargeOne(b, year, month, { dryRun }) {
       const attempts = (row.attempts || 0) + 1;
       const finalFail = attempts >= 2;
       await dbc.query(
-        `UPDATE storage_autopay_charges SET status=$5, attempts=$2, last_error=$3, last_attempt_at=NOW(), updated_at=NOW()
-           WHERE storage_billing_id=$1 AND year=$6 AND month=$7`,
-        [b.billing_id, attempts, error || 'declined', null, finalFail ? 'failed_final' : 'failed', year, month]
+        // Every parameter must appear in the SQL. The stray unused $4 here made
+        // Postgres reject this statement, so real declines were recorded with a
+        // SQL error instead of the card's actual decline reason.
+        `UPDATE storage_autopay_charges SET status=$4, attempts=$2, last_error=$3, last_attempt_at=NOW(), updated_at=NOW()
+           WHERE storage_billing_id=$1 AND year=$5 AND month=$6`,
+        [b.billing_id, attempts, String(error || 'declined').slice(0, 500), finalFail ? 'failed_final' : 'failed', year, month]
       );
       dbc.release();
       if (finalFail) await notifyOwnerFailure(b, year, month, error);
