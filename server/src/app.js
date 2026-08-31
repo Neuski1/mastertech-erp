@@ -706,6 +706,12 @@ const pool = require('./db/pool');
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_lead_contacts_lead ON lead_contacts (lead_id)`);
 
+    // Migration 060: lead notes. Free-text notes share the lead_contacts table
+    // with the call/email log and are told apart by entry_type
+    // ('call' | 'email' | 'note'). A note never sets contacted_at and never
+    // advances the lead's status, so writing a note is not outreach.
+    await pool.query(`ALTER TABLE lead_contacts ADD COLUMN IF NOT EXISTS entry_type TEXT NOT NULL DEFAULT 'call'`);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');

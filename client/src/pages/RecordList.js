@@ -7,6 +7,10 @@ import StatusBadge from '../components/StatusBadge';
 import { telHref } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
 import { parseLeadMessage } from '../utils/parseLead';
+import { formatDateTime } from '../utils/dateFormat';
+
+// Lead activity rows share one table; entry_type says what each one was.
+const ENTRY_LABEL = { call: 'Call', email: 'Email', note: 'Note' };
 
 // Recover a usable email for a lead: prefer the stored email if it's a full
 // address, otherwise pull the first valid address out of the message body
@@ -124,6 +128,10 @@ export default function RecordList() {
   // Signature to drop into lead reply emails. Gmail omits the account
   // signature whenever the body is pre-filled via URL, so we supply our own.
   const [leadSignature, setLeadSignature] = useState('');
+  // Inline note composer: id of the lead whose box is open (null = none).
+  const [noteTarget, setNoteTarget] = useState(null);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
   useEffect(() => {
     api.getLeadEmailSignature()
       .then(d => setLeadSignature((d && d.signature) || ''))
@@ -198,11 +206,41 @@ export default function RecordList() {
     try {
       await api.logLeadCall(lead.id, {
         contacted_at: new Date().toISOString(),
+        entry_type: channel === 'email' ? 'email' : 'call',
         note: channel === 'email' ? 'Emailed (auto-logged)' : 'Called (auto-logged)',
       });
       fetchLeads();
     } catch (err) {
       console.error('Failed to auto-log lead contact:', err);
+    }
+  };
+
+  const openNote = (lead) => { setNoteTarget(lead.id); setNoteText(''); };
+  const closeNote = () => { setNoteTarget(null); setNoteText(''); };
+
+  const saveLeadNote = async (lead) => {
+    const text = noteText.trim();
+    if (!text || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      await api.addLeadNote(lead.id, text);
+      closeNote();
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to save lead note:', err);
+      window.alert('Could not save the note. Try again.');
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const deleteLeadNote = async (lead, noteId) => {
+    if (!window.confirm('Delete this note?')) return;
+    try {
+      await api.deleteLeadNote(lead.id, noteId);
+      fetchLeads();
+    } catch (err) {
+      console.error('Failed to delete lead note:', err);
     }
   };
 
@@ -547,9 +585,9 @@ export default function RecordList() {
                       {l.record_number && (
                         <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>WO #{l.record_number}</span>
                       )}
-                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDateTime(l.created_at)}</span>
                       {l.contacted_at && (
-                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Contacted {formatDate(l.contacted_at)}</span>
+                        <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Contacted {formatDateTime(l.contacted_at)}</span>
                       )}
                     </div>
                     <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '4px' }}>
@@ -563,11 +601,69 @@ export default function RecordList() {
                     )}
                     {Array.isArray(l.contacts) && l.contacts.length > 0 && (
                       <div style={{ marginTop: '6px', borderLeft: '2px solid #e5e7eb', paddingLeft: '8px' }}>
-                        {l.contacts.map((ct) => (
-                          <div key={ct.id} style={{ fontSize: '0.75rem', color: '#4b5563', marginBottom: '2px' }}>
-                            <span style={{ fontWeight: 600 }}>Call {formatDate(ct.contacted_at)}</span>{ct.note ? `: ${ct.note}` : ''}
-                          </div>
-                        ))}
+                        {l.contacts.map((ct) => {
+                          const isNote = ct.entry_type === 'note';
+                          return (
+                            <div key={ct.id} style={{
+                              fontSize: '0.75rem', color: '#4b5563', marginBottom: '2px',
+                              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                            }}>
+                              <span style={{ fontWeight: 600, color: isNote ? '#6d28d9' : '#4b5563' }}>
+                                {ENTRY_LABEL[ct.entry_type] || 'Call'} {formatDateTime(ct.contacted_at)}
+                              </span>
+                              {ct.author ? ` (${ct.author})` : ''}
+                              {ct.note ? `: ${ct.note}` : ''}
+                              {isNote && (
+                                <button
+                                  onClick={() => deleteLeadNote(l, ct.id)}
+                                  title="Delete note"
+                                  style={{
+                                    marginLeft: '6px', border: 'none', background: 'none',
+                                    color: '#dc2626', cursor: 'pointer', fontSize: '0.7rem',
+                                    fontWeight: 700, padding: 0,
+                                  }}
+                                >&times;</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {noteTarget === l.id && (
+                      <div style={{ marginTop: '6px', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                        <textarea
+                          value={noteText}
+                          onChange={(e) => setNoteText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveLeadNote(l);
+                            if (e.key === 'Escape') closeNote();
+                          }}
+                          autoFocus
+                          rows={2}
+                          placeholder="Note (Ctrl+Enter to save, Esc to cancel)"
+                          style={{
+                            flex: '1 1 auto', minWidth: 0, fontSize: '0.8125rem', padding: '6px 8px',
+                            border: '1px solid #d1d5db', borderRadius: '6px',
+                            fontFamily: 'inherit', resize: 'vertical',
+                          }}
+                        />
+                        <button
+                          onClick={() => saveLeadNote(l)}
+                          disabled={noteSaving || !noteText.trim()}
+                          style={{
+                            padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600,
+                            border: '1px solid #6d28d9', backgroundColor: '#6d28d9', color: '#fff',
+                            cursor: noteSaving || !noteText.trim() ? 'default' : 'pointer',
+                            opacity: noteSaving || !noteText.trim() ? 0.6 : 1,
+                          }}
+                        >{noteSaving ? 'Saving...' : 'Save'}</button>
+                        <button
+                          onClick={closeNote}
+                          style={{
+                            padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600,
+                            border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151', cursor: 'pointer',
+                          }}
+                        >Cancel</button>
                       </div>
                     )}
                   </div>
@@ -578,6 +674,9 @@ export default function RecordList() {
                     {l.email && (
                       <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" onClick={() => autoLogContact(l, 'email')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
                     )}
+                    <button onClick={() => (noteTarget === l.id ? closeNote() : openNote(l))}
+                      style={actionBtn({ border: '1px solid #6d28d9', backgroundColor: noteTarget === l.id ? '#6d28d9' : '#fff', color: noteTarget === l.id ? '#fff' : '#6d28d9' })}
+                    >Note</button>
                     <button onClick={() => scheduleLead(l, leadName(l))}
                       style={actionBtn({ border: '1px solid #2563eb', backgroundColor: l.status === 'scheduled' ? '#2563eb' : '#fff', color: l.status === 'scheduled' ? '#fff' : '#2563eb' })}
                     >Schedule</button>
@@ -626,7 +725,7 @@ export default function RecordList() {
                       <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: '999px', backgroundColor: l.record_number ? '#bfdbfe' : '#e5e7eb', color: l.record_number ? '#1e40af' : '#374151' }}>
                         {l.record_number ? `Converted \u00b7 WO #${l.record_number}` : (l.status === 'converted' ? 'Converted' : 'Closed')}
                       </span>
-                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDate(l.created_at)}</span>
+                      <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDateTime(l.created_at)}</span>
                     </div>
                     <div style={{ fontSize: '0.8125rem', color: '#374151', marginTop: '3px' }}>{[l.phone, l.email].filter(Boolean).join(' \u00b7 ') || '\u2014'}</div>
                     {l.message && (
