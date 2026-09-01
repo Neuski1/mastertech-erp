@@ -21,12 +21,20 @@ function getHeroImageUrl() {
   return `${frontend}/images/rv-mountains.jpg`;
 }
 
-// Hero image block used in marketing templates
-function heroBlock() {
+// Hero image block used in marketing templates. A campaign can override the
+// stock mountain shot with anything from the marketing image library — usually
+// a real before/after off a work order.
+function heroBlock(campaign = {}) {
+  if (campaign.hero_image_url === '') return ''; // explicit "no hero"
+  const src = campaign.hero_image_url || getHeroImageUrl();
+  const alt = campaign.hero_alt || 'RV travel trailer heading into the mountains';
+  const caption = campaign.hero_caption !== undefined && campaign.hero_caption !== null
+    ? campaign.hero_caption
+    : 'Adventure is calling &mdash; is your RV ready? &#x1F3D4;&#xFE0F;';
   return `
   <div style="width:100%;max-width:600px;overflow:hidden;margin:0 auto;">
-    <img src="${getHeroImageUrl()}" alt="RV travel trailer heading into the mountains" style="width:100%;height:240px;object-fit:cover;object-position:center;display:block;" />
-    <p style="text-align:center;font-size:13px;color:#6b7280;font-style:italic;margin:8px 0 0;padding:0 24px;">Adventure is calling &mdash; is your RV ready? &#x1F3D4;&#xFE0F;</p>
+    <img src="${src}" alt="${alt}" style="width:100%;height:240px;object-fit:cover;object-position:center;display:block;" />
+    ${caption ? `<p style="text-align:center;font-size:13px;color:#6b7280;font-style:italic;margin:8px 0 0;padding:0 24px;">${caption}</p>` : ''}
   </div>`;
 }
 
@@ -39,7 +47,7 @@ const ctaBlock = `
       <p style="font-size:12px;color:#888;margin-top:16px;">service@mastertechrvrepair.com &nbsp;|&nbsp; 6590 East 49th Avenue, Commerce City, CO 80022</p>
     </div>`;
 
-function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
+function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl, campaign }) {
   const logoUrl = getLogoUrl();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
@@ -49,7 +57,7 @@ function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
     <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
   </div>
-  ${heroBlock()}
+  ${heroBlock(campaign)}
   <div style="padding:24px 32px;">
     <p style="font-size:15px;color:#111;">Hello ${firstName || 'Valued Customer'},</p>
     <div style="font-size:14px;color:#333;line-height:1.7;">${bodyHtml}</div>
@@ -72,7 +80,7 @@ function buildSeasonalHtml({ subject, bodyHtml, firstName, unsubscribeUrl }) {
 </div></body></html>`;
 }
 
-function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUrl }) {
+function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUrl, campaign }) {
   const logoUrl = getLogoUrl();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
@@ -82,7 +90,7 @@ function buildServiceReminderHtml({ bodyHtml, firstName, unitInfo, unsubscribeUr
     <h1 style="color:#fff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">Our Service Makes Happy Campers!</p>
   </div>
-  ${heroBlock()}
+  ${heroBlock(campaign)}
   <div style="padding:24px 32px;">
     <p style="font-size:15px;color:#111;">Hello ${firstName || 'Valued Customer'},</p>
     <div style="font-size:14px;color:#333;line-height:1.7;">${bodyHtml}</div>
@@ -182,16 +190,33 @@ router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
 // POST /api/campaigns — create
 // ---------------------------------------------------------------------------
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
-  const { name, template_type, subject, body_html, target_filter } = req.body;
-  if (!name || !template_type || !subject) {
+  const { name, template_type, subject, body_html, target_filter,
+    hero_image_url, hero_alt, hero_caption,
+    campaign_type, platforms, post_caption, scheduled_for, image_urls, calendar_row_id } = req.body;
+  const type = campaign_type === 'social' ? 'social' : 'email';
+  // A social post has no subject line. Everything else still requires one.
+  if (!name || !template_type || (type === 'email' && !subject)) {
     return res.status(400).json({ error: 'name, template_type, and subject are required' });
   }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO email_campaigns (name, template_type, subject, body_html, target_filter, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [name, template_type, subject, body_html || '', target_filter ? JSON.stringify(target_filter) : null, req.user.id]
+      `INSERT INTO email_campaigns (name, template_type, subject, body_html, target_filter, created_by,
+                                    hero_image_url, hero_alt, hero_caption,
+                                    campaign_type, platforms, post_caption, scheduled_for, image_urls, calendar_row_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      [name, template_type, subject || '', body_html || '', target_filter ? JSON.stringify(target_filter) : null, req.user.id,
+        hero_image_url ?? null, hero_alt ?? null, hero_caption ?? null,
+        type, platforms ?? null, post_caption ?? null, scheduled_for || null, image_urls ?? null, calendar_row_id || null]
     );
+
+    // Close the loop: the calendar row Terri tagged now points at the piece
+    // Smile built, so "Build it" turns into "Open" next time.
+    if (calendar_row_id) {
+      try {
+        await pool.query('UPDATE marketing_calendar SET campaign_id = $1, updated_at = NOW() WHERE id = $2', [rows[0].id, calendar_row_id]);
+      } catch (linkErr) { console.error('Calendar link failed:', linkErr.message); }
+    }
+
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -201,7 +226,12 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    const { rows: campaign } = await pool.query('SELECT * FROM email_campaigns WHERE id = $1', [req.params.id]);
+    const { rows: campaign } = await pool.query(
+      `SELECT c.*, u.name AS approved_by_name
+       FROM email_campaigns c LEFT JOIN users u ON u.id = c.approved_by
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
     if (campaign.length === 0) return res.status(404).json({ error: 'Campaign not found' });
 
     const { rows: recipients } = await pool.query(
@@ -216,11 +246,26 @@ router.get('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 // PATCH /api/campaigns/:id — update draft
 // ---------------------------------------------------------------------------
 router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
-  const { name, subject, body_html, target_filter } = req.body;
+  const { name, subject, body_html, target_filter, template_type,
+    hero_image_url, hero_alt, hero_caption } = req.body;
   const updates = []; const values = []; let idx = 1;
   if (name !== undefined) { updates.push(`name = $${idx++}`); values.push(name); }
   if (subject !== undefined) { updates.push(`subject = $${idx++}`); values.push(subject); }
   if (body_html !== undefined) { updates.push(`body_html = $${idx++}`); values.push(body_html); }
+  if (template_type !== undefined) { updates.push(`template_type = $${idx++}`); values.push(template_type); }
+  if (hero_image_url !== undefined) { updates.push(`hero_image_url = $${idx++}`); values.push(hero_image_url); }
+  if (hero_alt !== undefined) { updates.push(`hero_alt = $${idx++}`); values.push(hero_alt); }
+  if (hero_caption !== undefined) { updates.push(`hero_caption = $${idx++}`); values.push(hero_caption); }
+  for (const key of ['platforms', 'post_caption', 'image_urls']) {
+    if (req.body[key] !== undefined) { updates.push(`${key} = $${idx++}`); values.push(req.body[key]); }
+  }
+  if (req.body.scheduled_for !== undefined) { updates.push(`scheduled_for = $${idx++}`); values.push(req.body.scheduled_for || null); }
+  if (req.body.approval_status !== undefined) {
+    if (!APPROVAL_STATUSES.includes(req.body.approval_status)) {
+      return res.status(400).json({ error: `approval_status must be one of ${APPROVAL_STATUSES.join(', ')}` });
+    }
+    updates.push(`approval_status = $${idx++}`); values.push(req.body.approval_status);
+  }
   if (target_filter !== undefined) { updates.push(`target_filter = $${idx++}`); values.push(JSON.stringify(target_filter)); }
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
   values.push(req.params.id);
@@ -230,6 +275,98 @@ router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
       values
     );
     if (rows.length === 0) return res.status(400).json({ error: 'Campaign not found or not in draft status' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// Approval. Terri's rule: approval is a record in the module, not a parsed
+// email reply. Approve and reject both write who, when, and why, and the
+// linked calendar row follows along.
+//
+// approval_status: draft | needs_photo | approved | rejected | posted
+// It is deliberately separate from `status`, which is the send machinery
+// (draft / sending / sent / cancelled) and must keep working as it does.
+// ---------------------------------------------------------------------------
+const APPROVAL_STATUSES = ['draft', 'needs_photo', 'approved', 'rejected', 'posted'];
+
+async function syncCalendarStatus(calendarRowId, status) {
+  if (!calendarRowId) return;
+  try {
+    await pool.query('UPDATE marketing_calendar SET status = $1, updated_at = NOW() WHERE id = $2', [status, calendarRowId]);
+  } catch (err) { console.error('Calendar status sync failed:', err.message); }
+}
+
+router.post('/:id/approve', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE email_campaigns
+         SET approval_status = 'approved', approved_by = $1, approved_at = NOW(),
+             approval_note = $2, rejected_reason = NULL, rejected_at = NULL
+       WHERE id = $3 RETURNING *`,
+      [req.user.id, req.body?.note || null, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Campaign not found' });
+    await syncCalendarStatus(rows[0].calendar_row_id, 'approved');
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/:id/reject', requireAuth, requireRole('admin'), async (req, res) => {
+  const reason = (req.body?.reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'A reason is required. "No" without a reason is not a record.' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE email_campaigns
+         SET approval_status = 'rejected', rejected_reason = $1, rejected_at = NOW(),
+             approved_by = NULL, approved_at = NULL
+       WHERE id = $2 RETURNING *`,
+      [reason, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Campaign not found' });
+    await syncCalendarStatus(rows[0].calendar_row_id, 'draft');
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Flag a piece as blocked on a photo. This is the state that kept getting lost
+// in email threads.
+router.post('/:id/needs-photo', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE email_campaigns SET approval_status = 'needs_photo', approval_note = $1 WHERE id = $2 RETURNING *`,
+      [req.body?.note || null, req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Campaign not found' });
+    await syncCalendarStatus(rows[0].calendar_row_id, 'needs_photo');
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/campaigns/:id/mark-posted — social posts only.
+//
+// The ERP does not publish to Facebook, Instagram or YouTube. It drafts the
+// post and holds the picture; a human posts it and marks it here, which is
+// what fills the calendar's response column later.
+// ---------------------------------------------------------------------------
+router.post('/:id/mark-posted', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE email_campaigns SET status = 'sent', approval_status = 'posted', posted_at = NOW(), sent_at = NOW()
+       WHERE id = $1 AND campaign_type = 'social' RETURNING *`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(400).json({ error: 'Not a social post, or already gone' });
+
+    if (rows[0].calendar_row_id) {
+      try {
+        await pool.query(
+          `UPDATE marketing_calendar SET status = 'posted', updated_at = NOW() WHERE id = $1`,
+          [rows[0].calendar_row_id]
+        );
+      } catch (err) { console.error('Calendar status update failed:', err.message); }
+    }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -367,9 +504,9 @@ router.post('/:id/preview', requireAuth, requireRole('admin'), async (req, res) 
 
     let html;
     if (campaign.template_type === 'service_reminder') {
-      html = buildServiceReminderHtml({ bodyHtml: campaign.body_html, firstName: 'Carol', unitInfo: '2020 Airstream Classic', unsubscribeUrl: unsubUrl });
+      html = buildServiceReminderHtml({ bodyHtml: campaign.body_html, firstName: 'Carol', unitInfo: '2020 Airstream Classic', unsubscribeUrl: unsubUrl, campaign });
     } else {
-      html = buildSeasonalHtml({ subject: campaign.subject, bodyHtml: campaign.body_html, firstName: 'Carol', unsubscribeUrl: unsubUrl });
+      html = buildSeasonalHtml({ subject: campaign.subject, bodyHtml: campaign.body_html, firstName: 'Carol', unsubscribeUrl: unsubUrl, campaign });
     }
 
     const result = await sendEmail({
@@ -556,9 +693,9 @@ async function sendBatchForCampaign(campaignId, limit) {
 
         let html;
         if (campaign.template_type === 'service_reminder') {
-          html = buildServiceReminderHtml({ bodyHtml: campaign.body_html, firstName, unitInfo, unsubscribeUrl: unsubUrl });
+          html = buildServiceReminderHtml({ bodyHtml: campaign.body_html, firstName, unitInfo, unsubscribeUrl: unsubUrl, campaign });
         } else {
-          html = buildSeasonalHtml({ subject: campaign.subject, bodyHtml: campaign.body_html, firstName, unsubscribeUrl: unsubUrl });
+          html = buildSeasonalHtml({ subject: campaign.subject, bodyHtml: campaign.body_html, firstName, unsubscribeUrl: unsubUrl, campaign });
         }
 
         const result = await sendEmail({

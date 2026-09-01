@@ -31,6 +31,8 @@ import PartsSalesList from './pages/PartsSalesList';
 import PartsSaleDetail from './pages/PartsSaleDetail';
 import CampaignList from './pages/CampaignList';
 import CampaignEditor from './pages/CampaignEditor';
+import MarketingCalendar from './pages/MarketingCalendar';
+import MarketingImages from './pages/MarketingImages';
 import Reports from './pages/Reports';
 import ActiveWorkOrdersReport from './pages/ActiveWorkOrdersReport';
 import ClosedInvoicesReport from './pages/ClosedInvoicesReport';
@@ -252,6 +254,8 @@ function AppLayout() {
           <Route path="/storage" element={<Storage />} />
           <Route path="/partners" element={<Partners />} />
           <Route path="/marketing" element={canManageSettings ? <CampaignList /> : <Navigate to="/records" />} />
+          <Route path="/marketing/calendar" element={canManageSettings ? <MarketingCalendar /> : <Navigate to="/records" />} />
+          <Route path="/marketing/images" element={canManageSettings ? <MarketingImages /> : <Navigate to="/records" />} />
           <Route path="/marketing/new" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/marketing/:id" element={canManageSettings ? <CampaignEditor /> : <Navigate to="/records" />} />
           <Route path="/reports" element={canManageSettings ? <Reports /> : <Navigate to="/records" />} />

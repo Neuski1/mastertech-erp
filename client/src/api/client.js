@@ -437,10 +437,64 @@ export const api = {
   sendCampaign: (id, data = {}) => request(`/campaigns/${id}/send`, { method: 'POST', body: JSON.stringify(data) }),
   retryCampaign: (id) => request(`/campaigns/${id}/retry`, { method: 'POST' }),
   cancelCampaign: (id) => request(`/campaigns/${id}/cancel`, { method: 'POST' }),
+  markCampaignPosted: (id) => request(`/campaigns/${id}/mark-posted`, { method: 'POST' }),
+  approveCampaign: (id, note) => request(`/campaigns/${id}/approve`, { method: 'POST', body: JSON.stringify({ note }) }),
+  rejectCampaign: (id, reason) => request(`/campaigns/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  flagCampaignNeedsPhoto: (id, note) => request(`/campaigns/${id}/needs-photo`, { method: 'POST', body: JSON.stringify({ note }) }),
   getAudienceCount: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/campaigns/audience/count${qs ? `?${qs}` : ''}`);
   },
+
+  // Marketing image library
+  getMarketingImages: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/marketing-images${qs ? `?${qs}` : ''}`);
+  },
+  searchRecordPhotos: (q = '') => request(`/marketing-images/record-photos${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  recordPhotoThumbUrl: (recordId, photoId) => `${API_BASE}/marketing-images/record-photos/${recordId}/${photoId}/thumb`,
+  addMarketingImageFromPhoto: (data) => request('/marketing-images/from-photo', { method: 'POST', body: JSON.stringify(data) }),
+  updateMarketingImage: (id, data) => request(`/marketing-images/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  archiveMarketingImage: (id) => request(`/marketing-images/${id}`, { method: 'DELETE' }),
+  uploadMarketingImages: (files, meta = {}) => {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      for (const file of files) {
+        const blob = new Blob([file], { type: file.type || 'image/jpeg' });
+        formData.append('images', blob, file.name || `image-${Date.now()}.jpg`);
+      }
+      for (const [k, v] of Object.entries(meta)) if (v) formData.append(k, v);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/marketing-images`);
+      if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      xhr.onload = () => {
+        if (xhr.status === 401) {
+          localStorage.removeItem('erp_token'); authToken = null; window.location.href = '/login';
+          return reject(new Error('Session expired'));
+        }
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+          else reject(new Error(data.error || `Upload failed (${xhr.status})`));
+        } catch (e) {
+          reject(new Error(`Upload failed (${xhr.status}) — server returned unexpected response`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error — check your connection and try again'));
+      xhr.send(formData);
+    });
+  },
+
+  // Marketing calendar
+  getMarketingCalendar: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/marketing-calendar${qs ? `?${qs}` : ''}`);
+  },
+  getMarketingCalendarOptions: () => request('/marketing-calendar/options'),
+  createCalendarRow: (data) => request('/marketing-calendar', { method: 'POST', body: JSON.stringify(data) }),
+  updateCalendarRow: (id, data) => request(`/marketing-calendar/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCalendarRow: (id) => request(`/marketing-calendar/${id}`, { method: 'DELETE' }),
+  saveCalendarMonthNotes: (month, notes) => request(`/marketing-calendar/month/${month}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) }),
 
   // Partners CRM
   getPartners: (params = {}) => {

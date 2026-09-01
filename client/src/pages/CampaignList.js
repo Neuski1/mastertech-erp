@@ -2,6 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { formatDate } from '../utils/dateFormat';
+import MarketingNav from '../components/MarketingNav';
+
+const TYPE_BADGE = {
+  social: { bg: '#fce7f0', color: '#c2255c', label: 'Social' },
+  email: { bg: '#e3ebf5', color: '#1e3a5f', label: 'Email' },
+};
+
+// Same four words the calendar uses.
+const APPROVAL_BADGE = {
+  draft: { bg: '#f3f4f6', color: '#374151', label: 'Draft' },
+  needs_photo: { bg: '#fef3c7', color: '#92400e', label: 'Needs Photo' },
+  approved: { bg: '#d1fae5', color: '#065f46', label: 'Approved' },
+  rejected: { bg: '#fee2e2', color: '#991b1b', label: 'Sent Back' },
+  posted: { bg: '#dbeafe', color: '#1e40af', label: 'Posted' },
+};
 
 export default function CampaignList() {
   const [campaigns, setCampaigns] = useState([]);
@@ -49,8 +64,12 @@ export default function CampaignList() {
 
   return (
     <div>
+      <MarketingNav />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ margin: 0, color: '#1e3a5f' }}>Email Campaigns</h1>
+        <div>
+          <h1 style={{ margin: 0, color: '#1e3a5f' }}>Campaigns</h1>
+          <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#6b7280' }}>Email sends and social posts, drafts included.</p>
+        </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={loadAudit} style={btnSecondary}>{showAudit ? 'Hide Audit' : 'Audience Audit'}</button>
           <button onClick={() => navigate('/marketing/new')} style={btnPrimary}>+ New Campaign</button>
@@ -151,6 +170,7 @@ export default function CampaignList() {
             <tr>
               <th style={thStyle}>Name</th>
               <th style={thStyle}>Template</th>
+              <th style={thStyle}>Approval</th>
               <th style={thStyle}>Status</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Recipients</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Sent</th>
@@ -160,12 +180,31 @@ export default function CampaignList() {
           </thead>
           <tbody>
             {campaigns.length === 0 && (
-              <tr><td colSpan="7" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No campaigns yet</td></tr>
+              <tr><td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No campaigns yet</td></tr>
             )}
             {campaigns.map(c => (
               <tr key={c.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                 <td style={tdStyle}><span style={{ fontWeight: 600, color: '#1e3a5f' }}>{c.name}</span></td>
-                <td style={tdStyle}>{c.template_type === 'service_reminder' ? 'Service Reminder' : 'Seasonal'}</td>
+                <td style={tdStyle}>
+                  {(() => {
+                    const t = TYPE_BADGE[c.campaign_type === 'social' ? 'social' : 'email'];
+                    const detail = c.campaign_type === 'social'
+                      ? (c.platforms || 'Social')
+                      : (c.template_type === 'service_reminder' ? 'Service Reminder' : 'Seasonal');
+                    return (
+                      <>
+                        <span style={{ padding: '2px 8px', borderRadius: '9999px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: t.bg, color: t.color, marginRight: '6px' }}>{t.label}</span>
+                        <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{detail}</span>
+                      </>
+                    );
+                  })()}
+                </td>
+                <td style={tdStyle}>
+                  {(() => {
+                    const a = APPROVAL_BADGE[c.approval_status] || APPROVAL_BADGE.draft;
+                    return <span style={{ padding: '2px 8px', borderRadius: '9999px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: a.bg, color: a.color }}>{a.label}</span>;
+                  })()}
+                </td>
                 <td style={tdStyle}>
                   {statusBadge(c.status)}
                   {c.status === 'sending' && <span style={{ fontSize: '0.75rem', color: '#92400e', marginLeft: '6px' }}>{c.sent_count} of {c.recipient_count}</span>}
