@@ -64,6 +64,7 @@ app.use('/api/records/approve', require('./routes/estimate-approval')); // Custo
 app.use('/api/appointments/reschedule', require('./routes/appointmentReschedule')); // Public reschedule-request form from confirmation email
 app.use('/api/estimate-lines/approve', require('./routes/estimate-line-approval')); // Line-level approval from email
 app.use('/api/public/records', require('./routes/publicPhotos')); // Token-protected photo links in customer emails
+app.use('/api/public/marketing-images', require('./routes/publicMarketingImages')); // Campaign email images — public by design, library only
 
 // Protected API routes — all require authentication
 app.use('/api/records', requireAuth, require('./routes/records'));
@@ -110,6 +111,8 @@ app.use('/api/bookkeeping/storage-revenue', (req, res, next) => {
 app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/cowork-admin', require('./routes/cowork-admin')); // API-key auth, separate from JWT
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
+app.use('/api/marketing-images', requireAuth, require('./routes/marketingImages'));
+app.use('/api/marketing-calendar', requireAuthOrApiKey, require('./routes/marketingCalendar')); // Browser uses JWT, Terri and Smile use the cowork key
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/partners', requireAuth, require('./routes/partners'));
 // Automated order import (X-Cowork-Key auth, like cowork-admin). Mounted BEFORE
@@ -1047,6 +1050,89 @@ require('./db/pool').query(`
   CREATE INDEX IF NOT EXISTS idx_hys_billing ON help_you_sell_agreements(billing_id);
 `).then(() => console.log('Migration 053 (help you sell) ready'))
   .catch(err => console.error('Migration 053 error:', err.message));
+
+// Migration 060: marketing image library. Campaign emails need images at a
+// public URL; work order photos stay private behind their token route. Picking
+// a work order photo COPIES the bytes here, so nothing becomes public by
+// accident and deleting the photo never breaks a sent email.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS marketing_images (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255),
+    alt_text VARCHAR(255),
+    filename VARCHAR(255),
+    content_type VARCHAR(100) DEFAULT 'image/jpeg',
+    file_size INTEGER DEFAULT 0,
+    width INTEGER,
+    height INTEGER,
+    image_data BYTEA NOT NULL,
+    thumbnail_data BYTEA,
+    source VARCHAR(30) DEFAULT 'upload',
+    source_record_id INTEGER,
+    source_photo_id INTEGER,
+    tags TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_marketing_images_created ON marketing_images(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_marketing_images_source ON marketing_images(source_record_id);
+`).then(() => console.log('Migration 060 (marketing images) ready'))
+  .catch(err => console.error('Migration 060 error:', err.message));
+
+// Migration 060b: campaign hero image. A campaign can swap the stock mountain
+// shot for anything in the marketing library, or drop the hero entirely.
+pool.query(`
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS hero_image_url TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS hero_alt VARCHAR(255);
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS hero_caption TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS campaign_type VARCHAR(20) DEFAULT 'email';
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS platforms TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS post_caption TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS scheduled_for DATE;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS image_urls TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS calendar_row_id INTEGER;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'draft';
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS approved_by INTEGER;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS approval_note TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS rejected_reason TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ;
+`).then(() => console.log('Migration 060b (campaign hero image + social posts + approval) ready'))
+  .catch(err => console.error('Migration 060b error:', err.message));
+
+// Migration 061: marketing calendar. Twelve rolling months, six behind and six
+// ahead. The ERP is the master; Terri and Smile read and write these rows
+// through /api/marketing-calendar instead of a markdown file on OneDrive.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS marketing_calendar (
+    id SERIAL PRIMARY KEY,
+    month DATE NOT NULL,
+    scheduled_date DATE,
+    date_note VARCHAR(40),
+    channel VARCHAR(30) NOT NULL,
+    piece TEXT NOT NULL,
+    owner VARCHAR(40),
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    response TEXT,
+    notes TEXT,
+    campaign_id INTEGER REFERENCES email_campaigns(id) ON DELETE SET NULL,
+    record_id INTEGER,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_marketing_calendar_month ON marketing_calendar(month);
+  CREATE INDEX IF NOT EXISTS idx_marketing_calendar_owner ON marketing_calendar(owner);
+  CREATE TABLE IF NOT EXISTS marketing_calendar_months (
+    month DATE PRIMARY KEY,
+    notes TEXT,
+    rebuilt_at TIMESTAMPTZ
+  );
+`).then(() => console.log('Migration 061 (marketing calendar) ready'))
+  .catch(err => console.error('Migration 061 error:', err.message));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
