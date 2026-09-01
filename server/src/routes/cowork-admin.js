@@ -686,8 +686,11 @@ router.get('/square-fee-summary', requireCoworkKey, async (req, res) => {
 
     // v44 returns an async-iterable page object; the other shapes are defensive,
     // matching listRecentPayments in squareReconcileCron.
+    // sortField is required whenever sortOrder is supplied; omitting it makes
+    // the SDK send an empty enum and Square rejects the call.
     const resp = await square.client.payments.list({
-      locationId: square.locationId, beginTime, endTime, sortOrder: 'ASC',
+      locationId: square.locationId, beginTime, endTime,
+      sortField: 'CREATED_AT', sortOrder: 'ASC',
     });
     let payments = [];
     if (Array.isArray(resp)) payments = resp;
