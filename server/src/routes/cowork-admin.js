@@ -688,18 +688,30 @@ router.get('/square-fee-summary', requireCoworkKey, async (req, res) => {
     // matching listRecentPayments in squareReconcileCron.
     // sortField is required whenever sortOrder is supplied; omitting it makes
     // the SDK send an empty enum and Square rejects the call.
-    const resp = await square.client.payments.list({
+    const params = {
       locationId: square.locationId, beginTime, endTime,
       sortField: 'CREATED_AT', sortOrder: 'ASC',
-    });
-    let payments = [];
-    if (Array.isArray(resp)) payments = resp;
-    else if (resp?.data && Array.isArray(resp.data)) payments = resp.data;
-    else if (resp?.result?.payments) payments = resp.result.payments;
-    else if (resp?.payments) payments = resp.payments;
-    else if (resp && typeof resp[Symbol.asyncIterator] === 'function') {
-      for await (const item of resp) { payments.push(item); if (payments.length >= 20000) break; }
+    };
+    // Page explicitly. Async-iterating the returned page object yields only the
+    // first 100 payments, which silently truncated a full year to three months.
+    const payments = [];
+    let page = await square.client.payments.list(params);
+    let guard = 0;
+    while (page && guard++ < 500) {
+      const items = Array.isArray(page)
+        ? page
+        : (page.data || page.payments || page.result?.payments || []);
+      for (const p of items) payments.push(p);
+      if (typeof page.hasNextPage === 'function' && typeof page.getNextPage === 'function') {
+        if (!page.hasNextPage()) break;
+        page = await page.getNextPage();
+      } else {
+        const cursor = page.cursor || page.response?.cursor || page.result?.cursor || null;
+        if (!cursor) break;
+        page = await square.client.payments.list({ ...params, cursor });
+      }
     }
+    const pagesFetched = guard;
 
     const cents = (m) => Number(m?.amount ?? 0);
     const months = new Map();
@@ -731,7 +743,7 @@ router.get('/square-fee-summary', requireCoworkKey, async (req, res) => {
     });
     const sum = (f) => Math.round(rows.reduce((a, r) => a + r[f] * 100, 0)) / 100;
     res.json({
-      year, scanned: payments.length, skipped,
+      year, scanned: payments.length, skipped, pages: pagesFetched,
       months: rows,
       totals: { payments: rows.reduce((a, r) => a + r.payments, 0),
                 gross: sum('gross'), fees: sum('fees'),
