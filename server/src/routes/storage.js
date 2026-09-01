@@ -3,7 +3,6 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { getSetting } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
-const { syncChargeToLedger } = require('../services/storageLedger');
 const { sendSMS } = require('../services/sms');
 // Square billing removed — Square handles recurring billing automatically
 
@@ -811,8 +810,9 @@ router.post('/run-billing', requireRole('admin'), async (req, res) => {
          `Storage: ${billing.space_label} — ${customerName}`, req.user?.id || null]
       );
 
-      // Mirror into the GL ledger (account 4000) so storage income is counted once.
-      await syncChargeToLedger(client, charge.id);
+      // No GL mirror. Storage rent is already inside the bank deposits the
+      // close entries are built from, so mirroring it into the transactions
+      // table counted the same rent twice in account 4000.
 
       totalAmount += amount;
       results.push({
@@ -872,8 +872,9 @@ router.post('/charges', requireRole('admin'), async (req, res) => {
         req.user?.id || null,
       ]
     );
-    // Mirror into the GL ledger (account 4000) so storage income is counted once.
-    await syncChargeToLedger(client, rows[0].id);
+    // No GL mirror. Storage rent is already inside the bank deposits the
+    // close entries are built from, so mirroring it into the transactions
+    // table counted the same rent twice in account 4000.
     await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -972,8 +973,9 @@ router.patch('/charges/:id', requireRole('admin'), async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Charge not found' });
     }
-    // Keep the mirrored GL ledger row (account 4000) in sync with the edit.
-    await syncChargeToLedger(client, rows[0].id);
+    // No GL mirror. Storage rent is already inside the bank deposits the
+    // close entries are built from, so mirroring it into the transactions
+    // table counted the same rent twice in account 4000.
     await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {
@@ -1218,7 +1220,13 @@ router.post('/payment-grid', requireRole('admin', 'service_writer', 'technician'
             );
             charge = ins[0] || null;
           }
-          if (charge) await syncChargeToLedger(client, charge.id);
+          // Deliberately no ledger mirror. The P&L is built from journal
+          // entries at close, sourced from the bank statement, and storage rent
+          // is already inside those deposits. Mirroring storage_charges into
+          // the transactions table put the same rent in the same income account
+          // twice; 59 such rows were removed Aug 31 2026. storage_charges stays
+          // the customer's billing history and the Reports revenue summary
+          // reads collections from storage_payment_status.
         }
       }
       await client.query('COMMIT');

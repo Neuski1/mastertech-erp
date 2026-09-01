@@ -5,34 +5,7 @@
 // a balance owed, so it can never double-record.
 const cron = require('node-cron');
 const pool = require('../db/pool');
-const { syncChargeToLedger } = require('../services/storageLedger');
 
-// Mirror a storage charge into the general ledger. storage_charges is the
-// source of storage income: the bridge posts each row to GL 4000 and the
-// Revenue Summary reads the ledger, not the charge table. Only the old manual
-// billing-run button ever called this, so every space collected by autopay or
-// by an online payment showed collected on the grid while the income never
-// reached the books. Best effort and idempotent (UNIQUE on storage_charge_id):
-// a bookkeeping failure must never undo a charge the customer already paid.
-async function mirrorChargeToLedger(dbc, billingId, chargeMonth, tag) {
-  try {
-    const { rows } = await dbc.query(
-      `SELECT id FROM storage_charges WHERE billing_id = $1::int AND charge_month = $2::varchar`,
-      [billingId, chargeMonth]
-    );
-    if (!rows.length) return;
-    await dbc.query('BEGIN');
-    try {
-      await syncChargeToLedger(dbc, rows[0].id);
-      await dbc.query('COMMIT');
-    } catch (e) {
-      try { await dbc.query('ROLLBACK'); } catch (_) {}
-      throw e;
-    }
-  } catch (e) {
-    console.error(`[${tag}] ledger mirror failed for billing ${billingId} ${chargeMonth}:`, e.message);
-  }
-}
 
 const { recalculateTotals } = require('../db/calculations');
 const { client: squareClient, locationId } = require('../services/square');
@@ -195,11 +168,12 @@ async function recordStoragePayment(payment) {
            FROM storage_billing sb WHERE sb.id = $1::int
             AND NOT EXISTS (SELECT 1 FROM storage_charges sc
                              WHERE sc.billing_id = $1::int AND sc.charge_month = $3::varchar)`,
-        [r.storage_billing_id, share, `${year}-${String(month).padStart(2, '0')}`,
+        // Rent only. The card convenience fee is taken by Square before the
+        // deposit lands, so it is not income we receive. storage_payment_status
+        // above still carries the gross the customer actually paid.
+        [r.storage_billing_id, parseFloat(r.rent || 0), `${year}-${String(month).padStart(2, '0')}`,
          `Storage paid online (Square ${payId})`]
       );
-      await mirrorChargeToLedger(dbc, r.storage_billing_id,
-        `${year}-${String(month).padStart(2, '0')}`, 'squareReconcile');
     }
     console.log(`[squareReconcile] Storage invoice S${m[1]}${m[2]}-${customerId} marked paid (${rows.length} space(s), payment ${payId})`);
     return { recorded: true, spaces: rows.length };

@@ -293,6 +293,7 @@ export const api = {
     return request(`/reports/financial${qs ? `?${qs}` : ''}`);
   },
   getClosedInvoices: ({ from, to }) => request(`/reports/closed-invoices?from=${from}&to=${to}`),
+  getShopToBankBridge: (year) => request(`/reports/shop-to-bank-bridge?year=${year}`),
 
   // Bookkeeper adjustments
   getBookkeeperAdjustments: (params = {}) => {

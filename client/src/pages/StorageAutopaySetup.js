@@ -27,6 +27,10 @@ export default function StorageAutopaySetup() {
   const [authorized, setAuthorized] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
+  // An enrolled customer whose card just declined needs to swap it themselves.
+  // The page used to dead-end them on "call us", which is the one thing they
+  // cannot do at 9pm when the decline email lands.
+  const [replacing, setReplacing] = useState(false);
   const cardRef = useRef(null);
   const mountedRef = useRef(false);
 
@@ -53,7 +57,7 @@ export default function StorageAutopaySetup() {
 
   // Mount Square card form once we have config and the customer isn't already enrolled.
   useEffect(() => {
-    if (!config || !info || info.already_enrolled || done || mountedRef.current) return;
+    if (!config || !info || (info.already_enrolled && !replacing) || done || mountedRef.current) return;
     mountedRef.current = true;
     (async () => {
       try {
@@ -66,7 +70,7 @@ export default function StorageAutopaySetup() {
         setError(e.message || 'Could not start the card form.');
       }
     })();
-  }, [config, info, done]);
+  }, [config, info, done, replacing]);
 
   const handleSubmit = useCallback(async () => {
     if (!cardRef.current) return;
@@ -121,21 +125,33 @@ export default function StorageAutopaySetup() {
     );
   }
 
-  if (info && info.already_enrolled) {
+  if (info && info.already_enrolled && !replacing) {
     return shell(
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: 40 }}>&#128179;</div>
         <h2 style={{ color: NAVY, margin: '8px 0 12px', fontSize: 18 }}>You&rsquo;re already on autopay</h2>
-        <p style={{ color: '#374151', fontSize: 14 }}>We have your {info.card_brand || 'card'}{info.card_last4 ? ` ending in ${info.card_last4}` : ''} on file for {info.space_label}. To change it, please call us at (303) 557-2214.</p>
+        <p style={{ color: '#374151', fontSize: 14 }}>We have your {info.card_brand || 'card'}{info.card_last4 ? ` ending in ${info.card_last4}` : ''} on file for {info.space_label}.</p>
+        <p style={{ color: '#374151', fontSize: 14 }}>If that card has expired or was declined, you can put a new one on file right here.</p>
+        <button
+          onClick={() => { setReplacing(true); setAuthorized(false); }}
+          style={{ marginTop: 8, padding: '12px 22px', background: NAVY, color: '#fff', border: 'none',
+                   borderRadius: 6, fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>
+          Use a Different Card
+        </button>
+        <p style={{ color: '#6b7280', fontSize: 13, marginTop: 16 }}>Or call us at (303) 557-2214 and we will take care of it.</p>
       </div>
     );
   }
 
   return shell(
     <>
-      <h2 style={{ color: NAVY, margin: '0 0 6px', fontSize: 20 }}>Set Up Monthly Autopay</h2>
+      <h2 style={{ color: NAVY, margin: '0 0 6px', fontSize: 20 }}>
+        {replacing ? 'Replace Your Card on File' : 'Set Up Monthly Autopay'}
+      </h2>
       <p style={{ color: '#374151', fontSize: 14, margin: '0 0 16px' }}>
-        Hi {info.customer_name || 'there'}, save a card so your storage rent is paid automatically each month. No more monthly invoices to remember.
+        {replacing
+          ? `Hi ${info.customer_name || 'there'}, enter the new card below. It replaces the ${info.card_brand || 'card'}${info.card_last4 ? ` ending in ${info.card_last4}` : ''} we had on file and will be used for your monthly storage rent.`
+          : `Hi ${info.customer_name || 'there'}, save a card so your storage rent is paid automatically each month. No more monthly invoices to remember.`}
       </p>
       <div style={{ padding: '12px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, marginBottom: 18, fontSize: 14, color: '#1e3a5f' }}>
         <strong>{info.space_label}</strong> ({info.space_type})<br/>

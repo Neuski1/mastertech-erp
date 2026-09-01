@@ -320,4 +320,10 @@ router.get('/closed-invoices', requireRole('admin', 'bookkeeper'), async (req, r
   }
 });
 
+// GET /api/reports/shop-to-bank-bridge?year=YYYY — reconciles what the shop
+// produced (this module) to what the books received (Bookkeeping). Handler
+// lives in its own file; it is long and has nothing to do with the reports
+// above.
+router.get('/shop-to-bank-bridge', requireRole('admin', 'bookkeeper'), require('./shopToBankBridge'));
+
 module.exports = router;
