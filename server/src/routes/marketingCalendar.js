@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const { humansOnly } = require('../middleware/agentAuth');
 
 // ---------------------------------------------------------------------------
-// Marketing calendar. Rolling twelve months, six behind and six ahead.
+// Marketing calendar. Twelve months forward, plus a few behind for the
+// response column.
 //
 // The ERP is the master. This replaced the marketing-calendar.md file Terri
 // rebuilt on the last Monday of each month — the agents now read and write
@@ -11,8 +13,8 @@ const pool = require('../db/pool');
 // live in the same place and the response column can be filled from real data
 // instead of retyped.
 //
-// Mounted with requireAuthOrApiKey: the browser uses a JWT, the marketing
-// agents use the cowork API key.
+// Mounted with requireAuthOrAgentKey: the browser uses a JWT, the marketing
+// agents use MARKETING_AGENT_KEY in the X-Cowork-Key header.
 // ---------------------------------------------------------------------------
 
 // These must match the lists in client/src/pages/MarketingCalendar.js. Terri and
@@ -28,6 +30,22 @@ function monthStart(value) {
   const m = s.match(/^(\d{4})-(\d{2})/);
   if (!m) return null;
   return `${m[1]}-${m[2]}-01`;
+}
+
+// RETURNING * hands back a JS Date for a DATE column. Reshape it to the same
+// plain YYYY-MM-DD the GET returns, so a caller never sees two date formats
+// from the same resource. node-pg parses DATE at LOCAL midnight, so read the
+// local calendar fields; toISOString() would shift the day in any zone ahead
+// of UTC.
+function plainDate(d) {
+  if (!d) return null;
+  if (typeof d === 'string') return d.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function shapeRow(row) {
+  if (!row) return row;
+  return { ...row, month: plainDate(row.month), scheduled_date: plainDate(row.scheduled_date) };
 }
 
 function shiftMonth(isoMonth, delta) {
@@ -51,8 +69,21 @@ router.get('/', async (req, res) => {
     const from = monthStart(req.query.from) || win.from;
     const to = monthStart(req.query.to) || win.to;
 
+    // to_char, not the raw DATE. node-pg turns a DATE into a JS Date in the
+    // server's local zone, and String(thatDate) is "Tue Sep 01 2026 00:00:00
+    // GMT-0600 (...)", so slicing ten characters off it gave "Tue Sep 0" and
+    // matched no month key. Every row read back as missing while sitting
+    // perfectly intact in the table. Return the date as a plain YYYY-MM-DD
+    // string and there is no zone and no parsing to get wrong.
     const { rows } = await pool.query(
-      `SELECT mc.*, c.name AS campaign_name, c.status AS campaign_status,
+      `SELECT mc.id,
+              to_char(mc.month, 'YYYY-MM-DD') AS month,
+              to_char(mc.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+              mc.date_note, mc.channel, mc.piece, mc.owner, mc.status,
+              mc.response, mc.notes, mc.campaign_id, mc.record_id,
+              mc.created_at, mc.updated_at,
+              c.name AS campaign_name, c.status AS campaign_status,
+              c.approval_status AS campaign_approval_status,
               r.record_number
        FROM marketing_calendar mc
        LEFT JOIN email_campaigns c ON c.id = mc.campaign_id
@@ -63,11 +94,12 @@ router.get('/', async (req, res) => {
     );
 
     const { rows: notes } = await pool.query(
-      'SELECT month, notes, rebuilt_at FROM marketing_calendar_months WHERE month BETWEEN $1 AND $2',
+      `SELECT to_char(month, 'YYYY-MM-DD') AS month, notes, rebuilt_at
+       FROM marketing_calendar_months WHERE month BETWEEN $1 AND $2`,
       [from, to]
     );
     const notesByMonth = {};
-    for (const n of notes) notesByMonth[String(n.month).slice(0, 10)] = n;
+    for (const n of notes) notesByMonth[n.month] = n;
 
     // Build every month in the window, empty ones included, so a month with no
     // activity reads as "nothing was planned" instead of silently vanishing.
@@ -79,7 +111,7 @@ router.get('/', async (req, res) => {
         month: key,
         notes: notesByMonth[key]?.notes || '',
         rebuilt_at: notesByMonth[key]?.rebuilt_at || null,
-        rows: rows.filter(r => String(r.month).slice(0, 10) === key),
+        rows: rows.filter(r => r.month === key),
       });
       cursor = shiftMonth(cursor, 1);
     }
@@ -131,7 +163,7 @@ router.post('/', async (req, res) => {
         b.channel,
         b.piece,
         b.owner || null,
-        b.status || 'planned',
+        b.status || 'draft',
         b.response || null,
         b.notes || null,
         b.campaign_id || null,
@@ -139,7 +171,7 @@ router.post('/', async (req, res) => {
         req.user?.id || null,
       ]
     );
-    res.status(201).json(rows[0]);
+    res.status(201).json(shapeRow(rows[0]));
   } catch (err) {
     console.error('Marketing calendar create error:', err);
     res.status(500).json({ error: err.message });
@@ -176,7 +208,7 @@ router.post('/import', async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
         [
           month, b.scheduled_date || null, b.date_note || null, b.channel, b.piece,
-          b.owner || null, b.status || 'planned', b.response || null, b.notes || null,
+          b.owner || null, b.status || 'draft', b.response || null, b.notes || null,
           b.campaign_id || null, b.record_id || null, req.user?.id || null,
         ]
       );
@@ -229,7 +261,7 @@ router.patch('/:id', async (req, res) => {
       params
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Calendar row not found' });
-    res.json(rows[0]);
+    res.json(shapeRow(rows[0]));
   } catch (err) {
     console.error('Marketing calendar update error:', err);
     res.status(500).json({ error: err.message });
@@ -237,9 +269,14 @@ router.patch('/:id', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /api/marketing-calendar/:id — soft delete, history matters here
+// DELETE /api/marketing-calendar/:id — soft delete, history matters here.
+//
+// People only. Terri found the agent key could delete rows, which contradicted
+// the brief she was handed. A rebuild still clears months through
+// /import with replace_months, which is scoped to the months being rebuilt;
+// deleting one arbitrary row is a human decision.
 // ---------------------------------------------------------------------------
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', humansOnly, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'UPDATE marketing_calendar SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id',
