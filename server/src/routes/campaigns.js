@@ -13,13 +13,13 @@ const { sendEmail } = require('../services/email');
 // send is already blocked until approval_status = 'approved'. A person is
 // always the one who says yes.
 // ---------------------------------------------------------------------------
+const { requireAuthOrAgentKey } = require('../middleware/agentAuth');
+
 function requireAdminOrAgentKey(req, res, next) {
-  const provided = req.headers['x-cowork-key'];
-  if (provided && process.env.COWORK_API_KEY && provided === process.env.COWORK_API_KEY) {
-    req.isAgent = true;
-    return next();
-  }
-  return requireAuth(req, res, () => requireRole('admin')(req, res, next));
+  return requireAuthOrAgentKey(req, res, () => {
+    if (req.isAgent) return next();          // key already vouched for it
+    return requireRole('admin')(req, res, next);
+  });
 }
 
 const DAILY_LIMIT = 10000;     // Paid plan — no daily cap

@@ -97,6 +97,18 @@ router.get('/', async (req, res) => {
 router.get('/options', (req, res) => res.json({ channels: CHANNELS, statuses: STATUSES, owners: OWNERS }));
 
 // ---------------------------------------------------------------------------
+// GET /api/marketing-calendar/whoami — key check.
+// First call an agent should make. Says which credential got it in, so a 401
+// is never confused with a broken endpoint.
+// ---------------------------------------------------------------------------
+router.get('/whoami', (req, res) => res.json({
+  ok: true,
+  authenticated_as: req.agentName ? `${req.agentName} agent key` : `signed-in user (${req.user?.email || 'unknown'})`,
+  can_write_calendar: true,
+  can_approve: !req.isAgent,
+}));
+
+// ---------------------------------------------------------------------------
 // POST /api/marketing-calendar — one row
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {

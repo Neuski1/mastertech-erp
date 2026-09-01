@@ -1,10 +1,17 @@
 // ---------------------------------------------------------------------------
 // requireAuthOrAgentKey — a browser JWT, or one of the two automation keys.
 //
-// There are two keys in this system and they are easy to confuse:
-//   X-Cowork-Key  → COWORK_API_KEY   the Cowork agents (Terri, Smile, the ERP
-//                                    agent's SQL endpoint)
-//   X-API-Key     → IMPORT_API_KEY   the Gmail order-import job
+// There are three keys in this system and they are easy to confuse:
+//   X-Cowork-Key  → MARKETING_AGENT_KEY  Terri and Smile. Marketing routes only.
+//   X-Cowork-Key  → COWORK_API_KEY       the ERP agent. Also opens
+//                                        /api/cowork-admin/*, which runs
+//                                        arbitrary SQL. Do not hand this one to
+//                                        a marketing agent.
+//   X-API-Key     → IMPORT_API_KEY       the Gmail order-import job
+//
+// Same header, different values, different blast radius. MARKETING_AGENT_KEY
+// reaches nothing outside the routes mounted with this middleware, so it can be
+// rotated without touching the nightly backup or the accountant skill.
 //
 // `requireAuthOrApiKey` in middleware/auth.js accepts ONLY the second one.
 // Anything meant for the marketing agents must use this instead, or the agent
@@ -18,8 +25,20 @@ const { requireAuth } = require('./auth');
 
 function requireAuthOrAgentKey(req, res, next) {
   const coworkKey = req.headers['x-cowork-key'];
+
+  // Preferred: the marketing-only key.
+  if (coworkKey && process.env.MARKETING_AGENT_KEY && coworkKey === process.env.MARKETING_AGENT_KEY) {
+    req.isAgent = true;
+    req.agentName = 'marketing';
+    req.user = { id: null, email: 'marketing-agent@mastertechrvrepair.com', name: 'Marketing Agent', role: 'admin' };
+    return next();
+  }
+
+  // Still accepted so the ERP agent can read and repair these tables. If
+  // MARKETING_AGENT_KEY is not set yet, this is what Terri will be using.
   if (coworkKey && process.env.COWORK_API_KEY && coworkKey === process.env.COWORK_API_KEY) {
     req.isAgent = true;
+    req.agentName = 'cowork';
     req.user = { id: null, email: 'agent@mastertechrvrepair.com', name: 'Cowork Agent', role: 'admin' };
     return next();
   }
