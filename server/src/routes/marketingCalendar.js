@@ -15,8 +15,11 @@ const pool = require('../db/pool');
 // agents use the cowork API key.
 // ---------------------------------------------------------------------------
 
-const CHANNELS = ['Email', 'Instagram', 'Facebook', 'YouTube', 'Partner', 'Website', 'Ads', 'Other'];
-const STATUSES = ['planned', 'ready', 'needs_photo', 'on_hold', 'ran', 'skipped'];
+// These must match the lists in client/src/pages/MarketingCalendar.js. Terri and
+// Smile read them from GET /options, so drift here sends the agents bad values.
+const CHANNELS = ['Email', 'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Partner', 'Website', 'Other'];
+const STATUSES = ['draft', 'needs_photo', 'approved', 'posted', 'skipped'];
+const OWNERS = ['Terri', 'Smile', 'Carol', 'SEO/GEO'];
 
 function monthStart(value) {
   // Accepts '2026-09', '2026-09-01', or a Date. Returns 'YYYY-MM-01'.
@@ -91,7 +94,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/marketing-calendar/options
 // ---------------------------------------------------------------------------
-router.get('/options', (req, res) => res.json({ channels: CHANNELS, statuses: STATUSES }));
+router.get('/options', (req, res) => res.json({ channels: CHANNELS, statuses: STATUSES, owners: OWNERS }));
 
 // ---------------------------------------------------------------------------
 // POST /api/marketing-calendar — one row

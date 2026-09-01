@@ -4,6 +4,24 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 
+// ---------------------------------------------------------------------------
+// Drafting is agent work. Approving and sending are not.
+//
+// Smile creates and edits campaign DRAFTS with the cowork key so a piece Terri
+// put on the calendar can be built without a human retyping it. Approve,
+// reject, needs-photo, send, mark-posted and delete stay JWT admin only, and
+// send is already blocked until approval_status = 'approved'. A person is
+// always the one who says yes.
+// ---------------------------------------------------------------------------
+function requireAdminOrAgentKey(req, res, next) {
+  const provided = req.headers['x-cowork-key'];
+  if (provided && process.env.COWORK_API_KEY && provided === process.env.COWORK_API_KEY) {
+    req.isAgent = true;
+    return next();
+  }
+  return requireAuth(req, res, () => requireRole('admin')(req, res, next));
+}
+
 const DAILY_LIMIT = 10000;     // Paid plan — no daily cap
 const BATCH_SIZE = 8;          // Send 8 at a time (under Resend's 10/sec paid limit)
 const BATCH_DELAY_MS = 1200;   // 1.2 seconds between batches → ~6-7 emails/sec
@@ -177,19 +195,19 @@ router.get('/audit', requireAuth, requireRole('admin'), async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/campaigns — list all
 // ---------------------------------------------------------------------------
-router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/', requireAdminOrAgentKey, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT 100'
     );
-    res.json(rows);
+    res.json(rows); // list only; no recipient names or emails here
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ---------------------------------------------------------------------------
 // POST /api/campaigns — create
 // ---------------------------------------------------------------------------
-router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/', requireAdminOrAgentKey, async (req, res) => {
   const { name, template_type, subject, body_html, target_filter,
     hero_image_url, hero_alt, hero_caption,
     campaign_type, platforms, post_caption, scheduled_for, image_urls, calendar_row_id } = req.body;
@@ -204,7 +222,7 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
                                     hero_image_url, hero_alt, hero_caption,
                                     campaign_type, platforms, post_caption, scheduled_for, image_urls, calendar_row_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-      [name, template_type, subject || '', body_html || '', target_filter ? JSON.stringify(target_filter) : null, req.user.id,
+      [name, template_type, subject || '', body_html || '', target_filter ? JSON.stringify(target_filter) : null, req.user?.id || null,
         hero_image_url ?? null, hero_alt ?? null, hero_caption ?? null,
         type, platforms ?? null, post_caption ?? null, scheduled_for || null, image_urls ?? null, calendar_row_id || null]
     );
@@ -245,7 +263,7 @@ router.get('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/campaigns/:id — update draft
 // ---------------------------------------------------------------------------
-router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+router.patch('/:id', requireAdminOrAgentKey, async (req, res) => {
   const { name, subject, body_html, target_filter, template_type,
     hero_image_url, hero_alt, hero_caption } = req.body;
   const updates = []; const values = []; let idx = 1;
@@ -261,6 +279,8 @@ router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   }
   if (req.body.scheduled_for !== undefined) { updates.push(`scheduled_for = $${idx++}`); values.push(req.body.scheduled_for || null); }
   if (req.body.approval_status !== undefined) {
+    // An agent never approves its own work.
+    if (req.isAgent) return res.status(403).json({ error: 'approval_status cannot be set with the agent key. A person approves in the module.' });
     if (!APPROVAL_STATUSES.includes(req.body.approval_status)) {
       return res.status(400).json({ error: `approval_status must be one of ${APPROVAL_STATUSES.join(', ')}` });
     }

@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
+const { humansOnly } = require('../middleware/agentAuth');
 
 // ---------------------------------------------------------------------------
 // Marketing image library.
@@ -292,7 +293,7 @@ router.patch('/:id', requireRole('admin', 'service_writer'), async (req, res) =>
 // DELETE /api/marketing-images/:id — archive, never destroy.
 // A sent email points at this URL forever.
 // ---------------------------------------------------------------------------
-router.delete('/:id', requireRole('admin'), async (req, res) => {
+router.delete('/:id', humansOnly, requireRole('admin'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       'UPDATE marketing_images SET archived_at = NOW() WHERE id = $1 RETURNING id',

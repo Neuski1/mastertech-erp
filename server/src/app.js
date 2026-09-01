@@ -18,6 +18,7 @@ require('dotenv').config({ quiet: true });
 BigInt.prototype.toJSON = function () { return Number(this); };
 
 const { requireAuth, requireAuthOrApiKey, requireRole } = require('./middleware/auth');
+const { requireAuthOrAgentKey } = require('./middleware/agentAuth');
 
 const app = express();
 
@@ -111,8 +112,11 @@ app.use('/api/bookkeeping/storage-revenue', (req, res, next) => {
 app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/cowork-admin', require('./routes/cowork-admin')); // API-key auth, separate from JWT
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
-app.use('/api/marketing-images', requireAuth, require('./routes/marketingImages'));
-app.use('/api/marketing-calendar', requireAuthOrApiKey, require('./routes/marketingCalendar')); // Browser uses JWT, Terri and Smile use the cowork key
+// Browser uses JWT; Terri and Smile use X-Cowork-Key. Note this is
+// requireAuthOrAgentKey, NOT requireAuthOrApiKey — the latter checks
+// IMPORT_API_KEY (the Gmail job) and would 401 the marketing agents.
+app.use('/api/marketing-images', requireAuthOrAgentKey, require('./routes/marketingImages'));
+app.use('/api/marketing-calendar', requireAuthOrAgentKey, require('./routes/marketingCalendar'));
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
 app.use('/api/partners', requireAuth, require('./routes/partners'));
 // Automated order import (X-Cowork-Key auth, like cowork-admin). Mounted BEFORE
