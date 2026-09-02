@@ -68,6 +68,8 @@ const CHECK_IN_OPTIONS = [
   { value: '365', label: 'Once a year' },
 ];
 
+const KNOWN_DUE_REASONS = new Set(DUE_REASONS.map(r => r.key));
+
 const STAGE_MAP = {};
 STAGES.forEach(s => { STAGE_MAP[s.key] = s; });
 const ACTIVITY_MAP = {};
@@ -470,6 +472,30 @@ export default function Partners() {
               );
             })
           )}
+
+          {/* Catch-all. The due reasons come from the partners_due view, so a
+              database change can introduce one this build has never heard of.
+              Without this, those rows match no group and vanish silently — which
+              is exactly how Arapahoe Self Storage disappeared on 2026-09-02 when
+              check_in_due shipped to the view ahead of the UI. Never drop a row
+              on the floor because of an unrecognized label. */}
+          {(() => {
+            const orphans = visibleDue.filter(p => !KNOWN_DUE_REASONS.has(p.due_reason));
+            if (orphans.length === 0) return null;
+            return (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ ...badgeStyle({ color: '#334155', bg: '#f1f5f9' }), fontSize: 13, padding: '4px 12px' }}>
+                    Needs Attention ({orphans.length})
+                  </span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>Due for a reason this screen does not recognize yet.</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+                  {orphans.map(p => <PartnerCard key={p.id} p={p} showDueReason={false} />)}
+                </div>
+              </div>
+            );
+          })()}
         </>
       ) : view === 'funnel' ? (
         /* ============ FUNNEL / PIPELINE VIEW ============ */
