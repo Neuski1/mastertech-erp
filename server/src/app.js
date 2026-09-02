@@ -1135,6 +1135,9 @@ pool.query(`
     notes TEXT,
     rebuilt_at TIMESTAMPTZ
   );
+  -- A picture can be attached to the plan before the piece is built, so a row
+  -- flagged needs_photo can be cleared the moment the photo exists.
+  ALTER TABLE marketing_calendar ADD COLUMN IF NOT EXISTS image_urls TEXT;
 `).then(() => console.log('Migration 061 (marketing calendar) ready'))
   .catch(err => console.error('Migration 061 error:', err.message));
 

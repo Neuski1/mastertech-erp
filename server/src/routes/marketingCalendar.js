@@ -81,7 +81,7 @@ router.get('/', async (req, res) => {
               to_char(mc.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
               mc.date_note, mc.channel, mc.piece, mc.owner, mc.status,
               mc.response, mc.notes, mc.campaign_id, mc.record_id,
-              mc.created_at, mc.updated_at,
+              mc.image_urls, mc.created_at, mc.updated_at,
               c.name AS campaign_name, c.status AS campaign_status,
               c.approval_status AS campaign_approval_status,
               r.record_number
@@ -154,8 +154,8 @@ router.post('/', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO marketing_calendar
          (month, scheduled_date, date_note, channel, piece, owner, status, response,
-          notes, campaign_id, record_id, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          notes, campaign_id, record_id, created_by, image_urls)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [
         month,
         b.scheduled_date || null,
@@ -169,6 +169,7 @@ router.post('/', async (req, res) => {
         b.campaign_id || null,
         b.record_id || null,
         req.user?.id || null,
+        b.image_urls || null,
       ]
     );
     res.status(201).json(shapeRow(rows[0]));
@@ -204,12 +205,13 @@ router.post('/import', async (req, res) => {
       const { rows } = await client.query(
         `INSERT INTO marketing_calendar
            (month, scheduled_date, date_note, channel, piece, owner, status, response,
-            notes, campaign_id, record_id, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+            notes, campaign_id, record_id, created_by, image_urls)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [
           month, b.scheduled_date || null, b.date_note || null, b.channel, b.piece,
           b.owner || null, b.status || 'draft', b.response || null, b.notes || null,
           b.campaign_id || null, b.record_id || null, req.user?.id || null,
+          b.image_urls || null,
         ]
       );
       inserted.push(rows[0].id);
@@ -243,7 +245,14 @@ router.post('/import', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const allowed = ['month', 'scheduled_date', 'date_note', 'channel', 'piece', 'owner',
-      'status', 'response', 'notes', 'campaign_id', 'record_id'];
+      'status', 'response', 'notes', 'campaign_id', 'record_id', 'image_urls'];
+
+    // Attaching a picture is what clears "needs a photo". Do it here so the
+    // status can never sit stale behind the thing that was blocking it.
+    if (req.body.image_urls && !req.body.status) {
+      const { rows: cur } = await pool.query('SELECT status FROM marketing_calendar WHERE id = $1', [req.params.id]);
+      if (cur[0]?.status === 'needs_photo') req.body.status = 'draft';
+    }
     const fields = [];
     const params = [];
     let i = 1;

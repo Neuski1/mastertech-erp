@@ -29,7 +29,10 @@ export default function CampaignEditor() {
   const [campaign, setCampaign] = useState(null);
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState({
-    name: '', template_type: '', subject: '', body_html: '', target_filter: { last_visit_months: 6 },
+    name: '', template_type: '', subject: '', body_html: '',
+    // storage: all | outdoor | indoor | none. Storage customers are IN by
+    // default; an outdoor unit is exactly who needs a winterize email.
+    target_filter: { storage: 'all', open_orders: 'exclude', exclude_days: 0 },
     hero_image_url: null, hero_alt: '', hero_caption: null,
     campaign_type: 'email', platforms: '', post_caption: '', scheduled_for: '',
     calendar_row_id: null,
@@ -59,7 +62,7 @@ export default function CampaignEditor() {
           template_type: data.template_type,
           subject: data.subject,
           body_html: data.body_html,
-          target_filter: data.target_filter || { last_visit_months: 6 },
+          target_filter: { storage: 'all', open_orders: 'exclude', exclude_days: 0, ...(data.target_filter || {}) },
           hero_image_url: data.hero_image_url ?? null,
           hero_alt: data.hero_alt || '',
           hero_caption: data.hero_caption ?? null,
@@ -81,7 +84,10 @@ export default function CampaignEditor() {
     if (!rowId) return;
     const piece = searchParams.get('piece') || '';
     const channel = searchParams.get('channel') || '';
+    const images = searchParams.get('images') || '';
     const isSocial = ['Facebook', 'Instagram', 'YouTube'].includes(channel);
+    const imgList = images.split(',').filter(Boolean);
+
     setForm(f => ({
       ...f,
       name: piece || f.name,
@@ -90,7 +96,14 @@ export default function CampaignEditor() {
       template_type: isSocial ? 'social_post' : f.template_type,
       platforms: isSocial ? channel : f.platforms,
       post_caption: isSocial ? '' : f.post_caption,
+      // A picture attached at planning time comes along, so nobody hunts for
+      // the same photo twice.
+      ...(imgList.length && isSocial ? { image_urls: images } : {}),
+      ...(imgList.length && !isSocial ? { hero_image_url: imgList[0] } : {}),
     }));
+    if (imgList.length) {
+      setInlineImages(imgList.map((u, i) => ({ id: `cal-${i}`, title: 'From the calendar', thumb_url: u, public_url: u })));
+    }
     if (isSocial) setStep(2);
   }, [isNew, searchParams]);
 
@@ -100,9 +113,15 @@ export default function CampaignEditor() {
   // audience — they go to a page, not a mailing list.
   useEffect(() => {
     if (step >= 4 && form.template_type && form.campaign_type !== 'social') {
-      api.getAudienceCount({ template_type: form.template_type }).then(setAudience).catch(() => {});
+      const tf = form.target_filter || {};
+      api.getAudienceCount({
+        storage: tf.storage || 'all',
+        open_orders: tf.open_orders || 'exclude',
+        exclude_days: tf.exclude_days || 0,
+        ...(campaign?.id ? { campaign_id: campaign.id } : {}),
+      }).then(setAudience).catch(() => {});
     }
-  }, [step, form.template_type, form.campaign_type]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, form.template_type, form.campaign_type, form.target_filter, campaign?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectTemplate = (tmpl) => {
     setForm({ ...form, campaign_type: 'email', template_type: tmpl.value, subject: tmpl.defaultSubject, body_html: tmpl.defaultBody, name: form.name || tmpl.label });
@@ -480,8 +499,62 @@ export default function CampaignEditor() {
           <h1 style={{ color: '#1e3a5f' }}>Select Audience</h1>
           <div style={cardStyle}>
             <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 16px', lineHeight: 1.5 }}>
-              All customers with an email on file, excluding: currently in storage, open work orders, opted out, bad email, and unsubscribed.
+              Every customer with a good email on file, minus anyone opted out or unsubscribed. The rest is up to you.
             </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div>
+                <label style={labelStyle}>Storage customers</label>
+                <select
+                  value={form.target_filter?.storage || 'all'}
+                  onChange={(e) => setForm({ ...form, target_filter: { ...form.target_filter, storage: e.target.value } })}
+                  style={inputStyle}
+                  disabled={!isDraft}
+                >
+                  <option value="all">Include everyone</option>
+                  <option value="outdoor">Outdoor storage only</option>
+                  <option value="indoor">Indoor storage only</option>
+                  <option value="none">Leave storage customers out</option>
+                </select>
+                <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '4px 0 0' }}>
+                  Outdoor units are the ones that need winterizing.
+                </p>
+              </div>
+              <div>
+                <label style={labelStyle}>Customers with an open work order</label>
+                <select
+                  value={form.target_filter?.open_orders || 'exclude'}
+                  onChange={(e) => setForm({ ...form, target_filter: { ...form.target_filter, open_orders: e.target.value } })}
+                  style={inputStyle}
+                  disabled={!isDraft}
+                >
+                  <option value="exclude">Leave them out</option>
+                  <option value="include">Include them</option>
+                </select>
+                <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '4px 0 0' }}>
+                  They are already in the shop and hearing from us.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>Skip anyone emailed in the last</label>
+              <select
+                value={form.target_filter?.exclude_days || 0}
+                onChange={(e) => setForm({ ...form, target_filter: { ...form.target_filter, exclude_days: parseInt(e.target.value, 10) } })}
+                style={{ ...inputStyle, maxWidth: '260px' }}
+                disabled={!isDraft}
+              >
+                <option value={0}>No limit, send to everyone</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+                <option value={60}>60 days</option>
+                <option value={90}>90 days</option>
+              </select>
+              <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '4px 0 0' }}>
+                Nobody ever gets this same campaign twice, whatever you pick here.
+              </p>
+            </div>
 
             {audience && (
               <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', marginBottom: '20px' }}>
@@ -490,10 +563,16 @@ export default function CampaignEditor() {
                     {audience.eligible - removedIds.size} emails will be sent
                     {removedIds.size > 0 && <span style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 400, marginLeft: '8px' }}>({removedIds.size} manually removed)</span>}
                   </div>
+                  {audience.storageIncluded > 0 && (
+                    <div style={{ color: '#065f46', fontSize: '0.8rem' }}>
+                      Includes {audience.storageIncluded} storage customer{audience.storageIncluded === 1 ? '' : 's'}
+                      {audience.storageMode !== 'all' ? ` (${audience.storageMode} only)` : ''}
+                    </div>
+                  )}
                   <div style={{ color: '#6b7280', fontSize: '0.8rem', borderTop: '1px solid #e5e7eb', paddingTop: '8px', marginTop: '4px' }}>Excluded:</div>
                   <div style={{ color: '#9ca3af', fontSize: '0.8rem', paddingLeft: '12px' }}>
                     {audience.noEmail > 0 && <div>{audience.noEmail} — no email on file</div>}
-                    {audience.excludedStorage > 0 && <div>{audience.excludedStorage} — currently in storage</div>}
+                    {audience.excludedStorage > 0 && <div>{audience.excludedStorage} — storage customers, by your filter above</div>}
                     {audience.excludedOpenOrders > 0 && <div>{audience.excludedOpenOrders} — open work order</div>}
                     {(audience.excludedOptOut || 0) > 0 && <div>{audience.excludedOptOut} — opted out of marketing</div>}
                     {(audience.excludedInvalid || 0) > 0 && <div>{audience.excludedInvalid} — bad email on file</div>}

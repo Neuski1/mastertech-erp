@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import MarketingNav from '../components/MarketingNav';
+import ImagePicker from '../components/ImagePicker';
 
 // ---------------------------------------------------------------------------
 // Marketing calendar. Twelve months forward, visual month grid.
@@ -81,6 +82,7 @@ export default function MarketingCalendar() {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState('month'); // month | list
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const from = windowStart;
   const to = shiftMonth(windowStart, 14);
@@ -117,9 +119,30 @@ export default function MarketingCalendar() {
     catch (err) { setError(err.message); }
   };
 
-  // Terri tags it, Smile builds it. This is the handoff.
+  // Terri tags it, Smile builds it. Any picture already attached to the row
+  // rides along, so a photo found at planning time is not re-hunted at build
+  // time.
   const buildIt = (row) => {
-    navigate(`/marketing/new?calendar_row=${row.id}&piece=${encodeURIComponent(row.piece)}&channel=${encodeURIComponent(row.channel)}`);
+    const img = row.image_urls ? `&images=${encodeURIComponent(row.image_urls)}` : '';
+    navigate(`/marketing/new?calendar_row=${row.id}&piece=${encodeURIComponent(row.piece)}&channel=${encodeURIComponent(row.channel)}${img}`);
+  };
+
+  // Attach a picture straight from the calendar. Adding one to a row that was
+  // waiting on a photo clears that status server-side.
+  const attachImage = (img) => {
+    setEditing(e => {
+      if (!e) return e;
+      const urls = [e.image_urls || '', img.public_url].filter(Boolean).join(',');
+      return { ...e, image_urls: urls, status: e.status === 'needs_photo' ? 'draft' : e.status };
+    });
+    setPickerOpen(false);
+  };
+
+  const removeImage = (url) => {
+    setEditing(e => ({
+      ...e,
+      image_urls: (e.image_urls || '').split(',').filter(u => u && u !== url).join(','),
+    }));
   };
 
   // --- month grid ---------------------------------------------------------
@@ -231,6 +254,7 @@ export default function MarketingCalendar() {
                           >
                             <span style={{ fontWeight: 700 }}>{row.channel}</span>{' '}
                             <span style={{ color: '#374151', fontWeight: 500 }}>{row.piece}</span>
+                            {row.image_urls && <span title="Has a picture" style={{ marginLeft: '4px' }}>&#9635;</span>}
                             {row.status !== 'draft' && (
                               <span style={{ ...flag, backgroundColor: statusMeta(row.status).color }}>
                                 {statusMeta(row.status).label}
@@ -361,6 +385,38 @@ export default function MarketingCalendar() {
             </div>
 
             <div style={{ marginBottom: '12px' }}>
+              <label style={label}>Pictures</label>
+              {(() => {
+                const urls = (editing.image_urls || '').split(',').filter(Boolean);
+                return (
+                  <>
+                    {urls.length > 0 && (
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                        {urls.map(u => (
+                          <div key={u} style={{ position: 'relative' }}>
+                            <img src={u} alt="" style={{ width: '96px', height: '68px', objectFit: 'cover', borderRadius: '6px', display: 'block', backgroundColor: '#f3f4f6' }} />
+                            <button type="button" onClick={() => removeImage(u)} title="Remove"
+                              style={{ position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', borderRadius: '50%', border: 'none', backgroundColor: '#dc2626', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', lineHeight: 1 }}>
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button type="button" onClick={() => setPickerOpen(true)} style={btnSecondary}>
+                      {urls.length ? '+ Add another picture' : '+ Add a picture'}
+                    </button>
+                    {editing.status === 'needs_photo' && urls.length === 0 && (
+                      <span style={{ marginLeft: '10px', fontSize: '0.75rem', color: '#92400e', fontWeight: 600 }}>
+                        Waiting on a photo. Adding one clears this.
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
               <label style={label}>Notes for whoever builds it</label>
               <textarea value={editing.notes || ''} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} rows={2} style={{ ...input, resize: 'vertical' }} />
             </div>
@@ -379,6 +435,13 @@ export default function MarketingCalendar() {
           </div>
         </div>
       )}
+
+      <ImagePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={attachImage}
+        title="Add a picture to this calendar row"
+      />
     </div>
   );
 }

@@ -405,52 +405,108 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/campaigns/audience-count — count matching customers
+// Audience. ONE builder, used by both the count and the send, so the number
+// Carol approves on screen is the number that actually goes out.
+//
+// What this deliberately no longer does: exclude everyone who ever received a
+// campaign of the same template_type. That rule treated an April seasonal
+// promotion as a reason to skip a customer for the September winterize, which
+// is the exact opposite of what an annual marketing calendar is for. Worse, it
+// counted recipients of CANCELLED campaigns as "already received" — the two
+// cancelled March and April attempts (149 + 137 partial sends) plus the one
+// real April send (793) added up to 1,079 people permanently locked out of
+// every future seasonal email. Duplicate protection is now per campaign, plus
+// an optional recency guard the sender chooses.
+//
+// Storage: outdoor units are the ones that need winterizing, so storage
+// customers are IN the audience by default. 'none' restores the old blanket
+// exclusion if a campaign ever wants it.
 // ---------------------------------------------------------------------------
-router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res) => {
-  const { template_type } = req.query;
+const STORAGE_MODES = ['all', 'outdoor', 'indoor', 'none'];
+
+async function buildAudienceQuery(db, opts = {}) {
+  const mode = STORAGE_MODES.includes(opts.storage) ? opts.storage : 'all';
+  const openOrders = opts.openOrders === 'include' ? 'include' : 'exclude';
+  const excludeDays = parseInt(opts.excludeDays, 10) > 0 ? parseInt(opts.excludeDays, 10) : 0;
+  const campaignId = opts.campaignId || null;
+
+  const params = [];
+  let q = `
+    SELECT c.id, c.first_name, c.last_name, c.email_primary
+    FROM customers c
+    WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+
   try {
-    let customerQuery = `
-      SELECT c.id, c.first_name, c.last_name, c.email_primary
-      FROM customers c
-      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
+    await db.query('SELECT marketing_opt_out FROM customers LIMIT 1');
+    q += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
+  } catch { /* columns don't exist yet */ }
 
-    // Exclude opted-out and invalid emails
-    try {
-      await pool.query('SELECT marketing_opt_out FROM customers LIMIT 1');
-      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
-    } catch { /* columns don't exist yet */ }
-
-    // Exclude customers currently in storage
-    customerQuery += `
+  if (mode === 'none') {
+    q += `
       AND c.id NOT IN (
         SELECT DISTINCT customer_id FROM storage_billing
         WHERE billing_end_date IS NULL AND deleted_at IS NULL
       )`;
+  } else if (mode === 'outdoor' || mode === 'indoor') {
+    // Drop only the storage customers who have none of the wanted type. A
+    // customer with both an indoor and an outdoor space stays in.
+    params.push(mode);
+    q += `
+      AND c.id NOT IN (
+        SELECT sb.customer_id FROM storage_billing sb
+        JOIN storage_spaces s ON s.id = sb.space_id
+        WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL
+        GROUP BY sb.customer_id
+        HAVING BOOL_AND(s.space_type <> $${params.length})
+      )`;
+  }
 
-    // Exclude customers with any open/active work order
-    customerQuery += `
+  if (openOrders === 'exclude') {
+    q += `
       AND c.id NOT IN (
         SELECT DISTINCT customer_id FROM records
         WHERE deleted_at IS NULL
         AND status NOT IN ('paid', 'void')
       )`;
+  }
 
-    // Exclude anyone already sent this template type
-    const params = [];
-    if (template_type) {
-      params.push(template_type);
-      customerQuery += `
-        AND LOWER(c.email_primary) NOT IN (
-          SELECT LOWER(ecr.email) FROM email_campaign_recipients ecr
-          JOIN email_campaigns ec ON ecr.campaign_id = ec.id
-          WHERE ecr.status = 'sent' AND ec.template_type = $1
-        )`;
-    }
+  // Never send the same campaign to the same person twice. This is the real
+  // duplicate guard, and it is scoped to one campaign.
+  if (campaignId) {
+    params.push(campaignId);
+    q += `
+      AND LOWER(c.email_primary) NOT IN (
+        SELECT LOWER(email) FROM email_campaign_recipients
+        WHERE campaign_id = $${params.length} AND status = 'sent'
+      )`;
+  }
 
-    customerQuery += ` ORDER BY c.last_name, c.first_name`;
+  // Optional fatigue guard: skip anyone who got any campaign recently.
+  if (excludeDays) {
+    params.push(excludeDays);
+    q += `
+      AND LOWER(c.email_primary) NOT IN (
+        SELECT LOWER(email) FROM email_campaign_recipients
+        WHERE status = 'sent' AND sent_at > NOW() - ($${params.length} || ' days')::interval
+      )`;
+  }
 
-    const { rows: customers } = await pool.query(customerQuery, params);
+  q += ` ORDER BY c.last_name, c.first_name`;
+  return { text: q, params, mode, openOrders, excludeDays, campaignId };
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/campaigns/audience/count — count matching customers
+// ---------------------------------------------------------------------------
+router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const built = await buildAudienceQuery(pool, {
+      storage: req.query.storage,
+      openOrders: req.query.open_orders,
+      excludeDays: req.query.exclude_days,
+      campaignId: req.query.campaign_id,
+    });
+    const { rows: customers } = await pool.query(built.text, built.params);
 
     // Exclude unsubscribed (table may not exist yet)
     let unsubEmails = new Set();
@@ -466,13 +522,48 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       "SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL AND (email_primary IS NULL OR email_primary = '')"
     );
 
-    // Excluded counts for the breakdown
-    const { rows: storageCount } = await pool.query(
-      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL`
-    );
-    const { rows: openOrderCount } = await pool.query(
-      `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void')`
-    );
+    // Excluded counts for the breakdown. These now mirror the rules that were
+    // actually applied, so the list on screen adds up.
+    let excludedStorage = 0;
+    if (built.mode === 'none') {
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT customer_id) AS cnt FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL`
+      );
+      excludedStorage = parseInt(rows[0].cnt);
+    } else if (built.mode === 'outdoor' || built.mode === 'indoor') {
+      const { rows } = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM (
+           SELECT sb.customer_id FROM storage_billing sb
+           JOIN storage_spaces s ON s.id = sb.space_id
+           WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL
+           GROUP BY sb.customer_id
+           HAVING BOOL_AND(s.space_type <> $1)
+         ) x`, [built.mode]
+      );
+      excludedStorage = parseInt(rows[0].cnt);
+    }
+
+    let excludedOpenOrders = 0;
+    if (built.openOrders === 'exclude') {
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void')`
+      );
+      excludedOpenOrders = parseInt(rows[0].cnt);
+    }
+
+    // How many storage customers are actually in this send, so Carol can see
+    // the winterize audience rather than infer it.
+    let storageIncluded = 0;
+    try {
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT sb.customer_id) AS cnt
+         FROM storage_billing sb JOIN storage_spaces s ON s.id = sb.space_id
+         WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL
+           AND sb.customer_id = ANY($1::int[])`,
+        [eligible.map(c => c.id)]
+      );
+      storageIncluded = parseInt(rows[0].cnt);
+    } catch { /* non-fatal */ }
 
     let excludedOptOut = 0, excludedInvalid = 0, excludedAlreadySent = 0;
     try {
@@ -481,12 +572,13 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       const { rows: invalidCount } = await pool.query(`SELECT COUNT(*) AS cnt FROM customers WHERE deleted_at IS NULL AND email_invalid = TRUE AND email_primary IS NOT NULL`);
       excludedInvalid = parseInt(invalidCount[0].cnt);
     } catch { /* columns don't exist */ }
-    if (template_type) {
+
+    // Only ever this campaign, and only people it really reached.
+    if (built.campaignId) {
       try {
         const { rows: sentCount } = await pool.query(
-          `SELECT COUNT(DISTINCT LOWER(ecr.email)) AS cnt FROM email_campaign_recipients ecr
-           JOIN email_campaigns ec ON ecr.campaign_id = ec.id
-           WHERE ecr.status = 'sent' AND ec.template_type = $1`, [template_type]
+          `SELECT COUNT(DISTINCT LOWER(email)) AS cnt FROM email_campaign_recipients
+           WHERE campaign_id = $1 AND status = 'sent'`, [built.campaignId]
         );
         excludedAlreadySent = parseInt(sentCount[0].cnt);
       } catch { /* tables don't exist */ }
@@ -498,8 +590,10 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       totalWithEmail: customers.length,
       unsubscribed: unsubCount,
       noEmail: parseInt(noEmail[0].count),
-      excludedStorage: parseInt(storageCount[0].cnt),
-      excludedOpenOrders: parseInt(openOrderCount[0].cnt),
+      excludedStorage,
+      excludedOpenOrders,
+      storageIncluded,
+      storageMode: built.mode,
       excludedOptOut,
       excludedInvalid,
       excludedAlreadySent,
@@ -557,43 +651,16 @@ router.post('/:id/send', requireAuth, requireRole('admin'), async (req, res) => 
     const campaign = campaigns[0];
     const filter = campaign.target_filter || {};
 
-    // Build recipient list — same logic as audience/count
-    let customerQuery = `
-      SELECT c.id, c.first_name, c.last_name, c.email_primary
-      FROM customers c
-      WHERE c.deleted_at IS NULL AND c.email_primary IS NOT NULL AND c.email_primary != ''`;
-
-    try {
-      await client.query('SELECT marketing_opt_out FROM customers LIMIT 1');
-      customerQuery += ` AND c.marketing_opt_out IS NOT TRUE AND c.email_invalid IS NOT TRUE`;
-    } catch { /* columns don't exist yet */ }
-
-    // Exclude customers currently in storage
-    customerQuery += `
-      AND c.id NOT IN (
-        SELECT DISTINCT customer_id FROM storage_billing
-        WHERE billing_end_date IS NULL AND deleted_at IS NULL
-      )`;
-
-    // Exclude customers with any open/active work order
-    customerQuery += `
-      AND c.id NOT IN (
-        SELECT DISTINCT customer_id FROM records
-        WHERE deleted_at IS NULL
-        AND status NOT IN ('paid', 'void')
-      )`;
-
-    // Exclude anyone already sent this template type
-    if (campaign.template_type) {
-      customerQuery += `
-        AND LOWER(c.email_primary) NOT IN (
-          SELECT LOWER(ecr.email) FROM email_campaign_recipients ecr
-          JOIN email_campaigns ec ON ecr.campaign_id = ec.id
-          WHERE ecr.status = 'sent' AND ec.template_type = $1
-        )`;
-    }
-
-    const { rows: customers } = await client.query(customerQuery, campaign.template_type ? [campaign.template_type] : []);
+    // Build recipient list with the SAME builder the count uses, driven by the
+    // campaign's own target_filter. If these two ever diverge again, the number
+    // on the approval screen stops being the number that gets emailed.
+    const built = await buildAudienceQuery(client, {
+      storage: filter.storage,
+      openOrders: filter.open_orders,
+      excludeDays: filter.exclude_days,
+      campaignId: campaign.id,
+    });
+    const { rows: customers } = await client.query(built.text, built.params);
 
     // Exclude unsubscribed (table may not exist yet)
     let unsubEmails = new Set();
