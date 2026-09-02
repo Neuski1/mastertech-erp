@@ -69,7 +69,7 @@ const isoOrBlank = (d) => (d ? String(d).split('T')[0] : '');
 const isOverdue = (due) => !!due && isoOrBlank(due) < todayISO();
 
 const emptyPartner = {
-  business_name: '', location: '', contact_phone: '', website: '',
+  business_name: '', address: '', location: '', contact_phone: '', website: '',
   contact_name: '', email: '', date_contacted: '', status: 'new', notes: '',
   partner_type: 'storage_facility', next_step: '', next_step_due: '',
   do_not_pitch: false, do_not_pitch_reason: '', referral_terms: '',
@@ -150,6 +150,7 @@ export default function Partners() {
     setEditPartner(p);
     setForm({
       business_name: p.business_name || '',
+      address: p.address || '',
       location: p.location || '',
       contact_phone: p.contact_phone || '',
       website: p.website || '',
@@ -181,6 +182,9 @@ export default function Partners() {
     if (!form.do_not_pitch && !form.next_step.trim()) {
       return alert('Next Step is required. If this record should never be pitched, tick Do Not Pitch instead.');
     }
+    if (!form.do_not_pitch && !form.next_step_due) {
+      return alert('Next Step Due is required. A next step with no date never comes due, so it never shows up.');
+    }
     setSaving(true);
     try {
       if (editPartner) {
@@ -188,7 +192,17 @@ export default function Partners() {
         setActionMsg(`Updated ${form.business_name}`);
       } else {
         await api.createPartner(form);
-        setActionMsg(`Added ${form.business_name}`);
+        // A brand new record that is flagged do_not_pitch, or is already
+        // active with nothing overdue, will not appear on the Due tab. Land on
+        // the Pipeline view so the partner she just added is actually on screen
+        // instead of looking like the save failed.
+        if (form.do_not_pitch) {
+          setView('funnel');
+          setFilterStatus('');
+          setActionMsg(`Added ${form.business_name}. It is marked Do Not Pitch, so it lives here in Pipeline, not on the Due tab.`);
+        } else {
+          setActionMsg(`Added ${form.business_name}`);
+        }
       }
       setShowModal(false);
       fetchPartners();
@@ -241,7 +255,23 @@ export default function Partners() {
   };
 
   const totalPartners = Object.values(funnelStats).reduce((a, b) => a + b, 0);
+
+  // The Due tab reads the partners_due view, which the server does not filter
+  // by stage or search. Apply both here or the dropdown silently does nothing
+  // on the default view, which is exactly how it looked broken.
+  const searchLower = search.trim().toLowerCase();
+  const matchesFilters = (p) => {
+    if (filterStatus && p.status !== filterStatus) return false;
+    if (!searchLower) return true;
+    return [p.business_name, p.contact_name, p.email, p.address, p.location]
+      .some(v => v && String(v).toLowerCase().includes(searchLower));
+  };
+  const visibleDue = duePartners.filter(matchesFilters);
+
+  // The badge and the tab label always show the real total, never the filtered
+  // count — the number of things owed does not change because of a dropdown.
   const dueCount = duePartners.length;
+  const dueHiddenByFilter = dueCount - visibleDue.length;
 
   // --- STYLES ---
   const pageHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 };
@@ -297,11 +327,18 @@ export default function Partners() {
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
           {p.partner_type && <span style={typeBadge}>{TYPE_MAP[p.partner_type]?.label || p.partner_type}</span>}
+          {p.do_not_pitch && (
+            <span style={{ ...typeBadge, color: '#991b1b', backgroundColor: '#fee2e2' }}>Do Not Pitch</span>
+          )}
           {showDueReason && reason && (
             <span style={{ ...typeBadge, color: reason.color, backgroundColor: reason.bg }}>{reason.label}</span>
           )}
         </div>
-        {p.location && <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>{p.location}</div>}
+        {(p.address || p.location) && (
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
+            {[p.address, p.location].filter(Boolean).join(', ')}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#374151', marginBottom: 4, flexWrap: 'wrap' }}>
           {p.contact_phone && <span>{p.contact_phone}</span>}
           {p.contact_name && <span>{p.contact_name}</span>}
@@ -376,17 +413,32 @@ export default function Partners() {
       ) : view === 'due' ? (
         /* ============ DUE VIEW — the default landing view ============ */
         <>
-          {duePartners.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 60, background: '#ecfdf5', borderRadius: 12, border: '1px solid #a7f3d0' }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>{'✓'}</div>
-              <div style={{ fontWeight: 700, color: '#065f46', fontSize: 16 }}>Nothing due</div>
-              <div style={{ color: '#047857', fontSize: 13, marginTop: 4 }}>
-                Every partner has a next step with a date that has not passed.
+          {/* The Due tab is a work list, not the partner list. Say so, or a
+              partner that is not due reads as a record that failed to save. */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap', fontSize: 13, color: '#64748b' }}>
+            <span>
+              Work list only: {dueCount} of {totalPartners} partners need attention.
+              {dueHiddenByFilter > 0 && <strong style={{ color: '#b45309' }}>{` ${dueHiddenByFilter} hidden by the filter.`}</strong>}
+            </span>
+            <button onClick={() => setView('funnel')} style={{ ...btnSecondary, fontSize: 12 }}>
+              See all {totalPartners} partners
+            </button>
+          </div>
+          {visibleDue.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, background: dueCount > 0 ? '#f8fafc' : '#ecfdf5', borderRadius: 12, border: `1px solid ${dueCount > 0 ? '#e2e8f0' : '#a7f3d0'}` }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>{dueCount > 0 ? '🔍' : '✓'}</div>
+              <div style={{ fontWeight: 700, color: dueCount > 0 ? '#334155' : '#065f46', fontSize: 16 }}>
+                {dueCount > 0 ? 'Nothing due matches this filter' : 'Nothing due'}
+              </div>
+              <div style={{ color: dueCount > 0 ? '#64748b' : '#047857', fontSize: 13, marginTop: 4 }}>
+                {dueCount > 0
+                  ? `${dueCount} partner${dueCount !== 1 ? 's are' : ' is'} due, but none match. Clear the filter, or switch to Pipeline to see every partner.`
+                  : 'Every partner has a next step with a date that has not passed. Switch to Pipeline or Table to see the full list.'}
               </div>
             </div>
           ) : (
             DUE_REASONS.map(reason => {
-              const group = duePartners.filter(p => p.due_reason === reason.key)
+              const group = visibleDue.filter(p => p.due_reason === reason.key)
                 .sort((a, b) => (a.priority_rank - b.priority_rank)
                   || String(a.next_step_due || '').localeCompare(String(b.next_step_due || '')));
               if (group.length === 0) return null;
@@ -442,14 +494,14 @@ export default function Partners() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f9fafb' }}>
-                {['Business Name', 'Type', 'Status', 'Contact', 'Phone', 'Email', 'Last Contact', 'Next Step', 'Due', ''].map(h => (
+                {['Business Name', 'Type', 'Status', 'Address', 'Contact', 'Phone', 'Email', 'Last Contact', 'Next Step', 'Due', ''].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280', borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {partners.length === 0 ? (
-                <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>No partners found</td></tr>
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>No partners found</td></tr>
               ) : partners.map(p => (
                 <tr key={p.id} style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
                   onClick={() => openEdit(p)}
@@ -462,6 +514,9 @@ export default function Partners() {
                   <td style={{ padding: '10px 12px', color: '#6b7280' }}>{TYPE_MAP[p.partner_type]?.label || '-'}</td>
                   <td style={{ padding: '10px 12px' }}>
                     <span style={badgeStyle(STAGE_MAP[p.status])}>{STAGE_MAP[p.status]?.label || p.status}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#6b7280', maxWidth: 220 }}>
+                    {[p.address, p.location].filter(Boolean).join(', ') || '-'}
                   </td>
                   <td style={{ padding: '10px 12px', color: '#374151' }}>{p.contact_name || '-'}</td>
                   <td style={{ padding: '10px 12px', color: '#374151', whiteSpace: 'nowrap' }}>{p.contact_phone || '-'}</td>
@@ -528,9 +583,15 @@ export default function Partners() {
                 <input style={{ ...inputStyle, background: '#f9fafb', color: '#6b7280' }} type="date" value={form.date_contacted} readOnly disabled />
                 <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>Set automatically when a contact is logged.</div>
               </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>Street Address</label>
+                <input style={inputStyle} value={form.address}
+                  placeholder="11905 E 124th Ave"
+                  onChange={e => setForm({ ...form, address: e.target.value })} />
+              </div>
               <div>
-                <label style={labelStyle}>Location</label>
-                <input style={inputStyle} value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="City, State" />
+                <label style={labelStyle}>City, State, ZIP</label>
+                <input style={inputStyle} value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Henderson, CO 80640" />
               </div>
               <div>
                 <label style={labelStyle}>Contact Phone</label>
@@ -560,8 +621,13 @@ export default function Partners() {
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13, color: '#374151' }}>
                   <input type="checkbox" checked={form.do_not_pitch}
                     onChange={e => setForm({ ...form, do_not_pitch: e.target.checked })} />
-                  Do Not Pitch (keeps the record, hides it from the Due view permanently)
+                  Do Not Pitch
                 </label>
+                <div style={{ fontSize: 12, color: form.do_not_pitch ? '#b45309' : '#9ca3af', marginTop: 4 }}>
+                  {form.do_not_pitch
+                    ? 'This record will not appear on the Due tab at all. Find it under Pipeline or Table.'
+                    : 'For dealers, mobile techs, and anyone already handled. Keeps the record, drops it off the work list.'}
+                </div>
                 {form.do_not_pitch && (
                   <input style={{ ...inputStyle, marginTop: 8 }} value={form.do_not_pitch_reason}
                     placeholder="Why. e.g. Dealer, we do not pitch dealers"
