@@ -58,6 +58,30 @@ export const stripPhone = (formatted) => {
   return splitExt(formatted).main;
 };
 
+// Some records hold two numbers in one field — a front desk and a cell, say.
+// Partners does this on 4 of its 21 rows ("303-905-1714 / 720-512-7962").
+// Running those through the single-number helpers merges the digits and turns
+// the second number into an extension, so split first and format each part.
+const LIST_SEP = /\s*[/,;]\s*/;
+
+// Display a stored value that may hold more than one number.
+export const formatPhoneList = (phone) => {
+  if (!phone) return '';
+  const parts = phone.toString().split(LIST_SEP).filter(p => p.trim());
+  if (parts.length <= 1) return formatPhone(phone);
+  return parts.map(formatPhone).join(' / ');
+};
+
+// As-you-type formatter for a field that may hold more than one number.
+// Keeps the separator visible while it is being typed so the user can carry on
+// into the second number.
+export const handlePhoneListInput = (value) => {
+  if (value === null || value === undefined) return '';
+  const str = value.toString();
+  if (!/[/,;]/.test(str)) return handlePhoneInput(str);
+  return str.split(/\s*[/,;]\s*/).map(handlePhoneInput).join(' / ');
+};
+
 // href for a click-to-call link. The commas are a dial pause, so the phone
 // dials the extension itself once the call connects.
 export const telHref = (phone) => {

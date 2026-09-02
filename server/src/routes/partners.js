@@ -9,7 +9,7 @@ const PARTNER_FIELDS = [
   'business_name', 'address', 'location', 'contact_phone', 'website', 'contact_name',
   'email', 'date_contacted', 'status', 'notes',
   'partner_type', 'next_step', 'next_step_due', 'do_not_pitch',
-  'do_not_pitch_reason', 'referral_terms', 'owner_agent',
+  'do_not_pitch_reason', 'referral_terms', 'check_in_days', 'owner_agent',
 ];
 
 // ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ router.post('/', async (req, res) => {
     business_name, address, location, contact_phone, website, contact_name, email,
     date_contacted, status, notes,
     partner_type, next_step, next_step_due, do_not_pitch, do_not_pitch_reason,
-    referral_terms, owner_agent,
+    referral_terms, check_in_days, owner_agent,
   } = req.body;
 
   if (!business_name) {
@@ -136,14 +136,15 @@ router.post('/', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO partners (business_name, address, location, contact_phone, website, contact_name, email,
                              date_contacted, status, notes, partner_type, next_step, next_step_due,
-                             do_not_pitch, do_not_pitch_reason, referral_terms, owner_agent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17, 'Terri'))
+                             do_not_pitch, do_not_pitch_reason, referral_terms, check_in_days, owner_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, COALESCE($18, 'Terri'))
        RETURNING *`,
       [business_name, address || null, location || null, contact_phone || null, website || null,
        contact_name || null, email || null, date_contacted || null,
        status || 'new', notes || null, partner_type,
        next_step ? next_step.trim() : null, next_step_due || null,
-       dnp, do_not_pitch_reason || null, referral_terms || null, owner_agent || null]
+       dnp, do_not_pitch_reason || null, referral_terms || null,
+       check_in_days || null, owner_agent || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -180,7 +181,7 @@ router.patch('/:id', async (req, res) => {
   const values = [];
   let idx = 1;
 
-  const NULLABLE_ON_BLANK = ['date_contacted', 'next_step_due', 'partner_type'];
+  const NULLABLE_ON_BLANK = ['date_contacted', 'next_step_due', 'partner_type', 'check_in_days'];
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) {
       let v = req.body[field];

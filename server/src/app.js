@@ -515,23 +515,39 @@ const pool = require('./db/pool');
     // The view gains a column, and CREATE OR REPLACE VIEW cannot insert one in
     // the middle, so drop before recreating.
     await pool.query('DROP VIEW IF EXISTS partners_due');
+    // Migration 056: check-in cadence. Do Not Pitch was the only way to stop
+    // pitching someone, and it drops them off the work list entirely — right
+    // for dealers, wrong for a partner actively sending business. Active
+    // partners now run on their own interval (90 days unless set), and the
+    // 14-day stale rule applies only to records still in the pipeline.
+    await pool.query('ALTER TABLE partners ADD COLUMN IF NOT EXISTS check_in_days INTEGER');
+    await pool.query('ALTER TABLE partners DROP CONSTRAINT IF EXISTS partners_check_in_days_chk');
+    await pool.query(`ALTER TABLE partners ADD CONSTRAINT partners_check_in_days_chk
+      CHECK (check_in_days IS NULL OR (check_in_days >= 7 AND check_in_days <= 365))`);
+    await pool.query('DROP VIEW IF EXISTS partners_due');
     // The view the weekly partner sweep reads. One query, no prose parsing.
+    // The CASE order must mirror the WHERE clause or a row gets in with a NULL
+    // reason and lands in no group in the UI.
     await pool.query(`CREATE VIEW partners_due AS
       SELECT
         p.id, p.business_name, p.partner_type, p.status, p.contact_name,
         p.email, p.contact_phone, p.address, p.location, p.date_contacted,
-        p.next_step, p.next_step_due, p.owner_agent,
+        p.next_step, p.next_step_due, p.referral_terms, p.check_in_days, p.owner_agent,
         CASE
           WHEN p.next_step IS NULL OR p.next_step = ''  THEN 'no_next_step'
-          WHEN p.date_contacted IS NULL                 THEN 'never_contacted'
           WHEN p.next_step_due < CURRENT_DATE           THEN 'overdue'
-          WHEN p.date_contacted < CURRENT_DATE - 14     THEN 'stale_14_day'
+          WHEN p.status = 'active'                      THEN 'check_in_due'
+          WHEN p.date_contacted IS NULL                 THEN 'never_contacted'
+          ELSE 'stale_14_day'
         END AS due_reason,
-        CASE p.partner_type
-          WHEN 'storage_facility' THEN 1
-          WHEN 'campground'       THEN 2
-          WHEN 'rv_club'          THEN 3
-          ELSE 9
+        CASE
+          WHEN p.status = 'active' THEN 0
+          ELSE CASE p.partner_type
+            WHEN 'storage_facility' THEN 1
+            WHEN 'campground'       THEN 2
+            WHEN 'rv_club'          THEN 3
+            ELSE 9
+          END
         END AS priority_rank,
         CURRENT_DATE - p.date_contacted AS days_since_contact
       FROM partners p
@@ -539,9 +555,12 @@ const pool = require('./db/pool');
         AND p.status NOT IN ('declined','not_a_fit')
         AND (
               p.next_step IS NULL OR p.next_step = ''
-           OR p.date_contacted IS NULL
            OR p.next_step_due < CURRENT_DATE
-           OR p.date_contacted < CURRENT_DATE - 14
+           OR (p.status = 'active'
+               AND (p.date_contacted IS NULL
+                    OR p.date_contacted < CURRENT_DATE - COALESCE(p.check_in_days, 90)))
+           OR (p.status <> 'active' AND p.date_contacted IS NULL)
+           OR (p.status <> 'active' AND p.date_contacted < CURRENT_DATE - 14)
         )
       ORDER BY priority_rank, p.next_step_due NULLS FIRST, p.date_contacted NULLS FIRST`);
     // Migration 045: customer documents table (stores signed contracts, etc.)
