@@ -6,7 +6,7 @@ const pool = require('../db/pool');
 // partner_type drives the priority order; next_step and next_step_due are
 // what make a record answerable without reading its notes.
 const PARTNER_FIELDS = [
-  'business_name', 'location', 'contact_phone', 'website', 'contact_name',
+  'business_name', 'address', 'location', 'contact_phone', 'website', 'contact_name',
   'email', 'date_contacted', 'status', 'notes',
   'partner_type', 'next_step', 'next_step_due', 'do_not_pitch',
   'do_not_pitch_reason', 'referral_terms', 'owner_agent',
@@ -41,7 +41,7 @@ router.get('/', async (req, res) => {
   }
 
   if (search) {
-    conditions.push(`(business_name ILIKE $${idx} OR contact_name ILIKE $${idx} OR email ILIKE $${idx})`);
+    conditions.push(`(business_name ILIKE $${idx} OR contact_name ILIKE $${idx} OR email ILIKE $${idx} OR address ILIKE $${idx} OR location ILIKE $${idx})`);
     params.push(`%${search}%`);
     idx++;
   }
@@ -109,7 +109,7 @@ router.get('/due-count', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/', async (req, res) => {
   const {
-    business_name, location, contact_phone, website, contact_name, email,
+    business_name, address, location, contact_phone, website, contact_name, email,
     date_contacted, status, notes,
     partner_type, next_step, next_step_due, do_not_pitch, do_not_pitch_reason,
     referral_terms, owner_agent,
@@ -127,15 +127,19 @@ router.post('/', async (req, res) => {
   if (!dnp && (!next_step || !next_step.trim())) {
     return res.status(400).json({ error: 'next_step is required (or mark the record do_not_pitch)' });
   }
+  // A next step with no due date can never go overdue, so it never surfaces.
+  if (!dnp && !next_step_due) {
+    return res.status(400).json({ error: 'next_step_due is required — a next step with no date never comes due' });
+  }
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO partners (business_name, location, contact_phone, website, contact_name, email,
+      `INSERT INTO partners (business_name, address, location, contact_phone, website, contact_name, email,
                              date_contacted, status, notes, partner_type, next_step, next_step_due,
                              do_not_pitch, do_not_pitch_reason, referral_terms, owner_agent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16, 'Terri'))
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17, 'Terri'))
        RETURNING *`,
-      [business_name, location || null, contact_phone || null, website || null,
+      [business_name, address || null, location || null, contact_phone || null, website || null,
        contact_name || null, email || null, date_contacted || null,
        status || 'new', notes || null, partner_type,
        next_step ? next_step.trim() : null, next_step_due || null,

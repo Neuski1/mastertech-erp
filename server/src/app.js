@@ -509,11 +509,17 @@ const pool = require('./db/pool');
     await pool.query(`CREATE TRIGGER partner_activities_sync
       AFTER INSERT ON partner_activities
       FOR EACH ROW EXECUTE FUNCTION partners_sync_from_activity()`);
+    // Migration 055: street address. `location` was doing double duty as
+    // city/state and sometimes street; `address` is the street line.
+    await pool.query('ALTER TABLE partners ADD COLUMN IF NOT EXISTS address VARCHAR(255)');
+    // The view gains a column, and CREATE OR REPLACE VIEW cannot insert one in
+    // the middle, so drop before recreating.
+    await pool.query('DROP VIEW IF EXISTS partners_due');
     // The view the weekly partner sweep reads. One query, no prose parsing.
-    await pool.query(`CREATE OR REPLACE VIEW partners_due AS
+    await pool.query(`CREATE VIEW partners_due AS
       SELECT
         p.id, p.business_name, p.partner_type, p.status, p.contact_name,
-        p.email, p.contact_phone, p.location, p.date_contacted,
+        p.email, p.contact_phone, p.address, p.location, p.date_contacted,
         p.next_step, p.next_step_due, p.owner_agent,
         CASE
           WHEN p.next_step IS NULL OR p.next_step = ''  THEN 'no_next_step'
