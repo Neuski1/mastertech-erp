@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
 import { formatDate } from '../utils/dateFormat';
+import { formatPhoneList, handlePhoneListInput } from '../utils/formatPhone';
 
 // Pipeline stages. These match the partners_status_chk constraint in
 // migration 054 — adding one here means adding it there too.
@@ -355,7 +356,7 @@ export default function Partners() {
           </div>
         )}
         <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#374151', marginBottom: 4, flexWrap: 'wrap' }}>
-          {p.contact_phone && <span>{p.contact_phone}</span>}
+          {p.contact_phone && <span>{formatPhoneList(p.contact_phone)}</span>}
           {p.contact_name && <span>{p.contact_name}</span>}
         </div>
         {p.email && <div style={{ fontSize: 13, color: '#2563eb', marginBottom: 4 }}>{p.email}</div>}
@@ -558,7 +559,7 @@ export default function Partners() {
                     {[p.address, p.location].filter(Boolean).join(', ') || '-'}
                   </td>
                   <td style={{ padding: '10px 12px', color: '#374151' }}>{p.contact_name || '-'}</td>
-                  <td style={{ padding: '10px 12px', color: '#374151', whiteSpace: 'nowrap' }}>{p.contact_phone || '-'}</td>
+                  <td style={{ padding: '10px 12px', color: '#374151', whiteSpace: 'nowrap' }}>{formatPhoneList(p.contact_phone) || '-'}</td>
                   <td style={{ padding: '10px 12px', color: '#2563eb' }}>{p.email || '-'}</td>
                   <td style={{ padding: '10px 12px', color: '#6b7280', whiteSpace: 'nowrap' }}>
                     {p.date_contacted ? formatDate(p.date_contacted) : 'Never'}
@@ -634,7 +635,12 @@ export default function Partners() {
               </div>
               <div>
                 <label style={labelStyle}>Contact Phone</label>
-                <input style={inputStyle} value={form.contact_phone} onChange={e => setForm({ ...form, contact_phone: e.target.value })} />
+                <input style={inputStyle} value={form.contact_phone}
+                  placeholder="(303) 555-0142"
+                  onChange={e => setForm({ ...form, contact_phone: handlePhoneListInput(e.target.value) })} />
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>
+                  Two numbers? Separate them with a slash.
+                </div>
               </div>
               <div>
                 <label style={labelStyle}>Contact Name</label>
