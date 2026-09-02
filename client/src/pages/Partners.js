@@ -52,9 +52,20 @@ const OUTCOMES = [
 
 const DUE_REASONS = [
   { key: 'overdue', label: 'Overdue', color: '#dc2626', bg: '#fef2f2', blurb: 'Past the due date on the next step.' },
+  { key: 'check_in_due', label: 'Check In', color: '#059669', bg: '#ecfdf5', blurb: 'Active partner, due for a check-in. Not a pitch, just keeping the relationship warm.' },
   { key: 'no_next_step', label: 'No Next Step', color: '#b45309', bg: '#fffbeb', blurb: 'Nothing says what happens next.' },
   { key: 'never_contacted', label: 'Never Contacted', color: '#2563eb', bg: '#eff6ff', blurb: 'On the list, never touched.' },
-  { key: 'stale_14_day', label: 'Stale (14+ Days)', color: '#7c3aed', bg: '#f5f3ff', blurb: 'No contact in over two weeks.' },
+  { key: 'stale_14_day', label: 'Stale (14+ Days)', color: '#7c3aed', bg: '#f5f3ff', blurb: 'Still in the pipeline, no contact in over two weeks.' },
+];
+
+// How often to check in with an active partner. Only applies once they are
+// actively sending business; prospects run on the 14-day pipeline cadence.
+const CHECK_IN_OPTIONS = [
+  { value: '30', label: 'Every month' },
+  { value: '60', label: 'Every 2 months' },
+  { value: '90', label: 'Every quarter (default)' },
+  { value: '180', label: 'Twice a year' },
+  { value: '365', label: 'Once a year' },
 ];
 
 const STAGE_MAP = {};
@@ -73,6 +84,7 @@ const emptyPartner = {
   contact_name: '', email: '', date_contacted: '', status: 'new', notes: '',
   partner_type: 'storage_facility', next_step: '', next_step_due: '',
   do_not_pitch: false, do_not_pitch_reason: '', referral_terms: '',
+  check_in_days: '',
 };
 
 const emptyContact = {
@@ -165,6 +177,7 @@ export default function Partners() {
       do_not_pitch: !!p.do_not_pitch,
       do_not_pitch_reason: p.do_not_pitch_reason || '',
       referral_terms: p.referral_terms || '',
+      check_in_days: p.check_in_days ? String(p.check_in_days) : '',
     });
     setActivities([]);
     setShowModal(true);
@@ -610,12 +623,28 @@ export default function Partners() {
                 <input style={inputStyle} value={form.website} onChange={e => setForm({ ...form, website: e.target.value })} placeholder="example.com" />
               </div>
               {form.status === 'active' && (
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <label style={labelStyle}>Referral Terms</label>
-                  <input style={inputStyle} value={form.referral_terms}
-                    placeholder="What we actually agreed to. e.g. They hand out our cards, we give their tenants 10% off winterizing"
-                    onChange={e => setForm({ ...form, referral_terms: e.target.value })} />
-                </div>
+                <>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>Referral Terms</label>
+                    <input style={inputStyle} value={form.referral_terms}
+                      placeholder="What we actually agreed to. e.g. They hand out our cards, we give their tenants 10% off winterizing"
+                      onChange={e => setForm({ ...form, referral_terms: e.target.value })} />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>Check In</label>
+                    <select style={inputStyle} value={form.check_in_days}
+                      onChange={e => setForm({ ...form, check_in_days: e.target.value })}>
+                      <option value="">Every quarter (default)</option>
+                      {CHECK_IN_OPTIONS.filter(o => o.value !== '90').map(o => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
+                      Active partners come back to the Due tab on this schedule, not the 14-day
+                      prospecting cadence. Logging a contact resets the clock.
+                    </div>
+                  </div>
+                </>
               )}
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13, color: '#374151' }}>
@@ -625,9 +654,16 @@ export default function Partners() {
                 </label>
                 <div style={{ fontSize: 12, color: form.do_not_pitch ? '#b45309' : '#9ca3af', marginTop: 4 }}>
                   {form.do_not_pitch
-                    ? 'This record will not appear on the Due tab at all. Find it under Pipeline or Table.'
-                    : 'For dealers, mobile techs, and anyone already handled. Keeps the record, drops it off the work list.'}
+                    ? 'This record will never appear on the Due tab, including for check-ins. Find it under Pipeline or Table.'
+                    : 'Dealers and mobile techs only. Keeps the record, drops it off the work list for good.'}
                 </div>
+                {form.do_not_pitch && form.status === 'active' && (
+                  <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 12, color: '#92400e' }}>
+                    This partner is Active. Do Not Pitch will also stop check-in reminders, so they
+                    drop off your radar entirely. To stop pitching but keep checking in, untick this
+                    and set a Check In schedule above.
+                  </div>
+                )}
                 {form.do_not_pitch && (
                   <input style={{ ...inputStyle, marginTop: 8 }} value={form.do_not_pitch_reason}
                     placeholder="Why. e.g. Dealer, we do not pitch dealers"
