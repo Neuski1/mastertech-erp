@@ -19,9 +19,27 @@ const { humansOnly } = require('../middleware/agentAuth');
 
 // These must match the lists in client/src/pages/MarketingCalendar.js. Terri and
 // Smile read them from GET /options, so drift here sends the agents bad values.
-const CHANNELS = ['Email', 'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Partner', 'Website', 'Other'];
+const CHANNELS = ['Email', 'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Google Business Profile', 'Partner', 'Website', 'Other'];
 const STATUSES = ['draft', 'needs_photo', 'approved', 'posted', 'skipped'];
 const OWNERS = ['Terri', 'Smile', 'Carol', 'SEO/GEO'];
+
+// Validate, do not silently accept. A free-text channel meant a typo invented a
+// channel nobody had defined, and since the calendar colors map off channel,
+// the invented one fell through to the grey "Other" bucket and looked like a
+// styling bug rather than a bad write. Caught by Terri writing "Google".
+function validateRow(b, { partial = false } = {}) {
+  if (b.channel !== undefined && !CHANNELS.includes(b.channel)) {
+    return `channel must be one of: ${CHANNELS.join(', ')}. Got "${b.channel}".`;
+  }
+  if (b.status !== undefined && b.status !== null && !STATUSES.includes(b.status)) {
+    return `status must be one of: ${STATUSES.join(', ')}. Got "${b.status}".`;
+  }
+  if (b.owner !== undefined && b.owner !== null && b.owner !== '' && !OWNERS.includes(b.owner)) {
+    return `owner must be one of: ${OWNERS.join(', ')}. Got "${b.owner}".`;
+  }
+  if (!partial && !b.channel) return 'channel is required';
+  return null;
+}
 
 function monthStart(value) {
   // Accepts '2026-09', '2026-09-01', or a Date. Returns 'YYYY-MM-01'.
@@ -149,7 +167,8 @@ router.post('/', async (req, res) => {
     const month = monthStart(b.month) || monthStart(b.scheduled_date);
     if (!month) return res.status(400).json({ error: 'month or scheduled_date is required' });
     if (!b.piece) return res.status(400).json({ error: 'piece is required' });
-    if (!b.channel) return res.status(400).json({ error: 'channel is required' });
+    const invalid = validateRow(b);
+    if (invalid) return res.status(400).json({ error: invalid });
 
     const { rows } = await pool.query(
       `INSERT INTO marketing_calendar
@@ -198,10 +217,18 @@ router.post('/import', async (req, res) => {
       await client.query('UPDATE marketing_calendar SET deleted_at = NOW() WHERE month = $1 AND deleted_at IS NULL', [m]);
     }
 
+    // A bulk load used to drop bad rows on the floor without a word, so a
+    // rebuild could report success while quietly losing pieces. Every rejection
+    // now comes back with the row index and the reason.
     const inserted = [];
-    for (const b of incoming) {
+    const skipped = [];
+    for (let i = 0; i < incoming.length; i++) {
+      const b = incoming[i];
       const month = monthStart(b.month) || monthStart(b.scheduled_date);
-      if (!month || !b.piece || !b.channel) continue;
+      if (!month) { skipped.push({ index: i, piece: b.piece || null, reason: 'month or scheduled_date is required' }); continue; }
+      if (!b.piece) { skipped.push({ index: i, piece: null, reason: 'piece is required' }); continue; }
+      const invalid = validateRow(b);
+      if (invalid) { skipped.push({ index: i, piece: b.piece, reason: invalid }); continue; }
       const { rows } = await client.query(
         `INSERT INTO marketing_calendar
            (month, scheduled_date, date_note, channel, piece, owner, status, response,
@@ -229,7 +256,12 @@ router.post('/import', async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.status(201).json({ inserted: inserted.length, replaced_months: replace });
+    res.status(201).json({
+      inserted: inserted.length,
+      replaced_months: replace,
+      skipped_count: skipped.length,
+      skipped,
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Marketing calendar import error:', err);
@@ -246,6 +278,9 @@ router.patch('/:id', async (req, res) => {
   try {
     const allowed = ['month', 'scheduled_date', 'date_note', 'channel', 'piece', 'owner',
       'status', 'response', 'notes', 'campaign_id', 'record_id', 'image_urls'];
+
+    const invalid = validateRow(req.body || {}, { partial: true });
+    if (invalid) return res.status(400).json({ error: invalid });
 
     // Attaching a picture is what clears "needs a photo". Do it here so the
     // status can never sit stale behind the thing that was blocking it.

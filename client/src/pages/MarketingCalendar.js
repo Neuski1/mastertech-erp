@@ -12,20 +12,27 @@ import ImagePicker from '../components/ImagePicker';
 // Colors group by where it goes: email, Facebook/Instagram, Google/YouTube.
 // ---------------------------------------------------------------------------
 
-const CHANNELS = ['Email', 'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Partner', 'Website', 'Other'];
+// Keep in step with CHANNELS in server/src/routes/marketingCalendar.js. The
+// server validates against its copy, so anything here that is not there will be
+// rejected on save.
+const CHANNELS = ['Email', 'Facebook', 'Instagram', 'YouTube', 'Google Ads', 'Google Business Profile', 'Partner', 'Website', 'Other'];
 const OWNERS = ['Terri', 'Smile', 'Carol', 'SEO/GEO'];
 
 const GROUPS = {
   email: { label: 'Email', color: '#1e3a5f', soft: '#e3ebf5', channels: ['Email'] },
   social: { label: 'Facebook / Instagram', color: '#c2255c', soft: '#fce7f0', channels: ['Facebook', 'Instagram'] },
-  search: { label: 'Google / YouTube', color: '#c62828', soft: '#fdeaea', channels: ['YouTube', 'Google Ads'] },
+  search: { label: 'Google / YouTube', color: '#c62828', soft: '#fdeaea', channels: ['YouTube', 'Google Ads', 'Google Business Profile'] },
   partner: { label: 'Partner', color: '#047857', soft: '#e3f5ef', channels: ['Partner'] },
   other: { label: 'Other', color: '#6b7280', soft: '#f1f2f4', channels: ['Website', 'Other'] },
 };
 
+// An unrecognised channel is a data problem, not a styling one. Make it loud
+// instead of letting it blend into the grey Other bucket.
+const UNKNOWN_GROUP = { key: 'unknown', label: 'Unknown channel', color: '#b45309', soft: '#fff7ed', channels: [] };
+
 function groupFor(channel) {
   for (const [key, g] of Object.entries(GROUPS)) if (g.channels.includes(channel)) return { key, ...g };
-  return { key: 'other', ...GROUPS.other };
+  return { ...UNKNOWN_GROUP };
 }
 
 // One status vocabulary across the calendar and the Campaigns section, so a
@@ -217,6 +224,16 @@ export default function MarketingCalendar() {
             {g.label}
           </div>
         ))}
+        {(() => {
+          const bad = data.months.flatMap(m => m.rows).filter(r => groupFor(r.channel).key === 'unknown');
+          if (bad.length === 0) return null;
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#b45309', fontWeight: 600 }}>
+              <span style={{ width: '12px', height: '12px', borderRadius: '3px', backgroundColor: UNKNOWN_GROUP.color, display: 'inline-block' }} />
+              {bad.length} row{bad.length === 1 ? '' : 's'} with an unrecognised channel, open and fix
+            </div>
+          );
+        })()}
       </div>
 
       <h2 style={{ margin: '0 0 10px', color: '#1e3a5f', fontSize: '1.15rem' }}>{monthLabel(selected)}</h2>
@@ -362,6 +379,11 @@ export default function MarketingCalendar() {
               <div>
                 <label style={label}>Channel</label>
                 <select value={editing.channel} onChange={(e) => setEditing({ ...editing, channel: e.target.value })} style={input}>
+                  {/* Show an existing bad value so it can be seen and corrected
+                      rather than rendering as a blank select. */}
+                  {!CHANNELS.includes(editing.channel) && editing.channel && (
+                    <option value={editing.channel}>{editing.channel} (not a valid channel, pick one below)</option>
+                  )}
                   {CHANNELS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
