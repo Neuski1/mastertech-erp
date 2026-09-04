@@ -416,6 +416,31 @@ router.post('/storage-invoice-run', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/storage-invoice-adhoc
+// One-off or prorated storage invoice for a single space. The monthly engine
+// always bills a full month; this bills the amount you name, with your own line
+// wording and due date, for a mid-month move-in or any other odd month.
+// Body: { billing_id, year, month, rent, line_label?, period_label?, due_date?, dryRun }
+// dryRun defaults to true and returns the numbers plus the rendered HTML.
+router.post('/storage-invoice-adhoc', requireCoworkKey, async (req, res) => {
+  try {
+    const { sendAdhocInvoice } = require('../jobs/storageInvoiceCron');
+    const result = await sendAdhocInvoice({
+      billingId: req.body?.billing_id,
+      year: req.body?.year,
+      month: req.body?.month,
+      rent: req.body?.rent,
+      lineLabel: req.body?.line_label,
+      periodLabel: req.body?.period_label,
+      dueDate: req.body?.due_date,
+      dryRun: req.body?.dryRun !== false,
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // GET /api/cowork-admin/square-series-lookup?series=1495 — READ-ONLY.
 // Finds the Square customer behind a recurring invoice series and lists their
 // cards on file. Used when a storage customer's ERP email/phone does not match
