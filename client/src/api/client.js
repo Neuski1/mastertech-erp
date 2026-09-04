@@ -246,6 +246,8 @@ export const api = {
   // Write and send an email to a customer; the server sends it and logs it to
   // their Communication History in one step.
   sendCustomerEmail: (data) => request('/communications/send', { method: 'POST', body: JSON.stringify(data) }),
+  // Resend one month's storage invoice to one customer.
+  resendStorageInvoice: (data) => request('/storage-autopay/invoices/resend', { method: 'POST', body: JSON.stringify(data) }),
   getCommsByCustomer: (customerId, params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/communications/customer/${customerId}${qs ? `?${qs}` : ''}`);
