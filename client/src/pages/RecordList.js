@@ -48,27 +48,30 @@ const STATUS_GROUPS = [
     bg: '#fffbeb', border: '#fde68a', headerBg: '#fef3c7', headerColor: '#92400e',
   },
   {
+    // Closed sits directly under Billing: a job that got paid is the last
+    // thing you look at on a run down the page, not something to hunt for at
+    // the bottom. Green, and a deeper emerald than the mint of the Leads
+    // panel up top so the two green blocks do not read as the same thing.
+    key: 'closed',
+    label: 'Closed',
+    statuses: ['paid', 'void'],
+    bg: '#ecfdf5', border: '#6ee7b7', headerBg: '#d1fae5', headerColor: '#065f46',
+  },
+  {
     // On Hold is parked work, not work that needs a decision today. It used to
     // sit in Needs Attention, where a job held for a month kept shouting from
     // the top of the page. It gets its own group down here instead, collapsed
-    // by default, so nothing is lost and nothing nags. Teal, because it sits
-    // directly under amber Billing and must not read as more yellow.
+    // by default, so nothing is lost and nothing nags.
     key: 'hold',
     label: 'On Hold',
     statuses: ['on_hold'],
-    bg: '#f0fdfa', border: '#5eead4', headerBg: '#ccfbf1', headerColor: '#115e59',
+    bg: '#fff7ed', border: '#fdba74', headerBg: '#ffedd5', headerColor: '#9a3412',
   },
   {
     key: 'filed',
     label: 'Filed Estimates',
     statuses: ['filed'],
-    bg: '#fff7ed', border: '#fdba74', headerBg: '#ffedd5', headerColor: '#9a3412',
-  },
-  {
-    key: 'closed',
-    label: 'Closed',
-    statuses: ['paid', 'void'],
-    bg: '#ecfdf5', border: '#6ee7b7', headerBg: '#d1fae5', headerColor: '#065f46',
+    bg: '#f8fafc', border: '#cbd5e1', headerBg: '#e2e8f0', headerColor: '#475569',
   },
 ];
 
