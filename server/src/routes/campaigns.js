@@ -197,8 +197,20 @@ router.get('/audit', requireAuth, requireRole('admin'), async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/', requireAdminOrAgentKey, async (req, res) => {
   try {
+    // run_date is when the piece is meant to go out: the campaign's own
+    // scheduled_for if it has one, otherwise the date on the calendar row it
+    // was built from. Carol asked for it as a column so the list reads as a
+    // schedule, not just a pile of drafts.
     const { rows } = await pool.query(
-      'SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT 100'
+      `SELECT c.*,
+              to_char(COALESCE(c.scheduled_for, mc.scheduled_date), 'YYYY-MM-DD') AS run_date,
+              CASE WHEN c.scheduled_for IS NOT NULL THEN 'campaign' ELSE 'calendar' END AS run_date_source,
+              mc.owner AS calendar_owner,
+              mc.date_note AS calendar_date_note
+       FROM email_campaigns c
+       LEFT JOIN marketing_calendar mc ON mc.id = c.calendar_row_id AND mc.deleted_at IS NULL
+       ORDER BY COALESCE(c.scheduled_for, mc.scheduled_date) NULLS LAST, c.created_at DESC
+       LIMIT 100`
     );
     res.json(rows); // list only; no recipient names or emails here
   } catch (err) { res.status(500).json({ error: err.message }); }
