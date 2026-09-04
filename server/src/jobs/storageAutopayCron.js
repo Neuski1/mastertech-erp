@@ -38,7 +38,7 @@ function nextPeriod(d = new Date()) {
   return { year: y, month: m };
 }
 
-async function eligibleBillings(dbc, year, month) {
+async function eligibleBillings(dbc, year, month, billingIds = null) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
@@ -60,8 +60,9 @@ async function eligibleBillings(dbc, year, month) {
           SELECT 1 FROM storage_payment_status ps
            WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3
              AND ps.status IN ('paid', 'partial')
-        )`,
-    [periodStart, year, month]
+        )
+        ${billingIds && billingIds.length ? 'AND sb.id = ANY($4::int[])' : ''}`,
+    billingIds && billingIds.length ? [periodStart, year, month, billingIds] : [periodStart, year, month]
   );
   return rows;
 }
@@ -309,14 +310,14 @@ async function notifyOwnerFailure(b, year, month, error, finalFail) {
 }
 
 // Charge pass for a specific period (defaults to next month). dryRun previews.
-async function runCharges({ year, month, dryRun = false } = {}) {
+async function runCharges({ year, month, dryRun = false, billingIds = null } = {}) {
   if (!square.locationId || !process.env.SQUARE_ACCESS_TOKEN) {
     return { error: 'Square not configured', charged: 0 };
   }
   const p = (year && month) ? { year, month } : nextPeriod();
   const dbc = await pool.connect();
   let billings;
-  try { billings = await eligibleBillings(dbc, p.year, p.month); }
+  try { billings = await eligibleBillings(dbc, p.year, p.month, billingIds); }
   finally { dbc.release(); }
 
   const results = [];
