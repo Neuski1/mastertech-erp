@@ -96,6 +96,7 @@ export default function Storage() {
 
   // Inline per-box editor: id of the occupied space expanded in place (no modal).
   const [expandedId, setExpandedId] = useState(null);
+  const [emailSpace, setEmailSpace] = useState(null); // storage box whose customer we are emailing
 
   // Billing report
   const [showReport, setShowReport] = useState(false);
@@ -510,7 +511,7 @@ export default function Storage() {
               <SpaceCard space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
                 gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
                 canEdit={canEditRecords} onCellToggle={handleCellToggle}
-                isExpanded={expandedId === space.id} />
+                isExpanded={expandedId === space.id} onEmail={setEmailSpace} />
               {expandedId === space.id && space.billing_id && canEditRecords && (
                 <div style={expandedEditorStyle}>
                   <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials}
@@ -531,7 +532,7 @@ export default function Storage() {
               <SpaceCard space={space} onClick={() => handleSpaceClick(space)} canSeeFinancials={canSeeFinancials}
                 gridBox={grid.byBilling[space.billing_id]} gridMonths={grid.months}
                 canEdit={canEditRecords} onCellToggle={handleCellToggle}
-                isExpanded={expandedId === space.id} />
+                isExpanded={expandedId === space.id} onEmail={setEmailSpace} />
               {expandedId === space.id && space.billing_id && canEditRecords && (
                 <div style={expandedEditorStyle}>
                   <InlineBoxEditor space={space} canSeeFinancials={canSeeFinancials}
@@ -735,6 +736,15 @@ export default function Storage() {
         <HelpYouSellTab flash={(msg) => setActionMsg(msg)} />
       )}
 
+      {/* Email a storage customer */}
+      {emailSpace && (
+        <EmailCustomerModal
+          space={emailSpace}
+          onClose={() => setEmailSpace(null)}
+          onSent={(msg) => { setEmailSpace(null); setActionMsg(msg); }}
+        />
+      )}
+
       {/* Waitlist Edit Modal */}
       {showWaitlistDetail && (
         <EditWaitlistModal
@@ -918,10 +928,11 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
   );
 }
 
-function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canEdit, onCellToggle, isExpanded }) {
+function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canEdit, onCellToggle, isExpanded, onEmail }) {
   const occupied = !!space.billing_id;
   const label = space.label.replace(/^(Outdoor|Indoor)\s*/, '');
   const linearFt = space.space_linear_feet || space.unit_linear_feet;
+  const canEmail = !!(space.email_primary && !space.email_invalid);
 
   return (
     <div onClick={onClick} style={{
@@ -942,6 +953,35 @@ function SpaceCard({ space, onClick, canSeeFinancials, gridBox, gridMonths, canE
         <div style={{ fontSize: '0.7rem', color: '#6b7280', lineHeight: 1.4 }}>
           <div style={{ fontWeight: 600, color: '#374151' }}>
             {space.last_name}{space.first_name ? `, ${space.first_name}` : ''}
+          </div>
+          {/* Phone and a one-click email, so the box answers "who do I call"
+              without opening the customer record. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', margin: '1px 0 2px' }}>
+            {space.phone_primary ? (
+              <a href={`tel:${String(space.phone_primary).replace(/[^\d+]/g, '')}`}
+                 onClick={(e) => e.stopPropagation()}
+                 style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.68rem', fontWeight: 600 }}>
+                {formatPhone(space.phone_primary)}
+              </a>
+            ) : (
+              <span style={{ color: '#9ca3af', fontSize: '0.68rem' }}>No phone</span>
+            )}
+            <button
+              type="button"
+              disabled={!canEmail}
+              title={canEmail ? `Email ${space.email_primary}`
+                              : (space.email_invalid ? 'Email on file is flagged bad' : 'No email on file')}
+              onClick={(e) => { e.stopPropagation(); if (canEmail && onEmail) onEmail(space); }}
+              style={{
+                padding: '1px 7px', fontSize: '0.62rem', fontWeight: 700, borderRadius: '4px',
+                border: '1px solid ' + (canEmail ? '#1e3a5f' : '#e5e7eb'),
+                backgroundColor: canEmail ? '#1e3a5f' : '#f3f4f6',
+                color: canEmail ? '#fff' : '#9ca3af',
+                cursor: canEmail ? 'pointer' : 'not-allowed', lineHeight: 1.6,
+              }}
+            >
+              Email
+            </button>
           </div>
           {space.unit_year && (
             <div>{[space.unit_year, space.unit_make, space.unit_model].filter(Boolean).join(' ')}</div>
@@ -2421,6 +2461,74 @@ function WaitlistNotifyModal({ entry, onClose, onSent }) {
           <button onClick={onClose} disabled={sending} style={btnSecondary}>Cancel</button>
           <button onClick={handleSend} disabled={sending} style={btnPrimary}>
             {sending ? 'Sending...' : 'Send Notification'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EmailCustomerModal — plain email to one storage customer. Sends through the
+// ERP's own mail service and lands in that customer's Communication History,
+// so an ad-hoc note is on the record the same as an invoice or a reminder.
+// ---------------------------------------------------------------------------
+function EmailCustomerModal({ space, onClose, onSent }) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const name = [space.first_name, space.last_name].filter(Boolean).join(' ') || 'Customer';
+  const boxLabel = space.label;
+
+  const handleSend = async () => {
+    if (!subject.trim() || !body.trim()) { setError('Subject and message are both required.'); return; }
+    setSending(true);
+    setError('');
+    try {
+      const res = await api.sendCustomerEmail({
+        customer_id: space.customer_id,
+        subject: subject.trim(),
+        body: body.trim(),
+      });
+      onSent(`Email sent to ${res.to}`);
+    } catch (err) {
+      setError(err.message);
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, width: '600px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Email {name}</h2>
+          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
+        </div>
+        <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '12px' }}>
+          {boxLabel} &middot; To: {space.email_primary}
+          {space.phone_primary ? ` · ${formatPhone(space.phone_primary)}` : ''}
+        </div>
+        {error && <div style={errorBannerSmall}>{error}</div>}
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Subject</label>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} autoFocus
+                 placeholder={`Your RV in ${boxLabel}`} style={inputStyleFull} />
+        </div>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={labelStyle}>Message</label>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={9}
+                    placeholder={`Hi ${space.first_name || 'there'},`}
+                    style={{ ...inputStyleFull, minHeight: '170px', fontFamily: 'inherit', resize: 'vertical' }} />
+          <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>
+            Sent on Master Tech letterhead and logged to this customer's Communication History. Blank lines become paragraph breaks.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={sending} style={btnSecondary}>Cancel</button>
+          <button onClick={handleSend} disabled={sending} style={btnPrimary}>
+            {sending ? 'Sending...' : 'Send Email'}
           </button>
         </div>
       </div>
