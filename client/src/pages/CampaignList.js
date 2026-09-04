@@ -170,17 +170,18 @@ export default function CampaignList() {
             <tr>
               <th style={thStyle}>Name</th>
               <th style={thStyle}>Template</th>
+              <th style={{ ...thStyle, width: '120px' }}>Run date</th>
               <th style={thStyle}>Approval</th>
               <th style={thStyle}>Status</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Recipients</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Sent</th>
-              <th style={thStyle}>Date</th>
+              <th style={thStyle}>Created / sent</th>
               <th style={{ ...thStyle, width: '120px' }}></th>
             </tr>
           </thead>
           <tbody>
             {campaigns.length === 0 && (
-              <tr><td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No campaigns yet</td></tr>
+              <tr><td colSpan="9" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No campaigns yet</td></tr>
             )}
             {campaigns.map(c => (
               <tr key={c.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
@@ -196,6 +197,26 @@ export default function CampaignList() {
                         <span style={{ padding: '2px 8px', borderRadius: '9999px', fontSize: '0.68rem', fontWeight: 700, backgroundColor: t.bg, color: t.color, marginRight: '6px' }}>{t.label}</span>
                         <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>{detail}</span>
                       </>
+                    );
+                  })()}
+                </td>
+                <td style={tdStyle}>
+                  {(() => {
+                    if (!c.run_date) {
+                      return <span style={{ fontSize: '0.8rem', color: c.calendar_date_note ? '#6b7280' : '#d1d5db' }}>
+                        {c.calendar_date_note || 'no date'}
+                      </span>;
+                    }
+                    const today = new Date().toISOString().slice(0, 10);
+                    const overdue = c.run_date < today && c.status === 'draft';
+                    return (
+                      <span
+                        title={c.run_date_source === 'calendar' ? 'From the calendar row' : 'Set on the campaign'}
+                        style={{ fontSize: '0.8rem', fontWeight: overdue ? 700 : 500, color: overdue ? '#b91c1c' : '#374151' }}
+                      >
+                        {formatDate(c.run_date)}
+                        {overdue && <span style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600 }}>past due</span>}
+                      </span>
                     );
                   })()}
                 </td>

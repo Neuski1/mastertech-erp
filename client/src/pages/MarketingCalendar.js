@@ -145,6 +145,26 @@ export default function MarketingCalendar() {
     setPickerOpen(false);
   };
 
+  // Approve or send back the linked campaign without leaving the calendar.
+  // Carol's ask: after adding the missing picture, decide right here instead of
+  // going and finding the same piece again in the Campaigns list.
+  const runApproval = async (action) => {
+    const cid = editing?.campaign_id;
+    if (!cid) return;
+    setError('');
+    try {
+      if (action === 'approve') await api.approveCampaign(cid, null);
+      else if (action === 'needs_photo') await api.flagCampaignNeedsPhoto(cid, null);
+      else {
+        const reason = window.prompt('Why is this coming back? The reason is saved on the piece.');
+        if (!reason || !reason.trim()) return;
+        await api.rejectCampaign(cid, reason.trim());
+      }
+      setEditing(null);
+      load();
+    } catch (err) { setError(err.message); }
+  };
+
   const removeImage = (url) => {
     setEditing(e => ({
       ...e,
@@ -370,6 +390,43 @@ export default function MarketingCalendar() {
               {editing.id ? 'Edit' : `Add to ${monthLabel(editing.month)}`}
             </h2>
 
+            {/* The piece this row was built into, and the decision on it.
+                Nothing sends by itself, so this is where it gets a yes. */}
+            {editing.campaign_id && (
+              <div style={approvalPanel(editing.campaign_approval_status)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {CAMPAIGN_APPROVAL_LABEL[editing.campaign_approval_status] || 'Draft'}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', marginTop: '2px' }}>
+                      {editing.campaign_name || 'Linked campaign'}
+                      {editing.campaign_status && editing.campaign_status !== 'draft' ? ` · already ${editing.campaign_status}` : ''}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => navigate(`/marketing/${editing.campaign_id}`)} style={btnLinkSmall}>Open the campaign</button>
+                </div>
+
+                {editing.campaign_status === 'draft' && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => runApproval('approve')} style={btnApprove}>Approve</button>
+                    <button type="button" onClick={() => runApproval('needs_photo')} style={btnSecondary}>Needs Photo</button>
+                    <button type="button" onClick={() => runApproval('reject')} style={btnReject}>Send back</button>
+                  </div>
+                )}
+                <p style={{ margin: '8px 0 0', fontSize: '0.72rem', opacity: 0.85 }}>
+                  Approving does not send it. It clears the piece to be sent or posted, which a person still does.
+                </p>
+              </div>
+            )}
+
+            {!editing.campaign_id && editing.id && (
+              <div style={{ ...approvalPanel('draft'), fontSize: '0.78rem' }}>
+                No campaign built from this row yet, so there is nothing to approve. Add the picture and
+                notes here, then use Build it in Campaigns.
+              </div>
+            )}
+
             <div style={{ marginBottom: '12px' }}>
               <label style={label}>Promotion or piece</label>
               <input value={editing.piece} onChange={(e) => setEditing({ ...editing, piece: e.target.value })} placeholder="Winterize push, before the first hard freeze" style={input} autoFocus />
@@ -496,4 +553,24 @@ const input = { width: '100%', padding: '8px 10px', border: '1px solid #d1d5db',
 const btnPrimary = { padding: '9px 18px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 };
 const btnSecondary = { padding: '9px 16px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 };
 const btnLinkSmall = { background: 'none', border: 'none', color: '#1e3a5f', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, padding: '0 4px' };
+const CAMPAIGN_APPROVAL_LABEL = {
+  draft: 'Draft, waiting on you', needs_photo: 'Needs a photo', approved: 'Approved',
+  rejected: 'Sent back', posted: 'Posted',
+};
+const APPROVAL_TONE = {
+  draft: { bg: '#f3f4f6', color: '#374151', border: '#e5e7eb' },
+  needs_photo: { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
+  approved: { bg: '#d1fae5', color: '#065f46', border: '#6ee7b7' },
+  rejected: { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5' },
+  posted: { bg: '#dbeafe', color: '#1e40af', border: '#93c5fd' },
+};
+const approvalPanel = (status) => {
+  const t = APPROVAL_TONE[status] || APPROVAL_TONE.draft;
+  return {
+    padding: '10px 12px', borderRadius: '8px', marginBottom: '14px',
+    backgroundColor: t.bg, color: t.color, border: `1px solid ${t.border}`,
+  };
+};
+const btnApprove = { padding: '7px 14px', backgroundColor: '#065f46', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };
+const btnReject = { padding: '7px 14px', backgroundColor: '#fff', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };
 const errorBox = { padding: '10px', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '6px', marginBottom: '12px', fontSize: '0.85rem' };

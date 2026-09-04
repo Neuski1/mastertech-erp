@@ -305,6 +305,30 @@ router.patch('/:id', async (req, res) => {
       params
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Calendar row not found' });
+
+    // A picture added on the calendar has to reach the piece it was added for.
+    // Carol approves from the calendar now, so without this she could clear a
+    // campaign that still has no photo in it. Only fills an empty slot on a
+    // draft; it never overwrites a picture someone already chose.
+    if (req.body.image_urls && rows[0].campaign_id) {
+      try {
+        const first = String(req.body.image_urls).split(',').filter(Boolean)[0];
+        if (first) {
+          await pool.query(
+            `UPDATE email_campaigns
+               SET hero_image_url = CASE
+                     WHEN campaign_type = 'social' THEN hero_image_url
+                     WHEN hero_image_url IS NULL THEN $1 ELSE hero_image_url END,
+                   image_urls = CASE
+                     WHEN campaign_type = 'social' AND (image_urls IS NULL OR image_urls = '') THEN $2
+                     ELSE image_urls END
+             WHERE id = $3 AND status = 'draft'`,
+            [first, req.body.image_urls, rows[0].campaign_id]
+          );
+        }
+      } catch (err) { console.error('Campaign image sync failed:', err.message); }
+    }
+
     res.json(shapeRow(rows[0]));
   } catch (err) {
     console.error('Marketing calendar update error:', err);

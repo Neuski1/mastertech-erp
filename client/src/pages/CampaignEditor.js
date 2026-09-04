@@ -325,10 +325,6 @@ export default function CampaignEditor() {
                   <textarea value={form.post_caption || ''} onChange={(e) => setForm({ ...form, post_caption: e.target.value })} rows={6} style={{ ...inputStyle, minHeight: '120px', resize: 'vertical' }} disabled={!isDraft} placeholder="Lead with the customer's problem. Use a real job. End with one action." />
                   <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '4px 0 0' }}>{(form.post_caption || '').length} characters</p>
                 </div>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={labelStyle}>Post on</label>
-                  <input type="date" value={form.scheduled_for || ''} onChange={(e) => setForm({ ...form, scheduled_for: e.target.value })} style={inputStyle} disabled={!isDraft} />
-                </div>
               </>
             ) : (
               <>
@@ -343,6 +339,23 @@ export default function CampaignEditor() {
                 </div>
               </>
             )}
+
+            {/* Every piece carries the date it is meant to go out, email as
+                well as social. It drives the Run date column on the list. */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={labelStyle}>{isSocial ? 'Post on' : 'Planned send date'}</label>
+              <input
+                type="date"
+                value={form.scheduled_for || ''}
+                onChange={(e) => setForm({ ...form, scheduled_for: e.target.value })}
+                style={{ ...inputStyle, maxWidth: '220px' }}
+                disabled={!isDraft}
+              />
+              <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '4px 0 0' }}>
+                Nothing sends on its own. This is the plan, not a trigger.
+              </p>
+            </div>
+
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               {isDraft && <button onClick={async () => { await handleSave(); setStep(3); }} disabled={saving || !form.name || (!isSocial && !form.subject)} style={btnPrimary}>{saving ? 'Saving...' : 'Next: Pictures'}</button>}
               {isDraft && <button onClick={handleSaveDraft} disabled={saving || !form.name || (!isSocial && !form.subject)} style={btnSecondary}>Save Draft</button>}
