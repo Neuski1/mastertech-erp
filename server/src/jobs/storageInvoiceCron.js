@@ -89,13 +89,24 @@ function feeConfig(method, autopayOn) {
   }
 }
 
-function payInstructions(method, autopayOn, brand, last4) {
+// `failing` = autopay is switched on but the card on file is being declined.
+// Telling that customer "no action needed" is the wrong answer and is why a
+// declining card could go months without being fixed.
+function payInstructions(method, autopayOn, brand, last4, failing = false) {
   switch (method) {
     case 'credit_card':
+      if (autopayOn && failing) {
+        return `The ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} we have on file was declined, so your automatic payment did not go through. `
+             + 'Use one of the buttons above to put a new card on file, or to pay this invoice now. '
+             + 'Prefer to pay by phone? Call us at (303) 557-2214.';
+      }
       return autopayOn
         ? `No action needed. Your ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} on file will be charged automatically on the due date.`
         : 'Use one of the buttons above to set up automatic monthly payment or to pay this invoice now. Prefer to pay by phone? Call us at (303) 557-2214.';
     case 'ach':
+      if (autopayOn && failing) {
+        return 'The bank account we have on file was declined, so your automatic payment did not go through. Please call the office at (303) 557-2214 so we can update it.';
+      }
       return autopayOn
         ? 'No action needed. Your bank account on file will be debited automatically on the due date.'
         : 'Please contact the office to set up your bank transfer.';
@@ -200,12 +211,12 @@ function buildInvoiceHtml(inv) {
   ${(inv.payUrl || inv.autopayUrl) ? `
   <div style="padding:20px 32px 0;">
     <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:18px 20px;text-align:center;">
-      <p style="margin:0 0 14px;font-size:13.5px;color:#1e3a5f;font-weight:bold;">Choose how you would like to pay</p>
+      <p style="margin:0 0 14px;font-size:13.5px;color:#1e3a5f;font-weight:bold;">${inv.autopayFailing ? 'Your card on file was declined' : 'Choose how you would like to pay'}</p>
       <table style="width:100%;border-collapse:collapse;">
         <tr>
           ${inv.autopayUrl ? `<td style="text-align:center;padding:4px 6px;">
-            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">Set Up Automatic Payment</a>
-            <div style="font-size:11px;color:#475569;margin-top:6px;">Save your card once. Billed automatically each month.</div>
+            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">${inv.autopayFailing ? 'Update Card on File' : 'Set Up Automatic Payment'}</a>
+            <div style="font-size:11px;color:#475569;margin-top:6px;">${inv.autopayFailing ? 'Replace the card we have on file. Billed automatically each month.' : 'Save your card once. Billed automatically each month.'}</div>
           </td>` : ''}
           ${inv.payUrl ? `<td style="text-align:center;padding:4px 6px;">
             <a href="${inv.payUrl}" style="display:inline-block;padding:13px 20px;background:#fff;color:#1e3a5f;border:2px solid #1e3a5f;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay This Invoice</a>
@@ -258,6 +269,14 @@ async function eligibleRows(dbc, year, month, billingIds = null) {
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
+            -- TRUE when autopay is on but the most recent charge attempt was
+            -- declined and nothing has succeeded since. Self-clearing: the next
+            -- successful charge makes the newest row 'paid' and this goes false.
+            COALESCE((SELECT ac.status IN ('failed', 'failed_final')
+                        FROM storage_autopay_charges ac
+                       WHERE ac.storage_billing_id = sb.id
+                       ORDER BY ac.year DESC, ac.month DESC
+                       LIMIT 1), FALSE) AS autopay_failing,
             sp.label AS space_label, sp.space_type,
             u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
             c.id AS customer_id, c.first_name, c.last_name, c.email_primary, c.phone_primary
@@ -362,12 +381,17 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       dueDate: longDate(due),
       items, total,
       methodLabel: methodLabel(first.payment_method),
-      instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4),
+      instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4, first.autopay_failing),
+      autopayFailing: !!(first.autopay_enabled && first.autopay_failing),
     };
 
     // Card customer with no card on file: give them both options right on the
     // invoice - enroll in autopay, or pay this one invoice.
-    const needsAction = first.payment_method === 'credit_card' && !first.autopay_enabled;
+    // Also a card customer whose card on file keeps declining: they are enrolled
+    // but nothing is being collected, so the invoice is the only place left to
+    // ask them to fix it.
+    const needsAction = first.payment_method === 'credit_card'
+      && (!first.autopay_enabled || first.autopay_failing);
     if (needsAction && !dryRun) {
       inv.autopayUrl = await autopayUrlFor(first.billing_id);
       inv.payUrl = await createPayLink({
@@ -389,7 +413,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     const row = { customer_id: customerId, customer: inv.customerName, email: first.email_primary || null,
                   spaces: spaces.map(s => s.space_label), method: first.payment_method || 'not set',
                   rent: Math.round((total - fee) * 100) / 100, fee, total, invoice: inv.number,
-                  needs_action: needsAction };
+                  needs_action: needsAction, autopay_failing: !!first.autopay_failing };
 
     if (!first.email_primary) { row.result = 'no email on file'; skipped++; results.push(row); continue; }
     if (dryRun) { row.result = 'would send'; results.push(row); continue; }
@@ -468,6 +492,11 @@ async function sendAdhocInvoice({
   const { rows } = await pool.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
+            COALESCE((SELECT ac.status IN ('failed', 'failed_final')
+                        FROM storage_autopay_charges ac
+                       WHERE ac.storage_billing_id = sb.id
+                       ORDER BY ac.year DESC, ac.month DESC
+                       LIMIT 1), FALSE) AS autopay_failing,
             sp.label AS space_label, sp.space_type,
             u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
             c.id AS customer_id, c.first_name, c.last_name, c.email_primary, c.phone_primary
@@ -534,10 +563,14 @@ async function sendAdhocInvoice({
     dueDate: longDate(due),
     items, total,
     methodLabel: methodLabel(s.payment_method),
-    instructions: payInstructions(s.payment_method, s.autopay_enabled, s.autopay_card_brand, s.autopay_card_last4),
+    instructions: payInstructions(s.payment_method, s.autopay_enabled, s.autopay_card_brand, s.autopay_card_last4, s.autopay_failing),
+    autopayFailing: !!(s.autopay_enabled && s.autopay_failing),
   };
 
-  const needsAction = s.payment_method === 'credit_card' && !s.autopay_enabled;
+  // Same rule as the monthly engine: no card on file, or a card on file that
+  // keeps declining, both need the buttons.
+  const needsAction = s.payment_method === 'credit_card'
+    && (!s.autopay_enabled || s.autopay_failing);
   if (needsAction && !dryRun) {
     inv.autopayUrl = await autopayUrlFor(id);
     inv.payUrl = await createPayLink({
@@ -554,7 +587,7 @@ async function sendAdhocInvoice({
     period: `${y}-${String(m).padStart(2, '0')}`, period_label: inv.storageMonth,
     monthly_rate: parseFloat(s.monthly_rate), rent: amount, fee, total,
     due_date: inv.dueDate, invoice: inv.number, needs_action: needsAction, dryRun,
-    resend: alreadyInvoiced, standard_invoice: isStandard,
+    resend: alreadyInvoiced, standard_invoice: isStandard, autopay_failing: !!s.autopay_failing,
   };
 
   if (!s.email_primary) { out.result = 'no email on file'; return out; }
