@@ -71,7 +71,38 @@ router.get('/setup/:token', async (req, res) => {
   }
 });
 
-// --- Public: vault the card + enable autopay (NO charge) -------------------
+// --- Public: vault the card, enable autopay, catch up the current month ----
+// A customer who enrols AFTER this month's invoice has already gone out would
+// otherwise never be charged for it. The cron only ever bills NEXT month, so
+// the current month sits unpaid forever with no job that will ever pick it up
+// (this is exactly what happened to Laura Lunde, September 2026). So the moment
+// a card is saved, charge the current month if it is still owed.
+//
+// Runs through the same tested charge engine as the monthly cron, which skips
+// any month already marked paid or partial, so this can never double-bill.
+const ENROL_CATCHUP_DELAY_MS = 120000;
+
+async function chargeCurrentMonthOnEnrol(billingId) {
+  const nowDenver = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
+  const year = nowDenver.getFullYear();
+  const month = nowDenver.getMonth() + 1;
+  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+
+  // A box whose billing has not started by the end of this month is not owed
+  // yet, so a customer enrolling ahead of their move-in is never charged early.
+  const { rows } = await pool.query(
+    `SELECT 1 FROM storage_billing
+      WHERE id = $1 AND deleted_at IS NULL
+        AND (billing_start_date IS NULL
+             OR billing_start_date <= ($2::date + INTERVAL '1 month' - INTERVAL '1 day'))`,
+    [billingId, periodStart]
+  );
+  if (!rows.length) return { skipped: 'billing has not started yet' };
+
+  const { runCharges } = require('../jobs/storageAutopayCron');
+  return runCharges({ year, month, dryRun: false, billingIds: [billingId] });
+}
+
 router.post('/setup/:token', express.json(), async (req, res) => {
   const { sourceId } = req.body || {};
   if (!sourceId) return res.status(400).json({ error: 'Missing card token' });
@@ -133,6 +164,18 @@ router.post('/setup/:token', express.json(), async (req, res) => {
     );
 
     res.json({ ok: true, card_brand: card.cardBrand || null, card_last4: card.last4 || null });
+
+    // Catch up the current month, AFTER the response so a card that saved fine
+    // never looks like a failure to the customer because the charge had
+    // trouble. The delay lets a Square payment webhook land first, so a
+    // customer who pays this month's invoice and THEN enrols is already marked
+    // paid by the time the engine looks. Success emails a Square receipt and a
+    // decline emails both the customer and the office, same as the monthly run.
+    setTimeout(() => {
+      chargeCurrentMonthOnEnrol(b.id)
+        .then(r => console.log(`[storageAutopay] enrol catch-up billing ${b.id}:`, JSON.stringify(r)))
+        .catch(e => console.error(`[storageAutopay] enrol catch-up failed billing ${b.id}:`, e.message));
+    }, ENROL_CATCHUP_DELAY_MS).unref?.();
   } catch (err) {
     const detail = err.errors ? err.errors.map(e => e.detail).join('; ') : (err.message || 'Card could not be saved');
     console.error('POST storage-autopay/setup error:', detail);
