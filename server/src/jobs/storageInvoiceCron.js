@@ -269,6 +269,11 @@ async function eligibleRows(dbc, year, month, billingIds = null) {
         AND (sb.billing_end_date IS NULL OR sb.billing_end_date >= $1::date)
         AND (sb.scheduled_move_out IS NULL OR sb.scheduled_move_out >= $1::date)
         AND COALESCE(sb.monthly_rate, 0) > 0
+        -- A space whose billing has not started yet by the end of the service
+        -- month is not billable. Without this a box added in September with an
+        -- October 15 start date would be invoiced for the whole of October.
+        AND (sb.billing_start_date IS NULL
+             OR sb.billing_start_date <= ($1::date + INTERVAL '1 month' - INTERVAL '1 day'))
         AND NOT EXISTS (
           SELECT 1 FROM storage_invoices si
            WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3 AND si.status = 'sent')
@@ -441,4 +446,134 @@ function startStorageInvoiceCron() {
   console.log('[storageInvoice] Monthly storage invoice cron scheduled (last day of month, 7 AM Mountain)');
 }
 
-module.exports = { startStorageInvoiceCron, runInvoices, buildInvoiceHtml, autopayUrlFor, createPayLink };
+// --- One-off / prorated invoice ------------------------------------------
+// The monthly engine always bills a full monthly_rate, which is wrong for a
+// mid-month move-in. This sends a single invoice for one space at an amount you
+// name, with your own line-item wording and due date, and it writes the same
+// storage_invoices row the monthly engine writes, so the month it covers is
+// never invoiced twice.
+//
+// Args: { billingId, year, month, rent, lineLabel, periodLabel, dueDate,
+//         dryRun = true }
+// rent is the pre-fee amount. The card / ACH fee is added on top exactly as the
+// monthly engine adds it, from the payment method on the box.
+async function sendAdhocInvoice({
+  billingId, year, month, rent, lineLabel, periodLabel, dueDate, dryRun = true,
+} = {}) {
+  const id = parseInt(billingId, 10);
+  const amount = Math.round(parseFloat(rent) * 100) / 100;
+  if (!id) throw new Error('billingId is required');
+  if (!(amount > 0)) throw new Error('rent must be greater than zero');
+  const y = parseInt(year, 10), m = parseInt(month, 10);
+  if (!y || !m || m < 1 || m > 12) throw new Error('year and month are required');
+
+  const { rows } = await pool.query(
+    `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
+            sb.autopay_card_brand, sb.autopay_card_last4,
+            sp.label AS space_label, sp.space_type,
+            u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
+            c.id AS customer_id, c.first_name, c.last_name, c.email_primary, c.phone_primary
+       FROM storage_billing sb
+       LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+       LEFT JOIN units u ON u.id = sb.unit_id
+       LEFT JOIN customers c ON c.id = sb.customer_id
+      WHERE sb.id = $1 AND sb.deleted_at IS NULL`,
+    [id]
+  );
+  if (!rows.length) throw new Error(`storage billing ${id} not found`);
+  const s = rows[0];
+
+  // Refuse to send a second invoice for a month that already has one, or that
+  // is already marked paid on the billing grid.
+  const { rows: dupe } = await pool.query(
+    `SELECT (SELECT count(*) FROM storage_invoices
+              WHERE storage_billing_id = $1 AND year = $2 AND month = $3 AND status = 'sent') AS invoiced,
+            (SELECT count(*) FROM storage_payment_status
+              WHERE storage_billing_id = $1 AND year = $2 AND month = $3 AND status = 'paid') AS paid`,
+    [id, y, m]
+  );
+  if (Number(dupe[0].invoiced) > 0) throw new Error(`${MONTHS[m - 1]} ${y} was already invoiced for billing ${id}`);
+  if (Number(dupe[0].paid) > 0) throw new Error(`${MONTHS[m - 1]} ${y} is already marked paid for billing ${id}`);
+
+  const cfg = feeConfig(s.payment_method, s.autopay_enabled);
+  const fee = cfg.pct > 0 ? Math.max(Math.round(amount * cfg.pct * 100) / 100, cfg.min || 0) : 0;
+  const total = Math.round((amount + fee) * 100) / 100;
+
+  const rv = [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ');
+  const typeName = (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage';
+  const items = [{ name: lineLabel || typeName, sub: rv || null, amount }];
+  if (fee > 0) {
+    items.push({
+      name: cfg.label,
+      sub: cfg.pct === CARD_SURCHARGE_PCT ? '3.5% of storage total' : '1% of storage total',
+      amount: fee,
+    });
+  }
+
+  const due = dueDate ? new Date(`${dueDate}T12:00:00`) : dueDateFor(y, m);
+  const inv = {
+    number: `S${y}${String(m).padStart(2, '0')}-${s.customer_id}-P`,
+    title: (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage Invoice',
+    subtitle: rv || null,
+    customerName: [s.first_name, s.last_name].filter(Boolean).join(' '),
+    customerEmail: s.email_primary,
+    customerPhone: s.phone_primary || null,
+    createdDate: longDate(new Date()),
+    issueDate: longDate(new Date()),
+    storageMonth: periodLabel || `${MONTHS[m - 1]} ${y}`,
+    dueDate: longDate(due),
+    items, total,
+    methodLabel: methodLabel(s.payment_method),
+    instructions: payInstructions(s.payment_method, s.autopay_enabled, s.autopay_card_brand, s.autopay_card_last4),
+  };
+
+  const needsAction = s.payment_method === 'credit_card' && !s.autopay_enabled;
+  if (needsAction && !dryRun) {
+    inv.autopayUrl = await autopayUrlFor(id);
+    inv.payUrl = await createPayLink({
+      invoiceNumber: inv.number,
+      customerName: inv.customerName,
+      totalCents: Math.round(total * 100),
+    });
+  }
+  if (s.payment_method === 'credit_card' && fee > 0) inv.achNote = true;
+
+  const out = {
+    billing_id: id, customer: inv.customerName, email: s.email_primary || null,
+    space: s.space_label, method: s.payment_method || 'not set',
+    period: `${y}-${String(m).padStart(2, '0')}`, period_label: inv.storageMonth,
+    monthly_rate: parseFloat(s.monthly_rate), rent: amount, fee, total,
+    due_date: inv.dueDate, invoice: inv.number, needs_action: needsAction, dryRun,
+  };
+
+  if (!s.email_primary) { out.result = 'no email on file'; return out; }
+
+  const html = buildInvoiceHtml(inv);
+  if (dryRun) { out.result = 'would send'; out.html = html; return out; }
+
+  const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
+    + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
+    + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}`
+    + `\n\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
+
+  const res = await sendEmail({
+    to: s.email_primary,
+    subject: `Master Tech RV storage invoice — ${inv.storageMonth}`,
+    html, text,
+  });
+  if (!(res && res.success)) { out.result = 'send failed: ' + (res?.error || 'unknown'); return out; }
+
+  await pool.query(
+    `INSERT INTO storage_invoices (storage_billing_id, year, month, rent, surcharge, total, payment_method, status, sent_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'sent',NOW())
+     ON CONFLICT (storage_billing_id, year, month)
+     DO UPDATE SET rent=EXCLUDED.rent, surcharge=EXCLUDED.surcharge, total=EXCLUDED.total,
+                   payment_method=EXCLUDED.payment_method, status='sent', sent_at=NOW()`,
+    [id, y, m, amount, fee, total, s.payment_method || null]
+  );
+  out.result = 'sent';
+  console.log(`[storageInvoice] ad-hoc invoice ${inv.number} sent to ${s.email_primary} for ${money(total)}`);
+  return out;
+}
+
+module.exports = { startStorageInvoiceCron, runInvoices, buildInvoiceHtml, autopayUrlFor, createPayLink, sendAdhocInvoice };
