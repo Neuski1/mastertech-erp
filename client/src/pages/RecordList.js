@@ -51,23 +51,24 @@ const STATUS_GROUPS = [
     // On Hold is parked work, not work that needs a decision today. It used to
     // sit in Needs Attention, where a job held for a month kept shouting from
     // the top of the page. It gets its own group down here instead, collapsed
-    // by default, so nothing is lost and nothing nags.
+    // by default, so nothing is lost and nothing nags. Teal, because it sits
+    // directly under amber Billing and must not read as more yellow.
     key: 'hold',
     label: 'On Hold',
     statuses: ['on_hold'],
-    bg: '#fafaf9', border: '#e7e5e4', headerBg: '#f5f5f4', headerColor: '#57534e',
+    bg: '#f0fdfa', border: '#5eead4', headerBg: '#ccfbf1', headerColor: '#115e59',
   },
   {
     key: 'filed',
     label: 'Filed Estimates',
     statuses: ['filed'],
-    bg: '#f8fafc', border: '#cbd5e1', headerBg: '#e2e8f0', headerColor: '#475569',
+    bg: '#fff7ed', border: '#fdba74', headerBg: '#ffedd5', headerColor: '#9a3412',
   },
   {
     key: 'closed',
     label: 'Closed',
     statuses: ['paid', 'void'],
-    bg: '#f9fafb', border: '#e5e7eb', headerBg: '#f3f4f6', headerColor: '#6b7280',
+    bg: '#ecfdf5', border: '#6ee7b7', headerBg: '#d1fae5', headerColor: '#065f46',
   },
 ];
 
