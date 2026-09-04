@@ -90,6 +90,8 @@ export default function MarketingCalendar() {
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState('month'); // month | list
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [dragRowId, setDragRowId] = useState(null);
+  const [dragOverDay, setDragOverDay] = useState(null);
 
   const from = windowStart;
   const to = shiftMonth(windowStart, 14);
@@ -191,6 +193,35 @@ export default function MarketingCalendar() {
     } catch (err) { setError(err.message); }
   };
 
+  // Drag a piece to a different day. Only within the month on screen, so the
+  // month never has to change underneath the drop.
+  const dropOnDay = async (iso) => {
+    const id = dragRowId;
+    setDragRowId(null);
+    setDragOverDay(null);
+    if (!id || !iso) return;
+
+    const row = monthData.rows.find(r => r.id === id);
+    if (!row || row.scheduled_date === iso) return;
+    if (row.status === 'posted') { setError('That one already went out. Moving it would rewrite history.'); return; }
+
+    // Optimistic: move it on screen now, put it back if the save fails.
+    setData(d => ({
+      ...d,
+      months: d.months.map(m => (m.month !== selected ? m : {
+        ...m,
+        rows: m.rows.map(r => (r.id === id ? { ...r, scheduled_date: iso } : r)),
+      })),
+    }));
+
+    try {
+      await api.updateCalendarRow(id, { scheduled_date: iso, date_note: null });
+    } catch (err) {
+      setError(err.message);
+      load();
+    }
+  };
+
   // --- month grid ---------------------------------------------------------
   const [year, mon] = selected.split('-').map(Number);
   const firstWeekday = new Date(year, mon - 1, 1).getDay();
@@ -275,7 +306,14 @@ export default function MarketingCalendar() {
         })()}
       </div>
 
-      <h2 style={{ margin: '0 0 10px', color: '#1e3a5f', fontSize: '1.15rem' }}>{monthLabel(selected)}</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '8px', margin: '0 0 10px' }}>
+        <h2 style={{ margin: 0, color: '#1e3a5f', fontSize: '1.15rem' }}>{monthLabel(selected)}</h2>
+        {view === 'month' && (
+          <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
+            Drag a piece to another day to move it. Click it to edit or approve.
+          </span>
+        )}
+      </div>
 
       {view === 'month' && (
         <div style={gridWrap}>
@@ -291,10 +329,17 @@ export default function MarketingCalendar() {
                   key={i}
                   style={{
                     ...dayCell,
-                    backgroundColor: day ? (isToday ? '#fffbeb' : '#fff') : '#fafafa',
+                    backgroundColor: !day ? '#fafafa'
+                      : dragOverDay === iso ? '#e3ebf5'
+                      : isToday ? '#fffbeb' : '#fff',
+                    outline: dragOverDay === iso ? '2px solid #1e3a5f' : 'none',
+                    outlineOffset: '-2px',
                     cursor: day ? 'pointer' : 'default',
                   }}
                   onClick={() => day && setEditing(emptyRow(selected, iso))}
+                  onDragOver={(e) => { if (day && dragRowId) { e.preventDefault(); setDragOverDay(iso); } }}
+                  onDragLeave={() => { if (dragOverDay === iso) setDragOverDay(null); }}
+                  onDrop={(e) => { e.preventDefault(); dropOnDay(iso); }}
                 >
                   {day && (
                     <>
@@ -304,9 +349,19 @@ export default function MarketingCalendar() {
                         return (
                           <div
                             key={row.id}
+                            draggable={row.status !== 'posted'}
+                            onDragStart={(e) => { setDragRowId(row.id); e.dataTransfer.effectAllowed = 'move'; }}
+                            onDragEnd={() => { setDragRowId(null); setDragOverDay(null); }}
                             onClick={(e) => { e.stopPropagation(); setEditing({ ...row, month: String(row.month).slice(0, 10), scheduled_date: String(row.scheduled_date).slice(0, 10) }); }}
-                            title={`${row.channel} — ${row.piece}`}
-                            style={{ ...chip, backgroundColor: g.soft, borderLeft: `3px solid ${g.color}`, color: g.color, opacity: row.status === 'skipped' ? 0.5 : 1 }}
+                            title={row.status === 'posted' ? `${row.channel} — ${row.piece}` : `${row.channel} — ${row.piece}\nDrag to move it to another day`}
+                            style={{
+                              ...chip,
+                              backgroundColor: g.soft,
+                              borderLeft: `3px solid ${g.color}`,
+                              color: g.color,
+                              opacity: row.status === 'skipped' ? 0.5 : (dragRowId === row.id ? 0.4 : 1),
+                              cursor: row.status !== 'posted' ? 'grab' : 'pointer',
+                            }}
                           >
                             <span style={{ fontWeight: 700 }}>{row.channel}</span>{' '}
                             <span style={{ color: '#374151', fontWeight: 500 }}>{row.piece}</span>
@@ -334,8 +389,13 @@ export default function MarketingCalendar() {
           {undatedRows.map(row => {
             const g = groupFor(row.channel);
             return (
-              <div key={row.id} onClick={() => setEditing({ ...row, month: String(row.month).slice(0, 10), scheduled_date: '' })}
-                style={{ ...chip, backgroundColor: g.soft, borderLeft: `3px solid ${g.color}`, color: g.color, marginBottom: '4px' }}>
+              <div key={row.id}
+                draggable
+                onDragStart={(e) => { setDragRowId(row.id); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragEnd={() => { setDragRowId(null); setDragOverDay(null); }}
+                onClick={() => setEditing({ ...row, month: String(row.month).slice(0, 10), scheduled_date: '' })}
+                title="Drag onto a day to schedule it"
+                style={{ ...chip, backgroundColor: g.soft, borderLeft: `3px solid ${g.color}`, color: g.color, marginBottom: '4px', cursor: 'grab' }}>
                 <span style={{ fontWeight: 700 }}>{row.channel}</span>{' '}
                 <span style={{ color: '#374151', fontWeight: 500 }}>{row.piece}</span>
                 {row.date_note && <span style={{ color: '#9ca3af' }}> · {row.date_note}</span>}

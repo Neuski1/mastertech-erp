@@ -23,11 +23,46 @@ export default function CampaignList() {
   const [loading, setLoading] = useState(true);
   const [audit, setAudit] = useState(null);
   const [showAudit, setShowAudit] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');       // all | email | social
+  const [stateFilter, setStateFilter] = useState('all');     // all | waiting | approved | out
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
     api.getCampaigns().then(setCampaigns).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Same decisions the calendar offers, so the two views really are one thing
+  // seen two ways.
+  const runApproval = async (c, action) => {
+    setError('');
+    try {
+      if (action === 'approve') await api.approveCampaign(c.id, null);
+      else if (action === 'needs_photo') await api.flagCampaignNeedsPhoto(c.id, null);
+      else {
+        const reason = window.prompt(`Send "${c.name}" back. Why? The reason is saved on the piece.`);
+        if (!reason || !reason.trim()) return;
+        await api.rejectCampaign(c.id, reason.trim());
+      }
+      load();
+    } catch (err) { setError(err.message); }
+  };
+
+  const visible = campaigns.filter(c => {
+    const isSocial = c.campaign_type === 'social';
+    if (typeFilter === 'email' && isSocial) return false;
+    if (typeFilter === 'social' && !isSocial) return false;
+
+    if (stateFilter === 'waiting') return c.status === 'draft' && c.approval_status !== 'approved';
+    if (stateFilter === 'approved') return c.status === 'draft' && c.approval_status === 'approved';
+    if (stateFilter === 'out') return c.status !== 'draft';
+    return true;
+  });
+
+  const countFor = (t) => campaigns.filter(c => (t === 'email' ? c.campaign_type !== 'social' : c.campaign_type === 'social')).length;
 
   const loadAudit = () => {
     if (audit) { setShowAudit(!showAudit); return; }
@@ -164,6 +199,21 @@ export default function CampaignList() {
         </div>
       )}
 
+      {error && <div style={{ padding: '10px', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '6px', marginBottom: '12px', fontSize: '0.85rem' }}>{error}</div>}
+
+      <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {[['all', `All (${campaigns.length})`], ['email', `Email (${countFor('email')})`], ['social', `Social (${countFor('social')})`]].map(([k, lbl]) => (
+            <button key={k} onClick={() => setTypeFilter(k)} style={filterBtn(typeFilter === k)}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {[['all', 'Any state'], ['waiting', 'Waiting on me'], ['approved', 'Approved, not out'], ['out', 'Already out']].map(([k, lbl]) => (
+            <button key={k} onClick={() => setStateFilter(k)} style={filterBtn(stateFilter === k)}>{lbl}</button>
+          ))}
+        </div>
+      </div>
+
       <div style={cardStyle}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -175,15 +225,17 @@ export default function CampaignList() {
               <th style={thStyle}>Status</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Recipients</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Sent</th>
-              <th style={thStyle}>Created / sent</th>
-              <th style={{ ...thStyle, width: '120px' }}></th>
+              <th style={{ ...thStyle, width: '120px' }}>Went out</th>
+              <th style={{ ...thStyle, width: '190px' }}></th>
             </tr>
           </thead>
           <tbody>
-            {campaigns.length === 0 && (
-              <tr><td colSpan="9" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>No campaigns yet</td></tr>
+            {visible.length === 0 && (
+              <tr><td colSpan="9" style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>
+                {campaigns.length === 0 ? 'No campaigns yet' : 'Nothing matches that filter'}
+              </td></tr>
             )}
-            {campaigns.map(c => (
+            {visible.map(c => (
               <tr key={c.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                 <td style={tdStyle}><span style={{ fontWeight: 600, color: '#1e3a5f' }}>{c.name}</span></td>
                 <td style={tdStyle}>
@@ -232,14 +284,28 @@ export default function CampaignList() {
                 </td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>{c.recipient_count || '—'}</td>
                 <td style={{ ...tdStyle, textAlign: 'right' }}>{c.sent_count || '—'}</td>
-                <td style={tdStyle}>{formatDate(c.sent_at || c.created_at)}</td>
+                {/* When it actually went out, not when the row was created.
+                    The planned date is the Run date column. */}
                 <td style={tdStyle}>
-                  <button onClick={() => navigate(`/marketing/${c.id}`)} style={btnSmall}>
-                    {c.status === 'draft' ? 'Edit' : 'View'}
-                  </button>
-                  {c.status === 'draft' && (
-                    <button onClick={() => handleDelete(c.id)} style={{ ...btnSmall, color: '#dc2626', marginLeft: '4px' }}>Del</button>
-                  )}
+                  {c.posted_at || c.sent_at
+                    ? <span style={{ fontSize: '0.8rem' }}>{formatDate(c.posted_at || c.sent_at)}</span>
+                    : <span style={{ fontSize: '0.8rem', color: '#d1d5db' }}>not yet</span>}
+                </td>
+                <td style={tdStyle}>
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button onClick={() => navigate(`/marketing/${c.id}`)} style={btnSmall}>
+                      {c.status === 'draft' ? 'Edit' : 'View'}
+                    </button>
+                    {c.status === 'draft' && c.approval_status !== 'approved' && (
+                      <button onClick={() => runApproval(c, 'approve')} style={{ ...btnSmall, backgroundColor: '#065f46', color: '#fff', border: 'none' }}>Approve</button>
+                    )}
+                    {c.status === 'draft' && (
+                      <button onClick={() => runApproval(c, 'reject')} style={{ ...btnSmall, color: '#991b1b', borderColor: '#fca5a5' }}>Send back</button>
+                    )}
+                    {c.status === 'draft' && (
+                      <button onClick={() => handleDelete(c.id)} style={{ ...btnSmall, color: '#dc2626' }}>Del</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -250,6 +316,12 @@ export default function CampaignList() {
   );
 }
 
+const filterBtn = (active) => ({
+  padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+  border: active ? '1px solid #1e3a5f' : '1px solid #d1d5db',
+  backgroundColor: active ? '#1e3a5f' : '#fff',
+  color: active ? '#fff' : '#374151',
+});
 const btnPrimary = { padding: '10px 20px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' };
 const btnSecondary = { padding: '10px 20px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem' };
 const btnSmall = { padding: '3px 10px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' };
