@@ -120,6 +120,13 @@ function StatusChip({ status, small, onSelect }) {
   );
 }
 
+// Common closures, offered as suggestions when adding a closed day
+const CLOSURE_SUGGESTIONS = [
+  'New Year’s Day', 'Memorial Day', 'Independence Day', 'Labor Day',
+  'Thanksgiving', 'Day After Thanksgiving', 'Christmas Eve', 'Christmas Day',
+  'Vacation', 'Weather', 'Training', 'Closed',
+];
+
 function getWeekStart(date) {
   const d = new Date(date);
   const day = d.getDay();
@@ -161,6 +168,138 @@ function addMonths(date, n) {
   return d;
 }
 
+// Closed-day manager. Add a holiday or a vacation range, remove one that was
+// entered by mistake. One row per closed calendar day.
+function ClosuresModal({ closures, onClose, onSaved }) {
+  const [date, setDate] = useState(formatDate(new Date()));
+  const [endDate, setEndDate] = useState('');
+  const [label, setLabel] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const todayKey = formatDate(new Date());
+  const upcoming = closures.filter(c => c.closure_date >= todayKey);
+  const past = closures.filter(c => c.closure_date < todayKey).slice(-10).reverse();
+
+  const save = async (e) => {
+    e.preventDefault();
+    setError(null);
+    if (!label.trim()) { setError('Give it a name, like "Labor Day".'); return; }
+    setSaving(true);
+    try {
+      await api.createScheduleClosure({
+        date,
+        end_date: endDate || undefined,
+        label: label.trim(),
+        note: note.trim() || undefined,
+      });
+      setLabel(''); setNote(''); setEndDate('');
+      await onSaved();
+    } catch (err) {
+      setError(err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (c) => {
+    if (!window.confirm(`Remove the ${c.label} closure on ${c.closure_date}?`)) return;
+    try {
+      await api.deleteScheduleClosure(c.id);
+      await onSaved();
+    } catch (err) {
+      alert('Failed to remove: ' + err.message);
+    }
+  };
+
+  const row = (c) => (
+    <div key={c.id} style={{
+      display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px',
+      borderBottom: '1px solid #f3f4f6', fontSize: '0.85rem',
+    }}>
+      <span style={{ fontWeight: 600, minWidth: '150px', color: '#374151' }}>
+        {new Date(c.closure_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+      </span>
+      <span style={{
+        padding: '2px 10px', borderRadius: '4px', fontWeight: 700, fontSize: '0.75rem',
+        backgroundColor: '#fee2e2', color: '#991b1b',
+      }}>{c.label}</span>
+      {c.note && <span style={{ color: '#6b7280', fontStyle: 'italic', flex: 1 }}>{c.note}</span>}
+      <button onClick={() => remove(c)} style={{
+        marginLeft: 'auto', padding: '4px 10px', border: '1px solid #d1d5db', borderRadius: '6px',
+        background: '#fff', color: '#6b7280', cursor: 'pointer', fontSize: '0.75rem',
+      }}>Remove</button>
+    </div>
+  );
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 16px', overflowY: 'auto' }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: '#fff', borderRadius: '10px', width: '100%', maxWidth: '620px', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, fontSize: '1.05rem', color: '#1e3a5f' }}>Closed Days</h2>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: '1.3rem', cursor: 'pointer', color: '#9ca3af' }}>&times;</button>
+        </div>
+
+        <form onSubmit={save} style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 140px' }}>
+              <label style={closureLabelStyle}>Date *</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} required style={closureInputStyle} />
+            </div>
+            <div style={{ flex: '1 1 140px' }}>
+              <label style={closureLabelStyle}>Through (optional)</label>
+              <input type="date" value={endDate} min={date} onChange={e => setEndDate(e.target.value)} style={closureInputStyle} />
+            </div>
+            <div style={{ flex: '1 1 180px' }}>
+              <label style={closureLabelStyle}>Reason *</label>
+              <input
+                list="closure-suggestions"
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                placeholder="Labor Day"
+                maxLength={100}
+                style={closureInputStyle}
+              />
+              <datalist id="closure-suggestions">
+                {CLOSURE_SUGGESTIONS.map(s => <option key={s} value={s} />)}
+              </datalist>
+            </div>
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <label style={closureLabelStyle}>Note (optional, staff only)</label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Storage pickups by appointment only" style={closureInputStyle} />
+          </div>
+          {error && <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '8px' }}>{error}</div>}
+          <button type="submit" disabled={saving} style={{ ...btnPrimary, marginTop: '12px' }}>
+            {saving ? 'Saving...' : 'Mark Closed'}
+          </button>
+        </form>
+
+        <div style={{ padding: '12px 10px 18px' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#6b7280', padding: '0 10px 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Upcoming ({upcoming.length})
+          </div>
+          {upcoming.length === 0
+            ? <div style={{ padding: '10px', color: '#9ca3af', fontSize: '0.85rem' }}>No closed days scheduled.</div>
+            : upcoming.map(row)}
+          {past.length > 0 && (
+            <>
+              <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#6b7280', padding: '14px 10px 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Past
+              </div>
+              {past.map(row)}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   useEffect(() => {
@@ -187,6 +326,8 @@ export default function Schedule() {
   const [cancelledAppts, setCancelledAppts] = useState([]);
   const [cancelledLoading, setCancelledLoading] = useState(false);
   const [mobileDayOffset, setMobileDayOffset] = useState(new Date().getDay()); // 0-6, start on today
+  const [closures, setClosures] = useState([]);
+  const [showClosures, setShowClosures] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -244,6 +385,32 @@ export default function Schedule() {
   }, [view, weekStart, currentMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+
+  // Closed days (holidays, vacation, weather). Small table, loaded whole so
+  // every view — week, month, list — can key off one map.
+  const fetchClosures = useCallback(async () => {
+    try {
+      const data = await api.getScheduleClosures();
+      setClosures(data.closures || []);
+    } catch (err) {
+      console.error('Failed to load closed days:', err);
+    }
+  }, []);
+
+  useEffect(() => { fetchClosures(); }, [fetchClosures]);
+
+  const closureByDate = {};
+  closures.forEach(c => { closureByDate[c.closure_date] = c; });
+
+  // Booking on a closed day is allowed, but never by accident.
+  const goToNewAppointment = (dateKey) => {
+    const c = dateKey ? closureByDate[dateKey] : null;
+    if (c) {
+      const pretty = new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      if (!window.confirm(`${pretty} is marked CLOSED for ${c.label}.\n\nBook an appointment anyway?`)) return;
+    }
+    navigate('/schedule/new', dateKey ? { state: { date: dateKey } } : undefined);
+  };
 
   // Auto-refresh: appointments booked on another computer show up on their own,
   // no manual page refresh. Polls only while the tab is visible, and refreshes
@@ -424,7 +591,17 @@ export default function Schedule() {
     if (!listGrouped[dateKey]) listGrouped[dateKey] = [];
     listGrouped[dateKey].push(appt);
   });
-  const listDates = Object.keys(listGrouped).sort();
+  // Closed days show in the list even when nothing is booked on them, but only
+  // when the list isn't filtered down to a search or a technician.
+  const listUnfiltered = filterType === 'all' && filterTech === 'all' && !searchQuery.trim();
+  const listDateSet = new Set(Object.keys(listGrouped));
+  if (view === 'list' && listUnfiltered) {
+    const horizonDate = addMonths(new Date(), 6);
+    closures.forEach(c => {
+      if (c.closure_date >= todayStr && c.closure_date <= formatDate(horizonDate)) listDateSet.add(c.closure_date);
+    });
+  }
+  const listDates = Array.from(listDateSet).sort();
 
   const monthLabel = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -461,6 +638,9 @@ export default function Schedule() {
                 {bulkSending ? 'Sending...' : '\u2709 Resend All Upcoming'}
               </button>
             )}
+            <button onClick={() => setShowClosures(true)} style={btnNav}>
+              Closed Days
+            </button>
             <button onClick={() => navigate('/schedule/new')} style={btnPrimary}>
               + New Appointment
             </button>
@@ -468,10 +648,47 @@ export default function Schedule() {
         )}
       </div>
       {isMobile && (
-        <button onClick={() => navigate('/schedule/new')} style={{ ...btnPrimary, width: '100%', marginBottom: '12px', padding: '14px 20px', fontSize: '1rem' }}>
-          + New Appointment
-        </button>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          <button onClick={() => navigate('/schedule/new')} style={{ ...btnPrimary, flex: 1, padding: '14px 20px', fontSize: '1rem' }}>
+            + New Appointment
+          </button>
+          <button onClick={() => setShowClosures(true)} style={{ ...btnNav, padding: '14px 16px' }}>
+            Closed
+          </button>
+        </div>
       )}
+
+      {showClosures && (
+        <ClosuresModal
+          closures={closures}
+          onClose={() => setShowClosures(false)}
+          onSaved={fetchClosures}
+        />
+      )}
+
+      {/* Upcoming closed days — the shop is shut, say so before anyone books */}
+      {(() => {
+        const from = todayStr;
+        const horizon = new Date();
+        horizon.setDate(horizon.getDate() + 45);
+        const to = formatDate(horizon);
+        const soon = closures.filter(c => c.closure_date >= from && c.closure_date <= to);
+        if (soon.length === 0) return null;
+        return (
+          <div style={{
+            marginBottom: '16px', padding: '10px 14px', borderRadius: '8px',
+            backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b',
+            fontSize: '0.85rem', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center',
+          }}>
+            <strong>Closed:</strong>
+            {soon.map(c => (
+              <span key={c.id} style={{ padding: '2px 10px', borderRadius: '12px', backgroundColor: '#fee2e2', fontWeight: 600 }}>
+                {new Date(c.closure_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} &mdash; {c.label}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
       {bulkResult && (
         <div style={{
           padding: '12px', borderRadius: '6px', marginBottom: '16px', fontSize: '0.875rem',
@@ -643,6 +860,7 @@ export default function Schedule() {
             const mobileKey = formatDate(mobileDay);
             const mobileAppts = appointmentsByDate[mobileKey] || [];
             const isToday = mobileKey === todayStr;
+            const mobileClosure = closureByDate[mobileKey];
             return (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -667,8 +885,17 @@ export default function Schedule() {
                     </button>
                   ))}
                 </div>
+                {mobileClosure && (
+                  <div style={{
+                    marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', textAlign: 'center',
+                    backgroundColor: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', fontWeight: 700,
+                  }}>
+                    CLOSED &middot; {mobileClosure.label}
+                    {mobileClosure.note && <div style={{ fontWeight: 400, fontSize: '0.8rem', marginTop: '2px' }}>{mobileClosure.note}</div>}
+                  </div>
+                )}
                 {mobileAppts.length === 0 ? (
-                  <div onClick={() => navigate('/schedule/new', { state: { date: mobileKey } })} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', cursor: 'pointer' }}>
+                  <div onClick={() => goToNewAppointment(mobileKey)} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', cursor: 'pointer' }}>
                     <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>+</div>
                     Tap to add appointment
                   </div>
@@ -710,24 +937,40 @@ export default function Schedule() {
               const key = formatDate(day);
               const isToday = key === todayStr;
               const dayAppts = appointmentsByDate[key] || [];
+              const closure = closureByDate[key];
 
               return (
                 <div key={key} style={{
                   ...dayColumn,
-                  borderColor: isToday ? '#3b82f6' : '#e5e7eb',
-                  borderWidth: isToday ? '2px' : '1px',
+                  borderColor: closure ? '#fca5a5' : isToday ? '#3b82f6' : '#e5e7eb',
+                  borderWidth: isToday || closure ? '2px' : '1px',
                 }}>
                   <div style={{
                     ...dayHeader,
-                    backgroundColor: isToday ? '#eff6ff' : '#f9fafb',
-                    color: isToday ? '#1e40af' : '#374151',
+                    backgroundColor: closure ? '#fee2e2' : isToday ? '#eff6ff' : '#f9fafb',
+                    color: closure ? '#991b1b' : isToday ? '#1e40af' : '#374151',
                   }}>
                     {formatShortDate(day)}
                   </div>
+                  {closure && (
+                    <div
+                      title={closure.note || ''}
+                      style={{
+                        backgroundColor: '#fef2f2', color: '#991b1b', textAlign: 'center',
+                        fontSize: '0.65rem', fontWeight: 700, padding: '4px 2px',
+                        borderBottom: '1px solid #fecaca', textTransform: 'uppercase', letterSpacing: '0.03em',
+                      }}
+                    >
+                      Closed &middot; {closure.label}
+                    </div>
+                  )}
                   <div
-                    onClick={() => navigate('/schedule/new', { state: { date: key } })}
-                    style={{ padding: '4px', minHeight: '120px', cursor: 'pointer' }}
-                    title="Click to add appointment"
+                    onClick={() => goToNewAppointment(key)}
+                    style={{
+                      padding: '4px', minHeight: '120px', cursor: 'pointer',
+                      backgroundColor: closure ? '#fffafa' : undefined,
+                    }}
+                    title={closure ? `Closed for ${closure.label}` : 'Click to add appointment'}
                   >
                     {dayAppts.length === 0 ? (
                       <div style={{ color: '#d1d5db', fontSize: '1.2rem', textAlign: 'center', padding: '16px 0' }}>+</div>
@@ -782,19 +1025,19 @@ export default function Schedule() {
               const cellAppts = (monthApptsByDate[cellKey] || []);
               const showAppts = cellAppts.slice(0, 3);
               const moreCount = cellAppts.length - 3;
+              const cellClosure = cell.inMonth ? closureByDate[cellKey] : null;
 
               return (
                 <div
                   key={idx}
-                  onClick={() => {
-                    navigate('/schedule/new', { state: { date: cellKey } });
-                  }}
+                  onClick={() => goToNewAppointment(cellKey)}
                   className="month-grid-cell"
                   style={{
                     ...monthCell,
-                    backgroundColor: isToday ? '#eff6ff' : '#fff',
+                    backgroundColor: cellClosure ? '#fef2f2' : isToday ? '#eff6ff' : '#fff',
                     cursor: 'pointer',
                   }}
+                  title={cellClosure ? `Closed for ${cellClosure.label}` : undefined}
                 >
                   <div style={{
                     fontSize: '0.8rem',
@@ -804,6 +1047,16 @@ export default function Schedule() {
                   }}>
                     {cell.day}
                   </div>
+                  {cellClosure && (
+                    <div style={{
+                      padding: '2px 6px', borderRadius: '3px', fontSize: '0.62rem', fontWeight: 700,
+                      backgroundColor: '#fecaca', color: '#991b1b', marginBottom: '3px',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      textTransform: 'uppercase', letterSpacing: '0.02em',
+                    }}>
+                      Closed &middot; {cellClosure.label}
+                    </div>
+                  )}
                   {cell.inMonth && showAppts.map(appt => (
                     <div
                       key={appt.id}
@@ -843,11 +1096,28 @@ export default function Schedule() {
             const dateLabel = dateObj.toLocaleDateString('en-US', {
               weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
             });
-            const dayAppts = listGrouped[dateKey];
+            const dayAppts = listGrouped[dateKey] || [];
+            const listClosure = closureByDate[dateKey];
 
             return (
               <div key={dateKey} style={{ marginBottom: '20px' }}>
-                <div style={listDateHeader}>{dateLabel}</div>
+                <div style={{ ...listDateHeader, color: listClosure ? '#991b1b' : '#1e3a5f' }}>
+                  {dateLabel}
+                  {listClosure && (
+                    <span style={{
+                      marginLeft: '10px', padding: '2px 10px', borderRadius: '4px',
+                      backgroundColor: '#fee2e2', color: '#991b1b', fontSize: '0.75rem', fontWeight: 700,
+                      textTransform: 'uppercase', letterSpacing: '0.03em',
+                    }}>
+                      Closed &middot; {listClosure.label}
+                    </span>
+                  )}
+                </div>
+                {dayAppts.length === 0 && listClosure && (
+                  <div style={{ padding: '10px 12px', color: '#9ca3af', fontSize: '0.85rem' }}>
+                    Shop closed{listClosure.note ? ` — ${listClosure.note}` : ''}. Nothing scheduled.
+                  </div>
+                )}
                 {dayAppts.map(appt => (
                   <div
                     key={appt.id}
@@ -1020,6 +1290,16 @@ const listDateHeader = {
   fontWeight: 700, fontSize: '0.9rem', color: '#1e3a5f',
   padding: '8px 0', borderBottom: '2px solid #e5e7eb', marginBottom: '4px',
 };
+// Closed-days modal styles
+const closureLabelStyle = {
+  display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#6b7280',
+  marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.04em',
+};
+const closureInputStyle = {
+  width: '100%', padding: '8px 10px', border: '1px solid #d1d5db',
+  borderRadius: '6px', fontSize: '0.875rem', boxSizing: 'border-box',
+};
+
 const listRow = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6',

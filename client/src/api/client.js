@@ -233,6 +233,14 @@ export const api = {
   resendConfirmation: (id) => request(`/appointments/${id}/resend-confirmation`, { method: 'POST' }),
   bulkResendConfirmations: () => request('/appointments/bulk-resend', { method: 'POST' }),
 
+  // Schedule closures — days the shop is closed (holidays, vacation, weather)
+  getScheduleClosures: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/schedule-closures${qs ? `?${qs}` : ''}`);
+  },
+  createScheduleClosure: (data) => request('/schedule-closures', { method: 'POST', body: JSON.stringify(data) }),
+  deleteScheduleClosure: (id) => request(`/schedule-closures/${id}`, { method: 'DELETE' }),
+
   // Communications
   logCommunication: (data) => request('/communications', { method: 'POST', body: JSON.stringify(data) }),
   getCommsByCustomer: (customerId, params = {}) => {
