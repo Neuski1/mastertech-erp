@@ -458,12 +458,10 @@ function startStorageInvoiceCron() {
 // rent is the pre-fee amount. The card / ACH fee is added on top exactly as the
 // monthly engine adds it, from the payment method on the box.
 async function sendAdhocInvoice({
-  billingId, year, month, rent, lineLabel, periodLabel, dueDate, dryRun = true,
+  billingId, year, month, rent, lineLabel, periodLabel, dueDate, dryRun = true, force = false,
 } = {}) {
   const id = parseInt(billingId, 10);
-  const amount = Math.round(parseFloat(rent) * 100) / 100;
   if (!id) throw new Error('billingId is required');
-  if (!(amount > 0)) throw new Error('rent must be greater than zero');
   const y = parseInt(year, 10), m = parseInt(month, 10);
   if (!y || !m || m < 1 || m > 12) throw new Error('year and month are required');
 
@@ -483,6 +481,11 @@ async function sendAdhocInvoice({
   if (!rows.length) throw new Error(`storage billing ${id} not found`);
   const s = rows[0];
 
+  // No amount given means "bill this box normally", which is what a resend of
+  // an unchanged invoice wants.
+  const amount = Math.round(parseFloat(rent != null ? rent : s.monthly_rate) * 100) / 100;
+  if (!(amount > 0)) throw new Error('rent must be greater than zero');
+
   // Refuse to send a second invoice for a month that already has one, or that
   // is already marked paid on the billing grid.
   const { rows: dupe } = await pool.query(
@@ -492,7 +495,8 @@ async function sendAdhocInvoice({
               WHERE storage_billing_id = $1 AND year = $2 AND month = $3 AND status = 'paid') AS paid`,
     [id, y, m]
   );
-  if (Number(dupe[0].invoiced) > 0) throw new Error(`${MONTHS[m - 1]} ${y} was already invoiced for billing ${id}`);
+  const alreadyInvoiced = Number(dupe[0].invoiced) > 0;
+  if (alreadyInvoiced && !force) throw new Error(`${MONTHS[m - 1]} ${y} was already invoiced for billing ${id}. Pass force to resend it.`);
   if (Number(dupe[0].paid) > 0) throw new Error(`${MONTHS[m - 1]} ${y} is already marked paid for billing ${id}`);
 
   const cfg = feeConfig(s.payment_method, s.autopay_enabled);
@@ -511,8 +515,14 @@ async function sendAdhocInvoice({
   }
 
   const due = dueDate ? new Date(`${dueDate}T12:00:00`) : dueDateFor(y, m);
+  // A resend at the normal rate with no custom wording IS the monthly invoice,
+  // so it keeps the monthly invoice number the customer already has.
+  const isStandard = !lineLabel && !periodLabel
+    && Math.abs(amount - parseFloat(s.monthly_rate)) < 0.005;
   const inv = {
-    number: `S${y}${String(m).padStart(2, '0')}-${s.customer_id}-P`,
+    number: isStandard
+      ? `S${y}${String(m).padStart(2, '0')}-${s.customer_id}`
+      : `S${y}${String(m).padStart(2, '0')}-${s.customer_id}-P`,
     title: (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage Invoice',
     subtitle: rv || null,
     customerName: [s.first_name, s.last_name].filter(Boolean).join(' '),
@@ -544,6 +554,7 @@ async function sendAdhocInvoice({
     period: `${y}-${String(m).padStart(2, '0')}`, period_label: inv.storageMonth,
     monthly_rate: parseFloat(s.monthly_rate), rent: amount, fee, total,
     due_date: inv.dueDate, invoice: inv.number, needs_action: needsAction, dryRun,
+    resend: alreadyInvoiced, standard_invoice: isStandard,
   };
 
   if (!s.email_primary) { out.result = 'no email on file'; return out; }

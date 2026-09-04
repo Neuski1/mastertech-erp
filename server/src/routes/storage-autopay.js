@@ -217,6 +217,30 @@ router.post('/invoices/run', requireAuth, requireRole('admin'), async (req, res)
   }
 });
 
+// --- Staff: resend one month's invoice to one storage customer ------------
+// Body: { billing_id, year?, month?, dryRun? }
+// Defaults to the CURRENT calendar month, which is the month a customer who
+// says "I never got my invoice" is asking about. Sends the normal invoice at
+// the box's own rate and keeps the original invoice number, so the customer
+// does not think it is a second bill. Refuses if the month is already marked
+// paid on the billing grid.
+router.post('/invoices/resend', requireAuth, requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { sendAdhocInvoice } = require('../jobs/storageInvoiceCron');
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
+    const result = await sendAdhocInvoice({
+      billingId: req.body?.billing_id,
+      year: req.body?.year ? parseInt(req.body.year) : now.getFullYear(),
+      month: req.body?.month ? parseInt(req.body.month) : now.getMonth() + 1,
+      dryRun: req.body?.dryRun === true,
+      force: true,
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // --- Staff: email autopay setup links in bulk -----------------------------
 // Body: { dryRun: true|false, billing_ids?: [] }
 // Targets every ACTIVE space that is not already on autopay and has an email.

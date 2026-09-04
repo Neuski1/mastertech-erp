@@ -1941,6 +1941,12 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
 
   const [autopayMsg, setAutopayMsg] = useState('');
   const [autopayBusy, setAutopayBusy] = useState(false);
+  // Resend one month's invoice. Defaults to the current month, which is what a
+  // customer saying "I never got my invoice" is asking about.
+  const [resendMonth, setResendMonth] = useState(() =>
+    new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }).slice(0, 7));
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendMsg, setResendMsg] = useState('');
   const handleAutopayLink = async () => {
     setAutopayBusy(true); setAutopayMsg('');
     try {
@@ -2118,6 +2124,35 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
                 </div>
               )}
               {autopayMsg && <div style={{ marginTop: '8px', fontSize: '0.78rem', color: autopayMsg.startsWith('Error') ? '#991b1b' : '#065f46', wordBreak: 'break-all' }}>{autopayMsg}</div>}
+            </div>
+
+            {/* Resend an invoice the customer says they never got. Same
+                invoice, same number, same amount — not a second bill. */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+              <label style={{ ...labelStyle, color: '#1e40af' }}>Resend Invoice</label>
+              <div style={{ fontSize: '0.78rem', color: '#374151', marginBottom: '8px' }}>
+                Emails this customer their storage invoice for the month you pick, at the rate on this box. Same invoice number as the original, so it does not read as a second bill.
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input type="month" value={resendMonth} onChange={(e) => setResendMonth(e.target.value)}
+                       style={{ ...inputStyle, width: '160px' }} />
+                <button type="button" disabled={resendBusy || !resendMonth}
+                  onClick={async () => {
+                    const [y, m] = resendMonth.split('-').map(Number);
+                    if (!window.confirm(`Email this customer their storage invoice for ${BILLING_MONTHS[m - 1]} ${y}?`)) return;
+                    setResendBusy(true); setResendMsg('');
+                    try {
+                      const r = await api.resendStorageInvoice({ billing_id: space.billing_id, year: y, month: m });
+                      setResendMsg(`Invoice ${r.invoice} for $${Number(r.total).toFixed(2)} sent to ${r.email}`);
+                    } catch (err) {
+                      setResendMsg('Error: ' + (err.message || 'could not send'));
+                    } finally { setResendBusy(false); }
+                  }}
+                  style={{ ...btnPrimary, padding: '6px 14px', fontSize: '0.8rem' }}>
+                  {resendBusy ? 'Sending...' : 'Resend invoice'}
+                </button>
+              </div>
+              {resendMsg && <div style={{ marginTop: '8px', fontSize: '0.78rem', color: resendMsg.startsWith('Error') ? '#991b1b' : '#1e40af', wordBreak: 'break-word' }}>{resendMsg}</div>}
             </div>
 
             {/* Scheduled move-out (saved with Save) + immediate End Storage */}
