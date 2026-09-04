@@ -441,6 +441,32 @@ router.post('/storage-invoice-adhoc', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/storage-autopay-run
+// Run the TESTED autopay charge engine for specific boxes and a specific month.
+// This moves real money, so it is deliberately narrow: billing_ids is REQUIRED
+// and capped, there is no run-everything form, and dryRun defaults to true.
+// Use it to catch up a box the monthly cron could not cover, such as a customer
+// who enrolled in autopay after their invoice for the current month went out.
+// Boxes already marked paid or partial for the month are skipped by the engine.
+// Body: { billing_ids: [int], year, month, dryRun }
+router.post('/storage-autopay-run', requireCoworkKey, async (req, res) => {
+  try {
+    const billingIds = Array.isArray(req.body?.billing_ids)
+      ? req.body.billing_ids.map(Number).filter(Boolean) : [];
+    if (!billingIds.length) return res.status(400).json({ error: 'billing_ids is required' });
+    if (billingIds.length > 5) return res.status(400).json({ error: 'billing_ids is capped at 5 per call' });
+    const year = req.body?.year ? parseInt(req.body.year) : undefined;
+    const month = req.body?.month ? parseInt(req.body.month) : undefined;
+    if (!year || !month) return res.status(400).json({ error: 'year and month are required' });
+
+    const { runCharges } = require('../jobs/storageAutopayCron');
+    const dryRun = req.body?.dryRun !== false;
+    res.json(await runCharges({ year, month, dryRun, billingIds }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/cowork-admin/square-series-lookup?series=1495 — READ-ONLY.
 // Finds the Square customer behind a recurring invoice series and lists their
 // cards on file. Used when a storage customer's ERP email/phone does not match
