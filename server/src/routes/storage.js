@@ -159,7 +159,7 @@ router.get('/', async (req, res) => {
               sb.notes AS billing_notes,
               sb.contract_token, sb.contract_sent_at, sb.contract_accepted_at, sb.special_terms,
               c.last_name, c.first_name, c.company_name, c.account_number,
-              c.phone_primary,
+              c.phone_primary, c.email_primary, c.email_invalid, c.marketing_opt_out,
               u.year AS unit_year, u.make AS unit_make, u.model AS unit_model,
               u.license_plate, u.linear_feet AS unit_linear_feet,
               inv.year AS inv_year, inv.month AS inv_month, inv.total AS inv_total,

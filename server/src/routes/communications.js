@@ -45,6 +45,71 @@ router.post('/', requireRole('admin', 'service_writer', 'bookkeeper', 'technicia
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/communications/send — Write and send an email to a customer, and
+// log it to their Communication History in the same step. This is the plain
+// "email this customer" path used by the Email button on a storage box; the
+// automated senders (invoices, reminders, review requests) have their own.
+//
+// Body: { customer_id, subject, body, to? }
+// `to` overrides the address only when the customer has more than one on file.
+// ---------------------------------------------------------------------------
+router.post('/send', requireRole('admin', 'service_writer', 'bookkeeper', 'technician'), async (req, res) => {
+  const { customer_id, subject, body, to } = req.body || {};
+  if (!customer_id || !subject || !body) {
+    return res.status(400).json({ error: 'customer_id, subject and body are required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT first_name, last_name, email_primary, email_secondary, email_invalid FROM customers WHERE id = $1 AND deleted_at IS NULL',
+      [customer_id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Customer not found' });
+    const cust = rows[0];
+
+    const allowed = [cust.email_primary, cust.email_secondary].filter(Boolean);
+    const address = to && allowed.includes(to) ? to : cust.email_primary;
+    if (!address) return res.status(400).json({ error: 'No email address on file for this customer' });
+    if (cust.email_invalid) return res.status(400).json({ error: 'This customer is flagged as having a bad email address' });
+
+    // Plain text in, simple HTML out. Blank lines become paragraph breaks so a
+    // note typed in the box reads the way it was typed.
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#1e3a5f;padding:16px 28px;">
+    <span style="color:#5FD584;font-size:15px;font-weight:bold;letter-spacing:.02em;">MASTER TECH RV REPAIR AND STORAGE</span>
+  </div>
+  <div style="padding:24px 28px;font-size:14px;color:#111;line-height:1.6;">
+    ${esc(body).split(/\n{2,}/).map(p => `<p style="margin:0 0 14px;">${p.replace(/\n/g, '<br/>')}</p>`).join('')}
+  </div>
+  <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;text-align:center;">
+    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage<br/>6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+  </div>
+</div></body></html>`;
+
+    const { sendEmail } = require('../services/email');
+    const result = await sendEmail({ to: address, subject, html, text: body });
+    if (!(result && result.success)) {
+      return res.status(502).json({ error: result?.error || 'Email failed to send' });
+    }
+
+    const { rows: logged } = await pool.query(
+      `INSERT INTO communication_log
+         (customer_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id)
+       VALUES ($1,'email','manual_email',$2,'sent',TRUE,$3)
+       RETURNING *`,
+      [customer_id, `To: ${address}\nSubject: ${subject}\n\n${body}`, req.user?.id || null]
+    );
+
+    res.status(201).json({ ok: true, to: address, communication: logged[0] });
+  } catch (err) {
+    console.error('POST /api/communications/send error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/communications/customer/:customerId — Comm history for a customer
 // ---------------------------------------------------------------------------
 router.get('/customer/:customerId', async (req, res) => {

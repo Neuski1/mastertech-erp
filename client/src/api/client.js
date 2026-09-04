@@ -243,6 +243,9 @@ export const api = {
 
   // Communications
   logCommunication: (data) => request('/communications', { method: 'POST', body: JSON.stringify(data) }),
+  // Write and send an email to a customer; the server sends it and logs it to
+  // their Communication History in one step.
+  sendCustomerEmail: (data) => request('/communications/send', { method: 'POST', body: JSON.stringify(data) }),
   getCommsByCustomer: (customerId, params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/communications/customer/${customerId}${qs ? `?${qs}` : ''}`);
