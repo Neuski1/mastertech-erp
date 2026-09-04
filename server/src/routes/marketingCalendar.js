@@ -306,6 +306,18 @@ router.patch('/:id', async (req, res) => {
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Calendar row not found' });
 
+    // Moving a piece on the calendar moves the piece itself. Without this the
+    // Run date column on the Campaigns list would still show the old day, and
+    // the two views would disagree about the same thing.
+    if (req.body.scheduled_date !== undefined && rows[0].campaign_id) {
+      try {
+        await pool.query(
+          "UPDATE email_campaigns SET scheduled_for = $1 WHERE id = $2 AND status = 'draft'",
+          [rows[0].scheduled_date || null, rows[0].campaign_id]
+        );
+      } catch (err) { console.error('Campaign date sync failed:', err.message); }
+    }
+
     // A picture added on the calendar has to reach the piece it was added for.
     // Carol approves from the calendar now, so without this she could clear a
     // campaign that still has no photo in it. Only fills an empty slot on a
