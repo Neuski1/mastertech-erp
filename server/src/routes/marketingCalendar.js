@@ -310,20 +310,31 @@ router.patch('/:id', async (req, res) => {
     // Carol approves from the calendar now, so without this she could clear a
     // campaign that still has no photo in it. Only fills an empty slot on a
     // draft; it never overwrites a picture someone already chose.
-    if (req.body.image_urls && rows[0].campaign_id) {
+    if (req.body.image_urls !== undefined && rows[0].campaign_id) {
       try {
-        const first = String(req.body.image_urls).split(',').filter(Boolean)[0];
-        if (first) {
+        const calImages = String(req.body.image_urls || '').split(',').filter(Boolean);
+
+        const { rows: camp } = await pool.query(
+          `SELECT id, campaign_type, hero_image_url, image_urls
+           FROM email_campaigns WHERE id = $1 AND status = 'draft'`,
+          [rows[0].campaign_id]
+        );
+
+        if (camp.length > 0 && calImages.length > 0) {
+          const c = camp[0];
+          // Merge, do not replace: a picture chosen on the campaign itself is
+          // never clobbered by one added on the calendar.
+          const existing = String(c.image_urls || '').split(',').filter(Boolean);
+          const merged = [...new Set([...existing, ...calImages])].join(',');
+
+          // Both types carry image_urls so the Pictures step can always show
+          // what is attached. Email additionally gets a header image if it has
+          // none yet, which is where an email picture actually renders.
+          const hero = (c.campaign_type !== 'social' && !c.hero_image_url) ? calImages[0] : c.hero_image_url;
+
           await pool.query(
-            `UPDATE email_campaigns
-               SET hero_image_url = CASE
-                     WHEN campaign_type = 'social' THEN hero_image_url
-                     WHEN hero_image_url IS NULL THEN $1 ELSE hero_image_url END,
-                   image_urls = CASE
-                     WHEN campaign_type = 'social' AND (image_urls IS NULL OR image_urls = '') THEN $2
-                     ELSE image_urls END
-             WHERE id = $3 AND status = 'draft'`,
-            [first, req.body.image_urls, rows[0].campaign_id]
+            'UPDATE email_campaigns SET image_urls = $1, hero_image_url = $2 WHERE id = $3',
+            [merged, hero, c.id]
           );
         }
       } catch (err) { console.error('Campaign image sync failed:', err.message); }

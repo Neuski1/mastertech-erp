@@ -134,15 +134,25 @@ export default function MarketingCalendar() {
     navigate(`/marketing/new?calendar_row=${row.id}&piece=${encodeURIComponent(row.piece)}&channel=${encodeURIComponent(row.channel)}${img}`);
   };
 
-  // Attach a picture straight from the calendar. Adding one to a row that was
-  // waiting on a photo clears that status server-side.
-  const attachImage = (img) => {
-    setEditing(e => {
-      if (!e) return e;
-      const urls = [e.image_urls || '', img.public_url].filter(Boolean).join(',');
-      return { ...e, image_urls: urls, status: e.status === 'needs_photo' ? 'draft' : e.status };
-    });
+  // Attach a picture straight from the calendar.
+  //
+  // This SAVES immediately on an existing row rather than waiting for the Save
+  // button. Adding a picture and then clicking Approve used to throw the
+  // picture away, because Approve closed the dialog without saving. "I added a
+  // picture" has to mean it is added.
+  const attachImage = async (img) => {
     setPickerOpen(false);
+    const urls = [editing?.image_urls || '', img.public_url].filter(Boolean).join(',');
+    const nextStatus = editing?.status === 'needs_photo' ? 'draft' : editing?.status;
+    setEditing(e => (e ? { ...e, image_urls: urls, status: nextStatus } : e));
+
+    if (!editing?.id) return; // new row, saved with the rest on Save
+    try {
+      const saved = await api.updateCalendarRow(editing.id, { image_urls: urls });
+      // Pull the row back so the linked campaign's synced state is reflected.
+      setEditing(e => (e && e.id === saved.id ? { ...e, ...saved } : e));
+      load();
+    } catch (err) { setError(err.message); }
   };
 
   // Approve or send back the linked campaign without leaving the calendar.
@@ -153,6 +163,12 @@ export default function MarketingCalendar() {
     if (!cid) return;
     setError('');
     try {
+      // Never decide on a row while edits are still sitting in the dialog.
+      if (editing.id) {
+        const payload = { ...editing };
+        if (!payload.scheduled_date) payload.scheduled_date = null;
+        await api.updateCalendarRow(editing.id, payload);
+      }
       if (action === 'approve') await api.approveCampaign(cid, null);
       else if (action === 'needs_photo') await api.flagCampaignNeedsPhoto(cid, null);
       else {
@@ -165,11 +181,14 @@ export default function MarketingCalendar() {
     } catch (err) { setError(err.message); }
   };
 
-  const removeImage = (url) => {
-    setEditing(e => ({
-      ...e,
-      image_urls: (e.image_urls || '').split(',').filter(u => u && u !== url).join(','),
-    }));
+  const removeImage = async (url) => {
+    const urls = (editing?.image_urls || '').split(',').filter(u => u && u !== url).join(',');
+    setEditing(e => (e ? { ...e, image_urls: urls } : e));
+    if (!editing?.id) return;
+    try {
+      await api.updateCalendarRow(editing.id, { image_urls: urls });
+      load();
+    } catch (err) { setError(err.message); }
   };
 
   // --- month grid ---------------------------------------------------------

@@ -35,7 +35,7 @@ export default function CampaignEditor() {
     target_filter: { storage: 'all', open_orders: 'exclude', exclude_days: 0 },
     hero_image_url: null, hero_alt: '', hero_caption: null,
     campaign_type: 'email', platforms: '', post_caption: '', scheduled_for: '',
-    calendar_row_id: null,
+    calendar_row_id: null, image_urls: '',
   });
   const [pickerFor, setPickerFor] = useState(null); // 'hero' | 'body'
   const [inlineImages, setInlineImages] = useState([]);
@@ -71,7 +71,25 @@ export default function CampaignEditor() {
           post_caption: data.post_caption || '',
           scheduled_for: data.scheduled_for ? String(data.scheduled_for).slice(0, 10) : '',
           calendar_row_id: data.calendar_row_id || null,
+          image_urls: data.image_urls || '',
         });
+
+        // Show the pictures this campaign already has. Without this the
+        // Pictures step rendered empty for every saved campaign, including
+        // ones with a picture attached from the calendar, which made the sync
+        // look broken when the data was actually there.
+        const existing = [
+          ...String(data.image_urls || '').split(',').filter(Boolean),
+          ...(data.hero_image_url ? [data.hero_image_url] : []),
+        ];
+        const unique = [...new Set(existing)];
+        setInlineImages(unique.map((u, i) => ({
+          id: `saved-${i}`,
+          title: u === data.hero_image_url ? 'Header image' : 'Attached',
+          thumb_url: u,
+          public_url: u,
+        })));
+
         setStep(data.status === 'draft' ? 2 : 5);
       }).catch(err => setError(err.message)).finally(() => setLoading(false));
     }
