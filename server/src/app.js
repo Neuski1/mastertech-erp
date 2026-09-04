@@ -83,6 +83,7 @@ app.use('/api/inventory-categories', requireAuth, require('./routes/inventoryCat
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/suppliers', requireAuth, require('./routes/suppliers'));
 app.use('/api/appointments', requireAuth, require('./routes/appointments'));
+app.use('/api/schedule-closures', requireAuth, require('./routes/scheduleClosures'));
 app.use('/api/communications', requireAuth, require('./routes/communications'));
 app.use('/api/square/pos', require('./routes/square-pos')); // POS checkout — callback is public, other routes use requireRole internally
 app.use('/api/square/terminal', requireAuth, require('./routes/square-terminal'));
@@ -1165,6 +1166,21 @@ pool.query(`
   ALTER TABLE marketing_calendar ADD COLUMN IF NOT EXISTS image_urls TEXT;
 `).then(() => console.log('Migration 061 (marketing calendar) ready'))
   .catch(err => console.error('Migration 061 error:', err.message));
+
+// Migration 062 — Schedule closures (holidays, vacation, weather days).
+// One row per closed calendar day. The Schedule module paints those days and
+// warns before an appointment is booked on one.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS schedule_closures (
+    id SERIAL PRIMARY KEY,
+    closure_date DATE NOT NULL UNIQUE,
+    label VARCHAR(100) NOT NULL,
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_schedule_closures_date ON schedule_closures(closure_date);
+`).then(() => console.log('Migration 062 (schedule closures) ready'))
+  .catch(err => console.error('Migration 062 error:', err.message));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {

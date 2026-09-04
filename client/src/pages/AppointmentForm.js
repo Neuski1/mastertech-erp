@@ -71,6 +71,14 @@ export default function AppointmentForm() {
     api.getTechnicians().then(setTechnicians).catch(() => {});
   }, []);
 
+  // Closed days — holidays, vacation, weather. The chosen date is checked
+  // against them so nobody books Labor Day by accident. Still allowed, but it
+  // takes a deliberate confirmation.
+  const [closures, setClosures] = useState([]);
+  useEffect(() => {
+    api.getScheduleClosures().then(d => setClosures(d.closures || [])).catch(() => {});
+  }, []);
+
   // Prefill customer from navigation state (e.g. scheduling a website lead).
   // Only in create/new mode; edit mode loads its own customer.
   useEffect(() => {
@@ -176,9 +184,17 @@ export default function AppointmentForm() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  const dateClosure = closures.find(c => c.closure_date === form.scheduled_date) || null;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+
+    if (dateClosure) {
+      const pretty = new Date(form.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+      if (!window.confirm(`${pretty} is marked CLOSED for ${dateClosure.label}.\n\nSave this appointment anyway?`)) return;
+    }
+
     setSaving(true);
 
     console.log('Submitting appointment with:', { notify_customer: notifyCustomer, customer_email: customerEmail });
@@ -427,7 +443,20 @@ export default function AppointmentForm() {
           <div style={row}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Date *</label>
-              <input name="scheduled_date" type="date" value={form.scheduled_date} onChange={handleChange} required style={inputStyle} />
+              <input
+                name="scheduled_date"
+                type="date"
+                value={form.scheduled_date}
+                onChange={handleChange}
+                required
+                style={dateClosure ? { ...inputStyle, borderColor: '#dc2626', backgroundColor: '#fef2f2' } : inputStyle}
+              />
+              {dateClosure && (
+                <div style={{ marginTop: '6px', fontSize: '0.78rem', fontWeight: 700, color: '#991b1b' }}>
+                  CLOSED &middot; {dateClosure.label}
+                  {dateClosure.note && <span style={{ fontWeight: 400 }}> &mdash; {dateClosure.note}</span>}
+                </div>
+              )}
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Time *</label>
