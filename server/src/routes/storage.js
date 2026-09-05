@@ -1602,6 +1602,15 @@ router.post('/rate-increase/apply', requireRole('admin'), async (req, res) => {
   }
 });
 
+// How long this customer has gone without an increase. Saying it plainly is the
+// strongest thing in the letter, and it differs by space type: indoor has never
+// been raised since the Commerce City move, outdoor went up $1/ft two years ago.
+function rateHistoryLine(spaceType) {
+  return spaceType === 'indoor'
+    ? 'I want to give you plenty of notice about a change to your storage rate. We have not raised indoor storage once in the four years since we opened in Commerce City.'
+    : 'I want to give you plenty of notice about a change to your storage rate. The last time we raised outdoor storage was two years ago.';
+}
+
 // The notice itself. Plain, matter of fact, signed by Carol. Leads with what is
 // changing and why, then the numbers, then what the customer has to do (for
 // most of them, nothing).
@@ -1627,7 +1636,7 @@ function buildRateNoticeHtml(n) {
   <div style="padding:26px 28px;font-size:14px;color:#111;line-height:1.6;">
     <p style="margin:0 0 14px;">Hi ${n.firstName},</p>
 
-    <p style="margin:0 0 14px;">I want to give you plenty of notice about a change to your storage rate. Our own costs have gone up across the board over the past couple of years, insurance and property taxes especially, along with utilities and the general upkeep on the yard. We held off as long as we reasonably could, and we are now adjusting rates.</p>
+    <p style="margin:0 0 14px;">${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep on the yard.</p>
 
     <p style="margin:0 0 14px;">Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from <strong>${n.oldRate} to ${n.newRate} per month</strong>. That first shows up on the invoice we send on ${n.firstInvoiceLong}.</p>
 
@@ -1654,7 +1663,7 @@ function buildRateNoticeText(n) {
     : 'Your next invoice will show the new amount. Nothing else about how you pay changes.';
   return `Hi ${n.firstName},
 
-I want to give you plenty of notice about a change to your storage rate. Our own costs have gone up across the board over the past couple of years, insurance and property taxes especially, along with utilities and the general upkeep on the yard. We held off as long as we reasonably could, and we are now adjusting rates.
+${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep on the yard.
 
 Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from ${n.oldRate} to ${n.newRate} per month. That first shows up on the invoice we send on ${n.firstInvoiceLong}.
 
@@ -1715,6 +1724,7 @@ router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => 
         effectiveLong: longDate(eff),
         firstInvoiceLong: longDate(firstInvoice),
         autopayOn: !!r.autopay_enabled,
+        historyLine: rateHistoryLine(r.space_type),
       };
       const item = { change_id: r.change_id, billing_id: r.billing_id, customer: [r.first_name, r.last_name].filter(Boolean).join(' '),
                      space: r.space_label, email: r.email_primary || null,
