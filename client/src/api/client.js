@@ -346,8 +346,6 @@ export const api = {
     }
     return res.blob();
   },
-  getBillingPreview: (month) => request(`/storage/billing-preview${month ? `?month=${month}` : ''}`),
-  runBilling: (data) => request('/storage/run-billing', { method: 'POST', body: JSON.stringify(data) }),
   getStorageCharges: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/storage/charges${qs ? `?${qs}` : ''}`);
@@ -363,7 +361,6 @@ export const api = {
 
   // Storage Payment Grid
   getStoragePaymentGrid: () => request('/storage/payment-grid'),
-  syncStoragePaymentGrid: () => request('/storage/payment-grid/sync', { method: 'POST' }),
   setStoragePaymentOverride: (data) => request('/storage/payment-grid', { method: 'POST', body: JSON.stringify(data) }),
 
   // Storage Waitlist
