@@ -1182,6 +1182,29 @@ pool.query(`
 `).then(() => console.log('Migration 062 (schedule closures) ready'))
   .catch(err => console.error('Migration 062 error:', err.message));
 
+// Migration 063 — Storage rate change log. One row per box per increase, with
+// the rate before and after. Without it the old rate is gone the moment the
+// increase is applied, and the notice email has nothing to quote back to the
+// customer. notified_at is what keeps a customer from being emailed twice.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS storage_rate_changes (
+    id SERIAL PRIMARY KEY,
+    storage_billing_id INTEGER NOT NULL REFERENCES storage_billing(id),
+    previous_rate NUMERIC(10,2) NOT NULL,
+    new_rate NUMERIC(10,2) NOT NULL,
+    per_foot_rate NUMERIC(10,2),
+    effective_date DATE NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    applied_by INTEGER REFERENCES users(id),
+    notified_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_storage_rate_changes_billing
+    ON storage_rate_changes(storage_billing_id);
+  CREATE INDEX IF NOT EXISTS idx_storage_rate_changes_unnotified
+    ON storage_rate_changes(notified_at) WHERE notified_at IS NULL;
+`).then(() => console.log('Migration 063 (storage rate changes) ready'))
+  .catch(err => console.error('Migration 063 error:', err.message));
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Master Tech ERP API running on port ${PORT}`);

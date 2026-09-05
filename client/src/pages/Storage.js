@@ -706,7 +706,9 @@ export default function Storage() {
       {showRateIncrease && (
         <RateIncreaseModal
           onClose={() => setShowRateIncrease(false)}
-          onApplied={() => { setShowRateIncrease(false); refreshSpaces(); fetchWaitlist(); }}
+          // Stays open after Apply: sending the notices is step three inside
+          // the same modal, and closing here would strand them unsent.
+          onApplied={(msg) => { setActionMsg(msg || 'Rate increase applied'); refreshSpaces(); fetchWaitlist(); }}
         />
       )}
 
@@ -1270,119 +1272,234 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
 }
 
 // ---------------------------------------------------------------------------
-// RateIncreaseModal — bulk per-linear-foot storage rate increase, with preview
+// RateIncreaseModal - pick the boxes, apply, then send the notices.
+//
+// Rewritten Sept 2026. The old version raised every active space by a fixed
+// dollar-per-foot increment, which over-charged anyone who had already signed
+// at the new pricing. This works from a TARGET per-foot rate per space type, so
+// a box already at that rate shows as "already at rate" and is left alone, and
+// every row is a checkbox Carol can untick.
 // ---------------------------------------------------------------------------
 function RateIncreaseModal({ onClose, onApplied }) {
-  const [perFoot, setPerFoot] = useState('1.00');
-  const [includeWaitlist, setIncludeWaitlist] = useState(true);
+  const [indoorRate, setIndoorRate] = useState('23.00');
+  const [outdoorRate, setOutdoorRate] = useState('7.00');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [updateBase, setUpdateBase] = useState(true);
   const [preview, setPreview] = useState(null);
+  const [chosen, setChosen] = useState(() => new Set());
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(null);
+  const [notices, setNotices] = useState(null);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
 
   const money = (n) => `$${(parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const runPreview = async () => {
-    const v = parseFloat(perFoot);
-    if (!(v > 0)) { setError('Enter a dollar amount per linear foot.'); return; }
+    const inD = parseFloat(indoorRate), outD = parseFloat(outdoorRate);
+    if (!(inD > 0) && !(outD > 0)) { setError('Enter a target rate per linear foot.'); return; }
     setLoading(true); setError('');
     try {
-      setPreview(await api.previewStorageRateIncrease(v));
+      const p = await api.previewStorageRateIncrease({
+        indoor_per_foot: inD > 0 ? inD : null,
+        outdoor_per_foot: outD > 0 ? outD : null,
+      });
+      setPreview(p);
+      if (!effectiveDate) setEffectiveDate(p.default_effective_date);
+      // Pre-check exactly the boxes that would actually move.
+      setChosen(new Set(p.spaces.filter(r => !r.already_at_rate && !r.no_linear_feet && r.change !== 0).map(r => r.billing_id)));
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   };
 
+  const toggle = (id) => setChosen(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const movable = preview ? preview.spaces.filter(r => !r.already_at_rate && !r.no_linear_feet && r.change !== 0) : [];
+  const selected = preview ? preview.spaces.filter(r => chosen.has(r.billing_id)) : [];
+  const selectedIncrease = selected.reduce((a, r) => a + (r.change || 0), 0);
+
   const apply = async () => {
-    const v = parseFloat(perFoot);
-    if (!preview) return;
-    if (!window.confirm(`Apply a ${money(v)}/linear-foot increase now? This changes ${preview.summary.space_count} active spaces` + (includeWaitlist ? ' and the waitlist' : '') + '. This takes effect immediately.')) return;
+    if (!selected.length) { setError('Pick at least one space.'); return; }
+    if (!window.confirm(`Raise ${selected.length} space(s) effective ${effectiveDate}? Monthly revenue goes up ${money(selectedIncrease)}. No email goes out yet.`)) return;
     setApplying(true); setError('');
     try {
-      await api.applyStorageRateIncrease(v, includeWaitlist);
-      onApplied();
-    } catch (e) { setError(e.message); setApplying(false); }
+      const res = await api.applyStorageRateIncrease({
+        billing_ids: [...chosen],
+        indoor_per_foot: parseFloat(indoorRate) > 0 ? parseFloat(indoorRate) : null,
+        outdoor_per_foot: parseFloat(outdoorRate) > 0 ? parseFloat(outdoorRate) : null,
+        effective_date: effectiveDate,
+        update_base_rates: updateBase,
+      });
+      setApplied(res);
+      setPreview(null);
+      onApplied(`Rate increase applied to ${res.applied_count} space(s). Notices have not been sent yet.`);
+    } catch (e) { setError(e.message); }
+    finally { setApplying(false); }
   };
+
+  const previewNotices = async () => {
+    setSending(true); setError('');
+    try { setNotices(await api.sendStorageRateNotices({ dryRun: true })); }
+    catch (e) { setError(e.message); }
+    finally { setSending(false); }
+  };
+
+  const sendNotices = async () => {
+    if (!window.confirm(`Email the rate change notice to ${notices.pending} customer(s) now? This reaches real customers.`)) return;
+    setSending(true); setError('');
+    try {
+      const res = await api.sendStorageRateNotices({ dryRun: false });
+      setNotices(res);
+      onApplied(`Rate notices sent: ${res.sent} emailed, ${res.skipped} skipped, ${res.failed} failed.`);
+    } catch (e) { setError(e.message); }
+    finally { setSending(false); }
+  };
+
+  const sampleHtml = notices && notices.notices ? (notices.notices.find(n => n.html) || {}).html : null;
 
   return (
     <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, width: '760px', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalStyle, width: '860px', maxHeight: '88vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h2 style={{ margin: 0, color: '#1e3a5f' }}>Storage Rate Increase</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#9ca3af' }}>&times;</button>
         </div>
         <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: 0 }}>
-          Raises every active space by this amount times its linear feet (a 24&#8209;ft unit goes up 24&#215; this amount). Preview first — nothing changes until you click Apply. Run it on the day the increase takes effect.
+          Set the target rate per linear foot, then pick which spaces move. Anyone already at that rate is marked and left alone, so nobody gets raised twice. Applying changes rates only. Notices are a separate step.
         </p>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#374151' }}>
-            $ per linear foot:&nbsp;
-            <input type="number" step="0.25" min="0" value={perFoot} onChange={(e) => { setPerFoot(e.target.value); setPreview(null); }}
-              style={{ width: '90px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
-          </label>
-          <label style={{ fontSize: '0.85rem', color: '#374151', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <input type="checkbox" checked={includeWaitlist} onChange={(e) => setIncludeWaitlist(e.target.checked)} />
-            Also raise waitlist quotes
-          </label>
-          <button onClick={runPreview} disabled={loading} style={btnSecondary}>{loading ? 'Loading…' : 'Preview'}</button>
-        </div>
+
         {error && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '8px 12px', borderRadius: '6px', fontSize: '0.85rem', marginBottom: '10px' }}>{error}</div>}
 
+        {/* Step 1 - targets */}
+        <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151' }}>
+            Indoor $/ft<br/>
+            <input type="number" step="0.25" min="0" value={indoorRate}
+              onChange={(e) => { setIndoorRate(e.target.value); setPreview(null); }}
+              style={{ width: '90px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
+          </label>
+          <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151' }}>
+            Outdoor $/ft<br/>
+            <input type="number" step="0.25" min="0" value={outdoorRate}
+              onChange={(e) => { setOutdoorRate(e.target.value); setPreview(null); }}
+              style={{ width: '90px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
+          </label>
+          <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151' }}>
+            Effective<br/>
+            <input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)}
+              style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.9rem' }} />
+          </label>
+          <button onClick={runPreview} disabled={loading} style={btnSecondary}>{loading ? 'Loading...' : 'Preview'}</button>
+        </div>
+
+        {/* Step 2 - choose */}
         {preview && (
           <>
-            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', padding: '10px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', marginBottom: '12px', fontSize: '0.85rem' }}>
-              <div><strong>{preview.summary.space_count}</strong> spaces</div>
-              <div>Now: <strong>{money(preview.summary.current_monthly_total)}</strong>/mo</div>
-              <div>After: <strong>{money(preview.summary.new_monthly_total)}</strong>/mo</div>
-              <div style={{ color: '#065f46' }}>+{money(preview.summary.monthly_increase)}/mo</div>
-              {preview.summary.spaces_without_linear_feet > 0 && (
-                <div style={{ color: '#b91c1c' }}>{preview.summary.spaces_without_linear_feet} skipped (no linear feet)</div>
-              )}
+            <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', padding: '10px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', marginBottom: '10px', fontSize: '0.85rem' }}>
+              <div><strong>{selected.length}</strong> selected of {movable.length} eligible</div>
+              <div style={{ color: '#065f46' }}>+{money(selectedIncrease)}/mo</div>
+              {preview.summary.already_at_rate > 0 && <div style={{ color: '#6b7280' }}>{preview.summary.already_at_rate} already at rate</div>}
+              {preview.summary.no_linear_feet > 0 && <div style={{ color: '#b91c1c' }}>{preview.summary.no_linear_feet} missing linear feet</div>}
+              {preview.summary.no_email > 0 && <div style={{ color: '#b45309' }}>{preview.summary.no_email} without email</div>}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <button onClick={() => setChosen(new Set(movable.map(r => r.billing_id)))} style={btnTinyGray}>Select all eligible</button>
+              <button onClick={() => setChosen(new Set())} style={btnTinyGray}>Clear</button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '14px' }}>
               <thead><tr style={{ background: '#1e3a5f', color: '#fff' }}>
-                <th style={rmTh}>Space</th><th style={rmTh}>Customer</th><th style={{ ...rmTh, textAlign: 'right' }}>Ft</th>
-                <th style={{ ...rmTh, textAlign: 'right' }}>Now</th><th style={{ ...rmTh, textAlign: 'right' }}>After</th>
+                <th style={{ ...rmTh, width: '34px' }}></th>
+                <th style={rmTh}>Space</th><th style={rmTh}>Customer</th>
+                <th style={{ ...rmTh, textAlign: 'right' }}>Ft</th>
+                <th style={{ ...rmTh, textAlign: 'right' }}>Now</th>
+                <th style={{ ...rmTh, textAlign: 'right' }}>$/ft</th>
+                <th style={{ ...rmTh, textAlign: 'right' }}>After</th>
+                <th style={{ ...rmTh, textAlign: 'right' }}>Change</th>
               </tr></thead>
               <tbody>
-                {preview.spaces.map(r => (
-                  <tr key={r.billing_id} style={{ borderBottom: '1px solid #eee', background: r.no_linear_feet ? '#fef2f2' : undefined }}>
-                    <td style={rmTd}>{r.space_type === 'indoor' ? 'In' : 'Out'} {r.label}</td>
-                    <td style={rmTd}>{r.customer}</td>
-                    <td style={{ ...rmTd, textAlign: 'right' }}>{r.no_linear_feet ? '—' : r.linear_feet}</td>
-                    <td style={{ ...rmTd, textAlign: 'right' }}>{money(r.current_rate)}</td>
-                    <td style={{ ...rmTd, textAlign: 'right', fontWeight: 700 }}>{r.no_linear_feet ? 'no change' : money(r.new_rate)}</td>
-                  </tr>
-                ))}
+                {preview.spaces.map(r => {
+                  const blocked = r.no_linear_feet || r.already_at_rate || r.change === 0;
+                  return (
+                    <tr key={r.billing_id} style={{ borderBottom: '1px solid #eee',
+                        background: r.no_linear_feet ? '#fef2f2' : (r.already_at_rate ? '#f9fafb' : undefined),
+                        color: blocked ? '#9ca3af' : undefined }}>
+                      <td style={rmTd}>
+                        <input type="checkbox" disabled={blocked} checked={chosen.has(r.billing_id)}
+                          onChange={() => toggle(r.billing_id)} />
+                      </td>
+                      <td style={rmTd}>{r.space_type === 'indoor' ? 'In' : 'Out'} {r.label}</td>
+                      <td style={rmTd}>{r.customer}{(!r.email || r.email_invalid) && !blocked ? ' (no email)' : ''}</td>
+                      <td style={{ ...rmTd, textAlign: 'right' }}>{r.no_linear_feet ? '-' : r.linear_feet}</td>
+                      <td style={{ ...rmTd, textAlign: 'right' }}>{money(r.current_rate)}</td>
+                      <td style={{ ...rmTd, textAlign: 'right' }}>{r.current_per_foot != null ? money(r.current_per_foot) : '-'}</td>
+                      <td style={{ ...rmTd, textAlign: 'right', fontWeight: 700 }}>
+                        {r.no_linear_feet ? 'no linear feet' : (r.already_at_rate ? 'already at rate' : money(r.new_rate))}
+                      </td>
+                      <td style={{ ...rmTd, textAlign: 'right', color: r.change > 0 ? '#065f46' : '#9ca3af' }}>
+                        {blocked ? '-' : '+' + money(r.change)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-            {includeWaitlist && preview.waitlist.length > 0 && (
-              <>
-                <div style={{ fontWeight: 700, color: '#1e3a5f', fontSize: '0.85rem', margin: '0 0 6px' }}>Waitlist quotes</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '14px' }}>
-                  <thead><tr style={{ background: '#3949ab', color: '#fff' }}>
-                    <th style={rmTh}>Name</th><th style={{ ...rmTh, textAlign: 'right' }}>Ft</th>
-                    <th style={{ ...rmTh, textAlign: 'right' }}>Now</th><th style={{ ...rmTh, textAlign: 'right' }}>After</th>
-                  </tr></thead>
-                  <tbody>
-                    {preview.waitlist.map(r => (
-                      <tr key={r.id} style={{ borderBottom: '1px solid #eee', background: r.no_data ? '#fef2f2' : undefined }}>
-                        <td style={rmTd}>{r.contact_name}</td>
-                        <td style={{ ...rmTd, textAlign: 'right' }}>{r.linear_feet ?? '—'}</td>
-                        <td style={{ ...rmTd, textAlign: 'right' }}>{r.current_budget != null ? money(r.current_budget) : '—'}</td>
-                        <td style={{ ...rmTd, textAlign: 'right', fontWeight: 700 }}>{r.no_data ? 'no change' : money(r.new_budget)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            )}
+            <label style={{ fontSize: '0.8rem', color: '#374151', display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
+              <input type="checkbox" checked={updateBase} onChange={(e) => setUpdateBase(e.target.checked)} />
+              Also set these as the base rates quoted to new move-ins
+            </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={onClose} style={btnSecondary}>Cancel</button>
-              <button onClick={apply} disabled={applying} style={{ ...btnPrimary, backgroundColor: '#065f46' }}>
-                {applying ? 'Applying…' : `Apply Increase`}
+              <button onClick={apply} disabled={applying || !selected.length} style={{ ...btnPrimary, backgroundColor: '#065f46' }}>
+                {applying ? 'Applying...' : `Apply to ${selected.length} space${selected.length === 1 ? '' : 's'}`}
               </button>
             </div>
           </>
+        )}
+
+        {/* Step 3 - notices */}
+        {applied && (
+          <div style={{ marginTop: '16px', padding: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px' }}>
+            <div style={{ fontWeight: 700, color: '#065f46', marginBottom: '6px' }}>
+              Rates updated: {applied.applied_count} space(s), effective {applied.effective_date}
+              {applied.skipped_count > 0 ? ` - ${applied.skipped_count} skipped` : ''}
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#374151', margin: '0 0 10px' }}>
+              No customer has been told yet. Preview the notice first, then send.
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button onClick={previewNotices} disabled={sending} style={btnSecondary}>
+                {sending ? 'Working...' : 'Preview notices'}
+              </button>
+              {notices && notices.dryRun && notices.pending > 0 && (
+                <button onClick={sendNotices} disabled={sending} style={{ ...btnPrimary, backgroundColor: '#b45309' }}>
+                  Send {notices.pending} notice{notices.pending === 1 ? '' : 's'}
+                </button>
+              )}
+            </div>
+            {notices && (
+              <div style={{ marginTop: '10px', fontSize: '0.8rem' }}>
+                <div style={{ marginBottom: '6px', color: '#374151' }}>
+                  {notices.dryRun
+                    ? `${notices.pending} pending - ${notices.skipped} cannot be emailed`
+                    : `Sent ${notices.sent} - skipped ${notices.skipped} - failed ${notices.failed}`}
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', color: '#4b5563' }}>
+                  {notices.notices.map(n => (
+                    <li key={n.change_id}>{n.space} - {n.customer}: {money(n.old_rate)} to {money(n.new_rate)} ({n.result})</li>
+                  ))}
+                </ul>
+                {sampleHtml && (
+                  <button onClick={() => { const w = window.open('', '_blank'); if (w) { w.document.write(sampleHtml); w.document.close(); } }}
+                    style={{ ...btnTinyGray, marginTop: '8px' }}>Open sample letter</button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

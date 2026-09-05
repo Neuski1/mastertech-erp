@@ -1433,134 +1433,341 @@ ${personalBlock}
 });
 
 // ---------------------------------------------------------------------------
-// Storage rate increase — raise every active space (and optionally the
-// waitlist) by a per-linear-foot amount. Preview first, then apply.
-//   linear feet source: storage_billing.linear_feet, else the unit, else the space.
+// Storage rate increase — pick the boxes, then notify them.
+//
+// Rewritten Sept 2026. The old version raised EVERY active space by a fixed
+// dollar-per-foot increment, which is wrong once some customers have already
+// signed at the new pricing: a blanket +$1/ft pushed those people to $24/ft
+// while everyone else went to $23. So this works from a TARGET per-foot rate
+// per space type instead of an increment. That is idempotent (running it twice
+// changes nothing the second time), it makes "already at the new rate" a
+// visible state rather than a silent over-charge, and Carol chooses exactly
+// which boxes to move.
+//
+// Applying and notifying are two separate steps on purpose. Every rate change
+// is logged to storage_rate_changes with the before and after, so the notice
+// email can quote real numbers and can be sent later, and notified_at means
+// nobody gets told twice.
 // ---------------------------------------------------------------------------
-async function buildRateIncrease(perFoot) {
-  const inc = parseFloat(perFoot);
-  const { rows: spaces } = await pool.query(
+
+const MONTH_NAMES = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const longDate = (d) => `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+
+// Default effective date: the 1st of next month. Storage bills a month ahead on
+// the last day of the prior month, so a rate effective Nov 1 first appears on
+// the invoice that goes out Oct 31.
+function defaultEffectiveDate() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1);
+}
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+async function rateIncreaseRows(targets) {
+  const { rows } = await pool.query(
     `SELECT sb.id AS billing_id,
             sb.monthly_rate::numeric AS current_rate,
             COALESCE(sb.linear_feet, u.linear_feet, ss.linear_feet)::numeric AS linear_feet,
             ss.label, ss.space_type,
-            TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer
+            TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer,
+            c.email_primary, c.email_invalid
        FROM storage_billing sb
        JOIN customers c ON c.id = sb.customer_id
        LEFT JOIN units u ON u.id = sb.unit_id
        LEFT JOIN storage_spaces ss ON ss.id = sb.space_id
-      WHERE sb.deleted_at IS NULL
+      WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
       ORDER BY ss.space_type, ss.label`
   );
-  const spaceRows = spaces.map(r => {
+
+  return rows.map(r => {
     const lf = r.linear_feet != null ? parseFloat(r.linear_feet) : null;
     const cur = parseFloat(r.current_rate) || 0;
-    const bump = lf != null ? Math.round(lf * inc * 100) / 100 : 0;
-    return { billing_id: r.billing_id, label: r.label, space_type: r.space_type,
-             customer: r.customer, linear_feet: lf, current_rate: cur,
-             new_rate: Math.round((cur + bump) * 100) / 100, no_linear_feet: lf == null };
+    const target = r.space_type === 'indoor' ? targets.indoor : targets.outdoor;
+    const newRate = (lf != null && target != null) ? Math.round(lf * target * 100) / 100 : cur;
+    const curPerFoot = lf ? Math.round((cur / lf) * 100) / 100 : null;
+    return {
+      billing_id: r.billing_id,
+      label: r.label,
+      space_type: r.space_type,
+      customer: r.customer,
+      email: r.email_primary || null,
+      email_invalid: !!r.email_invalid,
+      linear_feet: lf,
+      current_rate: cur,
+      current_per_foot: curPerFoot,
+      target_per_foot: target != null ? target : null,
+      new_rate: newRate,
+      change: Math.round((newRate - cur) * 100) / 100,
+      no_linear_feet: lf == null,
+      // Already at (or above) the new pricing. These are the "new folks" who
+      // signed at the higher rate and must not be raised again.
+      already_at_rate: lf != null && target != null && newRate <= cur,
+    };
   });
-
-  const { rows: wl } = await pool.query(
-    `SELECT id, COALESCE(contact_name, '') AS contact_name, space_type,
-            rv_length_feet::numeric AS lf, budget_monthly::numeric AS budget
-       FROM storage_waitlist
-      WHERE status IN ('waiting','notified')
-      ORDER BY position ASC NULLS LAST, created_at ASC`
-  );
-  const waitRows = wl.map(r => {
-    const lf = r.lf != null ? parseFloat(r.lf) : null;
-    const cur = r.budget != null ? parseFloat(r.budget) : null;
-    const bump = lf != null ? Math.round(lf * inc * 100) / 100 : 0;
-    return { id: r.id, contact_name: r.contact_name, space_type: r.space_type,
-             linear_feet: lf, current_budget: cur,
-             new_budget: cur != null ? Math.round((cur + bump) * 100) / 100 : null,
-             no_data: lf == null || cur == null };
-  });
-
-  const curTotal = spaceRows.reduce((a, r) => a + r.current_rate, 0);
-  const newTotal = spaceRows.reduce((a, r) => a + r.new_rate, 0);
-  return {
-    per_foot: inc,
-    spaces: spaceRows,
-    waitlist: waitRows,
-    summary: {
-      space_count: spaceRows.length,
-      spaces_without_linear_feet: spaceRows.filter(r => r.no_linear_feet).length,
-      current_monthly_total: Math.round(curTotal * 100) / 100,
-      new_monthly_total: Math.round(newTotal * 100) / 100,
-      monthly_increase: Math.round((newTotal - curTotal) * 100) / 100,
-    },
-  };
 }
 
-// POST /api/storage/rate-increase/preview  { per_foot }
+// POST /api/storage/rate-increase/preview  { indoor_per_foot, outdoor_per_foot }
+// Read-only. Returns every active box so Carol can see who moves and who does
+// not, with already_at_rate marking the ones to leave alone.
 router.post('/rate-increase/preview', requireRole('admin', 'service_writer'), async (req, res) => {
-  const perFoot = parseFloat(req.body && req.body.per_foot);
-  if (!(perFoot > 0)) return res.status(400).json({ error: 'per_foot must be a positive number' });
+  const indoor = req.body?.indoor_per_foot != null ? parseFloat(req.body.indoor_per_foot) : null;
+  const outdoor = req.body?.outdoor_per_foot != null ? parseFloat(req.body.outdoor_per_foot) : null;
+  if (indoor == null && outdoor == null) {
+    return res.status(400).json({ error: 'Give a target per-foot rate for indoor, outdoor, or both' });
+  }
+  if ((indoor != null && !(indoor > 0)) || (outdoor != null && !(outdoor > 0))) {
+    return res.status(400).json({ error: 'Per-foot rates must be positive numbers' });
+  }
   try {
-    res.json(await buildRateIncrease(perFoot));
+    const spaces = await rateIncreaseRows({ indoor, outdoor });
+    const movers = spaces.filter(r => !r.already_at_rate && !r.no_linear_feet && r.change !== 0);
+    res.json({
+      targets: { indoor, outdoor },
+      default_effective_date: isoDate(defaultEffectiveDate()),
+      spaces,
+      summary: {
+        space_count: spaces.length,
+        moving: movers.length,
+        already_at_rate: spaces.filter(r => r.already_at_rate).length,
+        no_linear_feet: spaces.filter(r => r.no_linear_feet).length,
+        no_email: movers.filter(r => !r.email || r.email_invalid).length,
+        current_monthly_total: Math.round(spaces.reduce((a, r) => a + r.current_rate, 0) * 100) / 100,
+        monthly_increase: Math.round(movers.reduce((a, r) => a + r.change, 0) * 100) / 100,
+      },
+    });
   } catch (err) {
     console.error('rate-increase preview error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/storage/rate-increase/apply  { per_foot, include_waitlist }
+// POST /api/storage/rate-increase/apply
+//   { billing_ids: [], indoor_per_foot, outdoor_per_foot, effective_date, update_base_rates }
+// Moves ONLY the boxes named in billing_ids. Skips any that are already at or
+// above the target, so a double-click cannot stack two increases.
 router.post('/rate-increase/apply', requireRole('admin'), async (req, res) => {
-  const perFoot = parseFloat(req.body && req.body.per_foot);
-  const includeWaitlist = !!(req.body && req.body.include_waitlist);
-  if (!(perFoot > 0)) return res.status(400).json({ error: 'per_foot must be a positive number' });
+  const ids = Array.isArray(req.body?.billing_ids) ? req.body.billing_ids.map(Number).filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Select at least one space' });
+  const indoor = req.body?.indoor_per_foot != null ? parseFloat(req.body.indoor_per_foot) : null;
+  const outdoor = req.body?.outdoor_per_foot != null ? parseFloat(req.body.outdoor_per_foot) : null;
+  const effective = req.body?.effective_date || isoDate(defaultEffectiveDate());
+  const updateBase = !!req.body?.update_base_rates;
+
   const client = await pool.connect();
   try {
+    const all = await rateIncreaseRows({ indoor, outdoor });
+    const chosen = all.filter(r => ids.includes(r.billing_id));
+    const applied = [], skipped = [];
+
     await client.query('BEGIN');
-    const spaceRes = await client.query(
-      `UPDATE storage_billing sb
-          SET monthly_rate = ROUND(sb.monthly_rate + ($1::numeric * lf.feet), 2),
-              updated_at = NOW()
-         FROM (
-           SELECT b.id, COALESCE(b.linear_feet, u.linear_feet, ss.linear_feet) AS feet
-             FROM storage_billing b
-             LEFT JOIN units u ON u.id = b.unit_id
-             LEFT JOIN storage_spaces ss ON ss.id = b.space_id
-            WHERE b.deleted_at IS NULL
-         ) lf
-        WHERE sb.id = lf.id AND sb.deleted_at IS NULL AND lf.feet IS NOT NULL`,
-      [perFoot]
-    );
-    let waitlistUpdated = 0;
-    if (includeWaitlist) {
-      const wlRes = await client.query(
-        `UPDATE storage_waitlist
-            SET budget_monthly = ROUND(COALESCE(budget_monthly, 0) + ($1::numeric * COALESCE(rv_length_feet, 0)), 2),
-                updated_at = NOW()
-          WHERE status IN ('waiting','notified')
-            AND rv_length_feet IS NOT NULL AND budget_monthly IS NOT NULL`,
-        [perFoot]
+    for (const r of chosen) {
+      if (r.no_linear_feet) { skipped.push({ ...r, reason: 'no linear feet on file' }); continue; }
+      if (r.already_at_rate) { skipped.push({ ...r, reason: 'already at the new rate' }); continue; }
+      await client.query(
+        'UPDATE storage_billing SET monthly_rate = $2::numeric, updated_at = NOW() WHERE id = $1',
+        [r.billing_id, r.new_rate]
       );
-      waitlistUpdated = wlRes.rowCount;
+      await client.query(
+        `INSERT INTO storage_rate_changes
+           (storage_billing_id, previous_rate, new_rate, per_foot_rate, effective_date, applied_by)
+         VALUES ($1, $2, $3, $4, $5::date, $6)`,
+        [r.billing_id, r.current_rate, r.new_rate, r.target_per_foot, effective, req.user?.id || null]
+      );
+      applied.push(r);
     }
-    // Raise the per-foot base rates so future move-ins get the new pricing too.
-    for (const [key, base] of [['indoor_per_foot', 22], ['outdoor_per_foot', 6]]) {
-      await client.query(
-        `INSERT INTO system_settings (setting_key, setting_value, description)
-           VALUES ($1, $2::text, 'Storage per-linear-foot base rate')
-         ON CONFLICT (setting_key) DO NOTHING`,
-        [key, base]
-      );
-      await client.query(
-        `UPDATE system_settings SET setting_value = (setting_value::numeric + $2)::text WHERE setting_key = $1`,
-        [key, perFoot]
-      );
+
+    // Raising the base rate is now an explicit choice, not a side effect. It
+    // only governs what NEW move-ins are quoted.
+    if (updateBase) {
+      for (const [key, val] of [['indoor_per_foot', indoor], ['outdoor_per_foot', outdoor]]) {
+        if (val == null) continue;
+        await client.query(
+          `INSERT INTO system_settings (setting_key, setting_value, description)
+             VALUES ($1, $2::text, 'Storage per-linear-foot base rate')
+           ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value`,
+          [key, val]
+        );
+      }
     }
     await client.query('COMMIT');
-    res.json({ ok: true, spaces_updated: spaceRes.rowCount, waitlist_updated: waitlistUpdated });
+    res.json({ ok: true, effective_date: effective, applied_count: applied.length,
+               skipped_count: skipped.length, applied, skipped });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('rate-increase apply error:', err);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+// The notice itself. Plain, matter of fact, signed by Carol. Leads with what is
+// changing and why, then the numbers, then what the customer has to do (for
+// most of them, nothing).
+function buildRateNoticeHtml(n) {
+  const logo = `${process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app'}/logo-mark.png?v=2`;
+  const autopayLine = n.autopayOn
+    ? `You are on automatic payment, so there is nothing for you to do. Your card on file will simply be charged the new amount.`
+    : `Your next invoice will show the new amount. Nothing else about how you pay changes.`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#1e3a5f;padding:18px 28px;">
+    <table style="border-collapse:collapse;"><tr>
+      <td style="vertical-align:middle;padding-right:12px;">
+        <img src="${logo}" alt="Master Tech RV" style="height:46px;width:auto;display:block;" />
+      </td>
+      <td style="vertical-align:middle;">
+        <span style="color:#5FD584;font-size:15px;font-weight:bold;letter-spacing:.02em;">MASTER TECH RV<br/>REPAIR AND STORAGE</span>
+      </td>
+    </tr></table>
+  </div>
+
+  <div style="padding:26px 28px;font-size:14px;color:#111;line-height:1.6;">
+    <p style="margin:0 0 14px;">Hi ${n.firstName},</p>
+
+    <p style="margin:0 0 14px;">I want to give you plenty of notice about a change to your storage rate. Our own costs have gone up across the board over the past couple of years, insurance and property taxes especially, along with utilities and the general upkeep on the yard. We held off as long as we reasonably could, and we are now adjusting rates.</p>
+
+    <p style="margin:0 0 14px;">Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from <strong>${n.oldRate} to ${n.newRate} per month</strong>. That first shows up on the invoice we send on ${n.firstInvoiceLong}.</p>
+
+    <p style="margin:0 0 14px;">${autopayLine}</p>
+
+    <p style="margin:0 0 14px;">Nothing else changes. Same space, same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.</p>
+
+    <p style="margin:0 0 14px;">If this creates a problem for you, please call me. I would rather talk it through than have you find out on an invoice.</p>
+
+    <p style="margin:0 0 4px;">Thanks for storing with us.</p>
+    <p style="margin:0 0 2px;">Carol Neu</p>
+    <p style="margin:0;color:#374151;">Master Tech RV Repair &amp; Storage<br/>(303) 557-2214</p>
+  </div>
+
+  <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;text-align:center;">
+    <p style="margin:0;color:#6b7280;font-size:11px;">6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+  </div>
+</div></body></html>`;
+}
+
+function buildRateNoticeText(n) {
+  const autopayLine = n.autopayOn
+    ? 'You are on automatic payment, so there is nothing for you to do. Your card on file will simply be charged the new amount.'
+    : 'Your next invoice will show the new amount. Nothing else about how you pay changes.';
+  return `Hi ${n.firstName},
+
+I want to give you plenty of notice about a change to your storage rate. Our own costs have gone up across the board over the past couple of years, insurance and property taxes especially, along with utilities and the general upkeep on the yard. We held off as long as we reasonably could, and we are now adjusting rates.
+
+Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from ${n.oldRate} to ${n.newRate} per month. That first shows up on the invoice we send on ${n.firstInvoiceLong}.
+
+${autopayLine}
+
+Nothing else changes. Same space, same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.
+
+If this creates a problem for you, please call me. I would rather talk it through than have you find out on an invoice.
+
+Thanks for storing with us.
+
+Carol Neu
+Master Tech RV Repair & Storage
+(303) 557-2214
+6590 E. 49th Ave., Commerce City, CO 80022`;
+}
+
+// POST /api/storage/rate-increase/notices  { billing_ids?, dryRun }
+// Emails the customers whose rate changed and has not been announced yet.
+// dryRun defaults to TRUE and returns the rendered letter without sending.
+router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => {
+  const dryRun = req.body?.dryRun !== false;
+  const ids = Array.isArray(req.body?.billing_ids) ? req.body.billing_ids.map(Number).filter(Boolean) : null;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT rc.id AS change_id, rc.storage_billing_id AS billing_id,
+              rc.previous_rate::numeric AS previous_rate, rc.new_rate::numeric AS new_rate,
+              rc.effective_date,
+              sb.autopay_enabled,
+              ss.label AS space_label, ss.space_type,
+              c.id AS customer_id, c.first_name, c.last_name, c.email_primary, c.email_invalid
+         FROM storage_rate_changes rc
+         JOIN storage_billing sb ON sb.id = rc.storage_billing_id
+         LEFT JOIN storage_spaces ss ON ss.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE rc.notified_at IS NULL
+          AND sb.deleted_at IS NULL
+          ${ids && ids.length ? 'AND rc.storage_billing_id = ANY($1::int[])' : ''}
+        ORDER BY ss.space_type, ss.label`,
+      ids && ids.length ? [ids] : []
+    );
+
+    const { sendEmail } = require('../services/email');
+    const out = [];
+    let sent = 0, skipped = 0, failed = 0;
+
+    for (const r of rows) {
+      const eff = new Date(`${String(r.effective_date).slice(0, 10)}T12:00:00`);
+      // Storage bills a month ahead, so the invoice carrying the new rate goes
+      // out the last day of the month BEFORE the effective date.
+      const firstInvoice = new Date(eff.getFullYear(), eff.getMonth(), 0);
+      const n = {
+        firstName: r.first_name ? r.first_name.charAt(0) + r.first_name.slice(1).toLowerCase() : 'there',
+        spaceLabel: r.space_label || 'your storage space',
+        oldRate: usd(r.previous_rate),
+        newRate: usd(r.new_rate),
+        effectiveLong: longDate(eff),
+        firstInvoiceLong: longDate(firstInvoice),
+        autopayOn: !!r.autopay_enabled,
+      };
+      const item = { change_id: r.change_id, billing_id: r.billing_id, customer: [r.first_name, r.last_name].filter(Boolean).join(' '),
+                     space: r.space_label, email: r.email_primary || null,
+                     old_rate: parseFloat(r.previous_rate), new_rate: parseFloat(r.new_rate),
+                     effective_date: String(r.effective_date).slice(0, 10) };
+
+      if (!r.email_primary || r.email_invalid) {
+        item.result = r.email_invalid ? 'email flagged bad' : 'no email on file';
+        skipped++; out.push(item); continue;
+      }
+      if (dryRun) {
+        item.result = 'would send';
+        if (out.length === 0) item.html = buildRateNoticeHtml(n); // one sample to eyeball
+        out.push(item); continue;
+      }
+
+      try {
+        const subject = `Your storage rate is changing ${MONTH_NAMES[eff.getMonth()]} ${eff.getDate()}`;
+        const resp = await sendEmail({ to: r.email_primary, subject,
+                                       html: buildRateNoticeHtml(n), text: buildRateNoticeText(n) });
+        if (resp && resp.success) {
+          await pool.query('UPDATE storage_rate_changes SET notified_at = NOW() WHERE id = $1', [r.change_id]);
+          await pool.query(
+            `INSERT INTO communication_log
+               (customer_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id)
+             VALUES ($1,'email','storage_rate_notice',$2,'sent',TRUE,$3)`,
+            [r.customer_id, `To: ${r.email_primary}\nSubject: ${subject}\n\n${buildRateNoticeText(n)}`, req.user?.id || null]
+          );
+          item.result = 'sent'; sent++;
+        } else { item.result = 'send failed: ' + (resp?.error || 'unknown'); failed++; }
+      } catch (e) { item.result = 'error: ' + e.message; failed++; }
+      out.push(item);
+    }
+
+    res.json({ ok: true, dryRun, pending: rows.length, sent, skipped, failed, notices: out });
+  } catch (err) {
+    console.error('rate-increase notices error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/storage/rate-increase/pending — how many notices are waiting to go out
+router.get('/rate-increase/pending', requireRole('admin', 'service_writer'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS pending
+         FROM storage_rate_changes rc
+         JOIN storage_billing sb ON sb.id = rc.storage_billing_id
+        WHERE rc.notified_at IS NULL AND sb.deleted_at IS NULL`
+    );
+    res.json({ pending: rows[0].pending });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
