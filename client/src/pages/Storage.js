@@ -105,12 +105,6 @@ export default function Storage() {
   const [reportLoading, setReportLoading] = useState(false);
 
   // Billing run
-  const [showBillingModal, setShowBillingModal] = useState(false);
-  const [billingPreview, setBillingPreview] = useState(null);
-  const [billingMonth, setBillingMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [billingRunning, setBillingRunning] = useState(false);
-  const [billingResults, setBillingResults] = useState(null);
 
   // Add space modal
   const [showAddSpace, setShowAddSpace] = useState(false);
@@ -184,7 +178,6 @@ export default function Storage() {
 
   // --- Payment grid (12-month Paid/Unpaid/Partial per box) ---
   const [grid, setGrid] = useState({ months: [], byBilling: {} });
-  const [gridSyncing, setGridSyncing] = useState(false);
 
   const fetchGrid = useCallback(async () => {
     try {
@@ -210,22 +203,6 @@ export default function Storage() {
 
   // Keep spaces/payment grid current across computers without a manual refresh.
   useAutoRefresh(refreshSpaces);
-
-  const handleSyncSquare = async () => {
-    setGridSyncing(true);
-    try {
-      const data = await api.syncStoragePaymentGrid();
-      const byBilling = {};
-      (data.boxes || []).forEach(b => { byBilling[b.billing_id] = b; });
-      setGrid({ months: data.months || [], byBilling });
-      const s = data.sync || {};
-      setActionMsg(`Square sync: matched ${s.matched || 0} invoice(s) to ${s.boxesSynced || 0}/${s.boxes || 0} box(es); ${s.cellsUpserted || 0} month(s) updated; ${s.unmatched || 0} unmatched (of ${s.invoicesScanned || 0} scanned).`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setGridSyncing(false);
-    }
-  };
 
   // Click cycles the manual override: auto → paid → partial → unpaid → auto
   const nextManualStatus = (cell) => {
@@ -288,28 +265,6 @@ export default function Storage() {
     setShowDetail(true);
   };
 
-  const fetchBillingPreview = async (m) => {
-    setPreviewLoading(true);
-    try {
-      const preview = await api.getBillingPreview(m);
-      setBillingPreview(preview);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const handleOpenBilling = async () => {
-    await fetchBillingPreview(billingMonth);
-    setShowBillingModal(true);
-  };
-
-  const handleBillingMonthChange = (m) => {
-    setBillingMonth(m);
-    fetchBillingPreview(m);
-  };
-
   const fetchReport = async () => {
     setReportLoading(true);
     try {
@@ -329,8 +284,7 @@ export default function Storage() {
     const rows = report.billings.map(b => {
       const cust = `${b.last_name || ''}${b.first_name ? ', ' + b.first_name : ''}${b.company_name ? ' (' + b.company_name + ')' : ''}`;
       const unit = [b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—';
-      const linked = (b.square_sub_id && String(b.square_sub_id).trim()) ? 'Linked' : 'Not linked';
-      return `<tr><td>${b.space_label || ''}</td><td>${b.space_type || ''}</td><td>${cust}</td><td>${unit}</td><td style="text-align:right">${money(b.monthly_rate)}</td><td>${dt(b.billing_start_date)}</td><td>${linked}</td></tr>`;
+      return `<tr><td>${b.space_label || ''}</td><td>${b.space_type || ''}</td><td>${cust}</td><td>${unit}</td><td style="text-align:right">${money(b.monthly_rate)}</td><td>${dt(b.billing_start_date)}</td></tr>`;
     }).join('');
     const html = `<!doctype html><html><head><title>Storage Billing Report — ${reportMonth}</title>
       <style>body{font-family:Arial,sans-serif;margin:24px;color:#111}h1{font-size:18px;margin:0 0 4px}.sub{color:#555;font-size:13px;margin:0 0 16px}
@@ -338,9 +292,9 @@ export default function Storage() {
       tfoot td{font-weight:bold}@media print{button{display:none}}</style></head>
       <body><h1>Master Tech RV — Storage Billing Report</h1>
       <p class="sub">Month: ${reportMonth} &nbsp;|&nbsp; Active billings: ${report.total_active} &nbsp;|&nbsp; Total monthly: ${money(report.total_monthly_revenue)}</p>
-      <table><thead><tr><th>Space</th><th>Type</th><th>Customer</th><th>Unit</th><th style="text-align:right">Rate</th><th>Start</th><th>Square Sync</th></tr></thead>
+      <table><thead><tr><th>Space</th><th>Type</th><th>Customer</th><th>Unit</th><th style="text-align:right">Rate</th><th>Start</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="4">Total (${report.total_active} customers)</td><td style="text-align:right">${money(report.total_monthly_revenue)}</td><td colspan="2"></td></tr></tfoot></table>
+      <tfoot><tr><td colspan="4">Total (${report.total_active} customers)</td><td style="text-align:right">${money(report.total_monthly_revenue)}</td><td></td></tr></tfoot></table>
       <script>window.onload=function(){window.print();}</script></body></html>`;
     const w = window.open('', '_blank');
     if (w) { w.document.write(html); w.document.close(); }
@@ -373,11 +327,6 @@ export default function Storage() {
               {showReport ? 'Hide Report' : 'Billing Report'}
             </button>
           )}
-          {activeTab === 'spaces' && canEditRecords && (
-            <button onClick={handleSyncSquare} disabled={gridSyncing} style={{ ...btnSecondary, opacity: gridSyncing ? 0.6 : 1 }}>
-              {gridSyncing ? 'Syncing…' : '⟳ Sync from Square'}
-            </button>
-          )}
           {activeTab === 'spaces' && (isAdmin || canEditRecords) && (
             <button onClick={() => { setSelectedSpace(null); setShowAssign(true); }} style={btnPrimary}>+ New Contract</button>
           )}
@@ -386,11 +335,6 @@ export default function Storage() {
           )}
           {activeTab === 'spaces' && isAdmin && (
             <button onClick={() => setShowRateIncrease(true)} style={btnSecondary}>Rate Increase</button>
-          )}
-          {activeTab === 'spaces' && isAdmin && (
-            <button onClick={handleOpenBilling} style={btnPrimary}>
-              Run Monthly Billing
-            </button>
           )}
           {activeTab === 'waitlist' && (isAdmin || canEditRecords) && (
             <button onClick={() => setShowAddWaitlist(true)} style={btnPrimary}>
@@ -471,7 +415,6 @@ export default function Storage() {
                     <th style={thStyle}>Unit</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Rate</th>
                     <th style={thStyle}>Start</th>
-                    <th style={thStyle}>Square Sync</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -486,7 +429,6 @@ export default function Storage() {
                       <td style={tdStyle}>{[b.unit_year, b.unit_make, b.unit_model].filter(Boolean).join(' ') || '—'}</td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.monthly_rate)}</td>
                       <td style={tdStyle}>{b.billing_start_date ? new Date(String(b.billing_start_date).split('T')[0] + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '\u2014'}</td>
-                      <td style={tdStyle}>{(b.square_sub_id && String(b.square_sub_id).trim()) ? <span style={{ color: '#059669', fontSize: '0.75rem', fontWeight: 600 }}>Linked</span> : <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>Not linked</span>}</td>
                     </tr>
                   ))}
                   {report.billings.length === 0 && (
@@ -543,38 +485,6 @@ export default function Storage() {
           ))}
         </div>
       </div>
-
-      {/* Billing Run Results */}
-      {billingResults && (
-        <div style={sectionStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={sectionTitle}>Billing Run Results — {billingResults.charge_month}</h2>
-            <button onClick={() => setBillingResults(null)} style={btnSecondary}>Dismiss</button>
-          </div>
-          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '0.85rem' }}>
-            <span style={{ color: '#065f46' }}>Recorded: {billingResults.recorded}</span>
-            <span style={{ fontWeight: 600 }}>Total: {formatCurrency(billingResults.total_amount)}</span>
-          </div>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Space</th>
-                <th style={thStyle}>Customer</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {billingResults.results.map((r, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}>{r.space}</td>
-                  <td style={tdStyle}>{r.customer}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(r.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       </>}
 
@@ -821,33 +731,6 @@ export default function Storage() {
         />
       )}
 
-      {/* Billing Confirmation Modal */}
-      {showBillingModal && billingPreview && (
-        <BillingConfirmModal
-          preview={billingPreview}
-          month={billingMonth}
-          loading={previewLoading}
-          onMonthChange={handleBillingMonthChange}
-          running={billingRunning}
-          onClose={() => { setShowBillingModal(false); setBillingPreview(null); }}
-          onConfirm={async (month) => {
-            setBillingRunning(true);
-            try {
-              const results = await api.runBilling({ charge_month: month });
-              setBillingResults(results);
-              setActionMsg(`Billing recorded for ${month}: ${results.recorded} entries, ${formatCurrency(results.total_amount)} total`);
-              setShowBillingModal(false);
-              setBillingPreview(null);
-              await refreshSpaces();
-            } catch (err) {
-              setError(err.message);
-            } finally {
-              setBillingRunning(false);
-            }
-          }}
-          formatCurrency={formatCurrency}
-        />
-      )}
     </div>
   );
 }
@@ -2378,68 +2261,6 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
 // ---------------------------------------------------------------------------
 // AddSpaceModal — create new storage space (admin only)
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// BillingConfirmModal — preview and confirm monthly billing run
-// ---------------------------------------------------------------------------
-function BillingConfirmModal({ preview, month, loading, onMonthChange, running, onClose, onConfirm, formatCurrency }) {
-
-  return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0, color: '#1e3a5f' }}>Run Monthly Billing</h2>
-          <button onClick={onClose} style={closeBtnLargeStyle}>X</button>
-        </div>
-
-        <div style={{ padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd', marginBottom: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div>
-              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Active Customers</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e3a5f' }}>{preview.count}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase' }}>Total Amount</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#059669' }}>{formatCurrency(preview.total_amount)}</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', marginBottom: '4px' }}>Billing Month</label>
-          <input type="month" value={month} onChange={(e) => onMonthChange(e.target.value)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.875rem' }} />
-        </div>
-
-        <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, position: 'sticky', top: 0, backgroundColor: '#f9fafb' }}>Space</th>
-                <th style={{ ...thStyle, position: 'sticky', top: 0, backgroundColor: '#f9fafb' }}>Customer</th>
-                <th style={{ ...thStyle, position: 'sticky', top: 0, backgroundColor: '#f9fafb', textAlign: 'right' }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preview.billings.map((b, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}>{b.space}</td>
-                  <td style={tdStyle}>{b.customer}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>{formatCurrency(b.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => onConfirm(month)} disabled={running || loading} style={btnPrimary}>
-            {running ? 'Recording...' : loading ? 'Loading...' : `Record & Post Storage Billing for ${month}`}
-          </button>
-          <button onClick={onClose} disabled={running} style={btnSecondary}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function WaitlistNotifyModal({ entry, onClose, onSent }) {
   const [message, setMessage] = useState('');
