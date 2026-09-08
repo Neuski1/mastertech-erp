@@ -6,6 +6,8 @@ import { formatDateTime } from '../utils/dateFormat';
 
 const LS_TOKEN = 'plaid_link_token';
 const LS_INST  = 'plaid_pending_institution';
+// Item id being re-authenticated, so an OAuth round trip can resume in update mode
+const LS_UPDATE = 'plaid_update_item_id';
 
 export default function Bookkeeping() {
   const [items, setItems] = useState([]);
@@ -14,6 +16,8 @@ export default function Bookkeeping() {
   const [linkToken, setLinkToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(null);
+  const [reconnecting, setReconnecting] = useState(null);
+  const [updateItemId, setUpdateItemId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -22,6 +26,7 @@ export default function Bookkeeping() {
     window.location.search.includes('oauth_state_id=');
   const savedLinkToken = isOAuthRedirect ? localStorage.getItem(LS_TOKEN) : null;
   const savedInstitution = isOAuthRedirect ? localStorage.getItem(LS_INST) : null;
+  const savedUpdateItemId = isOAuthRedirect ? localStorage.getItem(LS_UPDATE) : null;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -47,11 +52,14 @@ export default function Bookkeeping() {
   useEffect(() => {
     if (savedLinkToken && isOAuthRedirect) {
       setLinkToken(savedLinkToken);
+      if (savedUpdateItemId) setUpdateItemId(savedUpdateItemId);
     }
-  }, [savedLinkToken, isOAuthRedirect]);
+  }, [savedLinkToken, isOAuthRedirect, savedUpdateItemId]);
 
   const startConnect = async () => {
     setError(''); setMessage('');
+    setUpdateItemId(null);
+    localStorage.removeItem(LS_UPDATE);
     try {
       // Pass current URL as redirect_uri so Plaid OAuth banks return us here
       const redirectUri = `${window.location.origin}/bookkeeping`;
@@ -63,15 +71,50 @@ export default function Bookkeeping() {
     }
   };
 
-  const onPlaidSuccess = useCallback(async (public_token, metadata) => {
-    setMessage('Connecting...');
+  // Re-authenticate an existing connection without replacing it. Use this when a
+  // bank stops delivering some of an account's data, e.g. a reissued card that
+  // falls outside the original consent. The item, its cursor and every existing
+  // transaction survive; deleting and re-adding the connection would not.
+  const startReconnect = async (itemId) => {
+    setError(''); setMessage(''); setReconnecting(itemId);
     try {
-      const instName = metadata?.institution?.name || savedInstitution;
-      await api.exchangePlaidToken(public_token, instName);
-      setMessage(`Connected ${instName || 'institution'}.`);
+      const redirectUri = `${window.location.origin}/bookkeeping`;
+      const { link_token } = await api.getPlaidUpdateLinkToken(itemId, redirectUri);
+      localStorage.setItem(LS_TOKEN, link_token);
+      localStorage.setItem(LS_UPDATE, String(itemId));
+      setUpdateItemId(itemId);
+      setLinkToken(link_token);
+    } catch (e) {
+      setError('Reconnect failed: ' + (typeof e === 'string' ? e : (e.message || JSON.stringify(e))));
+    } finally {
+      setReconnecting(null);
+    }
+  };
+
+  const onPlaidSuccess = useCallback(async (public_token, metadata) => {
+    const activeUpdateItemId = updateItemId || savedUpdateItemId;
+    setMessage(activeUpdateItemId ? 'Reconnecting...' : 'Connecting...');
+    try {
+      if (activeUpdateItemId) {
+        // Update mode: no token to exchange, the item already has one. Re-read the
+        // account list so anything newly in scope gets a row, then pull transactions.
+        const refreshed = await api.refreshPlaidAccounts(activeUpdateItemId);
+        const sync = await api.syncPlaid(activeUpdateItemId);
+        const r = sync.synced?.[0] || {};
+        const newAccounts = refreshed.added?.length
+          ? ` ${refreshed.added.length} new account(s): ${refreshed.added.map((a) => a.mask || a.name).join(', ')}.`
+          : ' No new accounts.';
+        setMessage(`Reconnected.${newAccounts} Synced ${r.added || 0} added, ${r.modified || 0} updated.`);
+      } else {
+        const instName = metadata?.institution?.name || savedInstitution;
+        await api.exchangePlaidToken(public_token, instName);
+        setMessage(`Connected ${instName || 'institution'}.`);
+      }
+      setUpdateItemId(null);
       setLinkToken(null);
       localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_INST);
+      localStorage.removeItem(LS_UPDATE);
       // Clean ?oauth_state_id off the URL
       if (window.location.search.includes('oauth_state_id')) {
         window.history.replaceState({}, '', window.location.pathname);
@@ -80,15 +123,17 @@ export default function Bookkeeping() {
     } catch (e) {
       setError('Connect failed: ' + (typeof e === 'string' ? e : (e.message || JSON.stringify(e))));
     }
-  }, [loadData, savedInstitution]);
+  }, [loadData, savedInstitution, updateItemId, savedUpdateItemId]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: onPlaidSuccess,
     onExit: () => {
       setLinkToken(null);
+      setUpdateItemId(null);
       localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_INST);
+      localStorage.removeItem(LS_UPDATE);
     },
     onEvent: (eventName, metadata) => {
       // Capture the institution name before OAuth redirect so we can recover it after
@@ -197,6 +242,14 @@ export default function Bookkeeping() {
                   >
                     {syncing === it.id ? 'Syncing...' : 'Sync Now'}
                   </button>
+                  <button
+                    onClick={() => startReconnect(it.id)}
+                    disabled={reconnecting === it.id}
+                    style={reconnectBtn}
+                    title="Re-authenticate with the bank without losing history. Use this when an account or card stops sending transactions."
+                  >
+                    {reconnecting === it.id ? 'Opening...' : 'Reconnect'}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -255,4 +308,8 @@ const cell     = { padding: '10px 12px', borderBottom: '1px solid #eee' };
 const syncBtn  = {
   background: '#1a2a4a', color: '#fff', border: 'none', padding: '6px 14px',
   borderRadius: 4, cursor: 'pointer', fontSize: '0.9rem',
+};
+const reconnectBtn = {
+  background: '#fff', color: '#1a2a4a', border: '1px solid #1a2a4a', padding: '6px 14px',
+  borderRadius: 4, cursor: 'pointer', fontSize: '0.9rem', marginLeft: 8,
 };

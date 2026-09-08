@@ -597,6 +597,10 @@ export const api = {
   getPlaidLinkToken: (redirect_uri) => request('/plaid/link-token', { method: 'POST', body: JSON.stringify({ redirect_uri }) }),
   exchangePlaidToken: (public_token, institution_name) =>
     request('/plaid/exchange-token', { method: 'POST', body: JSON.stringify({ public_token, institution_name }) }),
+  getPlaidUpdateLinkToken: (itemId, redirect_uri) =>
+    request(`/plaid/link-token/update/${itemId}`, { method: 'POST', body: JSON.stringify({ redirect_uri }) }),
+  refreshPlaidAccounts: (itemId) =>
+    request(`/plaid/items/${itemId}/refresh-accounts`, { method: 'POST' }),
   getPlaidItems: () => request('/plaid/items'),
   getPlaidAccounts: () => request('/plaid/accounts'),
   syncPlaid: (itemId) => request(itemId ? `/plaid/sync/${itemId}` : '/plaid/sync', { method: 'POST' }),
