@@ -52,6 +52,106 @@ router.post('/link-token', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/plaid/link-token/update/:itemId
+// Link token in UPDATE MODE for an item that is already connected.
+//
+// Why this exists: a bank's consent is a snapshot of the accounts and cards that
+// existed when it was granted. When Chase reissued the second cardholder's card
+// in July 2026 the replacement fell outside the June 15 grant, so Plaid silently
+// stopped delivering that card's transactions while the item stayed 'active' and
+// kept syncing the primary card. Nothing in the ERP could re-consent, and
+// deleting and re-adding the connection would mint a new item_id and re-import
+// months of history as duplicates.
+//
+// Update mode reuses the SAME item and access token, so the cursor, the
+// transaction ids and every existing row survive. Plaid forbids `products` here.
+// ---------------------------------------------------------------------------
+router.post('/link-token/update/:itemId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, access_token, institution_name FROM plaid_items WHERE id = $1`,
+      [req.params.itemId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'item not found' });
+
+    const userId = req.user?.id || req.body?.userId || 'mastertech-owner';
+    const redirectUri = req.body?.redirect_uri || process.env.PLAID_REDIRECT_URI;
+    const response = await plaidClient.linkTokenCreate({
+      user: { client_user_id: String(userId) },
+      client_name: 'Master Tech ERP',
+      country_codes: [CountryCode.Us],
+      language: 'en',
+      access_token: rows[0].access_token,
+      redirect_uri: redirectUri || undefined,
+      webhook: process.env.PLAID_WEBHOOK_URL || undefined,
+    });
+    res.json({
+      link_token: response.data.link_token,
+      expiration: response.data.expiration,
+      institution_name: rows[0].institution_name,
+    });
+  } catch (err) {
+    console.error('Plaid update link-token error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/plaid/items/:itemId/refresh-accounts
+// Re-read the item's account list and insert anything new.
+//
+// accountsGet otherwise runs only during the initial token exchange, so an
+// account or card added to an item after link would never get a plaid_accounts
+// row. Call this after update mode returns. Existing rows keep their
+// gl_account_id, nickname and is_active flag; only balances are refreshed.
+// ---------------------------------------------------------------------------
+router.post('/items/:itemId/refresh-accounts', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const itemRes = await client.query(
+      `SELECT id, access_token FROM plaid_items WHERE id = $1`, [req.params.itemId]
+    );
+    if (!itemRes.rows.length) return res.status(404).json({ error: 'item not found' });
+    const item = itemRes.rows[0];
+
+    const before = await client.query(
+      `SELECT plaid_account_id FROM plaid_accounts WHERE plaid_item_id = $1`, [item.id]
+    );
+    const known = new Set(before.rows.map((r) => r.plaid_account_id));
+
+    const accountsResp = await plaidClient.accountsGet({ access_token: item.access_token });
+    const added = [];
+
+    await client.query('BEGIN');
+    for (const a of accountsResp.data.accounts) {
+      await client.query(
+        `INSERT INTO plaid_accounts
+           (plaid_item_id, plaid_account_id, nickname, account_type, account_subtype, mask, current_balance, available_balance, last_balance_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+         ON CONFLICT (plaid_account_id) DO UPDATE
+           SET current_balance = EXCLUDED.current_balance,
+               available_balance = EXCLUDED.available_balance,
+               last_balance_at = NOW()`,
+        [item.id, a.account_id, a.name || a.official_name, a.type, a.subtype, a.mask,
+         a.balances?.current, a.balances?.available]
+      );
+      if (!known.has(a.account_id)) {
+        added.push({ plaid_account_id: a.account_id, mask: a.mask, name: a.name, subtype: a.subtype });
+      }
+    }
+    await client.query('COMMIT');
+
+    res.json({ item_id: item.id, total: accountsResp.data.accounts.length, added });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Plaid refresh-accounts error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/plaid/exchange-token
 // Body: { public_token, institution_name }
 // ---------------------------------------------------------------------------
