@@ -417,10 +417,10 @@ router.get('/view/:token', async (req, res) => {
           <strong>$${mo.amount.toFixed(2)}</strong>
         </div>`).join('');
       proratedHtml = `
-          <tr>
-            <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Amount Due:</td>
+          <tr id="amountRow">
+            <td id="amountLabel" style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Amount Due:</td>
             <td style="padding:8px 0;">
-              <div style="${readOnlyStyle}">
+              <div id="amountValue" style="${readOnlyStyle}">
                 ${rowsHtml}
                 <div style="display:flex;justify-content:space-between;gap:12px;border-top:1px solid #d1d5db;margin-top:6px;padding-top:6px;">
                   <span style="font-weight:700;">Total for the term</span>
@@ -439,10 +439,10 @@ router.get('/view/:token', async (req, res) => {
         const sd = new Date(r.billing_start_date);
         const monthLabel = sd.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
         proratedHtml = `
-          <tr>
-            <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">First-Month Prorated:</td>
+          <tr id="amountRow">
+            <td id="amountLabel" style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">First-Month Prorated:</td>
             <td style="padding:8px 0;">
-              <div style="${readOnlyStyle}">
+              <div id="amountValue" style="${readOnlyStyle}">
                 $${first.amount.toFixed(2)}
                 <span style="color:#6b7280;font-size:12px;">
                   &nbsp;(${first.days} of ${first.daysInMonth} days in ${monthLabel} &middot; $${monthlyRate.toFixed(2)} &times; ${first.days}/${first.daysInMonth})
@@ -452,6 +452,23 @@ router.get('/view/:token', async (req, res) => {
           </tr>`;
         proratedNote = 'Because your storage starts in the middle of the month, you will be billed a one-time prorated amount for the partial first month shown above. Regular monthly billing at the full rate begins on the 1st of the next month.';
       }
+    }
+
+    // When the End Date is the customer's to fill in, the amount above has to
+    // move as they type it. Without this the page shows the open-ended
+    // first-month figure, they enter an end date, and the dollars never change
+    // — which reads as the contract ignoring the date they just gave.
+    const liveAmountConfig = (!endDateRaw && r.billing_start_date && monthlyRate > 0)
+      ? JSON.stringify({ rate: monthlyRate, start: startDateInput })
+      : null;
+    // Always give the recompute script a row to write into, even when the box
+    // starts on the 1st and has no prorated figure of its own to show.
+    if (liveAmountConfig && !proratedHtml) {
+      proratedHtml = `
+          <tr id="amountRow" style="display:none;">
+            <td id="amountLabel" style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Amount Due:</td>
+            <td style="padding:8px 0;"><div id="amountValue" style="${readOnlyStyle}"></div></td>
+          </tr>`;
     }
 
     // Show contract summary + editable fields + accept button
@@ -475,7 +492,7 @@ router.get('/view/:token', async (req, res) => {
           ${fixedRow('Monthly Rate', `$${monthlyRate.toFixed(2)}`)}
           ${proratedHtml}
         </table>
-        ${proratedNote ? `<p style="font-size:12px;color:#1e3a5f;margin:10px 0 0;background:#eff6ff;border-left:3px solid #1e3a5f;padding:8px 12px;border-radius:4px;">${proratedNote}</p>` : ''}
+        <p id="amountNote" style="font-size:12px;color:#1e3a5f;margin:10px 0 0;background:#eff6ff;border-left:3px solid #1e3a5f;padding:8px 12px;border-radius:4px;${proratedNote ? '' : 'display:none;'}">${proratedNote}</p>
       </div>
 
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:20px;">
@@ -539,12 +556,132 @@ router.get('/view/:token', async (req, res) => {
       </div>
 
       <div style="text-align:center;margin:32px 0 16px;">
-        <button type="submit" style="display:inline-block;padding:18px 50px;background:#065f46;color:#fff;font-size:17px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">
+        <button type="submit" id="acceptBtn" style="display:inline-block;padding:18px 50px;background:#065f46;color:#fff;font-size:17px;font-weight:bold;border:none;border-radius:8px;cursor:pointer;">
           I Accept This Agreement
         </button>
       </div>
       <p style="text-align:center;color:#9ca3af;font-size:11px;">By clicking &ldquo;I Accept&rdquo;, you are electronically signing this lease agreement. Today&rsquo;s date will be recorded as your acceptance date.</p>
       </form>
+      <script>
+      (function () {
+        var form = document.querySelector('form');
+        if (!form) return;
+
+        // Live proration preview, mirroring server/src/services/storageProration.js.
+        // The server recomputes this on submit and is the authority; this only
+        // keeps the page honest while the customer types.
+        var LIVE = ${liveAmountConfig || 'null'};
+        if (LIVE) (function () {
+          var input = form.querySelector('input[name="end_date"]');
+          var row = document.getElementById('amountRow');
+          var label = document.getElementById('amountLabel');
+          var value = document.getElementById('amountValue');
+          var note = document.getElementById('amountNote');
+          if (!input || !row || !value) return;
+
+          var openHtml = value.innerHTML, openNote = note ? note.innerHTML : '';
+          var openShown = row.style.display !== 'none';
+          var openLabel = label ? label.textContent : '';
+          var money = function (n) { return '$' + n.toFixed(2); };
+
+          // Accepts 9/28/26, 09/28/2026 and 2026-09-28. Anything else is
+          // treated as "still typing" and leaves the page alone.
+          function parse(t) {
+            t = (t || '').trim();
+            var m = /^(\\d{4})-(\\d{1,2})-(\\d{1,2})$/.exec(t);
+            if (m) return { y: +m[1], m: +m[2], d: +m[3] };
+            m = /^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{2}|\\d{4})$/.exec(t);
+            if (!m) return null;
+            var y = +m[3]; if (y < 100) y += 2000;
+            return { y: y, m: +m[1], d: +m[2] };
+          }
+
+          function schedule(start, end) {
+            if (end.m < 1 || end.m > 12 || end.d < 1 || end.d > 31) return null;
+            if (new Date(end.y, end.m - 1, end.d) < new Date(start.y, start.m - 1, start.d)) return null;
+            var out = [], total = 0, y = start.y, mo = start.m;
+            for (var g = 0; g < 120; g++) {
+              if (y > end.y || (y === end.y && mo > end.m)) break;
+              var dim = new Date(y, mo, 0).getDate();
+              var from = (y === start.y && mo === start.m) ? start.d : 1;
+              var to = (y === end.y && mo === end.m) ? end.d : dim;
+              var days = to - from + 1;
+              if (days > 0) {
+                var pro = days < dim;
+                var amt = Math.round((pro ? (LIVE.rate / dim) * days : LIVE.rate) * 100) / 100;
+                out.push({ days: days, dim: dim, pro: pro, amount: amt,
+                  label: new Date(y, mo - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }) });
+                total += amt;
+              }
+              mo += 1; if (mo > 12) { mo = 1; y += 1; }
+            }
+            return out.length ? { months: out, total: Math.round(total * 100) / 100 } : null;
+          }
+
+          function render() {
+            var end = parse(input.value);
+            var s = end ? schedule(parse(LIVE.start), end) : null;
+            if (!s) { // blank or unparseable: fall back to the open-ended view
+              value.innerHTML = openHtml;
+              row.style.display = openShown ? '' : 'none';
+              if (label) label.textContent = openLabel;
+              if (note) { note.innerHTML = openNote; note.style.display = openNote ? '' : 'none'; }
+              return;
+            }
+            var html = s.months.map(function (m) {
+              return '<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0;"><span>' + m.label
+                + (m.pro ? ' <span style="color:#6b7280;font-size:12px;">(prorated, ' + m.days + ' of ' + m.dim + ' days)</span>' : '')
+                + '</span><strong>' + money(m.amount) + '</strong></div>';
+            }).join('');
+            html += '<div style="display:flex;justify-content:space-between;gap:12px;border-top:1px solid #d1d5db;margin-top:6px;padding-top:6px;">'
+                 + '<span style="font-weight:700;">Total for the term</span><strong>' + money(s.total) + '</strong></div>';
+            value.innerHTML = html;
+            row.style.display = '';
+            if (label) label.textContent = 'Amount Due:';
+            if (note) {
+              note.innerHTML = s.months.length === 1
+                ? 'Your storage runs through the end date above, so you are billed for those ' + s.months[0].days + ' days only, ' + money(s.total) + ', not a full month.'
+                : 'The first and last months are prorated to the dates above; every month in between bills at the full monthly rate. Billing stops on the end date.';
+              note.style.display = '';
+            }
+          }
+
+          input.addEventListener('input', render);
+          input.addEventListener('change', render);
+          render();
+        })();
+
+        // Signing a lease must take a deliberate click on the green button.
+        // Enter anywhere in a text field used to submit this form, which is how
+        // a lease got accepted by someone editing the End Date. Enter now moves
+        // to the next field instead, exactly like Tab.
+        form.addEventListener('keydown', function (ev) {
+          if (ev.key !== 'Enter' || ev.target.tagName === 'TEXTAREA') return;
+          if (ev.target.id === 'acceptBtn') return; // keyboard users can still press the button
+          ev.preventDefault();
+          var fields = Array.prototype.filter.call(
+            form.querySelectorAll('input:not([type=hidden]):not([readonly]), textarea'),
+            function (el) { return !el.disabled; }
+          );
+          var i = fields.indexOf(ev.target);
+          if (i > -1 && i + 1 < fields.length) fields[i + 1].focus();
+          else ev.target.blur();
+        });
+
+        // Last stop before the signature is recorded and the PDF is emailed.
+        var submitting = false;
+        form.addEventListener('submit', function (ev) {
+          if (submitting) { ev.preventDefault(); return; }
+          if (!window.confirm('Accept and electronically sign this storage lease?\\n\\nA signed copy will be emailed to you. Click Cancel if you are still filling in the form.')) {
+            ev.preventDefault();
+            return;
+          }
+          submitting = true; // a second Enter or double-click cannot fire it twice
+          var b = document.getElementById('acceptBtn');
+          if (b) { b.disabled = true; b.textContent = 'Submitting...'; b.style.background = '#6b7280'; }
+        });
+      })();
+      </script>
     `));
   } catch (err) {
     console.error('GET /api/storage-contract/view error:', err);
