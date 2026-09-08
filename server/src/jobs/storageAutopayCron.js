@@ -10,6 +10,7 @@ const cron = require('node-cron');
 const pool = require('../db/pool');
 const square = require('../services/square');
 const { sendEmail } = require('../services/email');
+const { monthlyCharge } = require('../services/storageProration');
 
 
 
@@ -44,6 +45,7 @@ async function eligibleBillings(dbc, year, month, billingIds = null) {
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
             sb.autopay_card_id, sb.square_customer_id,
             sb.autopay_card_brand, sb.autopay_card_last4,
+            sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
             sp.label AS space_label,
             c.first_name, c.last_name, c.email_primary
        FROM storage_billing sb
@@ -73,12 +75,21 @@ function pickPayment(resp) {
 }
 
 async function chargeOne(b, year, month, { dryRun }) {
-  const rent = parseFloat(b.monthly_rate);
+  // Rent for the month, prorated by day when the lease starts or ends inside
+  // it. A temporary customer leaving on the 28th is charged 28/31 of a month,
+  // not the whole thing.
+  const charge = monthlyCharge(b.monthly_rate, year, month, b.billing_start_date, b.scheduled_move_out || b.billing_end_date);
+  if (!charge.billable) {
+    return { billing_id: b.billing_id, space: b.space_label, skipped: 'lease does not cover this month' };
+  }
+  const rent = charge.amount;
   const fee = chargeFee(b.payment_method, rent);
   const amountCents = Math.round((rent + fee) * 100);
-  const label = `${b.space_label || 'Storage'} ${year}-${String(month).padStart(2, '0')}`;
+  const proratedNote = charge.prorated ? ` prorated ${charge.days}/${charge.daysInMonth} days` : '';
+  const label = `${b.space_label || 'Storage'} ${year}-${String(month).padStart(2, '0')}${proratedNote}`;
   if (dryRun) {
-    return { billing_id: b.billing_id, space: b.space_label, rent, fee, amount: amountCents / 100, would_charge: true };
+    return { billing_id: b.billing_id, space: b.space_label, rent, fee, amount: amountCents / 100,
+             prorated: charge.prorated, days: charge.days, days_in_month: charge.daysInMonth, would_charge: true };
   }
 
   const dbc = await pool.connect();

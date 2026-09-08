@@ -12,6 +12,7 @@ const pool = require('../db/pool');
 const { sendEmail } = require('../services/email');
 const crypto = require('crypto');
 const square = require('../services/square');
+const { monthlyCharge } = require('../services/storageProration');
 
 const publicBase = () => process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 const logoUrl = () => `${publicBase()}/logo-mark.png?v=2`; // version query busts stale email-proxy caches
@@ -269,6 +270,7 @@ async function eligibleRows(dbc, year, month, billingIds = null) {
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
+            sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
             -- TRUE when autopay is on but the most recent charge attempt was
             -- declined and nothing has succeeded since. Self-clearing: the next
             -- successful charge makes the newest row 'paid' and this goes false.
@@ -348,12 +350,22 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     let total = 0;
 
     for (const s of spaces) {
-      const rent = parseFloat(s.monthly_rate);
+      // Prorate the month when the lease starts or ends inside it, so a
+      // temporary customer's first and last invoices bill actual days.
+      const charge = monthlyCharge(s.monthly_rate, p.year, p.month, s.billing_start_date, s.scheduled_move_out || s.billing_end_date);
+      if (!charge.billable) continue;
+      const rent = charge.amount;
+      s.invoice_rent = rent;
       const rv = [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ');
-      const typeName = (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage';
-      items.push({ name: typeName, sub: rv || null, amount: rent });
+      const typeName = (s.space_type === 'indoor' ? 'Indoor' : 'Outdoor') + ' RV Storage'
+        + (charge.prorated ? ' (prorated)' : '');
+      const proratedSub = charge.prorated
+        ? `${charge.days} of ${charge.daysInMonth} days at $${parseFloat(s.monthly_rate).toFixed(2)}/month`
+        : null;
+      items.push({ name: typeName, sub: [rv || null, proratedSub].filter(Boolean).join(' · ') || null, amount: rent });
       total += rent;
     }
+    if (!items.length) { skipped++; continue; }
     // Fee is driven by how this customer pays; charge it on the rent total.
     const cfg = feeConfig(first.payment_method, first.autopay_enabled);
     const fee = cfg.pct > 0 ? Math.max(Math.round(total * cfg.pct * 100) / 100, cfg.min || 0) : 0;
@@ -435,7 +447,8 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       });
       if (res && res.success) {
         for (const s of spaces) {
-          const share = parseFloat(s.monthly_rate);
+          if (s.invoice_rent == null) continue;
+          const share = s.invoice_rent;
           await pool.query(
             `INSERT INTO storage_invoices (storage_billing_id, year, month, rent, surcharge, total, payment_method, status, sent_at)
              VALUES ($1,$2,$3,$4,$5,$6,$7,'sent',NOW())
@@ -492,6 +505,7 @@ async function sendAdhocInvoice({
   const { rows } = await pool.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
+            sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
             COALESCE((SELECT ac.status IN ('failed', 'failed_final')
                         FROM storage_autopay_charges ac
                        WHERE ac.storage_billing_id = sb.id
