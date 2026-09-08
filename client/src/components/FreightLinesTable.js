@@ -1,6 +1,26 @@
 import React, { useState } from 'react';
 import { api } from '../api/client';
 
+// "Outdoor storage — 12 days @ $25.00/day" -> { label, days, rate }
+const STORAGE_DESC_RE = /^(.*?)\s*[—–-]\s*([\d.]+)\s*days?\s*@\s*\$?\s*([\d,.]+)\s*\/\s*day\s*$/i;
+
+export function parseStorageLine(description) {
+  const m = String(description || '').match(STORAGE_DESC_RE);
+  if (!m) return null;
+  const days = parseFloat(m[2]);
+  const rate = parseFloat(String(m[3]).replace(/,/g, ''));
+  if (!isFinite(days) || !isFinite(rate)) return null;
+  return {
+    label: (m[1] || '').trim() || 'Outdoor storage',
+    days: String(days),
+    rate: rate.toFixed(2),
+  };
+}
+
+export function buildStorageDesc(label, days, rate) {
+  return `${label || 'Outdoor storage'} — ${days || 0} days @ $${(parseFloat(rate) || 0).toFixed(2)}/day`;
+}
+
 export default function FreightLinesTable({ recordId, freightLines = [], isEditable, recordStatus, onUpdate }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -8,23 +28,62 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showStorageCalc, setShowStorageCalc] = useState(false);
+  const [calcEditingId, setCalcEditingId] = useState(null);
+  const [calcLabel, setCalcLabel] = useState('Outdoor storage');
   const [calcDays, setCalcDays] = useState('');
   const [calcRate, setCalcRate] = useState('25.00');
   const [calcDesc, setCalcDesc] = useState('Outdoor storage');
+  const [descCustom, setDescCustom] = useState(false);
   const [calcSaving, setCalcSaving] = useState(false);
 
   const calcTotal = (parseFloat(calcDays) || 0) * (parseFloat(calcRate) || 0);
-  const calcDescAuto = `Outdoor storage — ${calcDays || 0} days @ $${parseFloat(calcRate || 0).toFixed(2)}/day`;
+  const calcDescAuto = buildStorageDesc(calcLabel, calcDays, calcRate);
+
+  const closeStorageCalc = () => {
+    setShowStorageCalc(false);
+    setCalcEditingId(null);
+    setDescCustom(false);
+    setError('');
+  };
 
   const openStorageCalc = () => {
+    setCalcEditingId(null);
+    setCalcLabel('Outdoor storage');
     setCalcDays('');
     setCalcRate('25.00');
-    setCalcDesc('');
+    setCalcDesc(buildStorageDesc('Outdoor storage', '', '25.00'));
+    setDescCustom(false);
     setShowStorageCalc(true);
     setError('');
   };
 
-  const handleAddStorageFee = async () => {
+  // Reopen the calculator on an existing storage line so days/rate can be changed
+  // in place instead of deleting the line and starting over.
+  const openStorageEdit = (line) => {
+    const parsed = parseStorageLine(line.description) || { label: 'Outdoor storage', days: '', rate: '25.00' };
+    setAdding(false);
+    setEditingId(null);
+    setCalcEditingId(line.id);
+    setCalcLabel(parsed.label);
+    setCalcDays(parsed.days);
+    setCalcRate(parsed.rate);
+    setCalcDesc(line.description || buildStorageDesc(parsed.label, parsed.days, parsed.rate));
+    setDescCustom(false);
+    setShowStorageCalc(true);
+    setError('');
+  };
+
+  const changeCalcDays = (value) => {
+    setCalcDays(value);
+    if (!descCustom) setCalcDesc(buildStorageDesc(calcLabel, value, calcRate));
+  };
+
+  const changeCalcRate = (value) => {
+    setCalcRate(value);
+    if (!descCustom) setCalcDesc(buildStorageDesc(calcLabel, calcDays, value));
+  };
+
+  const handleSaveStorageFee = async () => {
     const days = parseFloat(calcDays);
     const rate = parseFloat(calcRate);
     if (!days || days <= 0) { setError('Enter number of days'); return; }
@@ -34,10 +93,15 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
     setCalcSaving(true);
     setError('');
     try {
-      await api.addFreightLine(recordId, { description: desc, amount: total });
-      setShowStorageCalc(false);
+      if (calcEditingId) {
+        await api.updateFreightLine(recordId, calcEditingId, { description: desc, amount: total });
+      } else {
+        await api.addFreightLine(recordId, { description: desc, amount: total });
+      }
+      const wasEditing = !!calcEditingId;
+      closeStorageCalc();
       onUpdate();
-      alert(`Storage fee of $${total.toFixed(2)} added to record`);
+      alert(`Storage fee ${wasEditing ? 'updated to' : 'of'} $${total.toFixed(2)}`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -93,6 +157,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
   };
 
   const startEdit = (line) => {
+    if (parseStorageLine(line.description)) { openStorageEdit(line); return; }
     setEditingId(line.id);
     setForm({ description: line.description, amount: String(parseFloat(line.amount)) });
     setAdding(false);
@@ -111,7 +176,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
   return (
     <div style={sectionStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={sectionTitle}>Freight / Misc. Charges</h2>
+        <h2 style={sectionTitle}>Freight / Storage Charges</h2>
         {isEditable && !adding && !editingId && (
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={() => { setAdding(true); setForm({ description: '', amount: '' }); }} style={btnAdd}>
@@ -167,7 +232,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
                   {isEditable && (
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: '4px' }}>
-                        <button onClick={() => startEdit(line)} style={btnEdit}>Edit</button>
+                        <button onClick={() => startEdit(line)} style={btnEdit}>{parseStorageLine(line.description) ? 'Edit Days' : 'Edit'}</button>
                         <button onClick={() => handleDelete(line.id)} style={btnDel}>Del</button>
                       </div>
                     </td>
@@ -211,7 +276,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
       {showStorageCalc && (
         <div style={overlayStyle}>
           <div style={modalStyle}>
-            <h3 style={{ margin: '0 0 16px', color: '#1e3a5f' }}>Calculate Storage Fee</h3>
+            <h3 style={{ margin: '0 0 16px', color: '#1e3a5f' }}>{calcEditingId ? 'Edit Storage Fee' : 'Calculate Storage Fee'}</h3>
             {error && <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '8px' }}>{error}</div>}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
               <div style={{ flex: 1 }}>
@@ -220,7 +285,8 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
                   type="number"
                   min="1"
                   value={calcDays}
-                  onChange={(e) => { setCalcDays(e.target.value); setCalcDesc(`Outdoor storage — ${e.target.value || 0} days @ $${parseFloat(calcRate || 0).toFixed(2)}/day`); }}
+                  onChange={(e) => changeCalcDays(e.target.value)}
+                  onFocus={(e) => e.target.select()}
                   placeholder="Enter days"
                   style={inputStyle}
                   autoFocus
@@ -233,7 +299,8 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
                   step="0.01"
                   min="0"
                   value={calcRate}
-                  onChange={(e) => { setCalcRate(e.target.value); setCalcDesc(`Outdoor storage — ${calcDays || 0} days @ $${parseFloat(e.target.value || 0).toFixed(2)}/day`); }}
+                  onChange={(e) => changeCalcRate(e.target.value)}
+                  onFocus={(e) => e.target.select()}
                   style={inputStyle}
                 />
               </div>
@@ -246,7 +313,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
               <label style={labelStyle}>Description</label>
               <input
                 value={calcDesc}
-                onChange={(e) => setCalcDesc(e.target.value)}
+                onChange={(e) => { setDescCustom(true); setCalcDesc(e.target.value); }}
                 style={inputStyle}
               />
             </div>
@@ -254,9 +321,9 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
               Storage fees are not subject to sales tax
             </p>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowStorageCalc(false); setError(''); }} style={btnCancel}>Cancel</button>
-              <button onClick={handleAddStorageFee} disabled={calcSaving} style={btnSave}>
-                {calcSaving ? 'Adding...' : 'Add to Record'}
+              <button onClick={closeStorageCalc} style={btnCancel}>Cancel</button>
+              <button onClick={handleSaveStorageFee} disabled={calcSaving} style={btnSave}>
+                {calcSaving ? 'Saving...' : (calcEditingId ? 'Save Changes' : 'Add to Record')}
               </button>
             </div>
           </div>
