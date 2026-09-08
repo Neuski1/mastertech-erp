@@ -158,7 +158,7 @@ function generateRecordPdf(r) {
       // Freight
       if (freight.length) {
         y = ensureSpace(y);
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY).text('SHIPPING / FREIGHT', left, y); y += 13;
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY).text('FREIGHT / STORAGE', left, y); y += 13;
         doc.font('Helvetica').fontSize(8.5).fillColor('#111');
         freight.forEach(f => {
           doc.text(f.description || 'Shipping', left + 4, y, { width: width - 90 });
@@ -180,7 +180,7 @@ function generateRecordPdf(r) {
       doc.moveTo(tl, y).lineTo(right, y).strokeColor('#d1d5db').lineWidth(1).stroke(); y += 6;
       if (parseFloat(r.labor_subtotal)) row('Labor', money(r.labor_subtotal));
       if (parseFloat(r.parts_subtotal)) row('Parts', money(r.parts_subtotal));
-      if (parseFloat(r.freight_subtotal)) row('Shipping', money(r.freight_subtotal));
+      if (parseFloat(r.freight_subtotal)) row('Freight/Storage', money(r.freight_subtotal));
       if (parseFloat(r.shop_supplies_amount)) row('Shop Supplies', money(r.shop_supplies_amount));
       if (parseFloat(r.discount_amount)) row(r.discount_description || 'Discount', '-' + money(r.discount_amount));
       if (parseFloat(r.under_warranty_amount)) row('Under Warranty', '-' + money(r.under_warranty_amount));

@@ -214,7 +214,7 @@ export default function Reports() {
               <tbody>
                 <Row label="Labor" value={fmtCur(r.labor)} />
                 <Row label="Parts" value={fmtCur(r.parts)} />
-                <Row label="Miscellaneous / Freight" value={fmtCur(r.misc)} />
+                <Row label="Freight / Storage" value={fmtCur(r.misc)} />
                 <Row label="Shop Supplies" value={fmtCur(r.shopSupplies)} />
                 <Row label="Subtotal (Labor + Parts + Misc + Supplies)" value={fmtCur(subtotal)} bold border />
                 <Row label="Storage Revenue" value={fmtCur(storageRev)} />

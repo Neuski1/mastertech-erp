@@ -626,7 +626,7 @@ ${(pendingEstLabor.length + pendingEstParts.length) > 0 ? `
   <div class="totals">
     <div class="row"><span>SUBTOTAL — LABOR</span><span>${fmtCur(r.labor_subtotal)}</span></div>
     <div class="row"><span>SUBTOTAL — PARTS</span><span>${fmtCur(r.parts_subtotal)}</span></div>
-    ${freightSub > 0 ? `<div class="row"><span>SUBTOTAL — FREIGHT/MISC</span><span>${fmtCur(freightSub)}</span></div>` : ''}
+    ${freightSub > 0 ? `<div class="row"><span>SUBTOTAL — FREIGHT/STORAGE</span><span>${fmtCur(freightSub)}</span></div>` : ''}
     <div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; Shop Supplies</span><span>${r.shop_supplies_exempt ? 'WAIVED' : fmtCur(r.shop_supplies_amount)}</span></div>
     <div class="row" style="padding-left:20px;font-size:9px;color:#888"><span>&mdash; CC Fee (3%)</span><span>${r.cc_fee_applied ? fmtCur(r.cc_fee_amount) : 'N/A'}</span></div>
     <div class="row"><span>TOTAL TAX (Parts + Supplies)</span><span>${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</span></div>
@@ -1183,7 +1183,7 @@ ${paymentDetailHtml}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedSections(s => ({ ...s, freight: true }))}>
               <h2 style={{ ...sectionTitle, marginBottom: 0 }}>
                 <span style={{ fontSize: '0.7rem', marginRight: '6px' }}>{'\u25B6'}</span>
-                Freight / Shipping Charges
+                Freight / Storage Charges
               </h2>
               {isEditable && <span style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 500 }}>+ Add Freight</span>}
             </div>
@@ -1199,7 +1199,7 @@ ${paymentDetailHtml}
             <TotalRow label="Subtotal — Labor" value={formatCurrency(record.labor_subtotal)} />
             <TotalRow label="Subtotal — Parts" value={formatCurrency(record.parts_subtotal)} />
             {parseFloat(record.freight_subtotal) > 0 && (
-              <TotalRow label="Subtotal — Freight / Misc." value={formatCurrency(record.freight_subtotal)} />
+              <TotalRow label="Subtotal — Freight / Storage" value={formatCurrency(record.freight_subtotal)} />
             )}
 
             {/* Shop Supplies toggle */}

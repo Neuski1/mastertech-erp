@@ -1229,7 +1229,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     </table>` : ''}
 
     ${freightRows ? `
-    <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">FREIGHT / MISC</h3>
+    <h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">FREIGHT / STORAGE</h3>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#f9fafb;"><th style="padding:6px 8px;text-align:left;">Description</th><th style="padding:6px 8px;text-align:right;">Qty</th><th style="padding:6px 8px;text-align:right;">Price</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead>
       <tbody>${freightRows}</tbody>
@@ -1239,7 +1239,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <table style="margin-left:auto;font-size:13px;">
         <tr><td style="padding:3px 12px;color:#6b7280;">Labor Subtotal</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.labor_subtotal)}</td></tr>
         <tr><td style="padding:3px 12px;color:#6b7280;">Parts Subtotal</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.parts_subtotal)}</td></tr>
-        ${parseFloat(r.freight_subtotal) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">Freight/Misc</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.freight_subtotal)}</td></tr>` : ''}
+        ${parseFloat(r.freight_subtotal) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">Freight/Storage</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.freight_subtotal)}</td></tr>` : ''}
         ${parseFloat(r.shop_supplies_amount) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">Shop Supplies</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.shop_supplies_amount)}</td></tr>` : ''}
         ${parseFloat(r.cc_fee_amount) > 0 ? `<tr><td style="padding:3px 12px;color:#6b7280;">CC Fee</td><td style="padding:3px 12px;text-align:right;">${fmtCur(r.cc_fee_amount)}</td></tr>` : ''}
         <tr><td style="padding:3px 12px;color:#6b7280;">Tax</td><td style="padding:3px 12px;text-align:right;">${r.tax_waived ? 'WAIVED' : fmtCur(r.tax_amount)}</td></tr>
