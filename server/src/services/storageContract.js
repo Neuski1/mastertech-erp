@@ -3,22 +3,26 @@
  * Generates the MTRV Storage Lease Agreement as a 2-page PDF using PDFKit
  */
 const PDFDocument = require('pdfkit');
+const { monthlyCharge, termSchedule, ymd } = require('./storageProration');
 
 /**
- * Calculate prorated amount for mid-month start
+ * Prorated amount for the first month of the lease.
+ *
+ * Honors the end date, which matters for temporary storage: a lease running
+ * Sep 14 to Sep 28 is 15 days, not "the rest of September". Returns '' when the
+ * month is billed in full (a lease starting on the 1st and not ending mid-month).
+ *
  * @param {number} monthlyRate - Full monthly rate
  * @param {string} startDateStr - Start date string (e.g. "2026-04-15")
+ * @param {string} [endDateStr] - End date string, or null/'' for an open lease
  * @returns {string} prorated dollar amount or empty string
  */
-function calcProrated(monthlyRate, startDateStr) {
-  if (!monthlyRate || !startDateStr) return '';
-  const start = new Date(startDateStr);
-  const day = start.getDate();
-  if (day <= 1) return ''; // starts on the 1st, no proration
-  const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-  const remainingDays = daysInMonth - day + 1;
-  const prorated = (monthlyRate / daysInMonth) * remainingDays;
-  return prorated.toFixed(2);
+function calcProrated(monthlyRate, startDateStr, endDateStr) {
+  const s = ymd(startDateStr);
+  if (!monthlyRate || !s) return '';
+  const c = monthlyCharge(monthlyRate, s.y, s.m, startDateStr, endDateStr);
+  if (!c.billable || !c.prorated) return '';
+  return c.amount.toFixed(2);
 }
 
 /**
@@ -113,12 +117,41 @@ function generateContractPDF(data) {
     doc.moveDown(0.5);
 
     // --- Prorated Amount ---
-    const proratedAmount = data.prorated_amount || calcProrated(parseFloat(data.monthly_amount), data.start_date_raw) || '____________';
-    doc.font('Helvetica-Bold').text(`*Prorated amount to be collected for current month:  $${proratedAmount}`);
+    // A fixed-term (temporary) lease gets the full schedule and a term total:
+    // the first and last months are prorated by day, so the dollars on the page
+    // match the start and end dates above rather than a whole month of rent.
+    const schedule = termSchedule(parseFloat(data.monthly_amount), data.start_date_raw, data.end_date_raw);
+    if (schedule) {
+      if (schedule.months.length === 1) {
+        const only = schedule.months[0];
+        doc.font('Helvetica-Bold').text(
+          `*Prorated amount to be collected for the term:  $${only.amount.toFixed(2)}`
+          + `  (${only.days} of ${only.daysInMonth} days in ${only.label})`,
+          { width: w, lineGap }
+        );
+      } else {
+        doc.font('Helvetica-Bold').text('*Amount to be collected, by month:');
+        doc.moveDown(0.2);
+        doc.font('Helvetica');
+        schedule.months.forEach(mo => {
+          const note = mo.prorated ? `  (prorated, ${mo.days} of ${mo.daysInMonth} days)` : '';
+          doc.text(`      ${mo.label}:  $${mo.amount.toFixed(2)}${note}`);
+        });
+        doc.moveDown(0.2);
+        doc.font('Helvetica-Bold').text(`      Total for the lease term:  $${schedule.total.toFixed(2)}`);
+      }
+    } else {
+      const proratedAmount = data.prorated_amount
+        || calcProrated(parseFloat(data.monthly_amount), data.start_date_raw, data.end_date_raw)
+        || '____________';
+      doc.font('Helvetica-Bold').text(`*Prorated amount to be collected for current month:  $${proratedAmount}`);
+    }
     doc.moveDown(0.8);
 
     doc.font('Helvetica').text(
-      'The contract is automatically renewed at the end of the rental period unless Lessee has made it known to Lessor, with 30 days written notice, that they no longer wish to store said unit and no monies are due.',
+      schedule
+        ? 'This is a fixed-term lease. Billing stops on the end date shown above and the final month is prorated to that date. If Lessee wishes to keep the unit in storage past the end date, Lessee must notify Lessor before that date and the lease continues month to month at the monthly rate above.'
+        : 'The contract is automatically renewed at the end of the rental period unless Lessee has made it known to Lessor, with 30 days written notice, that they no longer wish to store said unit and no monies are due.',
       { width: w, lineGap }
     );
     doc.moveDown(1);

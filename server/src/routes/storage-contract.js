@@ -9,6 +9,20 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { generateContractPDF, getGuidelinesHTML } = require('../services/storageContract');
+const { monthlyCharge, termSchedule, ymd } = require('../services/storageProration');
+
+// Turn whatever a customer typed into an End Date box ("9/28/26", "2026-09-28",
+// "Sep 28 2026") into a YYYY-MM-DD string, or null if it is not a date.
+// Two-digit years are read as 20xx; nobody is leasing storage in 1926.
+function ymdParse(text) {
+  const p = ymd(text);
+  if (!p) return null;
+  let year = p.y;
+  if (year < 100) year += 2000;
+  if (year < 2000 || year > 2100) return null;
+  if (p.m < 1 || p.m > 12 || p.d < 1 || p.d > 31) return null;
+  return `${year}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
+}
 
 // Build contract data for a billing. If the billing is part of a
 // contract_group (multi-unit lease), every billing in the group is included as
@@ -55,7 +69,11 @@ async function buildBillingContractData(billingId) {
     units,
     start_date: r0.billing_start_date ? new Date(r0.billing_start_date).toLocaleDateString('en-US') : '',
     start_date_raw: r0.billing_start_date ? new Date(r0.billing_start_date).toISOString().split('T')[0] : '',
-    end_date: 'Open',
+    // A scheduled move-out IS the lease end date. Temporary customers get a
+    // fixed term here instead of the old hardcoded "Open", which is what makes
+    // the prorated amount on the PDF match the dates printed above it.
+    end_date: r0.scheduled_move_out ? new Date(r0.scheduled_move_out).toLocaleDateString('en-US') : 'Open',
+    end_date_raw: r0.scheduled_move_out ? new Date(r0.scheduled_move_out).toISOString().split('T')[0] : '',
     monthly_amount: monthlyTotal.toFixed(2),
     lease_date: new Date().toLocaleDateString('en-US'),
     accepted_at: r0.contract_accepted_at ? new Date(r0.contract_accepted_at).toLocaleString('en-US', { timeZone: 'America/Denver' }) : null,
@@ -375,31 +393,64 @@ router.get('/view/:token', async (req, res) => {
     }
 
     const startDateInput = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
+    // The scheduled move-out on the box is the lease end date. When staff have
+    // set one (a temporary customer), it is shown read-only so the dollar
+    // figures below it can be trusted; when it is blank the customer may fill
+    // it in and we save it on acceptance.
+    const endDateRaw = r.scheduled_move_out ? new Date(r.scheduled_move_out).toISOString().split('T')[0] : '';
+    const endDateDisplay = r.scheduled_move_out ? new Date(r.scheduled_move_out).toLocaleDateString('en-US', { timeZone: 'UTC' }) : '';
 
-    // Prorated first month: when the start date isn't the 1st, charge only
-    // for the days remaining in the start month. Calculation:
-    //   daysInMonth - startDay + 1, divided by daysInMonth, times monthly rate.
+    // What this lease actually costs. A fixed term (start AND end) is priced
+    // month by month with the first and last month prorated by day, so a
+    // Sep 14 - Sep 28 stay on a $598 box bills $299.00, not a full month and
+    // not "the rest of September".
     let proratedHtml = '';
-    if (r.billing_start_date && monthlyRate > 0) {
-      const sd = new Date(r.billing_start_date);
-      const startDay = sd.getUTCDate();
-      const daysInMonth = new Date(sd.getUTCFullYear(), sd.getUTCMonth() + 1, 0).getDate();
-      if (startDay > 1) {
-        const daysRemaining = daysInMonth - startDay + 1;
-        const proratedAmount = (monthlyRate * daysRemaining / daysInMonth);
+    let proratedNote = '';
+    const schedule = (r.billing_start_date && endDateRaw && monthlyRate > 0)
+      ? termSchedule(monthlyRate, startDateInput, endDateRaw)
+      : null;
+
+    if (schedule) {
+      const rowsHtml = schedule.months.map(mo => `
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0;">
+          <span>${mo.label}${mo.prorated ? ` <span style="color:#6b7280;font-size:12px;">(prorated, ${mo.days} of ${mo.daysInMonth} days)</span>` : ''}</span>
+          <strong>$${mo.amount.toFixed(2)}</strong>
+        </div>`).join('');
+      proratedHtml = `
+          <tr>
+            <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Amount Due:</td>
+            <td style="padding:8px 0;">
+              <div style="${readOnlyStyle}">
+                ${rowsHtml}
+                <div style="display:flex;justify-content:space-between;gap:12px;border-top:1px solid #d1d5db;margin-top:6px;padding-top:6px;">
+                  <span style="font-weight:700;">Total for the term</span>
+                  <strong>$${schedule.total.toFixed(2)}</strong>
+                </div>
+              </div>
+            </td>
+          </tr>`;
+      proratedNote = schedule.months.length === 1
+        ? `Your storage runs ${startDate} through ${endDateDisplay}, so you are billed for those ${schedule.months[0].days} days only — $${schedule.total.toFixed(2)} — not a full month.`
+        : `Your storage runs ${startDate} through ${endDateDisplay}. The first and last months are prorated to those dates; every month in between bills at the full monthly rate. Billing stops on the end date.`;
+    } else if (r.billing_start_date && monthlyRate > 0) {
+      // Open-ended lease: prorate the first partial month only.
+      const first = monthlyCharge(monthlyRate, Number(startDateInput.slice(0, 4)), Number(startDateInput.slice(5, 7)), startDateInput, null);
+      if (first.billable && first.prorated) {
+        const sd = new Date(r.billing_start_date);
         const monthLabel = sd.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
         proratedHtml = `
           <tr>
             <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">First-Month Prorated:</td>
             <td style="padding:8px 0;">
               <div style="${readOnlyStyle}">
-                $${proratedAmount.toFixed(2)}
+                $${first.amount.toFixed(2)}
                 <span style="color:#6b7280;font-size:12px;">
-                  &nbsp;(${daysRemaining} of ${daysInMonth} days in ${monthLabel} &middot; $${monthlyRate.toFixed(2)} &times; ${daysRemaining}/${daysInMonth})
+                  &nbsp;(${first.days} of ${first.daysInMonth} days in ${monthLabel} &middot; $${monthlyRate.toFixed(2)} &times; ${first.days}/${first.daysInMonth})
                 </span>
               </div>
             </td>
           </tr>`;
+        proratedNote = 'Because your storage starts in the middle of the month, you will be billed a one-time prorated amount for the partial first month shown above. Regular monthly billing at the full rate begins on the 1st of the next month.';
       }
     }
 
@@ -417,12 +468,14 @@ router.get('/view/:token', async (req, res) => {
           ${editableRow('Phone', r.phone_primary || '', 'lessee_phone', 'e.g. (303) 555-1234')}
           ${editableRow('Email', r.email_primary || '', 'lessee_email', 'e.g. name@example.com')}
           ${editableRow('Start Date', startDate, 'start_date', 'MM/DD/YYYY')}
-          ${editableRow('End Date', '', 'end_date', 'MM/DD/YYYY or leave blank for Open')}
+          ${endDateRaw
+            ? fixedRow('End Date', endDateDisplay)
+            : editableRow('End Date', '', 'end_date', 'MM/DD/YYYY or leave blank for Open')}
           ${fixedRow('Space', spaceListLabel)}
           ${fixedRow('Monthly Rate', `$${monthlyRate.toFixed(2)}`)}
           ${proratedHtml}
         </table>
-        ${proratedHtml ? `<p style="font-size:12px;color:#1e3a5f;margin:10px 0 0;background:#eff6ff;border-left:3px solid #1e3a5f;padding:8px 12px;border-radius:4px;">Because your storage starts in the middle of the month, you will be billed a one-time prorated amount for the partial first month shown above. Regular monthly billing at the full rate begins on the 1st of the next month.</p>` : ''}
+        ${proratedNote ? `<p style="font-size:12px;color:#1e3a5f;margin:10px 0 0;background:#eff6ff;border-left:3px solid #1e3a5f;padding:8px 12px;border-radius:4px;">${proratedNote}</p>` : ''}
       </div>
 
       <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:20px;">
@@ -650,8 +703,26 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       );
       monthlyRate = parseFloat(g.rows[0].total) || monthlyRate;
     }
-    const { calcProrated } = require('../services/storageContract');
     const startDateRaw = r.billing_start_date ? new Date(r.billing_start_date).toISOString().split('T')[0] : '';
+
+    // End date: a staff-set scheduled move-out always wins. If the box has none
+    // and the customer typed one, save it so billing honors it — otherwise the
+    // date would be printed on the signed PDF and then forgotten, which is
+    // exactly how a temporary customer ends up billed for a full month.
+    let endDateRaw = r.scheduled_move_out ? new Date(r.scheduled_move_out).toISOString().split('T')[0] : '';
+    if (!endDateRaw && endDate) {
+      const parsedEnd = ymdParse(endDate);
+      if (parsedEnd) {
+        endDateRaw = parsedEnd;
+        try {
+          await pool.query('UPDATE storage_billing SET scheduled_move_out = $1 WHERE id = $2', [endDateRaw, r.id]);
+          console.log(`Saved customer-entered lease end date ${endDateRaw} to billing ${r.id}`);
+        } catch (e) { console.error('End date save error (non-fatal):', e.message); }
+      }
+    }
+    const endDateDisplay = endDateRaw
+      ? new Date(`${endDateRaw}T12:00:00`).toLocaleDateString('en-US')
+      : 'Open';
 
     const pdfData = {
       lessee_name: customerName,
@@ -666,7 +737,8 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
       space_type: r.space_type,
       start_date: r.billing_start_date ? new Date(r.billing_start_date).toLocaleDateString('en-US') : '',
       start_date_raw: startDateRaw,
-      end_date: endDate || 'Open',
+      end_date: endDateDisplay,
+      end_date_raw: endDateRaw,
       monthly_amount: monthlyRate.toFixed(2),
       lease_date: new Date().toLocaleDateString('en-US'),
       accepted_at: acceptedAt,

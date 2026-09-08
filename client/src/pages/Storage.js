@@ -20,6 +20,47 @@ const TONE = {
   bad:  { bg: '#fef2f2', border: '#fecaca', text: '#991b1b' },
 };
 
+// Month-by-month cost of a fixed-term lease, mirroring
+// server/src/services/storageProration.js. Both dates are inclusive, so a lease
+// running the 14th through the 28th is 15 days. Kept deliberately small and in
+// sync with the server: this is a preview, the server is the authority.
+// Returns null for an open-ended lease (no end date) or nonsense input.
+function storageTermSchedule(monthlyRate, startStr, endStr) {
+  const rate = parseFloat(monthlyRate) || 0;
+  const parse = (v) => {
+    if (!v) return null;
+    const [y, m, d] = String(v).split('T')[0].split('-').map(Number);
+    return (y && m && d) ? { y, m, d } : null;
+  };
+  const s = parse(startStr), e = parse(endStr);
+  if (!rate || !s || !e) return null;
+  const cmp = (a, b) => (a.y - b.y) || (a.m - b.m) || (a.d - b.d);
+  if (cmp(e, s) < 0) return null;
+
+  const months = [];
+  let y = s.y, m = s.m, total = 0;
+  for (let guard = 0; guard < 120; guard++) {
+    if (y > e.y || (y === e.y && m > e.m)) break;
+    const dim = new Date(y, m, 0).getDate();
+    const firstDay = (y === s.y && m === s.m) ? s.d : 1;
+    const lastDay = (y === e.y && m === e.m) ? e.d : dim;
+    const days = lastDay - firstDay + 1;
+    if (days > 0) {
+      const prorated = days < dim;
+      const amount = Math.round((prorated ? (rate / dim) * days : rate) * 100) / 100;
+      months.push({
+        year: y, month: m, days, daysInMonth: dim, prorated, amount,
+        label: new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+      });
+      total += amount;
+    }
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  if (!months.length) return null;
+  return { total: Math.round(total * 100) / 100, months };
+}
+
 function billingLines(space) {
   const money = (n) => '$' + Number(n || 0).toFixed(2);
   const when = (v) => v
@@ -1888,6 +1929,10 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
 
   const selectedUnit = customerUnits.find(u => String(u.id) === form.unit_id);
 
+  // Live cost of a fixed-term lease as staff type the end date, so nobody has
+  // to guess what a temporary customer actually owes.
+  const termPreview = storageTermSchedule(form.monthly_rate, form.billing_start_date, form.scheduled_move_out);
+
   const handleSave = async () => {
     setSaving(true);
     setError('');
@@ -2157,9 +2202,23 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
 
             {/* Scheduled move-out (saved with Save) + immediate End Storage */}
             <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#fff7ed', borderRadius: '6px', border: '1px solid #fed7aa' }}>
-              <label style={{ ...labelStyle, color: '#c2410c' }}>Scheduled Move-Out Date</label>
+              <label style={{ ...labelStyle, color: '#c2410c' }}>End Date / Scheduled Move-Out</label>
               <input type="date" value={form.scheduled_move_out} onChange={(e) => setForm({ ...form, scheduled_move_out: e.target.value })} style={inputStyleFull} />
-              <div style={{ fontSize: '0.72rem', color: '#9a3412', marginTop: '4px' }}>Click <strong>Save</strong> to record this date. The space stays occupied and keeps billing until the RV actually leaves. On move-out day, click <strong>End Storage</strong> below to free the space and stop billing.</div>
+              <div style={{ fontSize: '0.72rem', color: '#9a3412', marginTop: '4px' }}>Set this for a temporary customer. It is the lease end date on the contract: the last month bills prorated to this day and nothing bills after it. Leave blank for an open-ended lease. Click <strong>Save</strong> to record it, then <strong>End Storage</strong> below once the RV is actually gone to free the space.</div>
+              {termPreview && (
+                <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#fff', borderRadius: '6px', border: '1px solid #fed7aa', fontSize: '0.78rem', color: '#374151' }}>
+                  {termPreview.months.map(mo => (
+                    <div key={`${mo.year}-${mo.month}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', padding: '1px 0' }}>
+                      <span>{mo.label}{mo.prorated ? ` (prorated, ${mo.days} of ${mo.daysInMonth} days)` : ''}</span>
+                      <strong>${mo.amount.toFixed(2)}</strong>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', borderTop: '1px solid #e5e7eb', marginTop: '5px', paddingTop: '5px', color: '#9a3412' }}>
+                    <strong>Total for the term</strong><strong>${termPreview.total.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '5px' }}>Rent only. The convenience fee for this customer's payment method is added on the invoice.</div>
+                </div>
+              )}
             </div>
           </>
         ) : (
