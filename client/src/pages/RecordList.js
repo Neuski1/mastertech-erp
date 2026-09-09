@@ -116,6 +116,9 @@ export default function RecordList() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState([]);
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  // RV captured with the lead, prefilled from the message and editable before filing
+  const [leadRv, setLeadRv] = useState({ year: '', make: '', model: '', linear_feet: '' });
+  const [saveLeadRv, setSaveLeadRv] = useState(true);
 
   const fetchRecords = useCallback(async (opts) => {
     const silent = !!(opts && opts.silent === true);
@@ -320,18 +323,27 @@ export default function RecordList() {
     setFileLeadTarget(lead);
     setCustomerSearch(lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || '');
     setCustomerResults([]);
+    const p = parseLeadMessage(lead.message || '');
+    setLeadRv({ year: p.rvYear || '', make: p.rvMake || '', model: p.rvModel || '', linear_feet: p.lengthFt || '' });
+    setSaveLeadRv(true);
   };
 
   const closeFileLead = () => {
     setFileLeadTarget(null);
     setCustomerSearch('');
     setCustomerResults([]);
+    setLeadRv({ year: '', make: '', model: '', linear_feet: '' });
+    setSaveLeadRv(true);
   };
 
   const submitFileLead = async (customerId) => {
     if (!fileLeadTarget) return;
     try {
-      await api.fileLead(fileLeadTarget.id, customerId ? { customer_id: customerId } : {});
+      const payload = customerId ? { customer_id: customerId } : {};
+      const hasRv = !!(leadRv.year || leadRv.make || leadRv.model || leadRv.linear_feet);
+      payload.save_unit = saveLeadRv && hasRv;
+      if (payload.save_unit) payload.unit = leadRv;
+      await api.fileLead(fileLeadTarget.id, payload);
       closeFileLead();
       fetchLeads();
     } catch (err) {
@@ -911,6 +923,59 @@ export default function RecordList() {
             </div>
 
             <div style={{ padding: '16px 20px', overflowY: 'auto' }}>
+              {/* RV from the lead — goes onto the customer record when filed */}
+              <div style={{
+                border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px',
+                backgroundColor: '#f9fafb', marginBottom: '16px',
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', fontWeight: 600, color: '#374151' }}>
+                  <input
+                    type="checkbox"
+                    checked={saveLeadRv}
+                    onChange={(e) => setSaveLeadRv(e.target.checked)}
+                  />
+                  Add this RV to the customer record
+                </label>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    value={leadRv.year}
+                    onChange={(e) => setLeadRv({ ...leadRv, year: e.target.value })}
+                    placeholder="Year"
+                    disabled={!saveLeadRv}
+                    style={{ ...inputStyle, width: '70px' }}
+                  />
+                  <input
+                    type="text"
+                    value={leadRv.make}
+                    onChange={(e) => setLeadRv({ ...leadRv, make: e.target.value })}
+                    placeholder="Make"
+                    disabled={!saveLeadRv}
+                    style={{ ...inputStyle, flex: '1 1 110px', minWidth: 0 }}
+                  />
+                  <input
+                    type="text"
+                    value={leadRv.model}
+                    onChange={(e) => setLeadRv({ ...leadRv, model: e.target.value })}
+                    placeholder="Model"
+                    disabled={!saveLeadRv}
+                    style={{ ...inputStyle, flex: '1 1 130px', minWidth: 0 }}
+                  />
+                  <input
+                    type="text"
+                    value={leadRv.linear_feet}
+                    onChange={(e) => setLeadRv({ ...leadRv, linear_feet: e.target.value })}
+                    placeholder="Ft"
+                    disabled={!saveLeadRv}
+                    style={{ ...inputStyle, width: '60px' }}
+                  />
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '8px' }}>
+                  Prefilled from the lead. An RV already on the customer with the same make and model is
+                  updated, not duplicated.
+                </div>
+              </div>
+
               <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#374151' }}>
                 Search for the customer to file under
               </label>
