@@ -61,6 +61,20 @@ const ACH_MIN_FEE = 1.00;
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// "September 28, 2026" when every space on this invoice stops billing inside
+// the given month, otherwise null. Drives the final-invoice footer and the
+// suppression of the autopay enrollment button. All spaces must be ending: a
+// customer keeping one box and releasing another is still a monthly customer.
+function termEndsThisPeriod(spaces, year, month) {
+  const ends = spaces.map(s => s.scheduled_move_out || s.billing_end_date);
+  if (!ends.length || ends.some(e => !e)) return null;
+  const last = ends
+    .map(e => new Date(e))
+    .sort((a, b) => b - a)[0];
+  if (last.getUTCFullYear() !== year || last.getUTCMonth() + 1 !== month) return null;
+  return longDate(new Date(Date.UTC(year, month - 1, last.getUTCDate())));
+}
+
 function isLastDayOfMonth(d = new Date()) {
   const t = new Date(d); t.setDate(t.getDate() + 1); return t.getDate() === 1;
 }
@@ -233,7 +247,9 @@ function buildInvoiceHtml(inv) {
       <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Payment method: ${inv.methodLabel}</div>
       <div style="font-size:13px;color:#374151;line-height:1.55;">${inv.instructions}</div>
     </div>
-    <p style="font-size:11.5px;color:#6b7280;margin:12px 0 0;">Recurring monthly on the last day of the month.</p>
+    <p style="font-size:11.5px;color:#6b7280;margin:12px 0 0;">${inv.termEndLabel
+      ? `This is the final invoice for this lease. Storage ends ${inv.termEndLabel} and there is nothing further to pay after this.`
+      : 'Recurring monthly on the last day of the month.'}</p>
   </div>
 
   ${inv.achNote ? `
@@ -395,6 +411,10 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       methodLabel: methodLabel(first.payment_method),
       instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4, first.autopay_failing),
       autopayFailing: !!(first.autopay_enabled && first.autopay_failing),
+      // Set only when the lease ends inside this billing month, which turns the
+      // footer from "recurring monthly" into a final-invoice notice. A 15-day
+      // temporary customer should not be told their storage renews.
+      termEndLabel: termEndsThisPeriod(spaces, p.year, p.month),
     };
 
     // Card customer with no card on file: give them both options right on the
@@ -402,15 +422,21 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     // Also a card customer whose card on file keeps declining: they are enrolled
     // but nothing is being collected, so the invoice is the only place left to
     // ask them to fix it.
+    // A lease that ends this month is excluded: enrolling in automatic monthly
+    // billing days before move-out is a button that can only cause a wrong
+    // charge and a refund. They get the one-time pay link only.
     const needsAction = first.payment_method === 'credit_card'
       && (!first.autopay_enabled || first.autopay_failing);
     if (needsAction && !dryRun) {
-      inv.autopayUrl = await autopayUrlFor(first.billing_id);
+      // The one-time pay link goes to every card customer who owes something,
+      // including one whose lease ends this month. Only the autopay enrollment
+      // button is withheld from them.
       inv.payUrl = await createPayLink({
         invoiceNumber: inv.number,
         customerName: inv.customerName,
         totalCents: Math.round(total * 100),
       });
+      if (!inv.termEndLabel) inv.autopayUrl = await autopayUrlFor(first.billing_id);
     }
 
     // Offer ACH to card payers, showing what they would actually save.
@@ -579,6 +605,7 @@ async function sendAdhocInvoice({
     methodLabel: methodLabel(s.payment_method),
     instructions: payInstructions(s.payment_method, s.autopay_enabled, s.autopay_card_brand, s.autopay_card_last4, s.autopay_failing),
     autopayFailing: !!(s.autopay_enabled && s.autopay_failing),
+    termEndLabel: termEndsThisPeriod([s], y, m),
   };
 
   // Same rule as the monthly engine: no card on file, or a card on file that
@@ -586,12 +613,13 @@ async function sendAdhocInvoice({
   const needsAction = s.payment_method === 'credit_card'
     && (!s.autopay_enabled || s.autopay_failing);
   if (needsAction && !dryRun) {
-    inv.autopayUrl = await autopayUrlFor(id);
     inv.payUrl = await createPayLink({
       invoiceNumber: inv.number,
       customerName: inv.customerName,
       totalCents: Math.round(total * 100),
     });
+    // No autopay enrollment on a lease that ends this month: see the monthly engine.
+    if (!inv.termEndLabel) inv.autopayUrl = await autopayUrlFor(id);
   }
   if (s.payment_method === 'credit_card' && fee > 0) inv.achNote = true;
 
@@ -602,6 +630,7 @@ async function sendAdhocInvoice({
     monthly_rate: parseFloat(s.monthly_rate), rent: amount, fee, total,
     due_date: inv.dueDate, invoice: inv.number, needs_action: needsAction, dryRun,
     resend: alreadyInvoiced, standard_invoice: isStandard, autopay_failing: !!s.autopay_failing,
+    final_invoice: inv.termEndLabel || null,
   };
 
   if (!s.email_primary) { out.result = 'no email on file'; return out; }
