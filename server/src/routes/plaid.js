@@ -124,14 +124,16 @@ router.post('/items/:itemId/refresh-accounts', async (req, res) => {
 
     await client.query('BEGIN');
     for (const a of accountsResp.data.accounts) {
+      // Same rule as the sync path: balances only for is_active accounts, and
+      // never on first insert. See the long note in syncActiveItems.
       await client.query(
         `INSERT INTO plaid_accounts
            (plaid_item_id, plaid_account_id, nickname, account_type, account_subtype, mask, current_balance, available_balance, last_balance_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+         VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,NULL)
          ON CONFLICT (plaid_account_id) DO UPDATE
-           SET current_balance = EXCLUDED.current_balance,
-               available_balance = EXCLUDED.available_balance,
-               last_balance_at = NOW()`,
+           SET current_balance = CASE WHEN plaid_accounts.is_active THEN EXCLUDED.current_balance ELSE NULL END,
+               available_balance = CASE WHEN plaid_accounts.is_active THEN EXCLUDED.available_balance ELSE NULL END,
+               last_balance_at = CASE WHEN plaid_accounts.is_active THEN NOW() ELSE NULL END`,
         [item.id, a.account_id, a.name || a.official_name, a.type, a.subtype, a.mask,
          a.balances?.current, a.balances?.available]
       );
@@ -265,14 +267,28 @@ async function syncActiveItems(itemId) {
         const known = new Set(before.rows.map((r) => r.plaid_account_id));
         const acctResp = await plaidClient.accountsGet({ access_token: item.access_token });
         for (const a of acctResp.data.accounts) {
+          // Balances are written ONLY for is_active accounts.
+          //
+          // The Wells Fargo item carries two of Carol's personal accounts
+          // (WAY2SAVE 5473, EVERYDAY CHECKING 9609). Their transactions were
+          // already excluded in upsertTransaction, but nothing stopped their
+          // BALANCES landing in the business database. Owner's instruction,
+          // September 9 2026: 6687 is the only Wells Fargo account the ERP
+          // should carry. 1231 Signify stays as a business backup card.
+          //
+          // New accounts insert with NULL balances on purpose. A card added to
+          // an existing item still gets its row and shows up in the log, and it
+          // picks up a balance on the following sync once it is active. That way
+          // an unexpected personal account can never deposit a balance here even
+          // once, which the old insert-with-balance path allowed.
           await client.query(
             `INSERT INTO plaid_accounts
                (plaid_item_id, plaid_account_id, nickname, account_type, account_subtype, mask, current_balance, available_balance, last_balance_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+             VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,NULL)
              ON CONFLICT (plaid_account_id) DO UPDATE
-               SET current_balance = EXCLUDED.current_balance,
-                   available_balance = EXCLUDED.available_balance,
-                   last_balance_at = NOW()`,
+               SET current_balance = CASE WHEN plaid_accounts.is_active THEN EXCLUDED.current_balance ELSE NULL END,
+                   available_balance = CASE WHEN plaid_accounts.is_active THEN EXCLUDED.available_balance ELSE NULL END,
+                   last_balance_at = CASE WHEN plaid_accounts.is_active THEN NOW() ELSE NULL END`,
             [item.id, a.account_id, a.name || a.official_name, a.type, a.subtype, a.mask,
              a.balances?.current, a.balances?.available]
           );
