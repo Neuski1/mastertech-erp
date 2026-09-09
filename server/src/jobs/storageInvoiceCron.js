@@ -111,16 +111,25 @@ function feeConfig(method, autopayOn) {
 // `failing` = autopay is switched on but the card on file is being declined.
 // Telling that customer "no action needed" is the wrong answer and is why a
 // declining card could go months without being fixed.
-function payInstructions(method, autopayOn, brand, last4, failing = false) {
+// `finalInvoice` = this lease ends inside the billed month, so there is no
+// autopay button on the page and nothing to enroll in. The wording has to match
+// what the customer can actually see, or the invoice points at a button that
+// is not there.
+function payInstructions(method, autopayOn, brand, last4, failing = false, finalInvoice = false) {
   switch (method) {
     case 'credit_card':
       if (autopayOn && failing) {
         return `The ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} we have on file was declined, so your automatic payment did not go through. `
-             + 'Use one of the buttons above to put a new card on file, or to pay this invoice now. '
+             + (finalInvoice
+                 ? 'Use the button above to pay this final invoice. '
+                 : 'Use one of the buttons above to put a new card on file, or to pay this invoice now. ')
              + 'Prefer to pay by phone? Call us at (303) 557-2214.';
       }
-      return autopayOn
-        ? `No action needed. Your ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} on file will be charged automatically on the due date.`
+      if (autopayOn) {
+        return `No action needed. Your ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} on file will be charged automatically on the due date.`;
+      }
+      return finalInvoice
+        ? 'Use the button above to pay this invoice. Prefer to pay by phone? Call us at (303) 557-2214.'
         : 'Use one of the buttons above to set up automatic monthly payment or to pay this invoice now. Prefer to pay by phone? Call us at (303) 557-2214.';
     case 'ach':
       if (autopayOn && failing) {
@@ -398,6 +407,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     const rvList = spaces.map(s => [s.unit_year, s.unit_make, s.unit_model].filter(Boolean).join(' ')).filter(Boolean);
     const allIndoor = spaces.every(s => s.space_type === 'indoor');
     const allOutdoor = spaces.every(s => s.space_type === 'outdoor');
+    const termEndLabel = termEndsThisPeriod(spaces, p.year, p.month);
     const inv = {
       number: (spacesPerCustomer.get(customerId) || 1) > 1
         ? `S${p.year}${String(p.month).padStart(2, '0')}-${customerId}-${first.billing_id}`
@@ -413,12 +423,12 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       dueDate: longDate(due),
       items, total,
       methodLabel: methodLabel(first.payment_method),
-      instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4, first.autopay_failing),
+      instructions: payInstructions(first.payment_method, first.autopay_enabled, first.autopay_card_brand, first.autopay_card_last4, first.autopay_failing, !!termEndLabel),
       autopayFailing: !!(first.autopay_enabled && first.autopay_failing),
       // Set only when the lease ends inside this billing month, which turns the
       // footer from "recurring monthly" into a final-invoice notice. A 15-day
       // temporary customer should not be told their storage renews.
-      termEndLabel: termEndsThisPeriod(spaces, p.year, p.month),
+      termEndLabel,
     };
 
     // Card customer with no card on file: give them both options right on the
@@ -592,6 +602,7 @@ async function sendAdhocInvoice({
   // so it keeps the monthly invoice number the customer already has.
   const isStandard = !lineLabel && !periodLabel
     && Math.abs(amount - parseFloat(s.monthly_rate)) < 0.005;
+  const termEndLabel = termEndsThisPeriod([s], y, m);
   const inv = {
     number: isStandard
       ? `S${y}${String(m).padStart(2, '0')}-${s.customer_id}`
@@ -607,9 +618,9 @@ async function sendAdhocInvoice({
     dueDate: longDate(due),
     items, total,
     methodLabel: methodLabel(s.payment_method),
-    instructions: payInstructions(s.payment_method, s.autopay_enabled, s.autopay_card_brand, s.autopay_card_last4, s.autopay_failing),
+    instructions: payInstructions(s.payment_method, s.autopay_enabled, s.autopay_card_brand, s.autopay_card_last4, s.autopay_failing, !!termEndLabel),
     autopayFailing: !!(s.autopay_enabled && s.autopay_failing),
-    termEndLabel: termEndsThisPeriod([s], y, m),
+    termEndLabel,
   };
 
   // Same rule as the monthly engine: no card on file, or a card on file that
