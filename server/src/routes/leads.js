@@ -17,6 +17,84 @@ const VALID_LEAD_STATUSES = ['new', 'contacted', 'scheduled', 'converted'];
 // full "jean.clappier@gmail.com" that appears in the message body).
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
+// ---------------------------------------------------------------------------
+// Pull the RV out of a website lead message. Mirrors client/src/utils/parseLead
+// so the server can fill the unit even when the caller sends nothing.
+//   RV: 2024 Nash 17k | Length: 20 ft | Services: ... | Issue: ...
+// ---------------------------------------------------------------------------
+function parseLeadRv(msg) {
+  const out = { year: null, make: null, model: null, linear_feet: null };
+  if (!msg) return out;
+  const field = (label) => {
+    const m = String(msg).match(new RegExp(label + '\\s*:\\s*([^|]*)(?:\\||$)', 'i'));
+    return m ? m[1].trim() : '';
+  };
+  const raw = field('RV');
+  const len = (field('Length').match(/\d+(\.\d+)?/) || [null])[0];
+  if (len) out.linear_feet = parseFloat(len);
+  if (raw) {
+    const parts = raw.split(/\s+/).filter(Boolean);
+    if (/^(19|20)\d{2}$/.test(parts[0] || '')) {
+      out.year = parseInt(parts[0], 10);
+      out.make = parts[1] || null;
+      out.model = parts.slice(2).join(' ') || null;
+    } else {
+      out.make = parts[0] || null;
+      out.model = parts.slice(1).join(' ') || null;
+    }
+  }
+  return out;
+}
+
+const norm = (v) => String(v == null ? '' : v).trim().toLowerCase();
+
+// Save the RV from a lead onto the customer record. Never creates a duplicate:
+// an existing unit with the same make/model (and a non-conflicting year) is
+// backfilled instead, and a bare stub unit is filled in rather than added to.
+// Returns { unit_id, unit_action } where action is created | updated | matched.
+async function saveLeadUnit(client, customerId, rv) {
+  const hasData = rv && (rv.year || rv.make || rv.model || rv.linear_feet);
+  if (!customerId || !hasData) return { unit_id: null, unit_action: 'none' };
+
+  const { rows: units } = await client.query(
+    'SELECT id, year, make, model, linear_feet FROM units WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY id',
+    [customerId]
+  );
+
+  const match = units.find((u) => {
+    if (!norm(u.make) && !norm(u.model)) return false;
+    const makeOk = !rv.make || !norm(u.make) || norm(u.make) === norm(rv.make);
+    const modelOk = !rv.model || !norm(u.model) || norm(u.model) === norm(rv.model);
+    const yearOk = !rv.year || !u.year || Number(u.year) === Number(rv.year);
+    return makeOk && modelOk && yearOk;
+  });
+
+  // A stub unit is one create-estimate or an earlier lead left behind: no
+  // identifying detail at all. Fill it rather than stacking a second RV.
+  const stub = units.find((u) => !u.year && !norm(u.make) && !norm(u.model) && !u.linear_feet);
+
+  const target = match || stub;
+  if (target) {
+    const { rows } = await client.query(
+      `UPDATE units
+          SET year = COALESCE(year, $1),
+              make = COALESCE(NULLIF(make, ''), $2),
+              model = COALESCE(NULLIF(model, ''), $3),
+              linear_feet = COALESCE(linear_feet, $4)
+        WHERE id = $5
+        RETURNING id`,
+      [rv.year || null, rv.make || null, rv.model || null, rv.linear_feet || null, target.id]
+    );
+    return { unit_id: rows[0].id, unit_action: match ? 'matched' : 'updated' };
+  }
+
+  const { rows } = await client.query(
+    'INSERT INTO units (customer_id, year, make, model, linear_feet) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+    [customerId, rv.year || null, rv.make || null, rv.model || null, rv.linear_feet || null]
+  );
+  return { unit_id: rows[0].id, unit_action: 'created' };
+}
+
 router.post('/', async (req, res) => {
   const { name, phone, message, source = 'website' } = req.body;
   let email = (req.body.email || '').trim();
@@ -273,20 +351,28 @@ router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), as
     }
     const lead = leadRows[0];
 
-    // Find an existing unit for the customer, else create a stub unit.
+    // Put the RV from the lead on the customer record, matching or backfilling
+    // an existing unit rather than duplicating one. Falls back to the old
+    // behaviour (first unit, else a bare stub) when the message has no RV.
     let unitId = null;
-    const { rows: unitRows } = await client.query(
-      'SELECT id FROM units WHERE customer_id = $1 ORDER BY id LIMIT 1',
-      [lead.customer_id]
-    );
-    if (unitRows.length > 0) {
-      unitId = unitRows[0].id;
-    } else {
-      const { rows: newUnit } = await client.query(
-        'INSERT INTO units (customer_id) VALUES ($1) RETURNING id',
+    const rvFromLead = parseLeadRv(lead.message);
+    const saved = await saveLeadUnit(client, lead.customer_id, rvFromLead);
+    unitId = saved.unit_id;
+
+    if (!unitId) {
+      const { rows: unitRows } = await client.query(
+        'SELECT id FROM units WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY id LIMIT 1',
         [lead.customer_id]
       );
-      unitId = newUnit[0].id;
+      if (unitRows.length > 0) {
+        unitId = unitRows[0].id;
+      } else {
+        const { rows: newUnit } = await client.query(
+          'INSERT INTO units (customer_id) VALUES ($1) RETURNING id',
+          [lead.customer_id]
+        );
+        unitId = newUnit[0].id;
+      }
     }
 
     // Next record number
@@ -383,6 +469,30 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
       }
     }
 
+    // Put the RV on the customer record. The caller may send an edited unit
+    // (the File Lead modal prefills it from the message and lets staff fix it);
+    // if it sends nothing, fall back to parsing the message here. save_unit
+    // false means the staff member deliberately unticked it.
+    let unitResult = { unit_id: null, unit_action: 'none' };
+    const body = req.body || {};
+    if (body.save_unit !== false && targetCustomerId) {
+      let rv;
+      if (body.unit) {
+        // An explicit payload wins outright, so a field the staff member
+        // cleared stays cleared instead of being re-parsed from the message.
+        const sent = body.unit;
+        rv = {
+          year: String(sent.year || '').trim() ? parseInt(sent.year, 10) || null : null,
+          make: String(sent.make || '').trim() || null,
+          model: String(sent.model || '').trim() || null,
+          linear_feet: String(sent.linear_feet || '').trim() ? parseFloat(sent.linear_feet) || null : null,
+        };
+      } else {
+        rv = parseLeadRv(lead.message);
+      }
+      unitResult = await saveLeadUnit(client, targetCustomerId, rv);
+    }
+
     await client.query(
       'UPDATE leads SET deleted_at = NOW() WHERE id = $1',
       [lead.id]
@@ -424,7 +534,12 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
     }
 
     await client.query('COMMIT');
-    res.json({ filed: true, customer_id: targetCustomerId });
+    res.json({
+      filed: true,
+      customer_id: targetCustomerId,
+      unit_id: unitResult.unit_id,
+      unit_action: unitResult.unit_action,
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('POST /api/leads/:id/file error:', err);
