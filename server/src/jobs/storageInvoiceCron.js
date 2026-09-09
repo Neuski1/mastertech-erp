@@ -72,7 +72,11 @@ function termEndsThisPeriod(spaces, year, month) {
     .map(e => new Date(e))
     .sort((a, b) => b - a)[0];
   if (last.getUTCFullYear() !== year || last.getUTCMonth() + 1 !== month) return null;
-  return longDate(new Date(Date.UTC(year, month - 1, last.getUTCDate())));
+  // Noon, not midnight. longDate formats in the server's local zone, and the
+  // server runs UTC while the shop is Mountain, so a midnight-UTC date prints
+  // as the day before. Same class of bug as the marketing calendar's DATE
+  // columns. Noon survives any offset either side of UTC.
+  return longDate(new Date(Date.UTC(year, month - 1, last.getUTCDate(), 12)));
 }
 
 function isLastDayOfMonth(d = new Date()) {
