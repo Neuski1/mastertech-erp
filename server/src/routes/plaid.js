@@ -245,8 +245,53 @@ async function syncActiveItems(itemId) {
         hasMore = resp.data.has_more;
       }
 
+      // Refresh balances and pick up any account newly in scope, every sync.
+      //
+      // accountsGet used to run only at link time and in refresh-accounts, which
+      // is reached solely through the Reconnect button. That left Wells Fargo's
+      // four accounts stamped 2026-06-15 for three months while Chase happened to
+      // look current only because someone had reconnected it. Balances are now
+      // stamped on every sync so a stale last_balance_at means the sync failed,
+      // not that nobody pushed a button.
+      //
+      // Deliberately non-fatal: a balance call that errors must never cost us the
+      // transactions we just pulled. Insert-on-new is kept here too so a card
+      // added to an existing item lands without a full update-mode reconnect.
+      let accountsRefreshed = 0, accountsAdded = [];
+      try {
+        const before = await client.query(
+          `SELECT plaid_account_id FROM plaid_accounts WHERE plaid_item_id = $1`, [item.id]
+        );
+        const known = new Set(before.rows.map((r) => r.plaid_account_id));
+        const acctResp = await plaidClient.accountsGet({ access_token: item.access_token });
+        for (const a of acctResp.data.accounts) {
+          await client.query(
+            `INSERT INTO plaid_accounts
+               (plaid_item_id, plaid_account_id, nickname, account_type, account_subtype, mask, current_balance, available_balance, last_balance_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+             ON CONFLICT (plaid_account_id) DO UPDATE
+               SET current_balance = EXCLUDED.current_balance,
+                   available_balance = EXCLUDED.available_balance,
+                   last_balance_at = NOW()`,
+            [item.id, a.account_id, a.name || a.official_name, a.type, a.subtype, a.mask,
+             a.balances?.current, a.balances?.available]
+          );
+          accountsRefreshed++;
+          if (!known.has(a.account_id)) {
+            accountsAdded.push({ plaid_account_id: a.account_id, mask: a.mask, name: a.name });
+          }
+        }
+        if (accountsAdded.length) {
+          console.log(`Plaid sync: item ${item.id} picked up ${accountsAdded.length} new account(s):`,
+            accountsAdded.map((a) => a.mask || a.name).join(', '));
+        }
+      } catch (balErr) {
+        console.error(`Plaid balance refresh failed for item ${item.id} (transactions still saved):`,
+          balErr.response?.data || balErr.message);
+      }
+
       await client.query(`UPDATE plaid_items SET cursor = $1, last_synced_at = NOW() WHERE id = $2`, [cursor, item.id]);
-      results.push({ item_id: item.id, added, modified, removed });
+      results.push({ item_id: item.id, added, modified, removed, accounts_refreshed: accountsRefreshed, accounts_added: accountsAdded });
     }
     return results;
   } finally {
