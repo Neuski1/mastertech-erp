@@ -374,9 +374,9 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
         );
       }
       if (approvedPartsIds.length > 0) {
-        // Approving estimate lines promotes them to real WO lines but does
-        // NOT pull stock yet. Inventory is only decremented when the record
-        // reaches a work-active status (in_progress and beyond).
+        // Approving estimate lines promotes them to real WO lines. The stock
+        // trigger (migration 064) pulls From Inventory parts off the shelf at
+        // that moment, unless the record is filed or void.
         await client.query(
           `UPDATE record_parts_lines SET customer_approved = TRUE, customer_approved_at = NOW(), is_estimate_line = FALSE
            WHERE record_id = $1 AND id = ANY($2) AND is_estimate_line = TRUE AND deleted_at IS NULL`,

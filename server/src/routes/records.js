@@ -773,8 +773,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
-    // Stock is pulled when the record enters a work-active status and put
-    // back when it leaves one, by the records_stock_sync trigger (migration
+    // Stock goes back when the record is filed or voided and comes off again
+    // if it is reopened, by the records_stock_sync trigger (migration
     // 064, db/partsStockSync.js). It fires on the status UPDATE below and on
     // every other path that changes status (payments, webhooks, the online
     // estimate approval), which this route never could.

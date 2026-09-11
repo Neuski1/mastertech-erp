@@ -147,7 +147,8 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
       // Stock is NOT moved here. The parts_line_stock_sync trigger (migration
       // 064, db/partsStockSync.js) pulls it on insert when the line is a
-      // committed line on a work-active record and not flagged to order.
+      // committed line on any record that is not filed or void and is not
+      // flagged to order.
     }
 
     // No-charge parts still pull stock (trigger) and keep their cost so we can
@@ -452,7 +453,7 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (order_tracking !== undefined) { updates.push(`order_tracking = $${idx++}`); values.push(order_tracking || null); }
 
     // Estimate line fields. Promoting a line out of estimate pulls its stock
-    // (trigger) if the record is work-active; demoting puts it back.
+    // (trigger) unless the record is filed or void; demoting puts it back.
     let finalIsEstimate = existing.is_estimate_line;
     if (is_estimate_line !== undefined) {
       finalIsEstimate = !!is_estimate_line;
