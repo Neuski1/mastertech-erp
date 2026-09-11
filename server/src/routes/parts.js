@@ -3,7 +3,6 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
-const { pullsInventory } = require('../utils/inventoryStatus');
 
 // Check if no_charge column exists (cached after first check).
 // Mirrors the same guard in routes/labor.js so the API keeps working if the
@@ -146,21 +145,12 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
         ? parseFloat(sale_price_each)
         : parseFloat(inv.sale_price_each);
 
-      // Decrement inventory only when the line is becoming a real work-order
-      // line, not an estimate (inspection-findings) line. Inspection findings
-      // are proposals — they don't commit stock until the customer approves
-      // them (which flips is_estimate_line FALSE). 'filed' records and the
-      // user's explicit "Order New" choice also skip the decrement.
-      const lineIsEstimate = !!is_estimate_line;
-      if (!skip_deduct && !lineIsEstimate && pullsInventory(recRows[0].status) && parseFloat(inv.qty_on_hand) >= parsedQty) {
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
-          [parsedQty, inv.id]
-        );
-      }
+      // Stock is NOT moved here. The parts_line_stock_sync trigger (migration
+      // 064, db/partsStockSync.js) pulls it on insert when the line is a
+      // committed line on a work-active record and not flagged to order.
     }
 
-    // No-charge parts still pull stock (above) and keep their cost so we can
+    // No-charge parts still pull stock (trigger) and keep their cost so we can
     // see what goodwill/warranty work costs us — they just bill at zero.
     const lineTotal = isNoCharge ? 0 : parseFloat((parsedQty * finalSalePrice).toFixed(2));
 
@@ -172,9 +162,11 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
     const finalVendor = is_inventory_part ? null : (vendor || null);
 
-    // Auto-flag inventory parts as needing order when:
-    // 1. Stock is 0 or negative after deduction, OR
-    // 2. User explicitly chose "Order New" (skip_deduct)
+    // Flag an inventory part as needing to be ordered when the user chose
+    // "Order New" (skip_deduct) or there is nothing on the shelf to pull.
+    // This is checked BEFORE the pull. It used to run after the deduction, so
+    // pulling the last unit off the shelf flagged the line Not Ordered even
+    // though the part had come from stock.
     let autoOrderStatus = null;
     let autoOrderSupplier = null;
     if (isInvPart && finalInventoryId) {
@@ -356,10 +348,6 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
   try {
     await client.query('BEGIN');
 
-    // Get record status for inventory logic
-    const { rows: recStatusRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
-    const recordStatus = recStatusRows[0]?.status;
-
     const { rows: lineRows } = await client.query(
       'SELECT * FROM record_parts_lines WHERE id = $1 AND record_id = $2 AND deleted_at IS NULL',
       [lineId, recordId]
@@ -394,21 +382,9 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
         );
       }
     }
-    // A parts line "holds" stock when it is an inventory-linked, non-estimate
-    // line on a record that pulls inventory, AND its status says the part came
-    // off our shelf rather than being ordered in. 'inventory' is the explicit
-    // way to say that; a legacy NULL status means the same thing (those lines
-    // were already decremented at creation via the "Pull from Stock" path).
-    // Treating the two identically is what keeps us from double-deducting.
-    const isStockPullStatus = (s) => !s || s === 'inventory';
-    const invEligible = !!(existing.is_inventory_part && existing.inventory_id
-                           && !existing.is_estimate_line
-                           && pullsInventory(recordStatus));
-    const nextStatus = order_status !== undefined ? order_status : existing.order_status;
-    const wasHoldingStock = invEligible && isStockPullStatus(existing.order_status);
-    const nowHoldingStock = invEligible && isStockPullStatus(nextStatus);
-    const stockStateChanged = wasHoldingStock !== nowHoldingStock;
-
+    // Stock moves for quantity, order-status, estimate and delete changes are
+    // made by the parts_line_stock_sync trigger (migration 064) against what
+    // the line recorded as pulled. Nothing in this route touches qty_on_hand.
     if (quantity !== undefined) {
       newQty = parseFloat(quantity);
       if (isNaN(newQty) || newQty <= 0) {
@@ -417,31 +393,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       }
       updates.push(`quantity = $${idx++}`);
       values.push(newQty);
-
-      // Adjust inventory only for real WO lines (not inspection-finding
-      // estimate lines, not lines on an estimate-status record). Skipped when
-      // the stock-pull state itself is flipping in this same request - that
-      // case is settled below against the final quantity, so doing it here too
-      // would move stock twice.
-      if (wasHoldingStock && !stockStateChanged) {
-        const qtyDiff = newQty - parseFloat(existing.quantity);
-        if (qtyDiff !== 0) {
-          await client.query(
-            'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
-            [qtyDiff, existing.inventory_id]
-          );
-        }
-      }
     }
 
-    // Status flipped into or out of "From Inventory": move the stock to match.
-    if (stockStateChanged) {
-      const qtyForStock = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
-      await client.query(
-        `UPDATE inventory SET qty_on_hand = qty_on_hand ${nowHoldingStock ? '-' : '+'} $1 WHERE id = $2`,
-        [qtyForStock, existing.inventory_id]
-      );
-    }
     if (sale_price_each !== undefined) {
       newPrice = parseFloat(sale_price_each);
       updates.push(`sale_price_each = $${idx++}`);
@@ -498,8 +451,8 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (order_number !== undefined) { updates.push(`order_number = $${idx++}`); values.push(order_number || null); }
     if (order_tracking !== undefined) { updates.push(`order_tracking = $${idx++}`); values.push(order_tracking || null); }
 
-    // Estimate line fields. Decide the FINAL is_estimate_line value first
-    // so we can do the inventory adjustment on the transition correctly.
+    // Estimate line fields. Promoting a line out of estimate pulls its stock
+    // (trigger) if the record is work-active; demoting puts it back.
     let finalIsEstimate = existing.is_estimate_line;
     if (is_estimate_line !== undefined) {
       finalIsEstimate = !!is_estimate_line;
@@ -509,28 +462,6 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       // Approving an estimate line promotes it (is_estimate_line = FALSE).
       finalIsEstimate = false;
       updates.push(`is_estimate_line = FALSE`);
-    }
-
-    // Inventory transition: estimate <-> real WO line. Only matters for
-    // inventory parts on records that aren't fully estimate-status.
-    if (existing.is_inventory_part && existing.inventory_id
-        && pullsInventory(recordStatus)
-        && isStockPullStatus(existing.order_status)
-        && !stockStateChanged) {
-      const qtyForInv = (quantity !== undefined ? newQty : parseFloat(existing.quantity));
-      if (existing.is_estimate_line && !finalIsEstimate) {
-        // Promoting estimate -> real: pull stock now.
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
-          [qtyForInv, existing.inventory_id]
-        );
-      } else if (!existing.is_estimate_line && finalIsEstimate) {
-        // Demoting real -> estimate: put the stock back.
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-          [qtyForInv, existing.inventory_id]
-        );
-      }
     }
 
     if (customer_approved !== undefined) {
@@ -607,15 +538,7 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
 
     const line = lineRows[0];
 
-    // Restore inventory if it was an inventory part (skip for estimates — nothing was deducted)
-    const { rows: delRecRows } = await client.query('SELECT status FROM records WHERE id = $1', [recordId]);
-    if (line.is_inventory_part && line.inventory_id && pullsInventory(delRecRows[0]?.status) && !line.order_status) {
-      await client.query(
-        'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-        [parseFloat(line.quantity), line.inventory_id]
-      );
-    }
-
+    // Soft delete. The stock trigger returns whatever this line had pulled.
     await client.query(
       'UPDATE record_parts_lines SET deleted_at = NOW() WHERE id = $1',
       [lineId]
@@ -624,7 +547,7 @@ router.delete('/:recordId/:lineId', requireRole('admin', 'service_writer', 'tech
     await recalculateTotals(recordId, client);
     await client.query('COMMIT');
 
-    res.json({ message: 'Parts line deleted', inventory_restored: line.is_inventory_part });
+    res.json({ message: 'Parts line deleted', inventory_restored: parseFloat(line.stock_pulled_qty || 0) > 0 });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('DELETE parts error:', err);

@@ -1,6 +1,10 @@
 // Single source of truth for WHEN a record's committed inventory parts are
 // pulled from stock.
 //
+// The database trigger that actually moves the stock (migration 064,
+// db/partsStockSync.js) is generated from this list on every boot, so this
+// file stays the only place the list lives. Change it here and redeploy.
+//
 // Carol's rule: never pull inventory while a work order is in a pre-work or
 // parked status. Stock only leaves the shelf once the job is actually being
 // worked or billed.

@@ -1205,6 +1205,10 @@ pool.query(`
 `).then(() => console.log('Migration 063 (storage rate changes) ready'))
   .catch(err => console.error('Migration 063 error:', err.message));
 
+// Migration 064 — work-order stock pulls move in a trigger, not in routes.
+// See server/src/db/partsStockSync.js for why and for the holding rule.
+require('./db/partsStockSync').installPartsStockSync(pool);
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Master Tech ERP API running on port ${PORT}`);
