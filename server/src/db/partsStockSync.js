@@ -73,7 +73,7 @@ async function installPartsStockSync(pool) {
                (l.deleted_at IS NULL AND l.is_inventory_part IS TRUE AND l.inventory_id IS NOT NULL
                 AND l.is_estimate_line IS NOT TRUE
                 AND (l.order_status IS NULL OR l.order_status = 'inventory')
-                AND r.deleted_at IS NULL AND r.status = ANY(${pulls})) AS holds
+                AND r.deleted_at IS NULL AND r.status::text = ANY(${pulls})) AS holds
           FROM record_parts_lines l JOIN records r ON r.id = l.record_id
          WHERE l.stock_pulled_qty IS NULL
       ) h
@@ -96,7 +96,7 @@ async function installPartsStockSync(pool) {
         had_qty    numeric := 0;
         had_inv    integer := NULL;
       BEGIN
-        SELECT status, deleted_at INTO r_status, r_deleted FROM records WHERE id = NEW.record_id;
+        SELECT status::text, deleted_at INTO r_status, r_deleted FROM records WHERE id = NEW.record_id;
         holds := NEW.deleted_at IS NULL AND NEW.is_inventory_part IS TRUE AND NEW.inventory_id IS NOT NULL
                  AND NEW.is_estimate_line IS NOT TRUE
                  AND (NEW.order_status IS NULL OR NEW.order_status = 'inventory')
