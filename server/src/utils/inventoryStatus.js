@@ -1,25 +1,27 @@
-// Single source of truth for WHEN a record's committed inventory parts are
-// pulled from stock.
+// Single source of truth for WHEN a record's inventory parts are off the shelf.
+//
+// Carol's rule (September 11, 2026): a part marked From Inventory comes off
+// the shelf the moment it is on the record, whatever the record's status,
+// estimate included. It goes back when the record is FILED or VOIDED, and
+// comes off again if a filed record is reopened.
+//
+// It also goes back when the line itself is deleted, switched to an order
+// status (Not Ordered, Ordered, Received...), or moved into the Inspection
+// Findings section. Inspection-finding lines are proposals, so they only pull
+// once the customer approves them.
 //
 // The database trigger that actually moves the stock (migration 064,
-// db/partsStockSync.js) is generated from this list on every boot, so this
-// file stays the only place the list lives. Change it here and redeploy.
+// db/partsStockSync.js) is generated from this list on every boot, and every
+// line is re-checked against it on boot, so changing this list and
+// redeploying is all it takes to change the rule.
 //
-// Carol's rule: never pull inventory while a work order is in a pre-work or
-// parked status. Stock only leaves the shelf once the job is actually being
-// worked or billed.
-//
-// Pull (deduct) statuses:    in_progress, awaiting_parts, complete,
-//                            payment_pending, partial, paid
-// Do NOT pull:               estimate, approved (Not Started),
-//                            schedule_customer, scheduled, awaiting_approval,
-//                            order_parts, on_hold, filed, void
-const INVENTORY_PULL_STATUSES = [
-  'in_progress', 'awaiting_parts', 'complete', 'payment_pending', 'partial', 'paid',
-];
+// Previous rule (June 16 to September 11, 2026): stock only left the shelf
+// in work-active statuses (in_progress, awaiting_parts, complete,
+// payment_pending, partial, paid).
+const INVENTORY_RETURN_STATUSES = ['filed', 'void'];
 
 function pullsInventory(status) {
-  return INVENTORY_PULL_STATUSES.includes(status);
+  return !INVENTORY_RETURN_STATUSES.includes(status);
 }
 
-module.exports = { pullsInventory, INVENTORY_PULL_STATUSES };
+module.exports = { pullsInventory, INVENTORY_RETURN_STATUSES };

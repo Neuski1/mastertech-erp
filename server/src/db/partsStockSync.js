@@ -7,7 +7,8 @@
 //     'not_ordered' applied and the lines were never pulled when the job ran.
 //   - Payments (manual, Square, Terminal, webhook, reconcile cron, Poynt) move
 //     a record to partial/paid directly. A deposit on a scheduled job jumped
-//     it into a work-active status without pulling anything.
+//     it into a work-active status without pulling anything (under the
+//     old rule, when stock only came off once work started).
 //   - The customer's online estimate approval moves awaiting_approval to
 //     in_progress and promotes lines out of estimate, both with raw SQL.
 //   - Adding a line when stock was short skipped the deduction silently while
@@ -23,22 +24,25 @@
 // A line holds stock when all of these are true:
 //   line not deleted, linked to an inventory item, not an estimate line,
 //   order_status NULL or 'inventory' (came off our shelf, not ordered in),
-//   record not deleted, record status in INVENTORY_PULL_STATUSES.
+//   record not deleted, record status not in INVENTORY_RETURN_STATUSES
+//   (filed, void). Any other status holds stock, estimate included.
 // Short stock is still pulled and goes negative. A negative on-hand is the
 // honest signal that the shelf count is off; silently skipping hid it.
 //
-// INVENTORY_PULL_STATUSES in utils/inventoryStatus.js stays the one home for
-// the status list: the SQL below is generated from it on every boot.
+// INVENTORY_RETURN_STATUSES in utils/inventoryStatus.js stays the one home for
+// the status list: the SQL below is generated from it on every boot, and every
+// line is re-checked against it on boot (resync below), so a rule change
+// applies to existing lines the moment it deploys, not lazily on next edit.
 
-const { INVENTORY_PULL_STATUSES } = require('../utils/inventoryStatus');
+const { INVENTORY_RETURN_STATUSES } = require('../utils/inventoryStatus');
 
-function pullStatusArraySql() {
+function returnStatusArraySql() {
   // Fixed internal list of identifiers, never user input.
-  return `ARRAY[${INVENTORY_PULL_STATUSES.map(s => `'${s.replace(/'/g, "''")}'`).join(',')}]::text[]`;
+  return `ARRAY[${INVENTORY_RETURN_STATUSES.map(s => `'${s.replace(/'/g, "''")}'`).join(',')}]::text[]`;
 }
 
 async function installPartsStockSync(pool) {
-  const pulls = pullStatusArraySql();
+  const returns = returnStatusArraySql();
   const client = await pool.connect();
   try {
     // One transaction: there is never a moment where the new route code is
@@ -73,7 +77,7 @@ async function installPartsStockSync(pool) {
                (l.deleted_at IS NULL AND l.is_inventory_part IS TRUE AND l.inventory_id IS NOT NULL
                 AND l.is_estimate_line IS NOT TRUE
                 AND (l.order_status IS NULL OR l.order_status = 'inventory')
-                AND r.deleted_at IS NULL AND r.status::text = ANY(${pulls})) AS holds
+                AND r.deleted_at IS NULL AND NOT (r.status::text = ANY(${returns}))) AS holds
           FROM record_parts_lines l JOIN records r ON r.id = l.record_id
          WHERE l.stock_pulled_qty IS NULL
       ) h
@@ -101,7 +105,7 @@ async function installPartsStockSync(pool) {
                  AND NEW.is_estimate_line IS NOT TRUE
                  AND (NEW.order_status IS NULL OR NEW.order_status = 'inventory')
                  AND r_status IS NOT NULL AND r_deleted IS NULL
-                 AND r_status = ANY(${pulls});
+                 AND NOT (r_status = ANY(${returns}));
         IF holds THEN
           want_qty := COALESCE(NEW.quantity, 0);
           want_inv := NEW.inventory_id;
@@ -162,8 +166,30 @@ async function installPartsStockSync(pool) {
       WHEN (OLD.status IS DISTINCT FROM NEW.status OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
       EXECUTE FUNCTION records_stock_sync()`);
 
+    // Resync: touch only the lines whose recorded pull disagrees with the rule
+    // as it stands now. The no-op SET fires the trigger, which moves the
+    // difference. Normally zero rows; after a rule change, exactly the lines
+    // the change affects.
+    const { rowCount: resynced } = await client.query(`
+      UPDATE record_parts_lines pl SET stock_pulled_qty = pl.stock_pulled_qty
+      FROM (
+        SELECT l.id,
+               CASE WHEN h.holds THEN l.quantity ELSE 0 END AS want_qty,
+               CASE WHEN h.holds THEN l.inventory_id END AS want_inv
+          FROM record_parts_lines l
+          JOIN records r ON r.id = l.record_id
+          CROSS JOIN LATERAL (SELECT
+               (l.deleted_at IS NULL AND l.is_inventory_part IS TRUE AND l.inventory_id IS NOT NULL
+                AND l.is_estimate_line IS NOT TRUE
+                AND (l.order_status IS NULL OR l.order_status = 'inventory')
+                AND r.deleted_at IS NULL AND NOT (r.status::text = ANY(${returns}))) AS holds) h
+      ) w
+      WHERE pl.id = w.id
+        AND (pl.stock_pulled_qty IS DISTINCT FROM w.want_qty
+             OR pl.stock_pulled_inventory_id IS DISTINCT FROM w.want_inv)`);
+
     await client.query('COMMIT');
-    console.log(`Migration 064 (parts stock sync trigger) ready; baselined ${rowCount} lines`);
+    console.log(`Migration 064 (parts stock sync trigger) ready; baselined ${rowCount} lines, resynced ${resynced}`);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     // Loud on purpose: without this trigger no work-order line moves stock.
@@ -173,4 +199,4 @@ async function installPartsStockSync(pool) {
   }
 }
 
-module.exports = { installPartsStockSync, pullStatusArraySql };
+module.exports = { installPartsStockSync, returnStatusArraySql };
