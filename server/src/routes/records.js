@@ -4,7 +4,6 @@ const pool = require('../db/pool');
 const { getSetting, recalculateTotals } = require('../db/calculations');
 const { requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
-const { pullsInventory } = require('../utils/inventoryStatus');
 const { generateRecordPdf } = require('../services/recordPdf');
 
 // ---------------------------------------------------------------------------
@@ -212,14 +211,16 @@ router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), a
       for (const pl of partsLines) {
         let costEach = pl.cost_each;
         let salePriceEach = pl.sale_price_each;
+        let onHand = 0;
 
         // Refresh prices from current inventory for inventory parts
         if (pl.is_inventory_part && pl.inventory_id) {
           const { rows: invRows } = await client.query(
-            'SELECT cost_each, sale_price_each FROM inventory WHERE id = $1 AND deleted_at IS NULL',
+            'SELECT cost_each, sale_price_each, qty_on_hand FROM inventory WHERE id = $1 AND deleted_at IS NULL',
             [pl.inventory_id]
           );
           if (invRows.length > 0) {
+            onHand = parseFloat(invRows[0].qty_on_hand) || 0;
             costEach = invRows[0].cost_each ?? pl.cost_each;
             salePriceEach = invRows[0].sale_price_each ?? pl.sale_price_each;
           }
@@ -229,10 +230,17 @@ router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), a
         const lineTotal = plNoCharge
           ? 0
           : parseFloat((parseFloat(pl.quantity) * parseFloat(salePriceEach)).toFixed(2));
+        // order_status must be set explicitly. Left out, the column default
+        // 'not_ordered' applied to every copied line, so copied inventory
+        // parts never came off the shelf when the job was worked. Inventory
+        // parts with enough on hand come from stock (NULL); everything else
+        // is flagged to order.
+        const copiedOrderStatus = (pl.is_inventory_part && pl.inventory_id && onHand >= parseFloat(pl.quantity))
+          ? null : 'not_ordered';
         await client.query(
-          `INSERT INTO record_parts_lines (record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description, quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor, no_charge)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.vendor_part_number || null, pl.description, pl.quantity, costEach, salePriceEach, lineTotal, pl.taxable, pl.sort_order, pl.vendor, plNoCharge]
+          `INSERT INTO record_parts_lines (record_id, inventory_id, is_inventory_part, part_number, vendor_part_number, description, quantity, cost_each, sale_price_each, line_total, taxable, sort_order, vendor, no_charge, order_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [newId, pl.inventory_id, pl.is_inventory_part, pl.part_number, pl.vendor_part_number || null, pl.description, pl.quantity, costEach, salePriceEach, lineTotal, pl.taxable, pl.sort_order, pl.vendor, plNoCharge, copiedOrderStatus]
         );
       }
     }
@@ -765,46 +773,11 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`last_reminder_sent_at = NULL`);
     }
 
-    // Pull committed inventory only when the record ENTERS a work-active status
-    // (in_progress, awaiting_parts, complete, payment_pending, partial, paid).
-    // Pre-work / parked statuses (estimate, Not Started, schedule customer,
-    // scheduled, awaiting approval, order parts, on hold, filed) never hold
-    // stock. Only committed lines (is_estimate_line = FALSE) are pulled.
-    if (!pullsInventory(record.status) && pullsInventory(newStatus)) {
-      const { rows: invParts } = await client.query(
-        `SELECT inventory_id, quantity FROM record_parts_lines
-         WHERE record_id = $1 AND deleted_at IS NULL
-           AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE
-           AND (order_status IS NULL OR order_status = 'inventory')`,
-        [req.params.id]
-      );
-      for (const p of invParts) {
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand - $1 WHERE id = $2',
-          [parseFloat(p.quantity), p.inventory_id]
-        );
-      }
-    }
-
-    // Put stock back when the record LEAVES a work-active status (reverts to a
-    // pre-work status, or is voided). Same committed-line scoping as above.
-    if (pullsInventory(record.status) && !pullsInventory(newStatus)) {
-      const { rows: invParts } = await client.query(
-        `SELECT inventory_id, quantity FROM record_parts_lines
-         WHERE record_id = $1 AND deleted_at IS NULL
-           AND is_inventory_part = TRUE AND inventory_id IS NOT NULL
-           AND is_estimate_line = FALSE
-           AND (order_status IS NULL OR order_status = 'inventory')`,
-        [req.params.id]
-      );
-      for (const p of invParts) {
-        await client.query(
-          'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-          [parseFloat(p.quantity), p.inventory_id]
-        );
-      }
-    }
+    // Stock is pulled when the record enters a work-active status and put
+    // back when it leaves one, by the records_stock_sync trigger (migration
+    // 064, db/partsStockSync.js). It fires on the status UPDATE below and on
+    // every other path that changes status (payments, webhooks, the online
+    // estimate approval), which this route never could.
 
     // When status → complete: auto-stamp actual_completion_date, recalculate shop supplies
     if (newStatus === 'complete') {
@@ -904,11 +877,12 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
   try {
     await client.query('BEGIN');
 
-    const { rows: priorStatusRows } = await client.query(
-      'SELECT status FROM records WHERE id = $1 AND deleted_at IS NULL',
+    // Lines currently holding stock; the trigger returns all of it on void.
+    const { rows: heldRows } = await client.query(
+      `SELECT COUNT(*) AS n FROM record_parts_lines
+        WHERE record_id = $1 AND deleted_at IS NULL AND stock_pulled_qty > 0`,
       [req.params.id]
     );
-    const priorStatus = priorStatusRows[0]?.status;
 
     const { rows } = await client.query(
       `UPDATE records SET deleted_at = NOW(), status = 'void'
@@ -922,26 +896,8 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
       return res.status(404).json({ error: 'Record not found' });
     }
 
-    // Reverse inventory for committed lines only (estimate-finding lines
-    // never pulled from stock, so they have nothing to put back).
-    const { rows: invParts } = await client.query(
-      `SELECT id, inventory_id, quantity FROM record_parts_lines
-       WHERE record_id = $1 AND deleted_at IS NULL
-         AND is_inventory_part = true AND inventory_id IS NOT NULL
-         AND is_estimate_line = FALSE
-         AND order_status IS NULL`,
-      [req.params.id]
-    );
-    if (pullsInventory(priorStatus)) for (const part of invParts) {
-      await client.query(
-        'UPDATE inventory SET qty_on_hand = qty_on_hand + $1 WHERE id = $2',
-        [parseFloat(part.quantity), part.inventory_id]
-      );
-      console.log(`Inventory reversal: +${part.quantity} units returned to inventory #${part.inventory_id} from deleted record #${rows[0].record_number}`);
-    }
-
     await client.query('COMMIT');
-    res.json({ message: 'Record voided', record: rows[0], inventory_restored: pullsInventory(priorStatus) ? invParts.length : 0 });
+    res.json({ message: 'Record voided', record: rows[0], inventory_restored: parseInt(heldRows[0].n, 10) });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('DELETE /api/records/:id error:', err);

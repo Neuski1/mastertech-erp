@@ -515,6 +515,11 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#6b7280' }}>
                     <strong>Pull from Stock</strong> deducts from inventory. <strong>Order New</strong> flags it as needing to be ordered.
                   </div>
+                  {parseFloat(form.quantity) > selectedItemQty && (
+                    <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#b91c1c', fontWeight: 600 }}>
+                      Only {selectedItemQty} on the shelf. Pulling {parseFloat(form.quantity)} takes inventory to {selectedItemQty - parseFloat(form.quantity)}, so count the shelf or choose Order New.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div>
