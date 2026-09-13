@@ -175,16 +175,24 @@ export default function RecordList() {
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
   fetchLeadsRef.current = fetchLeads;
+  // Closed Leads holds filed leads only. A deleted lead is gone from the
+  // database, and a lead converted to a record lives on the Records list.
+  const fetchClosedLeads = useCallback(async () => {
+    setClosedLoading(true);
+    try {
+      const d = await api.getLeads({ archived: true });
+      setClosedLeads(Array.isArray(d) ? d : []);
+    } catch (err) {
+      console.error('Failed to load closed leads:', err);
+    } finally {
+      setClosedLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!showClosedLeads) return;
-    let cancel = false;
-    setClosedLoading(true);
-    api.getLeads({ archived: true })
-      .then((d) => { if (!cancel) setClosedLeads(Array.isArray(d) ? d : []); })
-      .catch(() => {})
-      .finally(() => { if (!cancel) setClosedLoading(false); });
-    return () => { cancel = true; };
-  }, [showClosedLeads]);
+    fetchClosedLeads();
+  }, [showClosedLeads, fetchClosedLeads]);
 
   // Debounced customer search for the File-lead modal
   useEffect(() => {
@@ -288,13 +296,18 @@ export default function RecordList() {
     }
   };
 
-  const removeLead = async (lead) => {
-    if (!window.confirm('Delete this lead? This cannot be undone.')) return;
+  // Delete means delete: the lead and its call/note history are removed from
+  // the database, not parked in Closed Leads.
+  const removeLead = async (lead, opts = {}) => {
+    const who = lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || 'this lead';
+    if (!window.confirm(`Permanently delete the lead from ${who}? It is removed from the system and cannot be recovered.`)) return;
     try {
       await api.deleteLead(lead.id);
       fetchLeads();
+      if (opts.fromClosed || showClosedLeads) fetchClosedLeads();
     } catch (err) {
       console.error('Failed to delete lead:', err);
+      window.alert('Could not delete the lead. Try again.');
     }
   };
 
@@ -346,6 +359,7 @@ export default function RecordList() {
       await api.fileLead(fileLeadTarget.id, payload);
       closeFileLead();
       fetchLeads();
+      if (showClosedLeads) fetchClosedLeads();
     } catch (err) {
       console.error('Failed to file lead:', err);
     }
@@ -735,6 +749,7 @@ export default function RecordList() {
           <div style={{ padding: '10px 16px', backgroundColor: '#e5e7eb', color: '#374151', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '0.875rem' }}>
             <span>Closed Leads</span>
             <span style={{ backgroundColor: '#6b7280', color: '#fff', borderRadius: '999px', padding: '1px 8px', fontSize: '0.75rem', fontWeight: 700 }}>{closedLeads.length}</span>
+            <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>Filed leads only</span>
             {closedLoading && <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>Loading...</span>}
           </div>
           <div style={{ backgroundColor: '#fafafa' }}>
@@ -748,8 +763,8 @@ export default function RecordList() {
                   <div style={{ flex: 1, minWidth: '200px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <strong style={{ fontSize: '0.875rem' }}>{cname}</strong>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: '999px', backgroundColor: l.record_number ? '#bfdbfe' : '#e5e7eb', color: l.record_number ? '#1e40af' : '#374151' }}>
-                        {l.record_number ? `Converted \u00b7 WO #${l.record_number}` : (l.status === 'converted' ? 'Converted' : 'Closed')}
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: '999px', backgroundColor: '#e5e7eb', color: '#374151' }}>
+                        Filed
                       </span>
                       <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{formatDateTime(l.created_at)}</span>
                     </div>
@@ -765,6 +780,7 @@ export default function RecordList() {
                     {l.record_open && (
                       <button onClick={() => navigate(`/records/${l.record_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #2563eb', backgroundColor: '#fff', color: '#2563eb' }}>Open Record</button>
                     )}
+                    <button onClick={() => removeLead(l, { fromClosed: true })} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #dc2626', backgroundColor: '#fff', color: '#dc2626' }}>Delete</button>
                   </div>
                 </div>
               );
