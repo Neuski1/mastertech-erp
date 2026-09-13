@@ -204,7 +204,7 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
            LEFT JOIN users u ON u.id = x.created_by
           WHERE x.lead_id = l.id
        ) lc ON true
-       WHERE l.deleted_at IS ${archived ? 'NOT NULL' : 'NULL'}
+       WHERE ${archived ? "l.deleted_at IS NOT NULL AND l.closed_reason = 'filed'" : 'l.deleted_at IS NULL'}
        ORDER BY ${archived ? 'l.deleted_at' : 'l.created_at'} DESC
        LIMIT 100`
     );
@@ -321,17 +321,33 @@ router.delete('/:id/note/:noteId', requireAuth, requireRole(...STAFF_ROLES), asy
   }
 });
 
-// DELETE /api/leads/:id — Soft-delete a lead (staff only)
+// DELETE /api/leads/:id — Permanently delete a lead (staff only).
+// Delete means gone: the row and its call/note history leave the database, so
+// a deleted lead can never reappear in the Closed Leads list. Works on an open
+// lead and on one already sitting in Closed. Filing or converting a lead is
+// what keeps it (see /file and /create-estimate) — nothing here is recoverable.
 router.delete('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      'UPDATE leads SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id',
+    await client.query('BEGIN');
+    // Explicit, so the delete does not depend on the FK cascade being in place.
+    await client.query('DELETE FROM lead_contacts WHERE lead_id = $1', [req.params.id]);
+    const { rows } = await client.query(
+      'DELETE FROM leads WHERE id = $1 RETURNING id',
       [req.params.id]
     );
-    if (rows.length === 0) return res.status(404).json({ error: 'Lead not found' });
-    res.json({ id: rows[0].id });
+    if (rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+    await client.query('COMMIT');
+    res.json({ id: rows[0].id, deleted: true });
   } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('DELETE /api/leads/:id error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -408,7 +424,7 @@ router.post('/:id/create-estimate', requireAuth, requireRole(...STAFF_ROLES), as
     }
 
     await client.query(
-      "UPDATE leads SET record_id = $1, status = 'converted', deleted_at = NOW() WHERE id = $2",
+      "UPDATE leads SET record_id = $1, status = 'converted', deleted_at = NOW(), closed_reason = 'converted' WHERE id = $2",
       [recordId, lead.id]
     );
 
@@ -494,7 +510,7 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
     }
 
     await client.query(
-      'UPDATE leads SET deleted_at = NOW() WHERE id = $1',
+      "UPDATE leads SET deleted_at = NOW(), closed_reason = 'filed' WHERE id = $1",
       [lead.id]
     );
 

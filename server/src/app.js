@@ -844,6 +844,40 @@ const pool = require('./db/pool');
     // advances the lead's status, so writing a note is not outreach.
     await pool.query(`ALTER TABLE lead_contacts ADD COLUMN IF NOT EXISTS entry_type TEXT NOT NULL DEFAULT 'call'`);
 
+    // Migration 065: a closed lead records WHY it left the box. 'filed' means
+    // parked on the customer record and is the only thing the Closed Leads list
+    // shows; 'converted' means it became a record and lives on there. There is
+    // deliberately no 'deleted' value: deleting a lead is now a hard delete, so
+    // a deleted lead is gone from the database rather than sitting in the
+    // archive. Existing archived rows are backfilled once — anything carrying a
+    // record reads as converted, everything else as filed, so nothing vanishes
+    // from the Closed list without someone choosing to delete it.
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS closed_reason TEXT`);
+    await pool.query(`UPDATE leads
+                         SET closed_reason = CASE
+                               WHEN record_id IS NOT NULL OR status = 'converted' THEN 'converted'
+                               ELSE 'filed' END
+                       WHERE deleted_at IS NOT NULL AND closed_reason IS NULL`);
+    // Hard-deleting a lead has to take its call/note history with it. Drops
+    // whatever the foreign key is currently called (the default name is
+    // lead_contacts_lead_id_fkey, but never assume) and re-adds it with
+    // ON DELETE CASCADE. Idempotent: a second boot drops and re-adds the same
+    // constraint rather than stacking a second one.
+    await pool.query(`DO $$
+      DECLARE c text;
+      BEGIN
+        FOR c IN
+          SELECT conname FROM pg_constraint
+           WHERE conrelid = 'lead_contacts'::regclass AND contype = 'f'
+             AND confrelid = 'leads'::regclass
+        LOOP
+          EXECUTE format('ALTER TABLE lead_contacts DROP CONSTRAINT %I', c);
+        END LOOP;
+        ALTER TABLE lead_contacts
+          ADD CONSTRAINT lead_contacts_lead_id_fkey
+          FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE;
+      END $$;`);
+
     // Migration 051: record_photos — add direct upload columns (table already exists with onedrive_url)
     await pool.query('ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL');
     await pool.query('ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS filename VARCHAR(255)');
