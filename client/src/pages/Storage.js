@@ -805,7 +805,7 @@ function PaymentLegend() {
       <Item color={STATUS_COLORS.paid.bg} label="Paid" />
       <Item color={STATUS_COLORS.unpaid.bg} label="Unpaid" />
       <Item color={STATUS_COLORS.partial.bg} label="Partial" />
-      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Left to right: January of this year through three months out · hover a cell for its month, status and source · click to set a manual override (cycles paid → partial → unpaid → auto) · the boxed cell is the current month; cells to its right are future — mark them paid to record advance payments</span>
+      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>Cells are month numbers, January of this year through three months out · hover a cell for its status and source · click to set a manual override (cycles paid → partial → unpaid → auto) · the boxed cell is the current month; cells to its right are future — mark them paid to record advance payments</span>
     </div>
   );
 }
@@ -835,6 +835,7 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
               style={{
                 width: '20px', height: '20px', borderRadius: '3px',
                 backgroundColor: colors.bg, color: colors.text,
+                fontSize: '0.55rem', fontWeight: 700,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: canEdit ? 'pointer' : 'default',
                 // Manual overrides get a dark ring so they stand out.
@@ -843,7 +844,9 @@ function PaymentMonthGrid({ box, months, canEdit, onToggle }) {
                 border: isCurrent ? '2px solid #111827' : 'none',
                 boxSizing: 'border-box',
               }}
-            />
+            >
+              {month}
+            </div>
           );
         })}
       </div>
