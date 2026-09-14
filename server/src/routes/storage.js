@@ -27,26 +27,36 @@ async function logCustomerContact({ customerId, channel, campaign, notes, userId
 // PAYMENT GRID HELPERS
 // ===========================================================================
 
-// Last 12 months (current + prior 11), oldest first, as {year, month} (month 1-12).
+// Payment-grid month window, oldest -> newest, as {year, month} (month 1-12).
 // Uses America/Denver so the "current month" matches the shop's clock.
-// Payment-grid month window: 11 months of history + the current month + 6
-// months ahead, so advance payments (customers paid months in advance) can be
-// marked and seen. Oldest -> newest.
+//
+// Starts at January of the current year, never earlier than January 2026 (the
+// ERP is the book of record from 2026 on; 2025 cells were noise on the card).
+// Ends three months past the current month, so advance payments can always be
+// marked. Late in the year that tail rolls into the next year, which is the
+// point of the tail — December shows Jan-Mar of the following year.
+const GRID_FIRST_YEAR = 2026;
+const GRID_FUTURE_MONTHS = 3;
+
 function paymentGridMonths() {
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
   const curYear = parseInt(todayStr.slice(0, 4), 10);
   const curMonth = parseInt(todayStr.slice(5, 7), 10); // 1-12
-  const PAST = 11;
-  const FUTURE = 6;
+
+  const startYear = Math.max(curYear, GRID_FIRST_YEAR);
+  let y = startYear;
+  let m = 1;
+
+  // End = current month + GRID_FUTURE_MONTHS, as an absolute month index.
+  const endIdx = curYear * 12 + (curMonth - 1) + GRID_FUTURE_MONTHS;
+
   const months = [];
-  for (let i = -PAST; i <= FUTURE; i++) {
-    let m = curMonth + i;
-    let y = curYear;
-    while (m <= 0) { m += 12; y -= 1; }
-    while (m > 12) { m -= 12; y += 1; }
+  while (y * 12 + (m - 1) <= endIdx) {
     months.push({ year: y, month: m });
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
   }
-  return months; // oldest -> newest, includes current + FUTURE ahead
+  return months;
 }
 
 // Map a Square invoice status to our internal status.
