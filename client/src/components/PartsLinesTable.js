@@ -330,6 +330,25 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     }
   };
 
+  // Customer changed their mind after approving: send the line back to the
+  // Inspection Findings / Estimate box as unapproved. Stock pulled for it goes
+  // back on the shelf (database trigger). Nothing is deleted.
+  const handleMoveToEstimate = async (line) => {
+    const ordered = ['ordered', 'backordered', 'received'].includes(line.order_status);
+    const msg = `Move "${(line.description || 'this part').slice(0, 60)}" back to the Estimate section?\n\n`
+      + 'It comes off the work order total and shows as not approved.'
+      + (line.inventory_id ? ' Any stock pulled for it goes back into inventory.' : '')
+      + (ordered ? `\n\nHeads up: this part is marked ${line.order_status.toUpperCase()}. It will drop off Parts on Order, so cancel or return it with the supplier if needed.` : '');
+    if (!window.confirm(msg)) return;
+    setError('');
+    try {
+      await api.updatePart(recordId, line.id, { is_estimate_line: true });
+      onUpdate();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleDelete = async (lineId) => {
     if (!window.confirm('Delete this parts line?')) return;
     try {
@@ -921,6 +940,9 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     {!line.is_inventory_part && !line.inventory_id && (
                       <button onClick={() => setAddToInvLine(line)} style={btnTinyInv}>+Inv</button>
                     )}
+                    {!isEstimate && (
+                      <button onClick={() => handleMoveToEstimate(line)} style={btnTinyEst} title="Customer changed their mind: move back to the Estimate section">To Est</button>
+                    )}
                     <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
                   </td>
                 )}
@@ -1234,6 +1256,7 @@ const btnSmallGray = { padding: '6px 14px', backgroundColor: '#f3f4f6', color: '
 const btnTiny = { padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
 const btnTinyGray = { padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
 const inlineEditableStyle = { padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: '4px', fontSize: '0.8rem', width: '70px', textAlign: 'right', boxSizing: 'border-box', backgroundColor: '#fefce8' };
+const btnTinyEst = { padding: '2px 8px', backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px', fontWeight: 600 };
 const btnTinyDanger = { padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' };
 const btnTinyInv = { padding: '2px 8px', backgroundColor: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px', fontWeight: 600 };
 const toggleActive = { padding: '6px 14px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };

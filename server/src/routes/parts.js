@@ -459,6 +459,11 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
       finalIsEstimate = !!is_estimate_line;
       updates.push(`is_estimate_line = $${idx++}`);
       values.push(finalIsEstimate);
+      // Moving a line back into the estimate: the customer changed their mind,
+      // so it is pending again and drops out of the work-order totals.
+      if (finalIsEstimate && customer_approved === undefined) {
+        updates.push(`customer_approved = FALSE`, `customer_approved_at = NULL`);
+      }
     } else if (customer_approved === true) {
       // Approving an estimate line promotes it (is_estimate_line = FALSE).
       finalIsEstimate = false;

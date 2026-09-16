@@ -132,6 +132,19 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
     }
   };
 
+  // Customer changed their mind after approving: send the line back to the
+  // Inspection Findings / Estimate box as unapproved. Nothing is deleted.
+  const handleMoveToEstimate = async (line) => {
+    if (!window.confirm(`Move "${(line.description || 'this labor line').slice(0, 60)}" back to the Estimate section?\n\nIt comes off the work order total and shows as not approved.`)) return;
+    setError('');
+    try {
+      await sendLaborUpdate(recordId, line.id, { is_estimate_line: true });
+      onUpdate();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleDelete = async (lineId) => {
     if (!window.confirm('Delete this labor line?')) return;
     try {
@@ -394,7 +407,10 @@ export default function LaborLinesTable({ recordId, laborLines, isEditable, onUp
               )}
 
               {canEdit && (
-                <td style={tdStyle}>
+                <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                  {!isEstimate && isEditable && (
+                    <button onClick={() => handleMoveToEstimate(line)} style={btnTinyEst} title="Customer changed their mind: move back to the Estimate section">To Est</button>
+                  )}
                   <button onClick={() => handleDelete(line.id)} style={btnTinyDanger}>Del</button>
                 </td>
               )}
@@ -513,4 +529,5 @@ const errorStyle = { color: 'red', marginBottom: '8px', padding: '6px 10px', bac
 const btnSmallPrimary = { padding: '6px 14px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem' };
 const btnTiny = { padding: '2px 8px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
 const btnTinyGray = { padding: '2px 8px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px' };
+const btnTinyEst = { padding: '2px 8px', backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem', marginRight: '4px', fontWeight: 600 };
 const btnTinyDanger = { padding: '2px 8px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '3px', cursor: 'pointer', fontSize: '0.75rem' };

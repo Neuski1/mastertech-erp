@@ -200,6 +200,11 @@ router.patch('/:recordId/:lineId', requireRole('admin', 'service_writer', 'techn
     if (is_estimate_line !== undefined) {
       updates.push(`is_estimate_line = $${idx++}`);
       values.push(!!is_estimate_line);
+      // Moving a line back into the estimate: the customer changed their mind,
+      // so it is pending again and drops out of the work-order totals.
+      if (is_estimate_line && customer_approved === undefined) {
+        updates.push(`customer_approved = FALSE`, `customer_approved_at = NULL`);
+      }
     }
     if (customer_approved !== undefined) {
       updates.push(`customer_approved = $${idx++}`);
