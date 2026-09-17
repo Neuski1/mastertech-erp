@@ -1,10 +1,64 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { scoreLead, velocityScore, verifyTurnstile, THRESHOLD } = require('../utils/leadSpam');
 
 const STAFF_ROLES = ['admin', 'service_writer', 'bookkeeper', 'technician'];
 const VALID_LEAD_STATUSES = ['new', 'contacted', 'scheduled', 'converted'];
+
+// ---------------------------------------------------------------------------
+// Lead photos. Five per submission, images only, 12MB each before resize.
+// A photo problem never costs us the lead: multer errors are captured and the
+// text fields still process, and the photo insert happens after the lead has
+// already committed.
+// ---------------------------------------------------------------------------
+const MAX_PHOTOS = 5;
+const PHOTO_MAX_WIDTH = 1600;
+
+const uploadPhotos = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024, files: MAX_PHOTOS },
+  fileFilter: (req, file, cb) => cb(null, /^image\//i.test(file.mimetype)),
+});
+
+function acceptPhotos(req, res, next) {
+  uploadPhotos.array('photos', MAX_PHOTOS)(req, res, (err) => {
+    if (err) {
+      req.photoError = err.message;
+      req.files = [];
+    }
+    next();
+  });
+}
+
+let sharpLib;
+function getSharp() {
+  if (sharpLib === undefined) {
+    try { sharpLib = require('sharp'); } catch (err) {
+      console.error('sharp not available for lead photos:', err.message);
+      sharpLib = null;
+    }
+  }
+  return sharpLib;
+}
+
+// Re-encode to JPEG at a sane width. sharp parsing the buffer IS the real
+// content check: an .jpg that is actually a script will not decode, so
+// anything that throws here is dropped rather than stored.
+async function processLeadPhoto(buffer) {
+  const sharp = getSharp();
+  if (!sharp) return null;
+  const meta = await sharp(buffer).metadata();
+  if (!meta.width || !meta.height) return null;
+  const data = await sharp(buffer)
+    .rotate()
+    .resize({ width: PHOTO_MAX_WIDTH, withoutEnlargement: true })
+    .jpeg({ quality: 82 })
+    .toBuffer();
+  return { data, mime: 'image/jpeg' };
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/leads — Website lead intake (PUBLIC, no auth)
@@ -95,7 +149,45 @@ async function saveLeadUnit(client, customerId, rv) {
   return { unit_id: rows[0].id, unit_action: 'created' };
 }
 
-router.post('/', async (req, res) => {
+// Match an existing customer on email or phone, otherwise create one. Shared
+// by intake and by releasing a lead out of the spam quarantine, so a released
+// lead lands exactly where it would have without the filter.
+async function matchOrCreateCustomer(client, { name, email, phone, source }) {
+  let customerId = null;
+  if (email) {
+    const { rows } = await client.query(
+      'SELECT id FROM customers WHERE LOWER(email_primary) = LOWER($1) AND deleted_at IS NULL LIMIT 1',
+      [email]
+    );
+    if (rows.length > 0) customerId = rows[0].id;
+  }
+  if (!customerId && phone) {
+    const { rows } = await client.query(
+      "SELECT id FROM customers WHERE regexp_replace(COALESCE(phone_primary,''), '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND regexp_replace($1,'[^0-9]','','g') <> '' AND deleted_at IS NULL LIMIT 1",
+      [phone]
+    );
+    if (rows.length > 0) customerId = rows[0].id;
+  }
+  if (customerId) return customerId;
+
+  const nameParts = (name || '').trim().split(/\s+/);
+  const lastName = nameParts.pop() || 'Unknown';
+  const firstName = nameParts.join(' ') || null;
+
+  const acctRes = await client.query(
+    "SELECT COALESCE(MAX(CAST(account_number AS INTEGER)), 0) + 1 AS next FROM customers WHERE account_number ~ '^[0-9]+$'"
+  );
+  const accountNumber = String(acctRes.rows[0].next);
+
+  const { rows } = await client.query(
+    `INSERT INTO customers (account_number, first_name, last_name, phone_primary, email_primary, lead_source)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [accountNumber, firstName, lastName, phone || null, email || null, source]
+  );
+  return rows[0].id;
+}
+
+router.post('/', acceptPhotos, async (req, res) => {
   const { name, phone, message, source = 'website' } = req.body;
   let email = (req.body.email || '').trim();
   // If the provided email is missing or not a full address, try to pull a
@@ -105,56 +197,68 @@ router.post('/', async (req, res) => {
     if (m) email = m[0];
   }
 
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || null;
+  const userAgent = req.headers['user-agent'] || null;
+  const photos = Array.isArray(req.files) ? req.files.slice(0, MAX_PHOTOS) : [];
+
   if (!name && !email && !phone) {
-    return res.status(400).json({ error: 'At least name, email, or phone is required' });
+    return res.status(400).json({
+      error: 'At least name, email, or phone is required',
+      message: 'Please add a phone number or email so we can reach you.',
+    });
   }
+
+  // --- Spam scoring, before anything is created -----------------------------
+  // Runs ahead of the customer match on purpose. A quarantined submission must
+  // never create a customer record, which is exactly how the customers table
+  // filled up with junk before this existed.
+  const turnstileOk = await verifyTurnstile(
+    req.body.turnstile_token || req.body['cf-turnstile-response'],
+    ip
+  );
+  const base = scoreLead({
+    name, email, phone, message, userAgent, turnstileOk,
+    honeypot: req.body.company_website,
+    honeypot2: req.body.fax_number,
+    formStartedAt: req.body.form_started_at,
+  });
 
   const client = await pool.connect();
   try {
+    const velocity = await velocityScore(client, { ip, phone, email, message });
+    const spamScore = base.score + velocity.score;
+    const spamReasons = [...base.reasons, ...velocity.reasons].join('; ');
+    const isSpam = spamScore >= THRESHOLD;
+
+    if (isSpam) {
+      // Quarantine: the row is kept so a false positive can be released, but
+      // no customer, no unit, no note, no photos, no notification. The caller
+      // gets an ordinary success so a bot learns nothing about the filter.
+      const { rows } = await client.query(
+        `INSERT INTO leads (customer_id, record_id, name, phone, email, message, source,
+                            is_spam, spam_score, spam_reasons, ip_address, user_agent)
+         VALUES (NULL, NULL, $1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9) RETURNING id, created_at`,
+        [name, phone || null, email || null, message || null, source,
+         spamScore, spamReasons, ip, userAgent]
+      );
+      console.log(JSON.stringify({
+        evt: 'lead_intake', outcome: 'quarantined', lead_id: rows[0].id,
+        source, ip, spam_score: spamScore, reasons: spamReasons, photos: photos.length,
+      }));
+      return res.status(201).json({ ok: true, lead: { id: rows[0].id } });
+    }
+
     await client.query('BEGIN');
 
-    // Try to match existing customer by email or phone
-    let customerId = null;
-    if (email) {
-      const { rows } = await client.query(
-        'SELECT id FROM customers WHERE LOWER(email_primary) = LOWER($1) AND deleted_at IS NULL LIMIT 1',
-        [email]
-      );
-      if (rows.length > 0) customerId = rows[0].id;
-    }
-    if (!customerId && phone) {
-      const { rows } = await client.query(
-        "SELECT id FROM customers WHERE regexp_replace(COALESCE(phone_primary,''), '[^0-9]', '', 'g') = regexp_replace($1, '[^0-9]', '', 'g') AND regexp_replace($1,'[^0-9]','','g') <> '' AND deleted_at IS NULL LIMIT 1",
-        [phone]
-      );
-      if (rows.length > 0) customerId = rows[0].id;
-    }
-
-    // Create new customer if no match
-    if (!customerId) {
-      const nameParts = (name || '').trim().split(/\s+/);
-      const lastName = nameParts.pop() || 'Unknown';
-      const firstName = nameParts.join(' ') || null;
-
-      // Generate account number
-      const acctRes = await client.query(
-        "SELECT COALESCE(MAX(CAST(account_number AS INTEGER)), 0) + 1 AS next FROM customers WHERE account_number ~ '^[0-9]+$'"
-      );
-      const accountNumber = String(acctRes.rows[0].next);
-
-      const { rows } = await client.query(
-        `INSERT INTO customers (account_number, first_name, last_name, phone_primary, email_primary, lead_source)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [accountNumber, firstName, lastName, phone || null, email || null, source]
-      );
-      customerId = rows[0].id;
-    }
+    let customerId = await matchOrCreateCustomer(client, { name, email, phone, source });
 
     // Log the lead — no stub unit/record; record_id stays NULL until staff act.
     const { rows: leadRows } = await client.query(
-      `INSERT INTO leads (customer_id, record_id, name, phone, email, message, source)
-       VALUES ($1, NULL, $2, $3, $4, $5, $6) RETURNING *`,
-      [customerId, name, phone || null, email || null, message || null, source]
+      `INSERT INTO leads (customer_id, record_id, name, phone, email, message, source,
+                          is_spam, spam_score, spam_reasons, ip_address, user_agent)
+       VALUES ($1, NULL, $2, $3, $4, $5, $6, FALSE, $7, $8, $9, $10) RETURNING *`,
+      [customerId, name, phone || null, email || null, message || null, source,
+       spamScore, spamReasons || null, ip, userAgent]
     );
 
     // Document the request on the customer record immediately, so it is never
@@ -169,25 +273,71 @@ router.post('/', async (req, res) => {
       );
     }
 
+    // The lead is durable from here. Everything after this point is a bonus
+    // and must not be able to undo it.
     await client.query('COMMIT');
 
+    const leadId = leadRows[0].id;
+    let photosSaved = 0;
+
+    if (photos.length && customerId) {
+      for (const [i, file] of photos.entries()) {
+        try {
+          const processed = await processLeadPhoto(file.buffer);
+          if (!processed) continue;
+          await client.query(
+            `INSERT INTO customer_documents (customer_id, doc_type, title, file_data, mime_type, file_size, related_id)
+             VALUES ($1, 'lead_photo', $2, $3, $4, $5, $6)`,
+            [customerId, `Lead photo ${i + 1}`, processed.data, processed.mime, processed.data.length, leadId]
+          );
+          photosSaved += 1;
+        } catch (photoErr) {
+          // A bad photo is not a lost customer. Log it and keep going.
+          console.error(`lead ${leadId} photo ${i + 1} rejected:`, photoErr.message);
+        }
+      }
+      if (photosSaved) {
+        await client.query('UPDATE leads SET photo_count = $1 WHERE id = $2', [photosSaved, leadId]);
+      }
+    }
+
+    console.log(JSON.stringify({
+      evt: 'lead_intake', outcome: 'accepted', lead_id: leadId, customer_id: customerId,
+      source, ip, spam_score: spamScore,
+      photos_received: photos.length, photos_saved: photosSaved,
+      photo_error: req.photoError || null,
+    }));
+
     res.status(201).json({
-      lead: leadRows[0],
+      ok: true,
+      lead: { ...leadRows[0], photo_count: photosSaved },
       customer_id: customerId,
+      photos_saved: photosSaved,
     });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (rollbackErr) { /* nothing to roll back */ }
     console.error('POST /api/leads error:', err);
-    res.status(500).json({ error: err.message });
+    console.log(JSON.stringify({
+      evt: 'lead_intake', outcome: 'failed', source, ip, error: err.message,
+    }));
+    // The visitor must never get a silent drop. This is now the only path a
+    // lead can arrive on, so a failure has to tell them to pick up the phone.
+    res.status(500).json({
+      error: err.message,
+      message: 'Something went wrong sending your request. Please call the shop at 303-557-2214 and we will take care of it.',
+    });
   } finally {
     client.release();
   }
 });
 
 // GET /api/leads — List non-deleted leads (staff only)
+// ?spam=true returns the quarantine instead. Quarantined leads are excluded
+// from every other view so the real list stays clean.
 router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   try {
     const archived = req.query.archived === 'true' || req.query.archived === '1';
+    const spam = req.query.spam === 'true' || req.query.spam === '1';
     const { rows } = await pool.query(
       `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
               r.record_number AS record_number, r.status AS record_status,
@@ -204,12 +354,87 @@ router.get('/', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
            LEFT JOIN users u ON u.id = x.created_by
           WHERE x.lead_id = l.id
        ) lc ON true
-       WHERE ${archived ? "l.deleted_at IS NOT NULL AND l.closed_reason = 'filed'" : 'l.deleted_at IS NULL'}
-       ORDER BY ${archived ? 'l.deleted_at' : 'l.created_at'} DESC
+       WHERE ${spam
+         ? 'l.is_spam = TRUE AND l.deleted_at IS NULL'
+         : `${archived ? "l.deleted_at IS NOT NULL AND l.closed_reason = 'filed'" : 'l.deleted_at IS NULL'} AND COALESCE(l.is_spam, FALSE) = FALSE`}
+       ORDER BY ${archived && !spam ? 'l.deleted_at' : 'l.created_at'} DESC
        LIMIT 100`
     );
     res.json(rows);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/leads/:id/not-spam — Release a false positive out of quarantine.
+// Clears the flag and attaches the customer the filter stopped us creating, so
+// the lead appears in the normal list as if it had come straight through.
+router.post('/:id/not-spam', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: leadRows } = await client.query(
+      'SELECT * FROM leads WHERE id = $1 FOR UPDATE', [req.params.id]
+    );
+    if (!leadRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+    const lead = leadRows[0];
+    let customerId = lead.customer_id;
+    if (!customerId) {
+      customerId = await matchOrCreateCustomer(client, {
+        name: lead.name, email: lead.email, phone: lead.phone, source: lead.source,
+      });
+    }
+    const { rows } = await client.query(
+      'UPDATE leads SET is_spam = FALSE, customer_id = $1 WHERE id = $2 RETURNING *',
+      [customerId, lead.id]
+    );
+    await client.query('COMMIT');
+    console.log(JSON.stringify({
+      evt: 'lead_intake', outcome: 'released_from_quarantine', lead_id: lead.id,
+      customer_id: customerId, was_score: lead.spam_score,
+    }));
+    res.json(rows[0]);
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) { /* nothing to roll back */ }
+    console.error('POST /api/leads/:id/not-spam error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/leads/:id/photos — Photos the customer attached to this request.
+router.get('/:id/photos', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, title, mime_type, file_size, created_at
+         FROM customer_documents
+        WHERE doc_type = 'lead_photo' AND related_id = $1
+        ORDER BY id`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/leads/:id/photos/:docId — The image bytes.
+router.get('/:id/photos/:docId', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT file_data, mime_type FROM customer_documents
+        WHERE id = $1 AND related_id = $2 AND doc_type = 'lead_photo'`,
+      [req.params.docId, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Photo not found' });
+    res.setHeader('Content-Type', rows[0].mime_type || 'image/jpeg');
+    res.send(rows[0].file_data);
+  } catch (err) {
+    console.error('GET /api/leads/:id/photos/:docId error:', err);
     res.status(500).json({ error: err.message });
   }
 });
