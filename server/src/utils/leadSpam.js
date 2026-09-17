@@ -190,14 +190,21 @@ async function velocityScore(client, { ip, phone, email, message }) {
       if (rows[0].n >= 3) add(5, `${rows[0].n} submissions from this contact in 24 hours`);
     }
 
+    // Identical body from a DIFFERENT contact is a blast. The same person
+    // submitting twice is a double-click, not spam, so their own earlier
+    // submission is excluded: quarantining a real customer's second try
+    // would be worse than letting a duplicate through.
     const body = String(message || '').trim();
-    if (body.length > 20) {
+    if (body.length > 60) {
       const { rows } = await client.query(
         `SELECT COUNT(*)::int AS n FROM leads
-          WHERE created_at > NOW() - INTERVAL '7 days' AND TRIM(COALESCE(message,'')) = $1`,
-        [body]
+          WHERE created_at > NOW() - INTERVAL '7 days'
+            AND TRIM(COALESCE(message,'')) = $1
+            AND regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g') IS DISTINCT FROM NULLIF($2, '')
+            AND LOWER(COALESCE(email,'')) IS DISTINCT FROM NULLIF($3, '')`,
+        [body, digits(phone), lc(email)]
       );
-      if (rows[0].n >= 1) add(6, 'identical message body already submitted in the last 7 days');
+      if (rows[0].n >= 1) add(6, 'identical message body from a different contact in the last 7 days');
     }
   } catch (err) {
     // Velocity is a bonus signal. A failure here must never block a lead.
