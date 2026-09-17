@@ -21,6 +21,16 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 const square = require('../services/square');
+const settings = require('../db/settings');
+const company = require('../db/company');
+
+// "5th", "1st", "22nd". The late-fee day is owner-editable, so the reminder
+// cannot hardcode the suffix the way it did when the day was always the 5th.
+function ordinal(n) {
+  const v = Math.abs(Math.round(n)) % 100;
+  const suffix = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[v % 10] || 'th');
+  return `${n}${suffix}`;
+}
 
 function publicBase(req) {
   return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
@@ -353,10 +363,10 @@ router.post('/send-links', requireAuth, requireRole('admin'), async (req, res) =
     <p style="font-size:14px;color:#111;margin:20px 0 0;">Thanks,<br/>Carol and Mark</p>
   </div>
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;text-align:center;">
-    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair &amp; Storage<br/>6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+    <p style="margin:0;color:#6b7280;font-size:11px;">${company.name()}<br/>${company.fullAddress()}<br/>${company.phone()} | ${company.email()}</p>
   </div>
 </div></body></html>`;
-      const text = `Hi ${name},\n\nWe are moving our storage billing in house, and you can now put your monthly rent for ${r.space_label || 'your space'} on automatic payment.\n\nSet it up here: ${url}\n\nIt takes about a minute. Your card is stored securely with Square and we never see the number.\n\nPrefer to keep paying the way you do now? Just ignore this email and nothing changes.\n\nThanks,\nCarol and Mark\nMaster Tech RV Repair & Storage\n(303) 557-2214`;
+      const text = `Hi ${name},\n\nWe are moving our storage billing in house, and you can now put your monthly rent for ${r.space_label || 'your space'} on automatic payment.\n\nSet it up here: ${url}\n\nIt takes about a minute. Your card is stored securely with Square and we never see the number.\n\nPrefer to keep paying the way you do now? Just ignore this email and nothing changes.\n\nThanks,\nCarol and Mark\n${company.name()}\n${company.phone()}`;
 
       try {
         const r2 = await sendEmail({ to: r.email_primary, subject: 'Set up automatic payment for your RV storage', html, text });
@@ -374,8 +384,11 @@ router.post('/send-links', requireAuth, requireRole('admin'), async (req, res) =
 });
 
 // --- Staff: payment reminder for the current month ------------------------
-// POST /:billingId/remind — emails the customer that rent is due by the 5th or
-// a $25 late fee applies, with the same two payment buttons as the invoice.
+// POST /:billingId/remind — emails the customer that rent is due by the late-fee
+// day or a late fee applies, with the same two payment buttons as the invoice.
+// The day, the fee amount, the fee percentages and the shop's contact details
+// all come from Business Settings; the literals here are only the fallback for
+// when the settings table cannot be read.
 router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
   try {
     const now = new Date();
@@ -399,8 +412,14 @@ router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_wri
 
     const rent = parseFloat(b.monthly_rate);
     const isCard = b.payment_method === 'credit_card';
-    const fee = isCard ? Math.round(rent * 0.035 * 100) / 100
-              : b.payment_method === 'ach' ? Math.max(Math.round(rent * 0.01 * 100) / 100, 1.00) : 0;
+    const fee = isCard ? Math.round(rent * settings.num('storage_card_fee_pct', 0.035) * 100) / 100
+              : b.payment_method === 'ach'
+                ? Math.max(Math.round(rent * settings.num('storage_ach_fee_pct', 0.01) * 100) / 100,
+                           settings.money('storage_ach_fee_min', 1.00))
+                : 0;
+    const lateFee = settings.money('storage_late_fee', 25.00);
+    const lateDay = settings.int('storage_late_fee_day', 5);
+    const lateDayOrdinal = ordinal(lateDay);
     const total = Number(b.invoice_total) || Math.round((rent + fee) * 100) / 100;
 
     // Autopay setup link
@@ -432,9 +451,9 @@ router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_wri
 
     const monthName = `${MONTHS[month-1]} ${year}`;
     const name = b.first_name || 'there';
-    const payHow = b.payment_method === 'zelle' ? 'Send your Zelle payment to carol@mastertechrvrepair.com.'
-      : b.payment_method === 'check' ? 'Mail or drop off your check to 6590 E. 49th Ave., Commerce City, CO 80022.'
-      : b.payment_method === 'cash' ? 'Drop off your payment at the office, Monday through Friday, 9 to 6.'
+    const payHow = b.payment_method === 'zelle' ? `Send your Zelle payment to ${company.zelleEmail()}.`
+      : b.payment_method === 'check' ? `Mail or drop off your check to ${company.fullAddress()}.`
+      : b.payment_method === 'cash' ? `Drop off your payment at the office, ${company.pickupHours()}.`
       : 'Use one of the buttons below.';
     const buttons = (isCard) ? `
       <div style="text-align:center;margin:22px 0;">
@@ -445,7 +464,7 @@ router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_wri
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
   <div style="background:#1e3a5f;padding:18px 32px;">
-    <span style="color:#5FD584;font-size:16px;font-weight:bold;">MASTER TECH RV REPAIR AND STORAGE</span>
+    <span style="color:#5FD584;font-size:16px;font-weight:bold;">${company.name().toUpperCase()}</span>
   </div>
   <div style="padding:26px 32px;">
     <p style="font-size:15px;color:#111;margin:0 0 12px;">Hi ${name},</p>
@@ -454,17 +473,17 @@ router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_wri
       <strong>${'$'}${total.toFixed(2)}</strong> is due.
     </p>
     <p style="font-size:14px;color:#991b1b;line-height:1.6;margin:0 0 12px;">
-      <strong>Please pay by the 5th to avoid a ${'$'}25 late fee.</strong>
+      <strong>Please pay by the ${lateDayOrdinal} to avoid a ${'$'}${lateFee.toFixed(2)} late fee.</strong>
     </p>
     <p style="font-size:13.5px;color:#374151;line-height:1.6;margin:0 0 6px;">${payHow}</p>
     ${buttons}
-    <p style="font-size:13px;color:#374151;margin:14px 0 0;">Questions? Reply to this email or call (303) 557-2214.</p>
+    <p style="font-size:13px;color:#374151;margin:14px 0 0;">Questions? Reply to this email or call ${company.phone()}.</p>
   </div>
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:12px 32px;text-align:center;">
-    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214</p>
+    <p style="margin:0;color:#6b7280;font-size:11px;">${company.plainTextFooter()}</p>
   </div>
 </div></body></html>`;
-    const text = `Hi ${name},\n\nA friendly reminder that your ${monthName} storage rent of ${'$'}${total.toFixed(2)} is due.\n\nPlease pay by the 5th to avoid a ${'$'}25 late fee.\n\n${payHow}${payUrl ? `\n\nPay now: ${payUrl}` : ''}\nSet up autopay: ${autopayUrl}\n\nQuestions? Reply or call (303) 557-2214.\n\nMaster Tech RV Repair and Storage`;
+    const text = `Hi ${name},\n\nA friendly reminder that your ${monthName} storage rent of ${'$'}${total.toFixed(2)} is due.\n\nPlease pay by the ${lateDayOrdinal} to avoid a ${'$'}${lateFee.toFixed(2)} late fee.\n\n${payHow}${payUrl ? `\n\nPay now: ${payUrl}` : ''}\nSet up autopay: ${autopayUrl}\n\nQuestions? Reply or call ${company.phone()}.\n\n${company.name()}`;
 
     const result = await sendEmail({ to: b.email_primary, subject: `Payment reminder — ${monthName} RV storage`, html, text });
     if (!result || !result.success) return res.status(502).json({ error: result?.error || 'Email failed' });

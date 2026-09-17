@@ -5,6 +5,7 @@
 
 const pool = require('../db/pool');
 const { getSettingString } = require('../db/calculations');
+const company = require('../db/company');
 const { sendEmail } = require('../services/email');
 
 // Email is sent via the shared services/email.js (Resend HTTP API — Railway-safe).
@@ -52,16 +53,16 @@ function buildReminderEmailHtml({ customerName, amountDue, invoiceNumber, unitIn
       <p style="margin:0 0 12px;font-weight:600">Other Payment Options:</p>
       <ul style="margin:0 0 20px;padding-left:20px;line-height:1.8">
         <li><strong>Credit/Debit Card:</strong> <a href="https://pay.mastertechrvrepair.com/" style="color:#2563eb">pay.mastertechrvrepair.com</a></li>
-        <li><strong>Zelle:</strong> Carol@mastertechrvrepair.com</li>
+        <li><strong>Zelle:</strong> ${company.zelleEmail()}</li>
         <li><strong>Check:</strong> Mail to our address below</li>
         <li><strong>Cash:</strong> In person at our shop</li>
       </ul>
-      <p style="margin:0 0 8px">Questions? Call us at <strong>(303) 557-2214</strong></p>
+      <p style="margin:0 0 8px">Questions? Call us at <strong>${company.phone()}</strong></p>
       <p style="margin:0;font-size:14px;color:#6b7280">Thank you for your business!</p>
     </div>
     <div style="background:#f3f4f6;padding:16px 32px;text-align:center;font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb">
-      <p style="margin:0">Master Tech RV Repair &amp; Storage</p>
-      <p style="margin:4px 0 0">7250 W. 52nd Ave Unit H &bull; Arvada, CO 80002</p>
+      <p style="margin:0">${company.name()}</p>
+      <p style="margin:4px 0 0">${company.address()} &bull; ${company.cityStateZip()}</p>
     </div>
   </div>
 </body>

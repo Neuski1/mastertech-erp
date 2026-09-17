@@ -111,6 +111,7 @@ app.use('/api/bookkeeping/storage-revenue', (req, res, next) => {
   return requireAuth(req, res, next);
 }, require('./routes/storage-revenue'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
+app.use('/api/settings-admin', requireAuth, require('./routes/settingsAdmin')); // Owner-editable business settings (admin role enforced inside)
 app.use('/api/cowork-admin', require('./routes/cowork-admin')); // API-key auth, separate from JWT
 app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is public, rest use requireRole internally
 // Browser uses JWT; Terri and Smile use X-Cowork-Key. Note this is
@@ -1242,6 +1243,13 @@ pool.query(`
 // Migration 064 — work-order stock pulls move in a trigger, not in routes.
 // See server/src/db/partsStockSync.js for why and for the holding rule.
 require('./db/partsStockSync').installPartsStockSync(pool);
+
+// Migration 066 — Business Settings. Seeds the owner-editable catalog and the
+// audit table, then warms the settings cache so the first invoice or contract
+// rendered after a deploy reads from the table rather than falling back.
+require('./db/installBusinessSettings').installBusinessSettings(pool)
+  .then(() => require('./db/settings').load())
+  .catch(err => console.error('Business settings boot error:', err.message));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {

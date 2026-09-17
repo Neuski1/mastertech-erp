@@ -4,8 +4,11 @@
 // invoices. That keeps the emailed total, the stored storage_invoices row and
 // the autopay charge (which always runs per space) in agreement.
 //
-// Fee handling: credit card adds 3.5%, ACH adds 1% (Square's $1 minimum),
-// Zelle / check / cash add nothing. A month already marked paid on the billing
+// Fee handling: credit card and ACH each add their own percentage (ACH with a
+// minimum), Zelle / check / cash add nothing. Those rates, the Zelle address,
+// the pickup hours and the shop's contact details are all owner-editable in
+// Settings > Business Settings; the literals below are only fallbacks for when
+// the settings table cannot be read. A month already marked paid on the billing
 // grid is never invoiced.
 const cron = require('node-cron');
 const pool = require('../db/pool');
@@ -13,6 +16,8 @@ const { sendEmail } = require('../services/email');
 const crypto = require('crypto');
 const square = require('../services/square');
 const { monthlyCharge } = require('../services/storageProration');
+const settings = require('../db/settings');
+const company = require('../db/company');
 
 const publicBase = () => process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 const logoUrl = () => `${publicBase()}/logo-mark.png?v=2`; // version query busts stale email-proxy caches
@@ -54,9 +59,13 @@ async function autopayUrlFor(billingId) {
   return `${publicBase()}/storage-autopay/${token}`;
 }
 
-const CARD_SURCHARGE_PCT = 0.035;
-const ACH_SURCHARGE_PCT = 0.01;
-const ACH_MIN_FEE = 1.00;
+// Fee rates, payment addresses and policy wording all come from Business
+// Settings so the owner can change them without a deploy. Each lookup passes
+// the literal that used to be hardcoded here as its fallback, so if the
+// settings table is unreachable the invoice goes out exactly as it did before.
+const cardPct = () => settings.num('storage_card_fee_pct', 0.035);
+const achPct = () => settings.num('storage_ach_fee_pct', 0.01);
+const achMinFee = () => settings.money('storage_ach_fee_min', 1.00);
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -99,13 +108,23 @@ const longDate = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear
 function feeConfig(method, autopayOn) {
   switch (method) {
     case 'credit_card':
-      return { pct: CARD_SURCHARGE_PCT, min: 0,
+      return { pct: cardPct(), min: 0, kind: 'card',
                label: autopayOn ? 'Autopay Convenience Fee' : 'Credit Card Convenience Fee' };
     case 'ach':
-      return { pct: ACH_SURCHARGE_PCT, min: ACH_MIN_FEE, label: 'Bank Transfer Fee' };
+      return { pct: achPct(), min: achMinFee(), kind: 'ach', label: 'Bank Transfer Fee' };
     default:
-      return { pct: 0, min: 0, label: null };
+      return { pct: 0, min: 0, kind: 'none', label: null };
   }
+}
+
+// The line under the fee on the invoice, e.g. "3.5% of storage total". It reads
+// the same setting the charge is computed from, so the number the customer sees
+// and the number they are billed can never drift apart. `kind` rather than a
+// float comparison: two rates set to the same value used to make an ACH line
+// describe itself as the card rate.
+function feeSubLabel(cfg) {
+  const pctText = (cfg.pct * 100).toFixed(2).replace(/\.?0+$/, '');
+  return `${pctText}% of storage total`;
 }
 
 // `failing` = autopay is switched on but the card on file is being declined.
@@ -123,25 +142,25 @@ function payInstructions(method, autopayOn, brand, last4, failing = false, final
              + (finalInvoice
                  ? 'Use the button above to pay this final invoice. '
                  : 'Use one of the buttons above to put a new card on file, or to pay this invoice now. ')
-             + 'Prefer to pay by phone? Call us at (303) 557-2214.';
+             + `Prefer to pay by phone? Call us at ${company.phone()}.`;
       }
       if (autopayOn) {
         return `No action needed. Your ${brand || 'card'}${last4 ? ' ending ' + last4 : ''} on file will be charged automatically on the due date.`;
       }
       return finalInvoice
-        ? 'Use the button above to pay this invoice. Prefer to pay by phone? Call us at (303) 557-2214.'
-        : 'Use one of the buttons above to set up automatic monthly payment or to pay this invoice now. Prefer to pay by phone? Call us at (303) 557-2214.';
+        ? `Use the button above to pay this invoice. Prefer to pay by phone? Call us at ${company.phone()}.`
+        : `Use one of the buttons above to set up automatic monthly payment or to pay this invoice now. Prefer to pay by phone? Call us at ${company.phone()}.`;
     case 'ach':
       if (autopayOn && failing) {
-        return 'The bank account we have on file was declined, so your automatic payment did not go through. Please call the office at (303) 557-2214 so we can update it.';
+        return `The bank account we have on file was declined, so your automatic payment did not go through. Please call the office at ${company.phone()} so we can update it.`;
       }
       return autopayOn
         ? 'No action needed. Your bank account on file will be debited automatically on the due date.'
         : 'Please contact the office to set up your bank transfer.';
-    case 'zelle':  return 'Please send your Zelle payment to carol@mastertechrvrepair.com.';
-    case 'check':  return 'Please mail or drop off your check to Master Tech RV Repair and Storage, 6590 E. 49th Ave., Commerce City, CO 80022.';
-    case 'cash':   return 'Please drop off your payment at the office, Monday through Friday, 9 to 6.';
-    default:       return 'Please contact the office at (303) 557-2214 to arrange payment.';
+    case 'zelle':  return `Please send your Zelle payment to ${company.zelleEmail()}.`;
+    case 'check':  return `Please mail or drop off your check to ${company.nameAndAddress()}.`;
+    case 'cash':   return `Please drop off your payment at the office, ${company.pickupHours()}.`;
+    default:       return `Please contact the office at ${company.phone()} to arrange payment.`;
   }
 }
 const methodLabel = (m) => ({ credit_card:'Credit card', ach:'Bank transfer (ACH)', zelle:'Zelle', check:'Check', cash:'Cash' }[m] || 'Not set');
@@ -176,7 +195,7 @@ function buildInvoiceHtml(inv) {
     </table>
     <table style="width:100%;border-collapse:collapse;margin-top:6px;">
       <tr>
-        <td style="color:#e2e8f0;font-size:11px;vertical-align:top;">6590 E. 49th Ave., Commerce City, CO 80022<br/><span style="color:#ffffff;">service@mastertechrvrepair.com</span> | (303) 557-2214</td>
+        <td style="color:#e2e8f0;font-size:11px;vertical-align:top;">${company.fullAddress()}<br/><span style="color:#ffffff;">${company.email()}</span> | ${company.phone()}</td>
         <td style="text-align:right;color:#cbd5e1;font-size:11px;vertical-align:top;">Issue date<br/><span style="color:#fff;">${inv.issueDate}</span></td>
       </tr>
     </table>
@@ -270,7 +289,7 @@ function buildInvoiceHtml(inv) {
     <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:6px;padding:13px 16px;">
       <p style="margin:0;font-size:12.5px;color:#065f46;line-height:1.6;">
         <strong>Don't want to pay the credit card convenience fee?</strong> We offer other payment options
-        such as Zelle, check and ACH bank transfer. Just reply to this email or call us at (303) 557-2214
+        such as Zelle, check and ACH bank transfer. Just reply to this email or call us at ${company.phone()}
         and we will switch you over.
       </p>
     </div>
@@ -279,7 +298,7 @@ function buildInvoiceHtml(inv) {
   <div style="padding:20px 32px 4px;">
     <div style="border:1px solid #fed7aa;background:#fff7ed;border-radius:6px;padding:14px 16px;">
       <p style="margin:0 0 8px;font-size:11px;color:#c2410c;text-transform:uppercase;letter-spacing:.05em;font-weight:bold;">Pickup &amp; Drop-Off Hours</p>
-      <p style="margin:0 0 6px;font-size:12.5px;color:#111;font-weight:bold;">Monday through Friday, 9:00 AM to 6:00 PM. Closed Saturday, Sunday and major holidays.</p>
+      <p style="margin:0 0 6px;font-size:12.5px;color:#111;font-weight:bold;">${company.pickupHoursLong()}</p>
       <ul style="margin:6px 0 0;padding-left:18px;color:#374151;font-size:12px;line-height:1.65;">
         <li>Give us at least <strong>2 hours notice</strong> by call or text to have your unit pulled out.</li>
         <li>Drop off at least <strong>30 minutes before we close</strong> so we have time to put it away.</li>
@@ -289,7 +308,7 @@ function buildInvoiceHtml(inv) {
   </div>
 
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 32px;text-align:center;">
-    <p style="margin:0;color:#6b7280;font-size:11px;">Master Tech RV Repair and Storage<br/>6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+    <p style="margin:0;color:#6b7280;font-size:11px;">${company.name()}<br/>${company.fullAddress()}<br/>${company.phone()} | ${company.email()}</p>
   </div>
 </div></body></html>`;
 }
@@ -399,7 +418,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     const cfg = feeConfig(first.payment_method, first.autopay_enabled);
     const fee = cfg.pct > 0 ? Math.max(Math.round(total * cfg.pct * 100) / 100, cfg.min || 0) : 0;
     if (fee > 0) {
-      items.push({ name: cfg.label, sub: cfg.pct === CARD_SURCHARGE_PCT ? '3.5% of storage total' : '1% of storage total', amount: fee });
+      items.push({ name: cfg.label, sub: feeSubLabel(cfg), amount: fee });
       total += fee;
     }
     total = Math.round(total * 100) / 100;
@@ -456,7 +475,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     // Offer ACH to card payers, showing what they would actually save.
     if (first.payment_method === 'credit_card' && fee > 0) {
       const rentOnly = Math.round((total - fee) * 100) / 100;
-      const achFee = Math.max(Math.round(rentOnly * ACH_SURCHARGE_PCT * 100) / 100, ACH_MIN_FEE);
+      const achFee = Math.max(Math.round(rentOnly * achPct() * 100) / 100, achMinFee());
       const saving = Math.round((fee - achFee) * 100) / 100;
       inv.achNote = true;
       inv.achSavings = saving > 0 ? saving : null;
@@ -474,10 +493,10 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
       + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
       + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}`
-      + (inv.achNote ? `\n\nDon't want to pay the credit card convenience fee? We offer other payment options such as Zelle, check and ACH bank transfer. Reply to this email or call (303) 557-2214 and we will switch you over.` : '')
-      + `\n\nPICKUP & DROP-OFF HOURS\nMonday through Friday, 9:00 AM to 6:00 PM. Closed Saturday, Sunday and major holidays.\n`
+      + (inv.achNote ? `\n\nDon't want to pay the credit card convenience fee? We offer other payment options such as Zelle, check and ACH bank transfer. Reply to this email or call ${company.phone()} and we will switch you over.` : '')
+      + `\n\nPICKUP & DROP-OFF HOURS\n${company.pickupHoursLong()}\n`
       + `Give us at least 2 hours notice to have your unit pulled out. Drop off at least 30 minutes before close.\n`
-      + `\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
+      + `\n${company.plainTextFooter()}`;
 
     try {
       const res = await sendEmail({
@@ -592,7 +611,7 @@ async function sendAdhocInvoice({
   if (fee > 0) {
     items.push({
       name: cfg.label,
-      sub: cfg.pct === CARD_SURCHARGE_PCT ? '3.5% of storage total' : '1% of storage total',
+      sub: feeSubLabel(cfg),
       amount: fee,
     });
   }
@@ -656,7 +675,7 @@ async function sendAdhocInvoice({
   const text = `${inv.title}\nInvoice ${inv.number}\n\n${inv.customerName}\nDue ${inv.dueDate}\n\n`
     + items.map(i => `${i.name}: ${money(i.amount)}`).join('\n')
     + `\n\nTotal Due: ${money(total)}\n\nPayment method: ${inv.methodLabel}\n${inv.instructions}`
-    + `\n\nMaster Tech RV Repair and Storage | 6590 E. 49th Ave., Commerce City, CO 80022 | (303) 557-2214`;
+    + `\n\n${company.plainTextFooter()}`;
 
   const res = await sendEmail({
     to: s.email_primary,
