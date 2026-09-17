@@ -52,20 +52,47 @@ function getSharp() {
   return sharpLib;
 }
 
-// Re-encode to JPEG at a sane width. sharp parsing the buffer IS the real
-// content check: an .jpg that is actually a script will not decode, so
-// anything that throws here is dropped rather than stored.
+// Content check by file header, not by extension or the declared mime type.
+// A .jpg that is really a script has none of these signatures.
+function sniffImage(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return 'image/png';
+  if (buf.slice(0, 6).toString('latin1') === 'GIF89a' || buf.slice(0, 6).toString('latin1') === 'GIF87a') return 'image/gif';
+  if (buf.slice(0, 4).toString('latin1') === 'RIFF' && buf.slice(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  if (buf.slice(4, 8).toString('latin1') === 'ftyp') {
+    const brand = buf.slice(8, 12).toString('latin1');
+    if (/^(heic|heix|hevc|mif1|msf1|avif)/i.test(brand)) return 'image/heic';
+  }
+  return null;
+}
+
+// Re-encode to JPEG at a sane width so a 4MB phone photo does not sit in
+// Postgres at full resolution. If sharp is unavailable on the host we keep the
+// original bytes rather than losing the photo, but only after the header check
+// has confirmed it really is an image.
 async function processLeadPhoto(buffer) {
+  const sniffed = sniffImage(buffer);
+  if (!sniffed) return { skipped: 'not an image by file header' };
+
   const sharp = getSharp();
-  if (!sharp) return null;
-  const meta = await sharp(buffer).metadata();
-  if (!meta.width || !meta.height) return null;
-  const data = await sharp(buffer)
-    .rotate()
-    .resize({ width: PHOTO_MAX_WIDTH, withoutEnlargement: true })
-    .jpeg({ quality: 82 })
-    .toBuffer();
-  return { data, mime: 'image/jpeg' };
+  if (!sharp) return { data: buffer, mime: sniffed, resized: false };
+
+  try {
+    const meta = await sharp(buffer).metadata();
+    if (!meta.width || !meta.height) return { data: buffer, mime: sniffed, resized: false };
+    const data = await sharp(buffer)
+      .rotate()
+      .resize({ width: PHOTO_MAX_WIDTH, withoutEnlargement: true })
+      .jpeg({ quality: 82 })
+      .toBuffer();
+    return { data, mime: 'image/jpeg', resized: true };
+  } catch (err) {
+    // HEIC from a Mac is the usual case here: sharp's prebuilt binary cannot
+    // always decode it. Keep the original so the photo is not lost.
+    console.error('lead photo resize failed, storing original:', err.message);
+    return { data: buffer, mime: sniffed, resized: false };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +319,10 @@ router.post('/', acceptPhotos, async (req, res) => {
       for (const [i, file] of photos.entries()) {
         try {
           const processed = await processLeadPhoto(file.buffer);
-          if (!processed) continue;
+          if (!processed || !processed.data) {
+            console.error(`lead ${leadId} photo ${i + 1} skipped: ${processed && processed.skipped}`);
+            continue;
+          }
           await client.query(
             `INSERT INTO customer_documents (customer_id, doc_type, title, file_data, mime_type, file_size, related_id)
              VALUES ($1, 'lead_photo', $2, $3, $4, $5, $6)`,
@@ -320,7 +350,9 @@ router.post('/', acceptPhotos, async (req, res) => {
       ok: true,
       lead: { ...leadRows[0], photo_count: photosSaved },
       customer_id: customerId,
+      photos_received: photos.length,
       photos_saved: photosSaved,
+      photo_error: req.photoError || null,
     });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (rollbackErr) { /* nothing to roll back */ }
