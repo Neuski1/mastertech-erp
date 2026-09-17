@@ -222,7 +222,15 @@ async function velocityScore(client, { ip, phone, email, message }) {
 async function verifyTurnstile(token, remoteIp) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
   if (!secret) return null;
-  if (!token) return false;
+
+  // A MISSING token is not a failure unless we know the widget is live on the
+  // forms. The secret gets configured before the front end ships the widget,
+  // and treating that gap as a failure quarantines every real customer. Flip
+  // TURNSTILE_REQUIRED=true once the widget is rendering on both forms.
+  if (!token) {
+    return process.env.TURNSTILE_REQUIRED === 'true' ? false : null;
+  }
+
   try {
     const body = new URLSearchParams({ secret, response: token });
     if (remoteIp) body.append('remoteip', remoteIp);
