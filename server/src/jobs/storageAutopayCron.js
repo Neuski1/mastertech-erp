@@ -11,18 +11,31 @@ const pool = require('../db/pool');
 const square = require('../services/square');
 const { sendEmail } = require('../services/email');
 const { monthlyCharge } = require('../services/storageProration');
+const settings = require('../db/settings');
 
 
-
-const OWNER_EMAIL = process.env.OWNER_ALERT_EMAIL || 'service@mastertechrvrepair.com';
+// Env still wins if it is set — it is how a staging deploy redirects alerts.
+// Otherwise the owner's own Business Settings value, then the literal.
+function ownerEmail() {
+  return process.env.OWNER_ALERT_EMAIL
+      || settings.str('owner_alert_email', 'service@mastertechrvrepair.com');
+}
 
 // Convenience fee passed through on autopay charges, matching the invoice.
-// A stored-card charge carries the 3.5% card-on-file fee; ACH (when built)
-// carries 1% with Square's $1 minimum. Falls back to the card fee when no
+// A stored-card charge carries the card-on-file fee; ACH (when built) carries
+// its own rate with Square's minimum. Falls back to the card fee when no
 // payment method is set, since the charge itself runs on a card.
+//
+// The rates come from Business Settings so Carol can change them without a
+// deploy. Every lookup passes the old hardcoded literal as its fallback, so a
+// missing or unreadable settings row charges exactly what it charged before.
 function chargeFee(method, rent) {
-  if (method === 'ach') return Math.max(Math.round(rent * 0.01 * 100) / 100, 1.00);
-  return Math.round(rent * 0.035 * 100) / 100;
+  if (method === 'ach') {
+    const pct = settings.num('storage_ach_fee_pct', 0.01);
+    const min = settings.money('storage_ach_fee_min', 1.00);
+    return Math.max(Math.round(rent * pct * 100) / 100, min);
+  }
+  return Math.round(rent * settings.num('storage_card_fee_pct', 0.035) * 100) / 100;
 }
 
 function isLastDayOfMonth(d = new Date()) {
@@ -308,7 +321,7 @@ async function notifyOwnerFailure(b, year, month, error, finalFail) {
   const stage = finalFail ? 'after the retry, no further attempts' : 'first attempt, one retry left';
   try {
     await sendEmail({
-      to: OWNER_EMAIL,
+      to: ownerEmail(),
       subject: `Autopay declined: ${name} (${b.space_label || 'space'})`,
       html: `<p>The autopay card for <strong>${name}</strong> (${b.space_label || 'space'}) was declined for ${year}-${String(month).padStart(2, '0')} (${stage}).</p>
              <p>Amount: $${parseFloat(b.monthly_rate).toFixed(2)}<br/>Reason: ${error || 'declined'}</p>

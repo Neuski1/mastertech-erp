@@ -282,6 +282,18 @@ export const api = {
   signEstimate: (recordId, signatureData, approvedLaborIds = [], approvedPartsIds = []) => request(`/estimates/${recordId}/sign`, { method: 'POST', body: JSON.stringify({ signature_data: signatureData, approved_labor_ids: approvedLaborIds, approved_parts_ids: approvedPartsIds }) }),
 
   // QuickBooks
+  // Business Settings (admin only). validate never writes — it returns the
+  // old-vs-new diff the confirmation box shows. Only save, with confirm=true,
+  // writes anything.
+  getBusinessSettings: () => request('/settings-admin'),
+  validateBusinessSettings: (changes) =>
+    request('/settings-admin/validate', { method: 'POST', body: JSON.stringify({ changes }) }),
+  saveBusinessSettings: (changes, confirm) =>
+    request('/settings-admin', { method: 'PUT', body: JSON.stringify({ changes, confirm }) }),
+  getBusinessSettingsAudit: (limit = 100) => request(`/settings-admin/audit?limit=${limit}`),
+  revertBusinessSetting: (auditId) =>
+    request(`/settings-admin/audit/${auditId}/revert`, { method: 'POST' }),
+
   getReminderSettings: () => request('/admin/reminder-settings'),
   getLeadEmailSignature: () => request('/admin/lead-email-signature'),
   updateLeadEmailSignature: (signature) => request('/admin/lead-email-signature', { method: 'POST', body: JSON.stringify({ signature }) }),

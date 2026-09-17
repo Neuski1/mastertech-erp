@@ -17,6 +17,8 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 const { generateHelpYouSellPDF } = require('../services/helpYouSellContract');
+const settings = require('../db/settings');
+const company = require('../db/company');
 
 const STAFF = ['admin', 'service_writer'];
 
@@ -173,8 +175,8 @@ router.post('/', requireAuth, requireRole(...STAFF), async (req, res) => {
           monthly_storage_rate, commission_pct, cancellation_fee_pct,
           notice_days, payment_days, special_terms, agreement_date, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,
-               COALESCE($7, 5.00), COALESCE($8, 1.00),
-               COALESCE($9, 30), COALESCE($10, 5),
+               COALESCE($7, $14::numeric), COALESCE($8, $15::numeric),
+               COALESCE($9, $16::integer), COALESCE($10, $17::integer),
                $11, COALESCE($12, CURRENT_DATE), $13)
        RETURNING *`,
       [
@@ -189,6 +191,13 @@ router.post('/', requireAuth, requireRole(...STAFF), async (req, res) => {
         b.special_terms || null,
         b.agreement_date || null,
         req.user && req.user.id ? req.user.id : null,
+        // Defaults from Business Settings, applied only when the staff form
+        // left the field blank. Each is stamped onto the row at creation, so
+        // changing a default later never touches an agreement already written.
+        settings.num('hys_commission_pct', 5),
+        settings.num('hys_cancellation_fee_pct', 1),
+        settings.int('hys_notice_days', 30),
+        settings.int('hys_payment_days', 5),
       ]
     );
     res.status(201).json({ agreement: rows[0] });
@@ -432,10 +441,14 @@ function agreementBodyHtml(r, editable) {
     `<tr><td style="padding:8px 0;font-weight:600;width:150px;vertical-align:top;">${label}:</td>
      <td style="padding:8px 0;"><div style="${ro}">${value}</div></td></tr>`;
 
+  // An agreement's own figure always wins. The settings only supply the
+  // default for an agreement that was saved without one, so changing a default
+  // can never rewrite the terms of a contract that is already out with a
+  // customer. Whole numbers here: 5 means 5%.
   const commission = parseFloat(r.commission_pct);
   const cancelPct = parseFloat(r.cancellation_fee_pct);
-  const noticeDays = parseInt(r.notice_days, 10) || 30;
-  const payDays = parseInt(r.payment_days, 10) || 5;
+  const noticeDays = parseInt(r.notice_days, 10) || settings.int('hys_notice_days', 30);
+  const payDays = parseInt(r.payment_days, 10) || settings.int('hys_payment_days', 5);
   const agreementDate = r.agreement_date
     ? new Date(r.agreement_date).toLocaleDateString('en-US', { timeZone: 'UTC' })
     : new Date().toLocaleDateString('en-US');
@@ -697,13 +710,13 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
     // Notify the shop.
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
     sendEmail({
-      to: 'service@mastertechrvrepair.com',
+      to: company.email(),
       subject: `Help You Sell Agreement Signed — ${clientName}`,
       html: `<p><strong>${esc(clientName)}</strong> signed the Help You Sell agreement for <strong>${esc(rvDescription || 'their RV')}</strong> at ${esc(denver(acceptedAtIso))}.</p>
              <p>Asking price: <strong>${finalAskingPrice != null ? esc(priceDisplay(finalAskingPrice)) : 'not stated'}</strong>${
-               finalAskingPrice != null ? ` &middot; a full-price sale pays us ${money(finalAskingPrice * (parseFloat(r.commission_pct) || 5) / 100)}` : ''
+               finalAskingPrice != null ? ` &middot; a full-price sale pays us ${money(finalAskingPrice * (parseFloat(r.commission_pct) || settings.num('hys_commission_pct', 5)) / 100)}` : ''
              }</p>
-             <p>Commission: ${parseFloat(r.commission_pct) || 5}% of gross sale price. Storage rate: ${money(r.monthly_storage_rate)}/month.</p>
+             <p>Commission: ${parseFloat(r.commission_pct) || settings.num('hys_commission_pct', 5)}% of gross sale price. Storage rate: ${money(r.monthly_storage_rate)}/month.</p>
              <p><a href="${frontendUrl}/storage">Open the Storage module &rarr; Help You Sell</a></p>`,
       attachments: [{
         filename: `Help_You_Sell_Agreement_${clientName.replace(/\s/g, '_') || 'signed'}.pdf`,

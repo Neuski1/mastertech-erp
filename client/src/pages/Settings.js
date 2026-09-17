@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { formatDateTime } from '../utils/dateFormat';
+import BusinessSettings from './BusinessSettings';
 
 export default function Settings() {
   const [searchParams] = useSearchParams();
@@ -128,7 +129,7 @@ export default function Settings() {
   };
 
   return (
-    <div style={{ maxWidth: '700px' }}>
+    <div style={{ maxWidth: '820px' }}>
       <h1 style={{ marginTop: 0, marginBottom: '24px' }}>Settings</h1>
 
       {actionMsg && (
@@ -141,6 +142,10 @@ export default function Settings() {
           {actionMsg.text}
         </div>
       )}
+
+      {/* Business Settings — rates, fees and customer-facing wording.
+          Renders nothing for non-admins. */}
+      <BusinessSettings />
 
       {/* QuickBooks Integration */}
       <div style={sectionStyle}>

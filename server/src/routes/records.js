@@ -2,6 +2,41 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { getSetting, recalculateTotals } = require('../db/calculations');
+const settings = require('../db/settings');
+
+// ---------------------------------------------------------------------------
+// Customer-facing policy wording, from Business Settings.
+//
+// These used to be typed into the estimate, work order and invoice templates
+// three times each, which is how a policy change turns into three edits and
+// one of them gets missed. Reading them from one place means the three
+// documents cannot contradict each other.
+//
+// Each falls back to the literal that was hardcoded here before.
+// ---------------------------------------------------------------------------
+
+// "two (2) days" — spelled out with the numeral in brackets, the way the
+// original terms read, so the legal wording keeps its shape at any number.
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+                      'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen'];
+function pickupWindowText() {
+  const d = settings.int('wo_pickup_grace_days', 2);
+  const word = NUMBER_WORDS[d] || String(d);
+  return `${word} (${d}) ${d === 1 ? 'day' : 'days'}`;
+}
+function dailyStorageFeeText() {
+  const f = settings.money('wo_daily_storage_fee', 25.00);
+  // Whole dollars print as $25, not $25.00, matching the original wording.
+  return '$' + (Number.isInteger(f) ? String(f) : f.toFixed(2));
+}
+function warrantyDaysText() {
+  const d = settings.int('wo_warranty_days', 60);
+  return `${d} ${d === 1 ? 'day' : 'days'}`;
+}
+function ccFeeText() {
+  const r = settings.num('cc_fee_rate', 0.03);
+  return (r * 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+}
 const { requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
 const { generateRecordPdf } = require('../services/recordPdf');
@@ -1265,23 +1300,23 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       <p style="margin:0 0 8px;">I agree to pay the full balance for all authorized services upon completion of work.</p>
       <p style="margin:0 0 8px;">I understand that Master Tech RV Repair &amp; Storage takes reasonable care of all units in our possession; however, we are not responsible for loss or damage to the RV or personal belongings left inside in the event of fire, theft, weather events, or other circumstances beyond our control. We recommend removing valuables prior to drop-off.</p>
       <p style="margin:0 0 8px;">I grant Master Tech RV Repair &amp; Storage permission to operate my RV/unit as needed for testing, inspection, and the safe movement of the vehicle within our facility.</p>
-      <p style="margin:0 0 8px;">If my RV is not picked up within two (2) days of the completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
-      <p style="margin:0 0 8px;font-weight:bold;color:#1a2a4a;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
-      <p style="margin:0;">If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+      <p style="margin:0 0 8px;">If my RV is not picked up within ${pickupWindowText()} of the completion notice, an outdoor storage fee of ${dailyStorageFeeText()}/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
+      <p style="margin:0 0 8px;font-weight:bold;color:#1a2a4a;">WARRANTY &mdash; ${warrantyDaysText()} on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0;">If paying by credit card, a ${ccFeeText()} courtesy fee will be added to the final bill.</p>
     </div>` : ''}
     ${docType === 'Work Order' ? `
     <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;font-size:12px;color:#374151;line-height:1.5;">
       <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Terms</p>
-      <p style="margin:0 0 8px;">If your RV is not picked up within two (2) days of the completion notice, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
-      <p style="margin:0 0 8px;font-weight:bold;color:#1a2a4a;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
-      <p style="margin:0;">If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+      <p style="margin:0 0 8px;">If your RV is not picked up within ${pickupWindowText()} of the completion notice, an outdoor storage fee of ${dailyStorageFeeText()}/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
+      <p style="margin:0 0 8px;font-weight:bold;color:#1a2a4a;">WARRANTY &mdash; ${warrantyDaysText()} on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0;">If paying by credit card, a ${ccFeeText()} courtesy fee will be added to the final bill.</p>
     </div>` : ''}
     ${docType === 'Invoice' ? `
     <div style="margin:24px 0 0;padding:16px 20px;background:#f9fafb;border:1px solid #d1d5db;border-radius:8px;">
       <p style="margin:0 0 8px;font-size:12px;font-weight:bold;color:#1a2a4a;text-transform:uppercase;letter-spacing:0.03em;">Warranty &amp; Pickup</p>
-      <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#1a2a4a;line-height:1.5;">WARRANTY &mdash; 60 days on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
-      <p style="margin:0 0 8px;font-size:12px;color:#374151;line-height:1.5;">Please pick up your RV within two (2) days of the completion notice. After that, an outdoor storage fee of $25/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
-      <p style="margin:0;font-size:12px;color:#374151;line-height:1.5;">If paying by credit card, a 3% courtesy fee will be added to the final bill.</p>
+      <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#1a2a4a;line-height:1.5;">WARRANTY &mdash; ${warrantyDaysText()} on parts and labor unless otherwise stated from the parts manufacturer. If the customer provides parts, warranty is only on labor.</p>
+      <p style="margin:0 0 8px;font-size:12px;color:#374151;line-height:1.5;">Please pick up your RV within ${pickupWindowText()} of the completion notice. After that, an outdoor storage fee of ${dailyStorageFeeText()}/day will be added to the invoice. This fee does not apply to current storage customers or when prior arrangements have been made.</p>
+      <p style="margin:0;font-size:12px;color:#374151;line-height:1.5;">If paying by credit card, a ${ccFeeText()} courtesy fee will be added to the final bill.</p>
     </div>` : ''}
     ${docType === 'Invoice' ? `
     <div style="margin:28px 0 8px;padding:20px;background:#f0f7ff;border:2px solid #1e3a5f;border-radius:8px;">

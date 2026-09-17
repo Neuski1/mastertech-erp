@@ -1,4 +1,5 @@
 const pool = require('./pool');
+const settings = require('./settings');
 
 async function getSetting(key) {
   const { rows } = await pool.query(
@@ -63,7 +64,11 @@ async function recalculateTotals(recordId, client) {
   const noCharge = parseFloat(rec.no_charge_amount) || 0;
   const discountAmount = parseFloat(rec.discount_amount) || 0;
 
-  const shopSuppliesRate = await getSetting('shop_supplies_rate');
+  // Read through the settings cache with an explicit fallback. Before this,
+  // a missing row made the rate null, `laborSubtotal * null` came out 0, and
+  // shop supplies silently vanished from the total with nothing on screen to
+  // say so. The fallback is the value seeded in migration 002.
+  const shopSuppliesRate = settings.num('shop_supplies_rate', 0.05);
   // Business rule: insurance jobs NEVER waive shop supplies, even if the
   // exempt flag happens to be set.
   const shopSuppliesExempt = rec.shop_supplies_exempt && !rec.is_insurance_job;
@@ -92,7 +97,7 @@ async function recalculateTotals(recordId, client) {
   // so a flat base*rate leaves us short (a fee-on-fee gap). Gross it up:
   //   fee = base * rate / (1 - rate),  base = pre-fee total incl tax.
   // e.g. rate 3%: base * 0.03/0.97, so 3% of (base+fee) exactly equals the fee.
-  const ccFeeRate = await getSetting('cc_fee_rate');
+  const ccFeeRate = settings.num('cc_fee_rate', 0.03);
   const ccFeeBase = laborSubtotal + partsSubtotal + freightSubtotal + shopSuppliesAmount + taxAmount;
   const ccFeeAmount = (rec.cc_fee_applied && ccFeeRate != null && ccFeeRate < 1)
     ? parseFloat((ccFeeBase * (ccFeeRate / (1 - ccFeeRate))).toFixed(2))

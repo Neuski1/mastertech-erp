@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const pool = require('../db/pool');
 const { sendEmail } = require('../services/email');
 const { sendSMS } = require('../services/sms');
+const settings = require('../db/settings');
 
 const REVIEW_URL = 'https://g.page/r/CcdbSyhGUgf6EBM/review';
 const QR_URL = 'https://quickchart.io/qr?text=https%3A%2F%2Fg.page%2Fr%2FCcdbSyhGUgf6EBM%2Freview&size=160&margin=2&dark=1e3a5f';
@@ -45,7 +46,8 @@ function buildReviewRequestHtml({ firstName, unitDescription }) {
 async function processReviewRequests() {
   // ONE review request per customer after a completed+paid job. Email if we have
   // an address, otherwise a single SMS. Never a repeat: we skip customers already
-  // asked in the last 365 days, anyone opted out, and any record flagged to skip.
+  // asked inside the guard window (owner-editable, default 365 days), anyone
+  // opted out, and any record flagged to skip.
   // DISTINCT ON (customer_id) guarantees a customer with several paid invoices
   // only gets a single message per run.
   const { rows } = await pool.query(`
@@ -78,10 +80,10 @@ async function processReviewRequests() {
       AND pay.paid_at >= NOW() - INTERVAL '30 days'
       AND COALESCE(c.review_opt_out, FALSE) = FALSE
       AND (c.last_review_request_at IS NULL
-           OR c.last_review_request_at < NOW() - INTERVAL '365 days')
+           OR c.last_review_request_at < NOW() - make_interval(days => $1::int))
     ORDER BY r.customer_id, pay.paid_at ASC
     LIMIT 50
-  `);
+  `, [settings.int('review_request_guard_days', 365)]);
 
   if (rows.length === 0) {
     console.log('[reviewRequestCron] No customers eligible for a review request.');

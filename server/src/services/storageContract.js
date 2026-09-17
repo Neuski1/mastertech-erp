@@ -4,6 +4,18 @@
  */
 const PDFDocument = require('pdfkit');
 const { monthlyCharge, termSchedule, ymd } = require('./storageProration');
+const settings = require('../db/settings');
+const company = require('../db/company');
+
+// The escalating late fee steps, one per line, from Business Settings. Blank
+// lines are dropped so a stray newline in the editor does not print a gap on a
+// legal document.
+const LATE_FEE_FALLBACK = 'After 5 days late \u2014 $25 late fee\nAfter 10 days late \u2014 an additional $50 fee\nAfter 14 days late \u2014 $20/day charge up to 30 days late';
+function lateFeeLines() {
+  return settings.str('storage_late_fee_schedule', LATE_FEE_FALLBACK)
+    .split('\n').map(l => l.trim()).filter(Boolean);
+}
+
 
 /**
  * Prorated amount for the first month of the lease.
@@ -84,7 +96,12 @@ function generateContractPDF(data) {
       doc.moveDown(0.5);
 
       const isIndoor = u.space_type === 'indoor';
-      const perFootRate = isIndoor ? (u.indoor_rate || data.indoor_rate || '23.00') : (u.outdoor_rate || data.outdoor_rate || '6.00');
+      // The box's own rate wins, then whatever the caller passed, then the
+      // owner-editable default. An existing contract is never re-rated by a
+      // change to the default.
+      const perFootRate = isIndoor
+        ? (u.indoor_rate || data.indoor_rate || settings.money('storage_indoor_rate_per_ft', 23.00).toFixed(2))
+        : (u.outdoor_rate || data.outdoor_rate || settings.money('storage_outdoor_rate_per_ft', 6.00).toFixed(2));
       const storageLabel = isIndoor ? 'Indoor Storage' : 'Outdoor Storage';
       doc.font('Helvetica-Bold').fontSize(10.5).text(`${storageLabel}:  `, { continued: true });
       doc.font('Helvetica').text(`$${perFootRate} per linear foot`);
@@ -185,7 +202,8 @@ function generateContractPDF(data) {
     doc.fontSize(11).font('Helvetica-Bold').text('Autopay');
     doc.moveDown(0.3);
     doc.fontSize(10.5).font('Helvetica').text(
-      'Autopay payments are processed via Square and are subject to a 3.5% credit card processing fee. An invoice will be generated on the last day of each month for the following month\u2019s storage fees. Upon making your first payment through Square, you will have the option to securely store your credit card on file for future automatic payments.',
+      company.fillTokens(settings.str('storage_autopay_terms',
+        'Autopay payments are processed via Square and are subject to a 3.5% credit card processing fee. An invoice will be generated on the last day of each month for the following month\u2019s storage fees. Upon making your first payment through Square, you will have the option to securely store your credit card on file for future automatic payments.')),
       { width: w, lineGap }
     );
     doc.moveDown(0.8);
@@ -194,7 +212,8 @@ function generateContractPDF(data) {
     doc.fontSize(11).font('Helvetica-Bold').text('Check, Cash, or Zelle');
     doc.moveDown(0.3);
     doc.fontSize(10.5).font('Helvetica').text(
-      'We also accept payment by check, cash, or Zelle \u2014 all with no additional processing fee. Payments may be mailed or dropped off at our facility. For Zelle transfers, please send payment to carol@mastertechrvrepair.com.',
+      company.fillTokens(settings.str('storage_other_payment_terms',
+        'We also accept payment by check, cash, or Zelle \u2014 all with no additional processing fee. Payments may be mailed or dropped off at our facility. For Zelle transfers, please send payment to {zelle_email}.')),
       { width: w, lineGap }
     );
     doc.moveDown(1.2);
@@ -203,9 +222,8 @@ function generateContractPDF(data) {
     doc.fontSize(13).font('Helvetica-Bold').text('Late Payment Penalty', { underline: true });
     doc.moveDown(0.5);
     doc.fontSize(10.5).font('Helvetica');
-    doc.text('After 5 days late \u2014 $25 late fee', { lineGap: 3 });
-    doc.text('After 10 days late \u2014 an additional $50 fee', { lineGap: 3 });
-    doc.text('After 14 days late \u2014 $20/day charge up to 30 days late', { lineGap: 3 });
+    // One line per step, straight from the owner-editable setting.
+    for (const line of lateFeeLines()) doc.text(line, { lineGap: 3 });
     doc.moveDown(0.6);
     doc.text(
       'If there has been no payment made for a 30-day period from the due date, Lessor is authorized to take possession of and sell said property for the purpose of reimbursement of all unpaid expenses.',
@@ -272,12 +290,12 @@ function generateContractPDF(data) {
     doc.font('Helvetica-Oblique').fontSize(16).text('Carol Neu', { continued: true });
     doc.font('Helvetica').fontSize(10.5).text(`         Date: ${data.lease_date || new Date().toLocaleDateString('en-US')}`);
     doc.moveDown(0.3);
-    doc.fontSize(9).fillColor('#6b7280').text('Owner, Master Tech RV Repair & Storage');
+    doc.fontSize(9).fillColor('#6b7280').text(`Owner, ${company.name()}`);
     doc.fillColor('#000000').fontSize(10.5);
     doc.moveDown(0.8);
     doc.text('Lessor Contact Info:');
-    doc.text('Phone: (303) 557-2214');
-    doc.text('Email: Carol@mastertechrvrepair.com');
+    doc.text(`Phone: ${company.phone()}`);
+    doc.text(`Email: ${company.zelleEmail()}`);
 
     doc.end();
   });

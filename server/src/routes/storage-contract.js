@@ -10,6 +10,15 @@ const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { generateContractPDF, getGuidelinesHTML } = require('../services/storageContract');
 const { monthlyCharge, termSchedule, ymd } = require('../services/storageProration');
+const settings = require('../db/settings');
+const company = require('../db/company');
+
+// The escalating late fee steps, one per line in Business Settings. The PDF
+// prints them on separate rows; this page joins them with bullets. Same source,
+// so the printed contract and the page the customer signs cannot disagree.
+const LATE_FEE_FALLBACK = 'After 5 days late \u2014 $25 late fee\nAfter 10 days late \u2014 an additional $50 fee\nAfter 14 days late \u2014 $20/day charge up to 30 days late';
+const lateFeeBullets = () => settings.str('storage_late_fee_schedule', LATE_FEE_FALLBACK)
+  .split('\n').map(l => l.trim()).filter(Boolean).join(' &bull; ');
 
 // Turn whatever a customer typed into an End Date box ("9/28/26", "2026-09-28",
 // "Sep 28 2026") into a YYYY-MM-DD string, or null if it is not a date.
@@ -253,11 +262,11 @@ router.post('/email', requireAuth, requireRole('admin', 'service_writer'), async
     </div>
 
     <p style="color:#6b7280;font-size:12px;line-height:1.5;">
-      If you have any questions about the agreement, please don't hesitate to call us at <strong>(303) 557-2214</strong> or reply to this email.
+      If you have any questions about the agreement, please don't hesitate to call us at <strong>${company.phone()}</strong> or reply to this email.
     </p>
   </div>
   <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:16px 32px;text-align:center;border-radius:0 0 12px 12px;">
-    <p style="margin:0;color:#6b7280;font-size:12px;">6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+    <p style="margin:0;color:#6b7280;font-size:12px;">${company.fullAddress()}<br/>${company.phone()} | ${company.email()}</p>
   </div>
 </div>`,
       text: `Hello ${customerName}, please review and accept your Storage Lease Agreement for Space ${spaceLabel} at: ${viewUrl}`,
@@ -299,7 +308,7 @@ function brandedPage(title, body) {
   </div>
   <div style="padding:32px;">${body}</div>
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">
-    <p style="margin:0;color:#6b7280;font-size:12px;">6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+    <p style="margin:0;color:#6b7280;font-size:12px;">${company.fullAddress()}<br/>${company.phone()} | ${company.email()}</p>
   </div>
 </div></body></html>`;
 }
@@ -324,7 +333,7 @@ router.get('/view/:token', async (req, res) => {
           <div style="font-size:48px;margin-bottom:16px;">&#10060;</div>
           <h2 style="color:#dc2626;">Invalid or Expired Link</h2>
           <p style="color:#6b7280;">This contract link is no longer valid. Please contact Master Tech RV.</p>
-          <p><strong>(303) 557-2214</strong></p>
+          <p><strong>${company.phone()}</strong></p>
         </div>`
       ));
     }
@@ -534,11 +543,11 @@ router.get('/view/:token', async (req, res) => {
         </ul>
 
         <h3 style="color:#1e3a5f;margin:20px 0 8px;">Payment Options</h3>
-        <p><strong>Autopay:</strong> Payments are processed via Square and are subject to a 3.5% credit card processing fee. An invoice will be generated on the last day of each month. You can securely store your card on file for automatic payments.</p>
-        <p><strong>Check, Cash, or Zelle:</strong> No processing fee. Payments may be mailed or dropped off at our facility. For Zelle, send to carol@mastertechrvrepair.com.</p>
+        <p><strong>Autopay:</strong> ${company.fillTokens(settings.str('storage_autopay_terms', 'Payments are processed via Square and are subject to a 3.5% credit card processing fee. An invoice will be generated on the last day of each month. You can securely store your card on file for automatic payments.'))}</p>
+        <p><strong>Check, Cash, or Zelle:</strong> ${company.fillTokens(settings.str('storage_other_payment_terms', 'No processing fee. Payments may be mailed or dropped off at our facility. For Zelle, send to {zelle_email}.'))}</p>
 
         <h3 style="color:#1e3a5f;margin:20px 0 8px;">Late Payment Penalty</h3>
-        <p>5 days late = $25 fee &bull; 10 days = additional $50 &bull; 14+ days = $20/day up to 30 days.<br/>After 30 days unpaid, Lessor may take possession and sell said property for reimbursement.</p>
+        <p>${lateFeeBullets()}<br/>After 30 days unpaid, Lessor may take possession and sell said property for reimbursement.</p>
       </div>
 
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:20px;margin-bottom:20px;">
@@ -546,7 +555,7 @@ router.get('/view/:token', async (req, res) => {
         <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
           <tr>
             <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Signature:</td>
-            <td style="padding:8px 0;"><span style="font-family:Georgia,serif;font-style:italic;font-size:22px;color:#1e3a5f;">Carol Neu</span><br/><span style="font-size:11px;color:#6b7280;">Owner, Master Tech RV Repair &amp; Storage</span></td>
+            <td style="padding:8px 0;"><span style="font-family:Georgia,serif;font-style:italic;font-size:22px;color:#1e3a5f;">Carol Neu</span><br/><span style="font-size:11px;color:#6b7280;">Owner, ${company.name()}</span></td>
           </tr>
           <tr>
             <td style="padding:8px 0;font-weight:600;width:140px;vertical-align:top;">Date:</td>
@@ -689,7 +698,7 @@ router.get('/view/:token', async (req, res) => {
       `<div style="text-align:center;">
         <div style="font-size:48px;margin-bottom:16px;">&#9888;</div>
         <h2 style="color:#dc2626;">Something Went Wrong</h2>
-        <p style="color:#6b7280;">We encountered an error loading your contract. Please contact Master Tech RV at <strong>(303) 557-2214</strong>.</p>
+        <p style="color:#6b7280;">We encountered an error loading your contract. Please contact Master Tech RV at <strong>${company.phone()}</strong>.</p>
         <p style="color:#9ca3af;font-size:11px;margin-top:20px;">Error: ${err.message}</p>
       </div>`
     ));
@@ -909,11 +918,11 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
             <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;">
               <p style="color:#374151;">Hello ${r.first_name || customerName},</p>
               <p style="color:#374151;">Thank you for accepting your Storage Lease Agreement for Space <strong>${r.label}</strong>. A copy of your signed agreement is attached to this email for your records.</p>
-              <p style="color:#374151;">If you have any questions, please call us at <strong>(303) 557-2214</strong> or reply to this email.</p>
+              <p style="color:#374151;">If you have any questions, please call us at <strong>${company.phone()}</strong> or reply to this email.</p>
               <p style="color:#374151;">Welcome to Master Tech RV Storage!</p>
             </div>
             <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:16px 32px;text-align:center;border-radius:0 0 12px 12px;">
-              <p style="margin:0;color:#6b7280;font-size:12px;">6590 East 49th Avenue, Commerce City, CO 80022<br/>(303) 557-2214 | service@mastertechrvrepair.com</p>
+              <p style="margin:0;color:#6b7280;font-size:12px;">${company.fullAddress()}<br/>${company.phone()} | ${company.email()}</p>
             </div>
           </div>`,
           attachments: [{
@@ -952,7 +961,7 @@ router.post('/accept/:token', express.urlencoded({ extended: true }), async (req
         <p style="color:#6b7280;">A copy of your signed agreement has been emailed to <strong>${customerEmail || r.email_primary || 'your email on file'}</strong>.</p>
         <p style="color:#6b7280;">We look forward to serving you!</p>
         <div style="margin-top:24px;padding:16px;background:#f0fdf4;border-radius:8px;">
-          <p style="margin:0;color:#374151;"><strong>(303) 557-2214</strong></p>
+          <p style="margin:0;color:#374151;"><strong>${company.phone()}</strong></p>
           <p style="margin:4px 0 0;color:#6b7280;">service@mastertechrvrepair.com</p>
         </div>
       </div>`
@@ -1008,7 +1017,7 @@ router.post('/send-guidelines', requireAuth, requireRole('admin', 'service_write
   </p>
   ${guidelinesHTML}
 </div>`,
-      text: `Hello ${customerName}, here are the Master Tech RV Storage Guidelines. Call (303) 557-2214 with any questions.`,
+      text: `Hello ${customerName}, here are the Master Tech RV Storage Guidelines. Call ${company.phone()} with any questions.`,
     });
 
     // Log
