@@ -17,17 +17,25 @@ const VALID_LEAD_STATUSES = ['new', 'contacted', 'scheduled', 'converted'];
 const MAX_PHOTOS = 5;
 const PHOTO_MAX_WIDTH = 1600;
 
+// The file cap here is deliberately higher than MAX_PHOTOS. multer aborts the
+// whole upload once a limit trips, so capping it AT five meant a customer who
+// picked six lost all six. We accept a generous number and keep the first five
+// in the handler instead.
+const UPLOAD_FILE_CEILING = 20;
+
 const uploadPhotos = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024, files: MAX_PHOTOS },
+  limits: { fileSize: 12 * 1024 * 1024, files: UPLOAD_FILE_CEILING },
   fileFilter: (req, file, cb) => cb(null, /^image\//i.test(file.mimetype)),
 });
 
 function acceptPhotos(req, res, next) {
-  uploadPhotos.array('photos', MAX_PHOTOS)(req, res, (err) => {
+  uploadPhotos.array('photos', UPLOAD_FILE_CEILING)(req, res, (err) => {
     if (err) {
+      // Keep whatever multer managed to parse. A photo problem must never cost
+      // us the text of the lead, and it must not silently discard good photos.
       req.photoError = err.message;
-      req.files = [];
+      if (!Array.isArray(req.files)) req.files = [];
     }
     next();
   });
