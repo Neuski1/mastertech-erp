@@ -1056,6 +1056,23 @@ require('./db/pool').query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted
   .then(() => console.log('leads.contacted_at column ready'))
   .catch(err => console.error('leads contacted_at migration error:', err.message));
 
+// Auto-migrate: lead spam quarantine + intake audit trail.
+// A quarantined lead is still a row here, never a delete, so a false positive
+// can be released from the Spam tab. ip_address also backs velocity scoring.
+require('./db/pool').query(`
+  ALTER TABLE leads ALTER COLUMN customer_id DROP NOT NULL;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS is_spam BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS spam_score INTEGER;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS spam_reasons TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS ip_address VARCHAR(64);
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS user_agent TEXT;
+  ALTER TABLE leads ADD COLUMN IF NOT EXISTS photo_count INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX IF NOT EXISTS idx_leads_ip_created ON leads (ip_address, created_at);
+  CREATE INDEX IF NOT EXISTS idx_leads_is_spam ON leads (is_spam, created_at);
+`)
+  .then(() => console.log('leads spam quarantine columns ready'))
+  .catch(err => console.error('leads spam migration error:', err.message));
+
 
 // Migration 043: Estimate line support
 require('./db/pool').query(`
