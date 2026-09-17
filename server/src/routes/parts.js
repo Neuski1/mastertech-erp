@@ -214,35 +214,14 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
     await recalculateTotals(recordId, client);
     await client.query('COMMIT');
 
-    // Auto-save non-inventory part to inventory + parts_catalog (fire and forget)
+    // A job-only part is remembered in parts_catalog, never in inventory.
+    // It used to be written to both: every one-off part a tech typed on a work
+    // order became an inventory item at zero on hand with no location, which
+    // filled the Inventory module with parts the shop does not stock. Inventory
+    // is only what we choose to keep on the shelf, added by hand in the
+    // Inventory module. The catalog still feeds the parts search, so a part
+    // used before is still one search away with its last cost and price.
     if (!isInvPart && finalDescription) {
-      // Save to inventory table (no internal part number)
-      (async () => {
-        try {
-          // Check if already exists by description + vendor match
-          const existing = await pool.query(
-            `SELECT id FROM inventory WHERE LOWER(description) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
-            [finalDescription]
-          );
-          if (existing.rows.length === 0) {
-            await pool.query(
-              `INSERT INTO inventory (part_number, description, vendor, vendor_part_number, qty_on_hand, cost_each, sale_price_each, is_active)
-               VALUES ($1, $2, $3, $4, 0, $5, $6, TRUE)`,
-              [
-                req.body.vendor_part_number || req.body.part_number || null,
-                finalDescription,
-                finalVendor,
-                req.body.vendor_part_number || null,
-                finalCostEach,
-                finalSalePrice,
-              ]
-            );
-            console.log(`Auto-added to inventory: "${finalDescription}" (no internal part number)`);
-          }
-        } catch (invErr) {
-          console.error('Auto-add to inventory error (non-blocking):', invErr.message);
-        }
-      })();
       const catalogVendorPart = req.body.vendor_part_number || null;
       const catalogVendor = finalVendor;
       (async () => {
