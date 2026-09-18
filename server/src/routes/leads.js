@@ -249,12 +249,14 @@ router.post('/', acceptPhotos, async (req, res) => {
   // Runs ahead of the customer match on purpose. A quarantined submission must
   // never create a customer record, which is exactly how the customers table
   // filled up with junk before this existed.
-  const turnstileOk = await verifyTurnstile(
+  const turnstile = await verifyTurnstile(
     req.body.turnstile_token || req.body['cf-turnstile-response'],
     ip
   );
+  const turnstileOk = turnstile.ok;
   const base = scoreLead({
     name, email, phone, message, userAgent, turnstileOk,
+    turnstileCodes: turnstile.codes,
     honeypot: req.body.company_website,
     honeypot2: req.body.fax_number,
     formStartedAt: req.body.form_started_at,

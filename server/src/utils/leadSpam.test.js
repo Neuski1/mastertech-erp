@@ -53,7 +53,8 @@ check('submitted in under three seconds', scoreLead(ok({
 
 check('turnstile failed', scoreLead(ok({
   name: 'Real Looking', phone: '7204443311', email: 'x@gmail.com',
-  message: 'motorhome water heater not working', turnstileOk: false,
+  message: 'motorhome water heater not working',
+  turnstileOk: false, turnstileCodes: ['invalid-input-response'],
 })).isSpam, true);
 
 check('crypto pitch', scoreLead(ok({

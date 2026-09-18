@@ -112,7 +112,11 @@ function scoreLead(input = {}) {
     add(100, 'honeypot field filled');
   }
 
-  if (input.turnstileOk === false) add(100, 'turnstile verification failed');
+  if (input.turnstileOk === false) {
+    const codes = Array.isArray(input.turnstileCodes) && input.turnstileCodes.length
+      ? ` [${input.turnstileCodes.join(', ')}]` : '';
+    add(100, `turnstile verification failed${codes}`);
+  }
 
   const started = input.formStartedAt ? Number(input.formStartedAt) : null;
   if (started && Number.isFinite(started)) {
@@ -221,30 +225,42 @@ async function velocityScore(client, { ip, phone, email, message }) {
 // ---------------------------------------------------------------------------
 async function verifyTurnstile(token, remoteIp) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return null;
+  if (!secret) return { ok: null, codes: [] };
 
   // A MISSING token is not a failure unless we know the widget is live on the
   // forms. The secret gets configured before the front end ships the widget,
   // and treating that gap as a failure quarantines every real customer. Flip
   // TURNSTILE_REQUIRED=true once the widget is rendering on both forms.
   if (!token) {
-    return process.env.TURNSTILE_REQUIRED === 'true' ? false : null;
+    return { ok: process.env.TURNSTILE_REQUIRED === 'true' ? false : null, codes: ['missing-token'] };
   }
 
   try {
+    // NOTE: remoteip is deliberately NOT sent.
+    //
+    // Cloudflare requires it to match the IP that solved the challenge, and
+    // behind Vercel and Railway the address we see on x-forwarded-for is a
+    // proxy hop, not the visitor. Sending it failed every real submission
+    // with invalid-input-response. It is optional and buys us nothing here.
     const body = new URLSearchParams({ secret, response: token });
-    if (remoteIp) body.append('remoteip', remoteIp);
     const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     });
     const json = await resp.json();
-    return json.success === true;
+    const codes = json['error-codes'] || [];
+    if (json.success !== true) {
+      // The codes are the whole diagnosis: invalid-input-secret means the key
+      // is wrong, invalid-input-response means the token does not belong to
+      // this widget, timeout-or-duplicate means it expired or was reused.
+      console.error('turnstile verify failed:', JSON.stringify(codes), 'hostname:', json.hostname || 'n/a');
+    }
+    return { ok: json.success === true, codes };
   } catch (err) {
     // Cloudflare unreachable must not take the form down with it.
     console.error('turnstile verify error (treated as skipped):', err.message);
-    return null;
+    return { ok: null, codes: ['verify-unreachable'] };
   }
 }
 
