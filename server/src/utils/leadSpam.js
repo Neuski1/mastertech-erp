@@ -112,10 +112,20 @@ function scoreLead(input = {}) {
     add(100, 'honeypot field filled');
   }
 
+  // Turnstile is recorded on EVERY lead, including the passing case, because
+  // "landed clean" does not distinguish a token that verified from no token at
+  // all. That difference is the whole basis for deciding when it is safe to
+  // set TURNSTILE_REQUIRED, so it cannot be left to a server log that rolls.
   if (input.turnstileOk === false) {
     const codes = Array.isArray(input.turnstileCodes) && input.turnstileCodes.length
       ? ` [${input.turnstileCodes.join(', ')}]` : '';
     add(100, `turnstile verification failed${codes}`);
+  } else if (input.turnstileOk === true) {
+    reasons.push('turnstile verified (+0)');
+  } else if ((input.turnstileCodes || []).includes('missing-token')) {
+    reasons.push('no turnstile token sent (+0)');
+  } else if ((input.turnstileCodes || []).includes('verify-unreachable')) {
+    reasons.push('turnstile unreachable, skipped (+0)');
   }
 
   const started = input.formStartedAt ? Number(input.formStartedAt) : null;
