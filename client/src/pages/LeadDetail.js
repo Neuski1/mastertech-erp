@@ -11,10 +11,11 @@ import { api } from '../api/client';
 // on the customer record instead of a personal cell.
 // ---------------------------------------------------------------------------
 
+// Carol's wording, approved 2026-09-18. These go to a customer verbatim, so
+// do not reword them without asking her.
 const QUICK_REPLIES = [
-  "Got your request, thanks. We'll call you today to get you scheduled.",
-  "Thanks for reaching out. We're slammed today, we'll call you first thing tomorrow.",
-  "Got it. Can you send a photo of the problem to this number? Helps us quote it right.",
+  'Got your request, thanks. We will call you as soon as possible to get you scheduled.',
+  'Got it. Can you send a photo of the problem to this number? Helps us quote it right.',
 ];
 
 function field(message, label) {
