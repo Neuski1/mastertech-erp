@@ -201,7 +201,15 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
 
   // 3. Customer autoresponder, separately so a bad address cannot take the
   // shop alert down with it.
-  if (lead.email) {
+  //
+  // Gated ON PURPOSE. Shop alerts go to Carol and Mark and are safe to run
+  // immediately, but this one lands in a customer's inbox, and the standing
+  // rule is that nothing customer-facing sends for the first time until Carol
+  // has seen the dry run. Set LEAD_AUTORESPONDER_ENABLED=true to turn it on.
+  if (process.env.LEAD_AUTORESPONDER_ENABLED !== 'true') {
+    out.customer_email.result = { success: false, skipped: 'autoresponder not enabled yet' };
+    console.log('[leadAlerts] customer autoresponder is gated off (LEAD_AUTORESPONDER_ENABLED)');
+  } else if (lead.email) {
     try {
       out.customer_email.result = await sendEmail({
         to: lead.email, subject: custMail.subject, html: custMail.html, text: custMail.text,
@@ -213,7 +221,7 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
   }
 
   // Record the touch on the customer so the history is complete.
-  if (lead.customer_id) {
+  if (lead.customer_id && out.customer_email.result && !out.customer_email.result.skipped) {
     try {
       await pool.query(
         `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
