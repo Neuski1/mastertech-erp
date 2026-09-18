@@ -31,6 +31,46 @@ function requireCoworkKey(req, res, next) {
   next();
 }
 
+// ---------------------------------------------------------------------------
+// GET /api/cowork-admin/config-check
+//
+// Reports WHETHER config is present and what the running process actually
+// resolved it to. Never returns a secret value.
+//
+// Exists because "I set the variable" and "the running server sees the
+// variable" are different claims, and telling them apart previously meant
+// submitting a real lead, which texts the shop. Diagnosing config should not
+// page anyone.
+// ---------------------------------------------------------------------------
+router.get('/config-check', requireCoworkKey, (req, res) => {
+  const present = (k) => !!process.env[k];
+  res.json({
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA
+      ? String(process.env.RAILWAY_GIT_COMMIT_SHA).slice(0, 7) : null,
+    started_at: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString(),
+    uptime_seconds: Math.round(process.uptime()),
+    leads: {
+      TURNSTILE_SECRET_KEY: present('TURNSTILE_SECRET_KEY'),
+      // The exact string matters: the check is === 'true'.
+      TURNSTILE_REQUIRED_raw: process.env.TURNSTILE_REQUIRED ?? null,
+      TURNSTILE_REQUIRED_effective: process.env.TURNSTILE_REQUIRED === 'true',
+      LEAD_AUTORESPONDER_raw: process.env.LEAD_AUTORESPONDER_ENABLED ?? null,
+      LEAD_AUTORESPONDER_effective: process.env.LEAD_AUTORESPONDER_ENABLED === 'true',
+      SHOP_SMS_NUMBERS_count: String(process.env.SHOP_SMS_NUMBERS || '')
+        .split(',').map((s) => s.trim()).filter(Boolean).length,
+      SHOP_ALERT_EMAIL: process.env.SHOP_ALERT_EMAIL || 'service@mastertechrvrepair.com (default)',
+      APP_BASE_URL: process.env.APP_BASE_URL || 'https://mastertech-erp.vercel.app (default)',
+    },
+    messaging: {
+      RESEND_API_KEY: present('RESEND_API_KEY'),
+      EMAIL_FROM: process.env.EMAIL_FROM || null,
+      DIALPAD_API_KEY: present('DIALPAD_API_KEY'),
+      DIALPAD_FROM_NUMBER: process.env.DIALPAD_FROM_NUMBER || null,
+      DIALPAD_WEBHOOK_SECRET: present('DIALPAD_WEBHOOK_SECRET'),
+    },
+  });
+});
+
 // Hard-block destructive commands at the application layer (defense in depth).
 const BLOCK_PATTERNS = [
   /\bDROP\s+DATABASE\b/i,
