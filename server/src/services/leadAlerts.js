@@ -86,21 +86,27 @@ function buildShopSms(lead, { photoCount = 0 } = {}) {
 function buildShopEmail(lead, { photoCount = 0 } = {}) {
   const p = leadParts(lead.message);
   const link = `${appBase()}/leads/${lead.id}`;
-  const row = (label, value) => value
-    ? `<tr><td style="padding:4px 12px 4px 0;color:#667;white-space:nowrap;vertical-align:top;">${esc(label)}</td><td style="padding:4px 0;">${esc(value)}</td></tr>`
+  const row = (label, value, href) => value
+    ? `<tr><td style="padding:4px 12px 4px 0;color:#667;white-space:nowrap;vertical-align:top;">${esc(label)}</td><td style="padding:4px 0;">${
+        href ? `<a href="${esc(href)}" style="color:#12355b;">${esc(value)}</a>` : esc(value)
+      }</td></tr>`
     : '';
+
+  // Phone and email must be tappable. Read on a phone, a plain-text number is
+  // something you have to retype one-handed while standing in the shop.
+  const telDigits = String(lead.phone || '').replace(/\D/g, '').slice(-10);
 
   const html = `
     <div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:15px;color:#111;max-width:600px;">
       <p style="margin:0 0 4px;font-size:13px;letter-spacing:.06em;color:#667;">NEW WEBSITE LEAD</p>
       <h2 style="margin:0 0 16px;font-size:22px;">${esc(lead.name || 'No name given')}</h2>
       <table style="border-collapse:collapse;font-size:15px;margin-bottom:20px;">
-        ${row('Phone', lead.phone)}
-        ${row('Email', lead.email)}
+        ${row('Phone', lead.phone, telDigits ? `tel:+1${telDigits}` : null)}
+        ${row('Email', lead.email, lead.email ? `mailto:${lead.email}` : null)}
         ${row('RV', [p.rv, p.length].filter(Boolean).join(', '))}
         ${row('Services', p.services)}
         ${row('Source', lead.source)}
-        ${row('Photos', photoCount ? String(photoCount) : '')}
+        ${row('Photos', photoCount ? `${photoCount} attached to this email` : '')}
       </table>
       ${p.issue ? `<p style="margin:0 0 20px;padding:12px 14px;background:#f5f6f8;border-radius:6px;white-space:pre-wrap;">${esc(p.issue)}</p>` : ''}
       <p style="margin:0 0 20px;">
@@ -188,11 +194,34 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
   }
   if (!numbers.length) console.warn('[leadAlerts] SHOP_SMS_NUMBERS is not set, no shop text sent');
 
-  // 2. Shop email, reply-to the customer.
+  // 2. Shop email, reply-to the customer, with the photos ATTACHED.
+  //
+  // Not linked. An <img src> pointing at an authenticated route returns 401
+  // in a mail client and in the browser alike, which is the trap the record
+  // photo emails already work around with token URLs. Attaching avoids both
+  // the 401 and the need for another public route.
+  let attachments;
+  try {
+    const { rows: pics } = await pool.query(
+      `SELECT title, file_data, mime_type FROM customer_documents
+        WHERE doc_type = 'lead_photo' AND related_id = $1 ORDER BY id`,
+      [lead.id]
+    );
+    if (pics.length) {
+      attachments = pics.map((p, i) => ({
+        filename: `lead-photo-${i + 1}.jpg`,
+        content: p.file_data,
+        contentType: p.mime_type || 'image/jpeg',
+      }));
+    }
+  } catch (err) {
+    console.error('[leadAlerts] could not load photos to attach:', err.message);
+  }
+
   try {
     out.shop_email.result = await sendEmail({
       to: shopEmail(), subject: shopMail.subject, html: shopMail.html,
-      text: shopMail.text, replyTo: lead.email || undefined,
+      text: shopMail.text, replyTo: lead.email || undefined, attachments,
     });
   } catch (err) {
     console.error('[leadAlerts] shop email failed:', err.message);

@@ -65,6 +65,16 @@ export const api = {
   deleteLeadNote: (id, noteId) => request(`/leads/${id}/note/${noteId}`, { method: 'DELETE' }),
   deleteLead: (id) => request(`/leads/${id}`, { method: 'DELETE' }),
   getLead: (id) => request(`/leads/${id}`),
+  // Photos live behind requireAuth, and an <img src> cannot send a Bearer
+  // token, so it 401s and renders nothing. Fetch the bytes with the header
+  // and hand back an object URL instead.
+  getLeadPhotoUrl: async (leadId, docId) => {
+    const res = await fetch(`${API_BASE}/leads/${leadId}/photos/${docId}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    });
+    if (!res.ok) throw new Error(`Photo failed to load (${res.status})`);
+    return URL.createObjectURL(await res.blob());
+  },
   replyToLead: (id, message) => request(`/leads/${id}/reply`, { method: 'POST', body: JSON.stringify({ message }) }),
   getLeadAlertPreview: (id) => request(`/leads/${id}/alert-preview`),
   getSpamLeads: () => request('/leads?spam=true'),
