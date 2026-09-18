@@ -6,6 +6,57 @@ const { sendAppointmentConfirmation } = require('../services/email');
 const { sendAppointmentSMS } = require('../services/sms');
 const { syncAppointmentToCalendar } = require('../utils/googleCalendar');
 
+// Record a confirmation in the customer's Communication History. Never throws:
+// a logging failure must not fail the booking or the send.
+async function logApptComm(customerId, recordId, channel, content, ok) {
+  if (!customerId) return;
+  try {
+    await pool.query(
+      `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content, delivery_status)
+       VALUES ($1, $2, $3, 'appointment_confirmation', $4, $5)`,
+      [customerId, recordId || null, channel, content, ok ? 'sent' : 'failed']
+    );
+  } catch (err) {
+    console.error('[appt] communication_log insert failed:', err.message);
+  }
+}
+
+// Send the confirmation text and log it. Returns a warning string or null.
+async function sendAndLogApptSMS(appt, phone, { date, time, type, revised }) {
+  if (!phone) return null;
+  try {
+    const result = await sendAppointmentSMS(phone, {
+      customerFirstName: appt.first_name || '',
+      appointmentDate: date,
+      appointmentTime: time,
+      appointmentType: type,
+    });
+    if (result.skipped === 'opted_out') {
+      await logApptComm(appt.customer_id, appt.record_id, 'sms', `${revised ? 'Revised a' : 'A'}ppointment confirmation text not sent: ${phone} has opted out of texts`, false);
+      return 'Customer has opted out of texts';
+    }
+    if (result.skipped) {
+      return `Text not sent (${result.skipped})`;
+    }
+    await logApptComm(appt.customer_id, appt.record_id, 'sms', `${revised ? 'Revised a' : 'A'}ppointment confirmation texted to ${phone} for ${date} ${time}${result.success ? '' : ' - FAILED: ' + (result.error || 'unknown error')}`, result.success);
+    return result.success ? null : `Text failed: ${result.error || 'unknown error'}`;
+  } catch (err) {
+    console.error(`[Appt ${appt.id}] SMS error:`, err.message);
+    await logApptComm(appt.customer_id, appt.record_id, 'sms', `Appointment confirmation text to ${phone} FAILED: ${err.message}`, false);
+    return `Text failed: ${err.message}`;
+  }
+}
+
+// Mountain-time date (YYYY-MM-DD) and 24h time (HH:MM) for a timestamptz.
+// Railway runs UTC, so never use the server's local zone for these.
+function mtDateTime(ts) {
+  const d = new Date(ts);
+  return {
+    date: d.toLocaleDateString('en-CA', { timeZone: 'America/Denver' }),
+    time: d.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour12: false, hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
 // Build a timestamp string with Mountain Time offset for a given date+time
 function toMountainTimestamp(date, time) {
   const dt = new Date(`${date}T${time}:00`);
@@ -239,28 +290,30 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
         if (!emailResult.success) {
           emailWarning = `Email failed: ${emailResult.error}`;
         }
+        await logApptComm(customer_id, full[0].record_id, 'email',
+          `Appointment confirmation emailed to ${emailAddr} for ${scheduled_date} ${scheduled_time}${emailResult.success ? '' : ' - FAILED: ' + emailResult.error}`,
+          emailResult.success);
       } catch (emailErr) {
         console.error(`[Appt ${apptId}] Email exception:`, emailErr.message);
         emailWarning = `Email failed: ${emailErr.message}`;
+        await logApptComm(customer_id, full[0].record_id, 'email', `Appointment confirmation email to ${emailAddr} FAILED: ${emailErr.message}`, false);
       }
     } else if (notify_customer && !emailAddr) {
-      emailWarning = 'No customer email address available';
-      console.log(`[Appt ${apptId}] No email address — skipping`);
+      console.log(`[Appt ${apptId}] No email address, text only`);
     } else {
       console.log(`[Appt ${apptId}] notify_customer is false — skipping email`);
     }
 
     if (notify_customer) {
-      // SMS — fire and forget
-      const smsPhone = customer_phone || null;
-      const smsFirstName = full[0].first_name || '';
-      if (smsPhone) {
-        sendAppointmentSMS(smsPhone, {
-          customerFirstName: smsFirstName,
-          appointmentDate: scheduled_date,
-          appointmentTime: scheduled_time,
-          appointmentType: appointment_type,
-        }).catch(err => console.error('SMS error:', err.message));
+      // Text goes out whether or not there is an email. Many customers only want texts.
+      const smsPhone = customer_phone || full[0].phone_primary || null;
+      const smsWarning = await sendAndLogApptSMS(full[0], smsPhone, {
+        date: scheduled_date, time: scheduled_time, type: appointment_type,
+      });
+      if (!emailAddr && !smsPhone) {
+        emailWarning = 'No email or phone on file. No confirmation was sent.';
+      } else if (smsWarning) {
+        emailWarning = emailWarning ? `${emailWarning}. ${smsWarning}` : smsWarning;
       }
     }
 
@@ -404,23 +457,21 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
           rescheduleToken: appt.reschedule_token,
         }).then(result => {
           console.log(`[Appt ${appt.id}] Revised confirmation sent to ${emailAddr}:`, result.success);
+          return logApptComm(appt.customer_id, appt.record_id, 'email',
+            `Revised appointment confirmation emailed to ${emailAddr} for ${mtDate} ${mtTime}${result.success ? '' : ' - FAILED: ' + result.error}`,
+            result.success);
         }).catch(err => {
           console.error(`[Appt ${appt.id}] Revised confirmation error:`, err.message);
         });
       }
 
-      // Send revised confirmation SMS — fire and forget
+      // Send revised confirmation SMS (logged to Communication History)
       const smsPhone = appt.customer_phone || appt.phone_primary;
       if (smsPhone) {
-        const scheduledAt = new Date(appt.scheduled_at);
-        const mtDate = scheduledAt.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
-        const mtTime = scheduledAt.toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour12: false, hour: '2-digit', minute: '2-digit' });
-        sendAppointmentSMS(smsPhone, {
-          customerFirstName: appt.first_name || '',
-          appointmentDate: mtDate,
-          appointmentTime: mtTime,
-          appointmentType: appt.appointment_type,
-        }).catch(err => console.error(`[Appt ${appt.id}] Revised SMS error:`, err.message));
+        const mt = mtDateTime(appt.scheduled_at);
+        await sendAndLogApptSMS(appt, smsPhone, {
+          date: mt.date, time: mt.time, type: appt.appointment_type, revised: true,
+        });
       }
     }
 
@@ -438,7 +489,7 @@ router.post('/:id/resend-confirmation', requireRole('admin', 'service_writer', '
   try {
     const { rows } = await pool.query(
       `SELECT a.*,
-              c.last_name, c.first_name, c.email_primary,
+              c.last_name, c.first_name, c.email_primary, c.phone_primary,
               t.name AS technician_name
        FROM appointments a
        JOIN customers c ON c.id = a.customer_id
@@ -453,32 +504,51 @@ router.post('/:id/resend-confirmation', requireRole('admin', 'service_writer', '
 
     const appt = rows[0];
     const emailAddr = appt.customer_email || appt.email_primary;
+    const smsPhone = appt.customer_phone || appt.phone_primary;
 
-    if (!emailAddr) {
-      return res.status(400).json({ error: 'No email address on file for this customer.' });
+    if (!emailAddr && !smsPhone) {
+      return res.status(400).json({ error: 'No email address or phone number on file for this customer.' });
     }
 
-    const dt = new Date(appt.scheduled_at);
-    const scheduled_date = dt.toLocaleDateString('en-CA');
-    const scheduled_time = dt.toTimeString().slice(0, 5);
+    // Mountain time, not the server's UTC clock
+    const mt = mtDateTime(appt.scheduled_at);
     const customerName = `${appt.first_name || ''} ${appt.last_name || ''}`.trim();
 
-    const result = await sendAppointmentConfirmation({
-      customerName,
-      customerEmail: emailAddr,
-      appointmentDate: scheduled_date,
-      appointmentTime: scheduled_time,
-      appointmentType: appt.appointment_type,
-      durationMinutes: appt.duration_minutes,
-      notes: appt.dropoff_notes,
-      rescheduleToken: appt.reschedule_token,
-    });
-
-    if (result.success) {
-      res.json({ success: true, email: emailAddr });
-    } else {
-      res.status(500).json({ success: false, error: result.error });
+    let emailOk = null;
+    let emailError = null;
+    if (emailAddr) {
+      const result = await sendAppointmentConfirmation({
+        customerName,
+        customerEmail: emailAddr,
+        appointmentDate: mt.date,
+        appointmentTime: mt.time,
+        appointmentType: appt.appointment_type,
+        durationMinutes: appt.duration_minutes,
+        notes: appt.job_description || appt.dropoff_notes,
+        rescheduleToken: appt.reschedule_token,
+      });
+      emailOk = !!result.success;
+      emailError = result.error || null;
+      await logApptComm(appt.customer_id, appt.record_id, 'email',
+        `Appointment confirmation re-sent to ${emailAddr} for ${mt.date} ${mt.time}${emailOk ? '' : ' - FAILED: ' + emailError}`,
+        emailOk);
     }
+
+    let smsOk = null;
+    let smsError = null;
+    if (smsPhone) {
+      smsError = await sendAndLogApptSMS(appt, smsPhone, { date: mt.date, time: mt.time, type: appt.appointment_type });
+      smsOk = !smsError;
+    }
+
+    const anyOk = emailOk === true || smsOk === true;
+    res.status(anyOk ? 200 : 500).json({
+      success: anyOk,
+      email: emailOk ? emailAddr : null,
+      phone: smsOk ? smsPhone : null,
+      error: anyOk ? null : [emailError, smsError].filter(Boolean).join('. '),
+      warnings: [emailOk === false ? `Email failed: ${emailError}` : null, smsOk === false ? smsError : null].filter(Boolean),
+    });
   } catch (err) {
     console.error('POST /api/appointments/:id/resend-confirmation error:', err);
     res.status(500).json({ success: false, error: err.message });
