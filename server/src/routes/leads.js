@@ -280,7 +280,12 @@ router.post('/', acceptPhotos, async (req, res) => {
         evt: 'lead_intake', outcome: 'quarantined', lead_id: rows[0].id,
         source, ip, spam_score: spamScore, reasons: spamReasons, photos: photos.length,
       }));
-      return res.status(201).json({ ok: true, lead: { id: rows[0].id } });
+      // verified:false is what the front end reads to decide NOT to fire a
+      // Google Ads conversion. Firing on every 200 would teach Smart Bidding
+      // to buy whatever produces spam. The accepted and quarantined payloads
+      // already differ in shape, so this leaks nothing new to a bot; it just
+      // makes the signal explicit instead of inferred.
+      return res.status(201).json({ ok: true, verified: false, lead: { id: rows[0].id } });
     }
 
     await client.query('BEGIN');
@@ -348,6 +353,7 @@ router.post('/', acceptPhotos, async (req, res) => {
 
     res.status(201).json({
       ok: true,
+      verified: true,
       lead: { ...leadRows[0], photo_count: photosSaved },
       customer_id: customerId,
       photos_received: photos.length,
