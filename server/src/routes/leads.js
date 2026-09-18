@@ -468,6 +468,79 @@ router.post('/:id/not-spam', requireAuth, requireRole(...STAFF_ROLES), async (re
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/leads/:id/photos — PUBLIC. Second-step photo upload.
+//
+// The website posts the lead as JSON through a Vercel relay, and JSON cannot
+// carry a file. Rather than make that relay handle multipart, the browser
+// sends the text first, gets a lead id back, then posts the photos straight
+// here in a second request.
+//
+// Public, so it is deliberately narrow:
+//   - only for a lead created in the last 15 minutes
+//   - only up to MAX_PHOTOS total, counting what is already stored
+//   - never for a quarantined lead
+//   - every file still passes the header sniff and re-encode
+// It can therefore only ever add photos to a lead that was genuinely just
+// created, which is the same window the browser session is alive for.
+// ---------------------------------------------------------------------------
+router.post('/:id/photos', acceptPhotos, async (req, res) => {
+  const incoming = Array.isArray(req.files) ? req.files : [];
+  if (!incoming.length) return res.status(400).json({ error: 'No photos received' });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, customer_id, is_spam,
+              EXTRACT(EPOCH FROM (NOW() - created_at)) AS age_seconds
+         FROM leads WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Lead not found' });
+
+    const lead = rows[0];
+    if (lead.is_spam) {
+      // Say nothing useful to a bot. It looks like success and stores nothing.
+      return res.status(201).json({ ok: true, photos_saved: 0 });
+    }
+    if (Number(lead.age_seconds) > 15 * 60) {
+      return res.status(410).json({ error: 'This request is no longer accepting photos' });
+    }
+    if (!lead.customer_id) return res.status(409).json({ error: 'Lead is not ready for photos' });
+
+    const { rows: existing } = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM customer_documents WHERE doc_type = 'lead_photo' AND related_id = $1",
+      [lead.id]
+    );
+    const room = MAX_PHOTOS - existing[0].n;
+    if (room <= 0) return res.status(201).json({ ok: true, photos_saved: 0, note: 'already at the limit' });
+
+    let saved = 0;
+    for (const [i, file] of incoming.slice(0, room).entries()) {
+      try {
+        const processed = await processLeadPhoto(file.buffer);
+        if (!processed || !processed.data) continue;
+        await pool.query(
+          `INSERT INTO customer_documents (customer_id, doc_type, title, file_data, mime_type, file_size, related_id)
+           VALUES ($1, 'lead_photo', $2, $3, $4, $5, $6)`,
+          [lead.customer_id, `Lead photo ${existing[0].n + i + 1}`, processed.data,
+           processed.mime, processed.data.length, lead.id]
+        );
+        saved += 1;
+      } catch (err) {
+        console.error(`lead ${lead.id} late photo rejected:`, err.message);
+      }
+    }
+    if (saved) {
+      await pool.query('UPDATE leads SET photo_count = photo_count + $1 WHERE id = $2', [saved, lead.id]);
+    }
+    console.log(JSON.stringify({ evt: 'lead_photos', lead_id: lead.id, received: incoming.length, saved }));
+    res.status(201).json({ ok: true, photos_saved: saved });
+  } catch (err) {
+    console.error('POST /api/leads/:id/photos error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/leads/:id — One lead with everything the phone view needs.
 router.get('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
   try {

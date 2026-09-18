@@ -27,6 +27,12 @@ const allowedOrigins = [
   'http://localhost:3002',
   'https://mastertech-erp.vercel.app',
   'https://mastertech-erp-production-cb96.up.railway.app',
+  // The public website. Needed so the lead form can upload photos straight
+  // here in a second request: its Vercel relay rebuilds the body as JSON and
+  // JSON cannot carry a file. Only the two public lead routes are reachable
+  // without a token; everything else still requires auth.
+  'https://www.mastertechrvrepair.com',
+  'https://mastertechrvrepair.com',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
