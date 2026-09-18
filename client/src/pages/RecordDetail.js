@@ -1926,7 +1926,8 @@ function ScheduleModal({ record, onSuccess, onClose }) {
         customer_email: sendConfirmation ? customerEmail : null,
         customer_phone: customerPhone || null,
       });
-      alert('Appointment created!' + (sendConfirmation && customerEmail ? ' Confirmation email sent.' : ''));
+      const sentVia = [customerPhone ? 'text' : null, customerEmail ? 'email' : null].filter(Boolean).join(' and ');
+      alert('Appointment created!' + (sendConfirmation && sentVia ? ` Confirmation sent by ${sentVia}.` : ''));
       onSuccess();
     } catch (err) {
       setError(err.message);
@@ -1984,10 +1985,13 @@ function ScheduleModal({ record, onSuccess, onClose }) {
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.875rem', cursor: 'pointer' }}>
               <input type="checkbox" checked={sendConfirmation} onChange={(e) => setSendConfirmation(e.target.checked)} />
-              Send appointment confirmation to customer
+              Send appointment confirmation to customer (text and email)
             </label>
-            {sendConfirmation && !customerEmail && (
-              <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '4px' }}>No email address — confirmation will not be sent</div>
+            {sendConfirmation && !customerEmail && !customerPhone && (
+              <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '4px' }}>No email or phone. Confirmation will not be sent.</div>
+            )}
+            {sendConfirmation && !customerEmail && customerPhone && (
+              <div style={{ color: '#6b7280', fontSize: '0.75rem', marginTop: '4px' }}>No email. Confirmation will go by text only.</div>
             )}
           </div>
           <div>

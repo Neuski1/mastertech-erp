@@ -93,7 +93,7 @@ export default function AppointmentForm() {
     });
     if (location.state?.customerEmail) setCustomerEmail(location.state.customerEmail);
     if (location.state?.customerPhone) setCustomerPhone(location.state.customerPhone);
-    setNotifyCustomer(!!location.state?.customerEmail);
+    setNotifyCustomer(!!(location.state?.customerEmail || location.state?.customerPhone));
     // Prefill RV details and requested services from the originating lead.
     if (location.state?.rvYear) setNewUnitYear(String(location.state.rvYear));
     if (location.state?.rvMake) setNewUnitMake(location.state.rvMake);
@@ -168,10 +168,11 @@ export default function AppointmentForm() {
     setForm(f => ({ ...f, customer_id: customer.id, unit_id: '', record_id: '' }));
     setCustomerSearch('');
     setCustomerResults([]);
-    // Pre-fill email/phone from customer record, auto-check notify if email exists
+    // Pre-fill email/phone from customer record. Confirmation goes by text and/or
+    // email, so check the box when either exists (many customers only want texts).
     setCustomerEmail(customer.email_primary || '');
     setCustomerPhone(customer.phone_primary || '');
-    setNotifyCustomer(!!customer.email_primary);
+    setNotifyCustomer(!!(customer.email_primary || customer.phone_primary));
     try {
       const units = await api.getCustomerUnits(customer.id);
       setCustomerUnits(units);
@@ -324,17 +325,21 @@ export default function AppointmentForm() {
 
   const handleResendConfirmation = async () => {
     const email = customerEmail || selectedCustomer?.email_primary;
-    if (!window.confirm(`Resend appointment confirmation to ${email || 'customer'}?`)) return;
+    const phone = customerPhone || selectedCustomer?.phone_primary;
+    const target = [phone, email].filter(Boolean).join(' and ') || 'customer';
+    if (!window.confirm(`Resend appointment confirmation to ${target}?`)) return;
     setResending(true);
     setResendMsg(null);
     try {
       const result = await api.resendConfirmation(id);
-      setResendMsg({ type: 'success', text: `Confirmation email resent to ${result.email}` });
+      const sentTo = [result.phone ? `text to ${result.phone}` : null, result.email ? `email to ${result.email}` : null].filter(Boolean).join(' and ');
+      const warn = (result.warnings || []).join('. ');
+      setResendMsg({ type: warn ? 'warning' : 'success', text: `Confirmation sent: ${sentTo}${warn ? '. ' + warn : ''}` });
     } catch (err) {
       if (err.message.includes('No email address')) {
-        setResendMsg({ type: 'warning', text: 'No email address on file for this customer. Add an email to their customer record first.' });
+        setResendMsg({ type: 'warning', text: 'No email or phone on file for this customer. Add one to their customer record first.' });
       } else {
-        setResendMsg({ type: 'error', text: 'Email could not be sent — check Vercel logs for details.' });
+        setResendMsg({ type: 'error', text: `Confirmation could not be sent: ${err.message}` });
       }
     } finally {
       setResending(false);
@@ -535,7 +540,7 @@ export default function AppointmentForm() {
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.875rem' }}>
                 <input type="checkbox" checked={notifyCustomer} onChange={(e) => setNotifyCustomer(e.target.checked)} />
-                Send appointment confirmation to customer
+                Send appointment confirmation to customer (text and email)
               </label>
             </div>
           )}
