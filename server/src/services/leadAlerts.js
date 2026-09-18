@@ -223,26 +223,34 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
   // Record the SHOP alert outcome too. sendSMS does not log on its own, so
   // without this the only way to know whether the text went out is to ask
   // whether someone's phone buzzed. That is not a verification method.
+  // delivery_status is the delivery_status_type ENUM: sent, delivered,
+  // failed, pending. Nothing else is insertable. The first version of this
+  // wrote a sentence into it, the insert was rejected, and the missing row
+  // looked exactly like "no alert was attempted". Detail goes in the body.
   if (lead.customer_id) {
-    const status = numbers.length
-      ? (out.shop_sms.results.every((r) => r.success) ? 'sent'
-        : out.shop_sms.results.map((r) => `${r.to}:${r.skipped || r.error || 'failed'}`).join(', '))
-      : 'skipped: SHOP_SMS_NUMBERS not set';
+    const allSent = numbers.length > 0 && out.shop_sms.results.every((r) => r.success);
+    const detail = !numbers.length
+      ? 'NOT SENT — SHOP_SMS_NUMBERS is not set on Railway'
+      : out.shop_sms.results.map((r) => `${r.to}: ${r.success ? 'sent' : (r.skipped || r.error || 'failed')}`).join('; ');
+
     try {
       await pool.query(
         `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
          VALUES ($1, 'sms', 'lead_shop_alert', $2, NOW(), $3, false)`,
-        [lead.customer_id, shopSms, status.slice(0, 250)]
+        [lead.customer_id, `[${detail}]\n${shopSms}`, allSent ? 'sent' : 'failed']
       );
     } catch (err) {
       console.error('[leadAlerts] shop alert log failed:', err.message);
     }
 
     try {
+      const ok = !!out.shop_email.result?.success;
       await pool.query(
         `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
          VALUES ($1, 'email', 'lead_shop_alert', $2, NOW(), $3, false)`,
-        [lead.customer_id, shopMail.subject, out.shop_email.result?.success ? 'sent' : String(out.shop_email.result?.error || 'failed').slice(0, 250)]
+        [lead.customer_id,
+         ok ? shopMail.subject : `[${String(out.shop_email.result?.error || 'failed')}] ${shopMail.subject}`,
+         ok ? 'sent' : 'failed']
       );
     } catch (err) {
       console.error('[leadAlerts] shop email log failed:', err.message);
