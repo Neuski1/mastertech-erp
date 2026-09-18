@@ -35,6 +35,7 @@ export default function LeadDetail() {
   const [msg, setMsg] = useState('');
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState(null);
+  const [photoUrls, setPhotoUrls] = useState({});
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +46,27 @@ export default function LeadDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load each photo through the authenticated client and keep the object URL.
+  // Revoked on unmount so a long session does not leak blobs.
+  useEffect(() => {
+    if (!lead || !lead.photos || !lead.photos.length) return undefined;
+    let alive = true;
+    const made = [];
+    (async () => {
+      for (const p of lead.photos) {
+        try {
+          const url = await api.getLeadPhotoUrl(id, p.id);
+          if (!alive) { URL.revokeObjectURL(url); return; }
+          made.push(url);
+          setPhotoUrls((prev) => ({ ...prev, [p.id]: url }));
+        } catch (err) {
+          console.error('lead photo failed to load', p.id, err.message);
+        }
+      }
+    })();
+    return () => { alive = false; made.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [lead, id]);
 
   async function send(text) {
     const body = String(text || '').trim();
@@ -115,11 +137,13 @@ export default function LeadDetail() {
       {photos.length > 0 && (
         <div style={S.photos}>
           {photos.map((p) => (
-            <a key={p.id} href={`${process.env.REACT_APP_API_URL || ''}/leads/${id}/photos/${p.id}`}
-               target="_blank" rel="noreferrer" style={S.photoLink}>
-              <img src={`${process.env.REACT_APP_API_URL || ''}/leads/${id}/photos/${p.id}`}
-                   alt={p.title} style={S.photo} />
-            </a>
+            photoUrls[p.id] ? (
+              <a key={p.id} href={photoUrls[p.id]} target="_blank" rel="noreferrer" style={S.photoLink}>
+                <img src={photoUrls[p.id]} alt={p.title} style={S.photo} />
+              </a>
+            ) : (
+              <div key={p.id} style={{ ...S.photo, background: '#eef0f3' }} />
+            )
           ))}
         </div>
       )}
