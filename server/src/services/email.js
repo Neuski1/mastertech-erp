@@ -65,6 +65,11 @@ async function sendViaResend(mailOptions) {
     subject: mailOptions.subject,
     html: mailOptions.html,
     text: mailOptions.text,
+    // Lets a shop alert reply straight to the customer instead of to
+    // service@. Resend uses snake_case here; nodemailer uses replyTo.
+    reply_to: mailOptions.replyTo
+      ? (Array.isArray(mailOptions.replyTo) ? mailOptions.replyTo : [mailOptions.replyTo])
+      : undefined,
     attachments: mailOptions.attachments?.map(a => ({
       filename: a.filename,
       content: Buffer.from(a.content).toString('base64'),
@@ -388,12 +393,12 @@ Our Service Makes Happy Campers!`;
 /**
  * Send a generic HTML email via Resend or SMTP
  */
-async function sendEmail({ to, cc, subject, html, text, attachments }) {
+async function sendEmail({ to, cc, subject, html, text, attachments, replyTo }) {
   if (!to) return { success: false, error: 'No recipient' };
   if (!useResend && !transporter) return { success: false, error: 'Email not configured' };
 
   const fromAddr = process.env.EMAIL_FROM || '"Master Tech RV Repair & Storage" <service@mastertechrvrepair.com>';
-  const mailOptions = { from: fromAddr, to, cc, subject, html, text, attachments };
+  const mailOptions = { from: fromAddr, to, cc, subject, html, text, attachments, replyTo };
 
   try {
     if (useResend) {

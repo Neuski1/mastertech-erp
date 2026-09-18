@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import RecordList from './pages/RecordList';
 import RecordDetail from './pages/RecordDetail';
 import RecordNew from './pages/RecordNew';
+import LeadDetail from './pages/LeadDetail';
 import InventoryList from './pages/InventoryList';
 import InventoryNeedsAttention from './pages/InventoryNeedsAttention';
 import InventoryForm from './pages/InventoryForm';
@@ -240,6 +241,8 @@ function AppLayout() {
           <Route path="/records" element={<RecordList />} />
           <Route path="/records/new" element={<RecordNew />} />
           <Route path="/records/:id" element={<RecordDetail />} />
+          {/* Target of the link in the shop's new-lead text. Phone first. */}
+          <Route path="/leads/:id" element={<LeadDetail />} />
           <Route path="/suppliers" element={<Suppliers />} />
           <Route path="/inventory" element={<InventoryList />} />
           <Route path="/inventory/needs-attention" element={<InventoryNeedsAttention />} />
