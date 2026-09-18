@@ -220,6 +220,35 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
     }
   }
 
+  // Record the SHOP alert outcome too. sendSMS does not log on its own, so
+  // without this the only way to know whether the text went out is to ask
+  // whether someone's phone buzzed. That is not a verification method.
+  if (lead.customer_id) {
+    const status = numbers.length
+      ? (out.shop_sms.results.every((r) => r.success) ? 'sent'
+        : out.shop_sms.results.map((r) => `${r.to}:${r.skipped || r.error || 'failed'}`).join(', '))
+      : 'skipped: SHOP_SMS_NUMBERS not set';
+    try {
+      await pool.query(
+        `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
+         VALUES ($1, 'sms', 'lead_shop_alert', $2, NOW(), $3, false)`,
+        [lead.customer_id, shopSms, status.slice(0, 250)]
+      );
+    } catch (err) {
+      console.error('[leadAlerts] shop alert log failed:', err.message);
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
+         VALUES ($1, 'email', 'lead_shop_alert', $2, NOW(), $3, false)`,
+        [lead.customer_id, shopMail.subject, out.shop_email.result?.success ? 'sent' : String(out.shop_email.result?.error || 'failed').slice(0, 250)]
+      );
+    } catch (err) {
+      console.error('[leadAlerts] shop email log failed:', err.message);
+    }
+  }
+
   // Record the touch on the customer so the history is complete.
   if (lead.customer_id && out.customer_email.result && !out.customer_email.result.skipped) {
     try {
