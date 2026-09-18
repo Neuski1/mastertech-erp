@@ -4,6 +4,8 @@ const multer = require('multer');
 const pool = require('../db/pool');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { scoreLead, velocityScore, verifyTurnstile, THRESHOLD } = require('../utils/leadSpam');
+const { sendLeadAlerts, buildShopSms } = require('../services/leadAlerts');
+const { sendSMS } = require('../services/sms');
 
 const STAFF_ROLES = ['admin', 'service_writer', 'bookkeeper', 'technician'];
 const VALID_LEAD_STATUSES = ['new', 'contacted', 'scheduled', 'converted'];
@@ -360,6 +362,18 @@ router.post('/', acceptPhotos, async (req, res) => {
       photos_saved: photosSaved,
       photo_error: req.photoError || null,
     });
+
+    // Alerts fire AFTER the response. The customer is not kept waiting on an
+    // email provider, and a dead provider cannot turn a saved lead into a
+    // failed submission. Quarantined leads never reach this line.
+    sendLeadAlerts({ ...leadRows[0], customer_id: customerId }, { photoCount: photosSaved })
+      .then((r) => console.log(JSON.stringify({
+        evt: 'lead_alerts', lead_id: leadId,
+        sms: r.shop_sms.results.map((x) => `${x.to}:${x.success ? 'sent' : (x.skipped || x.error)}`),
+        shop_email: r.shop_email.result?.success ? 'sent' : r.shop_email.result?.error,
+        customer_email: r.customer_email.result?.success ? 'sent' : (r.customer_email.result?.error || 'no address'),
+      })))
+      .catch((err) => console.error('[leadAlerts] unexpected failure:', err.message));
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (rollbackErr) { /* nothing to roll back */ }
     console.error('POST /api/leads error:', err);
@@ -449,6 +463,112 @@ router.post('/:id/not-spam', requireAuth, requireRole(...STAFF_ROLES), async (re
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+// GET /api/leads/:id — One lead with everything the phone view needs.
+router.get('/:id', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*, c.first_name AS customer_first, c.last_name AS customer_last,
+              c.sms_opt_out,
+              COALESCE(lc.contacts, '[]'::json) AS contacts,
+              COALESCE(ph.photos, '[]'::json) AS photos
+         FROM leads l
+         LEFT JOIN customers c ON c.id = l.customer_id
+         LEFT JOIN LATERAL (
+           SELECT json_agg(json_build_object('id', x.id, 'contacted_at', x.contacted_at, 'note', x.note,
+                                             'entry_type', COALESCE(x.entry_type, 'call'), 'author', u.name)
+                           ORDER BY x.contacted_at DESC) AS contacts
+             FROM lead_contacts x LEFT JOIN users u ON u.id = x.created_by
+            WHERE x.lead_id = l.id
+         ) lc ON true
+         LEFT JOIN LATERAL (
+           SELECT json_agg(json_build_object('id', d.id, 'title', d.title) ORDER BY d.id) AS photos
+             FROM customer_documents d
+            WHERE d.doc_type = 'lead_photo' AND d.related_id = l.id
+         ) ph ON true
+        WHERE l.id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Lead not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('GET /api/leads/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/leads/:id/reply — Text the customer back from the shop number.
+// This is the point of the link in the alert: two taps from the buzz in your
+// pocket to the customer having an answer. Goes out on 303-557-2214 through
+// Dialpad, so the thread lives in the shop's record, not on a personal cell.
+router.post('/:id/reply', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const body = String(req.body.message || '').trim();
+  if (!body) return res.status(400).json({ error: 'message is required' });
+  if (body.length > 600) return res.status(400).json({ error: 'message is too long (600 characters max)' });
+
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, customer_id, name, phone, is_spam FROM leads WHERE id = $1', [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Lead not found' });
+    const lead = rows[0];
+    if (!lead.phone) return res.status(400).json({ error: 'This lead has no phone number' });
+
+    // sendSMS handles normalization, the STOP opt-out check and provider
+    // config. It only reports success when the text actually went out.
+    const result = await sendSMS(lead.phone, body);
+    if (!result.success) {
+      return res.status(502).json({
+        error: result.skipped
+          ? `Not sent: ${result.skipped}`
+          : (result.error || 'Text could not be sent'),
+        skipped: result.skipped || null,
+      });
+    }
+
+    // Log it twice on purpose: communication_log is the customer's history,
+    // lead_contacts is what the Leads list shows inline.
+    if (lead.customer_id) {
+      await pool.query(
+        `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual, sent_by_user_id)
+         VALUES ($1, 'sms', 'lead_reply', $2, NOW(), 'sent', true, $3)`,
+        [lead.customer_id, body, req.user?.id || null]
+      ).catch((e) => console.error('[lead reply] communication_log failed:', e.message));
+    }
+    await pool.query(
+      `INSERT INTO lead_contacts (lead_id, contacted_at, note, entry_type, created_by)
+       VALUES ($1, NOW(), $2, 'text', $3)`,
+      [lead.id, body, req.user?.id || null]
+    ).catch((e) => console.error('[lead reply] lead_contacts failed:', e.message));
+
+    await pool.query(
+      "UPDATE leads SET status = CASE WHEN status = 'new' THEN 'contacted' ELSE status END, contacted_at = COALESCE(contacted_at, NOW()) WHERE id = $1",
+      [lead.id]
+    ).catch(() => {});
+
+    console.log(JSON.stringify({ evt: 'lead_reply', lead_id: lead.id, chars: body.length }));
+    res.json({ ok: true, sent_to: lead.phone });
+  } catch (err) {
+    console.error('POST /api/leads/:id/reply error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/leads/:id/alert-preview — Dry run. Renders exactly what the alerts
+// WOULD say for a real lead and sends nothing. Used to approve the wording.
+router.get('/:id/alert-preview', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Lead not found' });
+    const { rows: pc } = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM customer_documents WHERE doc_type = 'lead_photo' AND related_id = $1",
+      [req.params.id]
+    );
+    res.json(await sendLeadAlerts(rows[0], { photoCount: pc[0].n, dryRun: true }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
