@@ -142,17 +142,24 @@ export default function BookkeepingTransactions() {
                 </td>
                 <td style={td}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <select
-                      value={t.gl_number || ''}
+                    {/* Type-to-search instead of a 69-item dropdown. Owner asked for this
+                        Sept 18 2026: scrolling the full chart for every row is why several
+                        hundred transactions sat uncategorized. Native datalist, so typing
+                        "sew" or "6470" narrows it with no extra dependency. */}
+                    <input
+                      list="gl-accounts"
+                      defaultValue={t.gl_number ? `${t.gl_number} ${t.gl_name}` : ''}
                       disabled={savingId === t.id}
-                      onChange={(e) => saveCategory(t, e.target.value)}
+                      placeholder="Type a number or name"
+                      onChange={(e) => {
+                        const v = e.target.value.trim();
+                        if (v === '') { saveCategory(t, ''); return; }
+                        const num = (v.match(/^(\d{4})/) || [])[1];
+                        // Only save on an exact hit. Half-typed text must not clear the row.
+                        if (num && glAccounts.some((g) => g.account_number === num)) saveCategory(t, num);
+                      }}
                       style={{ ...inp, minWidth: 210, borderColor: t.gl_number ? '#ccc' : '#c00' }}
-                    >
-                      <option value="">— Uncategorized —</option>
-                      {glAccounts.map(g => (
-                        <option key={g.account_number} value={g.account_number}>{g.account_number} {g.name}</option>
-                      ))}
-                    </select>
+                    />
                     {savingId === t.id && <span style={{ fontSize: 11, color: '#888' }}>saving…</span>}
                     {savedId === t.id && <span style={{ fontSize: 11, color: '#0a7d28' }}>✓</span>}
                   </div>
@@ -164,6 +171,13 @@ export default function BookkeepingTransactions() {
           </tbody>
         </table>
       )}
+
+      {/* One shared option list for every row's category input. */}
+      <datalist id="gl-accounts">
+        {glAccounts.map(g => (
+          <option key={g.account_number} value={`${g.account_number} ${g.name}`} />
+        ))}
+      </datalist>
 
       {pages > 1 && (
         <div className="print-hide" style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 16 }}>

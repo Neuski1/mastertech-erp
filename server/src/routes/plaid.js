@@ -538,6 +538,93 @@ async function categorize(client, txn) {
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/plaid/transactions/recategorize
+// Body: { dry_run = true, include_categorized = false, limit = 5000 }
+//
+// Rules only ever ran at import time, so a rule added today never reached the
+// rows that motivated writing it. On Sept 18 2026 the rule count went 60 -> 122
+// in one review and 396 already-imported rows were sitting uncategorized that
+// the new rules would have caught. This applies the current rule set to rows
+// that are already in the table.
+//
+// Defaults to a DRY RUN. Nothing is written unless dry_run is explicitly false.
+//
+// Only touches `transactions`, which is a categorization staging area and does
+// NOT feed the P&L (that reads journal_lines). So this cannot move a reported
+// number. It also skips status='excluded' rows, which are Plaid's superseded
+// pending duplicates, and by default skips rows that already have a GL so a
+// human's manual choice is never overwritten.
+// ---------------------------------------------------------------------------
+router.post('/transactions/recategorize', async (req, res) => {
+  const dryRun = req.body?.dry_run !== false;
+  const includeCategorized = req.body?.include_categorized === true;
+  const limit = Math.min(Number(req.body?.limit) || 5000, 20000);
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT t.id, t.merchant_name, t.description, t.amount, t.category_gl_id
+         FROM transactions t
+         JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
+        WHERE t.status <> 'excluded'
+          AND pa.is_active = TRUE
+          ${includeCategorized ? '' : 'AND t.category_gl_id IS NULL'}
+        ORDER BY t.txn_date
+        LIMIT $1`,
+      [limit]
+    );
+
+    let matched = 0, unmatched = 0, changed = 0;
+    const byAccount = {};
+    if (!dryRun) await client.query('BEGIN');
+    for (const r of rows) {
+      // categorize() expects a Plaid-shaped txn: merchant_name + name
+      const { gl_id, source } = await categorize(client, {
+        merchant_name: r.merchant_name,
+        name: r.description,
+      });
+      if (!gl_id) { unmatched++; continue; }
+      matched++;
+      if (gl_id !== r.category_gl_id) {
+        changed++;
+        if (!dryRun) {
+          await client.query(
+            `UPDATE transactions SET category_gl_id = $1, categorization_source = $2, updated_at = NOW()
+              WHERE id = $3`,
+            [gl_id, `backfill:${source}`, r.id]
+          );
+        }
+      }
+      byAccount[gl_id] = byAccount[gl_id] || { rows: 0, amount: 0 };
+      byAccount[gl_id].rows++;
+      byAccount[gl_id].amount += Number(r.amount);
+    }
+    if (!dryRun) await client.query('COMMIT');
+
+    const ids = Object.keys(byAccount);
+    let summary = [];
+    if (ids.length) {
+      const named = await client.query(
+        `SELECT id, account_number, name FROM accounts WHERE id = ANY($1::int[])`, [ids]
+      );
+      summary = named.rows.map((a) => ({
+        account_number: a.account_number,
+        name: a.name,
+        rows: byAccount[a.id].rows,
+        amount: Number(byAccount[a.id].amount.toFixed(2)),
+      })).sort((x, y) => y.rows - x.rows);
+    }
+
+    res.json({ dry_run: dryRun, examined: rows.length, matched, unmatched, changed, summary });
+  } catch (err) {
+    if (!dryRun) { try { await client.query('ROLLBACK'); } catch (_) {} }
+    console.error('Recategorize error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // GET /api/plaid/items - list connected institutions
