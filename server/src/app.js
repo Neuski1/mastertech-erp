@@ -95,7 +95,6 @@ app.use('/api/square/pos', require('./routes/square-pos')); // POS checkout — 
 app.use('/api/square/terminal', requireAuth, require('./routes/square-terminal'));
 app.use('/api/square/webhook', require('./routes/square-webhook')); // No auth — Square calls directly
 app.use('/api/square', requireAuth, require('./routes/square'));
-app.use('/api/quickbooks', requireAuth, require('./routes/quickbooks'));
 app.use('/api/plaid/webhook', require('./routes/plaid-webhook')); // No auth — Plaid calls webhook directly
 app.use('/api/plaid', requireAuth, require('./routes/plaid'));
 app.use('/api/storage', requireAuth, require('./routes/storage'));

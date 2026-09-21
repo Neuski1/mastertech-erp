@@ -42,7 +42,6 @@ import PartsOnOrder from './pages/PartsOnOrder';
 import PayOnline from './pages/PayOnline';
 import StorageAutopaySetup from './pages/StorageAutopaySetup';
 import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
-import QBStatusDot from './components/QBStatusDot';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -185,7 +184,6 @@ function AppLayout() {
         )}
 
         <div className="header-user-info" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {!isMobile && <span className="qb-dot"><QBStatusDot /></span>}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {!isMobile && (
               <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>

@@ -79,7 +79,6 @@ export default function RecordDetail() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [showPayLinkModal, setShowPayLinkModal] = useState(false);
   const [payLinksRefresh, setPayLinksRefresh] = useState(0);
-  const [qbSyncing, setQbSyncing] = useState(false);
   const [showSignModal, setShowSignModal] = useState(false);
   const [manualPayModal, setManualPayModal] = useState(null); // 'check' | 'cash' | 'zelle' | null
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -222,20 +221,6 @@ export default function RecordDetail() {
       navigate('/records');
     } catch (err) {
       setError(err.message);
-    }
-  };
-
-  const handleQbSync = async () => {
-    if (!window.confirm('Sync this record to QuickBooks?')) return;
-    setQbSyncing(true);
-    setError('');
-    try {
-      await api.qbSyncRecord(id);
-      await fetchRecord();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setQbSyncing(false);
     }
   };
 
@@ -2428,7 +2413,6 @@ const btnSecondary = { padding: '8px 16px', backgroundColor: '#f3f4f6', color: '
 const btnDanger = { padding: '8px 16px', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' };
 const btnSquare = { padding: '8px 16px', backgroundColor: '#006aff', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const btnPayMethod = { padding: '8px 16px', backgroundColor: '#1e3a5f', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
-const btnQbSync = { padding: '8px 16px', backgroundColor: '#2ca01c', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const btnSignoff = { padding: '10px 20px', backgroundColor: '#1e40af', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.875rem', whiteSpace: 'nowrap' };
 const btnPrint = { padding: '8px 16px', backgroundColor: '#4b5563', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
 const btnSchedule = { padding: '8px 16px', backgroundColor: '#0d9488', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' };
