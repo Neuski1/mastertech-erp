@@ -2,7 +2,7 @@
 // requireAuthOrAgentKey — a browser JWT, or one of the two automation keys.
 //
 // There are three keys in this system and they are easy to confuse:
-//   X-Cowork-Key  → MARKETING_AGENT_KEY  Terri and Smile. Marketing routes only.
+//   X-Cowork-Key  → MARKETING_AGENT_KEY  Terri and Smile. Marketing and Partners routes only.
 //   X-Cowork-Key  → COWORK_API_KEY       the ERP agent. Also opens
 //                                        /api/cowork-admin/*, which runs
 //                                        arbitrary SQL. Do not hand this one to

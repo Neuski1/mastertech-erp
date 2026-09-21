@@ -125,7 +125,7 @@ app.use('/api/campaigns', require('./routes/campaigns')); // Unsubscribe is publ
 app.use('/api/marketing-images', requireAuthOrAgentKey, require('./routes/marketingImages'));
 app.use('/api/marketing-calendar', requireAuthOrAgentKey, require('./routes/marketingCalendar'));
 app.use('/api/calendar', require('./routes/calendar')); // OAuth callback is public, rest use requireAuth internally
-app.use('/api/partners', requireAuth, require('./routes/partners'));
+app.use('/api/partners', requireAuthOrAgentKey, require('./routes/partners'));
 // Automated order import (X-Cowork-Key auth, like cowork-admin). Mounted BEFORE
 // the JWT-protected router so /import-parsed uses the agent key; all other
 // /api/purchase-orders/* paths fall through unchanged.
