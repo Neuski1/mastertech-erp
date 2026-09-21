@@ -6,8 +6,6 @@ import BusinessSettings from './BusinessSettings';
 
 export default function Settings() {
   const [searchParams] = useSearchParams();
-  const [qbStatus, setQbStatus] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState(null);
   const [calStatus, setCalStatus] = useState(null);
   const [calLoading, setCalLoading] = useState(true);
@@ -20,12 +18,6 @@ export default function Settings() {
 
   // Check for OAuth callback result in URL
   useEffect(() => {
-    const qb = searchParams.get('qb');
-    if (qb === 'connected') {
-      setActionMsg({ type: 'success', text: 'QuickBooks connected successfully!' });
-    } else if (qb === 'error') {
-      setActionMsg({ type: 'error', text: `QuickBooks connection failed: ${searchParams.get('message') || 'Unknown error'}` });
-    }
     const cal = searchParams.get('calendar');
     if (cal === 'connected') {
       setActionMsg({ type: 'success', text: 'Google Calendar connected successfully!' });
@@ -33,18 +25,6 @@ export default function Settings() {
       setActionMsg({ type: 'error', text: `Google Calendar connection failed: ${searchParams.get('message') || 'Unknown error'}` });
     }
   }, [searchParams]);
-
-  const fetchStatus = useCallback(async () => {
-    setLoading(true);
-    try {
-      const status = await api.qbGetStatus();
-      setQbStatus(status);
-    } catch (err) {
-      setQbStatus({ connected: false, error: err.message });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   const fetchCalStatus = useCallback(async () => {
     setCalLoading(true);
@@ -58,27 +38,7 @@ export default function Settings() {
     }
   }, []);
 
-  useEffect(() => { fetchStatus(); fetchCalStatus(); }, [fetchStatus, fetchCalStatus]);
-
-  const handleConnect = async () => {
-    try {
-      const { authUri } = await api.qbGetAuthUrl();
-      window.location.href = authUri;
-    } catch (err) {
-      setActionMsg({ type: 'error', text: err.message });
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!window.confirm('Disconnect from QuickBooks? You can reconnect later.')) return;
-    try {
-      await api.qbDisconnect();
-      setActionMsg({ type: 'success', text: 'QuickBooks disconnected' });
-      await fetchStatus();
-    } catch (err) {
-      setActionMsg({ type: 'error', text: err.message });
-    }
-  };
+  useEffect(() => { fetchCalStatus(); }, [fetchCalStatus]);
 
   // Fetch all technicians
   const fetchTechnicians = useCallback(async () => {
@@ -123,11 +83,6 @@ export default function Settings() {
     }
   };
 
-  const formatExpiry = (iso) => {
-    if (!iso) return '—';
-    return formatDateTime(iso);
-  };
-
   return (
     <div style={{ maxWidth: '820px' }}>
       <h1 style={{ marginTop: 0, marginBottom: '24px' }}>Settings</h1>
@@ -146,55 +101,6 @@ export default function Settings() {
       {/* Business Settings — rates, fees and customer-facing wording.
           Renders nothing for non-admins. */}
       <BusinessSettings />
-
-      {/* QuickBooks Integration */}
-      <div style={sectionStyle}>
-        <h2 style={sectionTitle}>QuickBooks Online</h2>
-
-        {loading ? (
-          <div style={{ color: '#9ca3af', padding: '20px' }}>Checking connection...</div>
-        ) : qbStatus?.connected ? (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <span style={connectedBadge}>Connected</span>
-              <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>
-                Company ID: {qbStatus.realmId}
-              </span>
-            </div>
-
-            <div style={infoGrid}>
-              <div>
-                <label style={labelStyle}>Environment</label>
-                <div style={{ fontSize: '0.875rem', textTransform: 'capitalize' }}>{qbStatus.environment}</div>
-              </div>
-              <div>
-                <label style={labelStyle}>Token Expires</label>
-                <div style={{ fontSize: '0.875rem', color: qbStatus.isExpired ? '#dc2626' : '#111827' }}>
-                  {qbStatus.isExpired ? 'EXPIRED — ' : ''}{formatExpiry(qbStatus.tokenExpiry)}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '20px' }}>
-              <button onClick={handleDisconnect} style={btnDangerOutline}>
-                Disconnect QuickBooks
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <span style={disconnectedBadge}>Not Connected</span>
-            </div>
-            <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '16px' }}>
-              Connect to QuickBooks Online to automatically sync paid invoices and payments.
-            </p>
-            <button onClick={handleConnect} style={btnQB}>
-              Connect to QuickBooks
-            </button>
-          </div>
-        )}
-      </div>
 
       {/* Google Calendar Integration */}
       <div style={sectionStyle}>
@@ -698,10 +604,6 @@ const disconnectedBadge = {
   display: 'inline-block', padding: '4px 12px', backgroundColor: '#fee2e2',
   color: '#991b1b', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600,
 };
-const btnQB = {
-  padding: '10px 20px', backgroundColor: '#2ca01c', color: '#fff',
-  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
-};
 const btnPrimary = {
   padding: '10px 20px', backgroundColor: '#1e3a5f', color: '#fff',
   border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
@@ -709,10 +611,6 @@ const btnPrimary = {
 const btnDanger = {
   padding: '8px 16px', backgroundColor: '#fee2e2', color: '#dc2626',
   border: '1px solid #fca5a5', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
-};
-const btnDangerOutline = {
-  padding: '8px 16px', backgroundColor: '#fff', color: '#dc2626',
-  border: '1px solid #dc2626', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
 };
 const btnDeactivate = {
   padding: '4px 12px', backgroundColor: '#fff', color: '#dc2626',

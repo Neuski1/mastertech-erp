@@ -296,7 +296,6 @@ export const api = {
   // Estimates
   signEstimate: (recordId, signatureData, approvedLaborIds = [], approvedPartsIds = []) => request(`/estimates/${recordId}/sign`, { method: 'POST', body: JSON.stringify({ signature_data: signatureData, approved_labor_ids: approvedLaborIds, approved_parts_ids: approvedPartsIds }) }),
 
-  // QuickBooks
   // Business Settings (admin only). validate never writes — it returns the
   // old-vs-new diff the confirmation box shows. Only save, with confirm=true,
   // writes anything.
@@ -313,11 +312,6 @@ export const api = {
   getLeadEmailSignature: () => request('/admin/lead-email-signature'),
   updateLeadEmailSignature: (signature) => request('/admin/lead-email-signature', { method: 'POST', body: JSON.stringify({ signature }) }),
   updateReminderSettings: (data) => request('/admin/reminder-settings', { method: 'POST', body: JSON.stringify(data) }),
-
-  qbGetStatus: () => request('/quickbooks/status'),
-  qbGetAuthUrl: () => request('/quickbooks/auth'),
-  qbDisconnect: () => request('/quickbooks/disconnect'),
-  qbSyncRecord: (recordId) => request(`/quickbooks/sync/${recordId}`, { method: 'POST' }),
 
   // Reports
   getTechProfitability: (params = {}) => {
