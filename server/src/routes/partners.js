@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+// Mounted with requireAuthOrAgentKey so Terri can run the partner sweep with
+// MARKETING_AGENT_KEY. Deletes stay human: both are hard deletes.
+const { humansOnly } = require('../middleware/agentAuth');
 
 // Fields a partner record carries beyond the original contact columns.
 // partner_type drives the priority order; next_step and next_step_due are
@@ -217,7 +220,7 @@ router.patch('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/partners/:id — Hard delete partner
 // ---------------------------------------------------------------------------
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', humansOnly, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'DELETE FROM partners WHERE id = $1 RETURNING id, business_name',
@@ -303,7 +306,7 @@ router.post('/:id/activity', logActivity);
 // ---------------------------------------------------------------------------
 // DELETE /api/partners/:id/activities/:actId — Delete an activity entry
 // ---------------------------------------------------------------------------
-router.delete('/:id/activities/:actId', async (req, res) => {
+router.delete('/:id/activities/:actId', humansOnly, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'DELETE FROM partner_activities WHERE id = $1 AND partner_id = $2 RETURNING id',
