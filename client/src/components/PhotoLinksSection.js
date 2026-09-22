@@ -15,7 +15,7 @@ const CATEGORIES = [
 const catMap = {};
 CATEGORIES.forEach(c => { catMap[c.value] = c; });
 
-export default function PhotoLinksSection({ recordId, isEditable }) {
+export default function PhotoLinksSection({ recordId, isEditable, customerEmail }) {
   const [photos, setPhotos] = useState([]);
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [linkForm, setLinkForm] = useState({ category: 'before', label: '', onedrive_url: '' });
@@ -197,7 +197,12 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
             </button>
             {uploadedPhotos.length > 0 && (
               <button
-                onClick={() => setShowEmailForm(!showEmailForm)}
+                onClick={() => {
+                  // Prefill with the customer's email on file each time the form opens.
+                  // Field stays editable for insurance, warranty, etc.
+                  if (!showEmailForm) setEmailTo(customerEmail || '');
+                  setShowEmailForm(!showEmailForm);
+                }}
                 disabled={emailSending}
                 style={{ ...btnGreen, display: 'flex', alignItems: 'center', gap: '6px' }}
               >
@@ -232,9 +237,16 @@ export default function PhotoLinksSection({ recordId, isEditable }) {
               type="text"
               value={emailTo}
               onChange={(e) => setEmailTo(e.target.value)}
-              placeholder="Blank = customer on file. Separate multiple emails with commas (insurance, warranty, etc.)"
-              style={{ ...inputStyle, width: '100%', marginBottom: '8px' }}
+              placeholder="Separate multiple emails with commas (insurance, warranty, etc.)"
+              style={{ ...inputStyle, width: '100%', marginBottom: '4px' }}
             />
+            <div style={{ fontSize: '0.72rem', color: '#6b7280', marginBottom: '8px' }}>
+              {customerEmail
+                ? <>Customer on file: {customerEmail}{emailTo.trim() !== customerEmail && (
+                    <> &middot; <button type="button" onClick={() => setEmailTo(customerEmail)} style={{ background: 'none', border: 'none', padding: 0, color: '#3b82f6', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}>Use customer email</button></>
+                  )}</>
+                : 'No email on file for this customer. Enter one above.'}
+            </div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '4px' }}>
               Recipient name (optional):
             </label>
