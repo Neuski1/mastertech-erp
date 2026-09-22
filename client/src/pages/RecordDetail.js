@@ -1537,7 +1537,7 @@ ${paymentDetailHtml}
       </div>
 
       {/* Photos */}
-      <PhotoLinksSection recordId={record.id} isEditable={isEditable} />
+      <PhotoLinksSection recordId={record.id} isEditable={isEditable} customerEmail={record.email_primary || ''} />
 
       <CommunicationLog customerId={record.customer_id} recordId={record.id} />
     </div>
