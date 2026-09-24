@@ -194,6 +194,18 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/:recordId/photos/download-all', async (req, res) => {
   try {
+    await streamPhotoZip(req.params.recordId, res);
+  } catch (err) {
+    console.error('GET photos/download-all error:', err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
+
+// Shared by the staff route above and the token-protected public route used
+// by the "Download all photos" link in invoice/estimate emails.
+async function streamPhotoZip(recordId, res) {
+  const req = { params: { recordId } };
+  {
     const { rows: photos } = await pool.query(
       `SELECT p.id, p.category, p.label, p.filename, p.content_type,
               p.photo_data, p.onedrive_url,
@@ -253,11 +265,8 @@ router.get('/:recordId/photos/download-all', async (req, res) => {
       );
     }
     await archive.finalize();
-  } catch (err) {
-    console.error('GET photos/download-all error:', err);
-    res.status(500).json({ error: err.message });
   }
-});
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/records/:recordId/photos/:photoId/thumbnail — Serve thumbnail
@@ -462,3 +471,4 @@ router.post('/:recordId/photos/email', requireRole('admin', 'service_writer', 't
 });
 
 module.exports = router;
+module.exports.streamPhotoZip = streamPhotoZip;

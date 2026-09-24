@@ -1275,6 +1275,10 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       const backendBase = process.env.BACKEND_URL
         || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app');
       let html = '<h3 style="color:#1e3a5f;font-size:14px;margin:16px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;">PHOTOS</h3>';
+      const zipToken = recordPhotoToken || r.approval_token || r.payment_token || '';
+      if (photos.some(p => !p.onedrive_url)) {
+        html += `<p style="margin:0 0 8px;font-size:13px;"><a href="${backendBase}/api/public/records/${r.id}/photos/download-all?token=${zipToken}" style="display:inline-block;padding:8px 14px;background:#1e3a5f;color:#ffffff;text-decoration:none;border-radius:4px;font-weight:bold;">Download All Photos (.zip)</a></p>`;
+      }
       for (const [cat, items] of Object.entries(grouped)) {
         html += `<p style="font-weight:bold;font-size:12px;color:#374151;margin:8px 0 4px;">${catLabels[cat] || cat}</p>`;
         // Customer is not logged into the ERP, so photo links must go through
@@ -1569,6 +1573,10 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
         (grouped[c] = grouped[c] || []).push(p);
       });
       photoBlock = '<h3 style="margin:20px 0 8px;color:#1e3a5f;">Photos from the Inspection</h3>';
+      if (photosForEmail.some(p => !p.onedrive_url)) {
+        const zipToken = recordPhotoToken || record.approval_token || token || record.payment_token || '';
+        photoBlock += `<p style="margin:0 0 8px;font-size:13px;"><a href="${backendUrl}/api/public/records/${id}/photos/download-all?token=${zipToken}" style="display:inline-block;padding:8px 14px;background:#1e3a5f;color:#ffffff;text-decoration:none;border-radius:4px;font-weight:bold;">Download All Photos (.zip)</a></p>`;
+      }
       for (const [cat, items] of Object.entries(grouped)) {
         photoBlock += `<p style="font-weight:bold;margin:10px 0 4px;color:#374151;font-size:13px;">${cat}</p>`;
         photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
