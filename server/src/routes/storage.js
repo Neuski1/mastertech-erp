@@ -1672,7 +1672,7 @@ function buildRateNoticeHtml(n) {
 
     <p style="margin:0 0 14px;">Nothing else changes. Same space, same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.</p>
 
-    <p style="margin:0 0 14px;">If this creates a problem for you, please call me. I would rather talk it through than have you find out on an invoice.</p>
+    <p style="margin:0 0 14px;">If you have any questions, give us a call at (303) 557-2214.</p>
 
     <p style="margin:0 0 4px;">Thanks for storing with us.</p>
     <p style="margin:0 0 2px;">Carol Neu</p>
@@ -1699,7 +1699,7 @@ ${autopayLine}
 
 Nothing else changes. Same space, same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.
 
-If this creates a problem for you, please call me. I would rather talk it through than have you find out on an invoice.
+If you have any questions, give us a call at (303) 557-2214.
 
 Thanks for storing with us.
 
