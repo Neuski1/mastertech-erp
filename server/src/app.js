@@ -280,6 +280,11 @@ const pool = require('./db/pool');
     // Migration 024: estimate approval + photos
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS approval_token UUID DEFAULT gen_random_uuid()');
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS approval_token_expires_at TIMESTAMPTZ');
+    // Permanent per-record token for public photo links in estimate/invoice emails.
+    // approval_token is cleared once an estimate is approved, which broke photo
+    // links on invoices sent afterward. photo_token is never cleared.
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS photo_token UUID DEFAULT gen_random_uuid()');
+    await pool.query('UPDATE records SET photo_token = gen_random_uuid() WHERE photo_token IS NULL');
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS approved_by_customer_at TIMESTAMPTZ');
     await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS approved_by_customer_ip VARCHAR(50)");
     await pool.query(`CREATE TABLE IF NOT EXISTS record_photos (

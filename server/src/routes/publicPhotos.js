@@ -20,7 +20,10 @@ async function validateToken(recordId, token) {
   const t = String(token).trim();
   const { rows } = await pool.query(
     `SELECT 1 FROM records
-       WHERE id = $1 AND (approval_token::text = $2 OR payment_token::text = $2)
+       WHERE id = $1 AND (photo_token::text = $2 OR approval_token::text = $2 OR payment_token::text = $2)
+     UNION ALL
+     SELECT 1 FROM online_payments
+       WHERE record_id = $1 AND payment_token::text = $2
      UNION ALL
      SELECT 1 FROM estimate_line_approvals
        WHERE record_id = $1 AND approval_token::text = $2`,
@@ -53,4 +56,15 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
   }
 });
 
+// Returns the record's permanent photo token, creating one if missing.
+async function ensurePhotoToken(recordId) {
+  const { rows } = await pool.query(
+    `UPDATE records SET photo_token = COALESCE(photo_token, gen_random_uuid())
+      WHERE id = $1 RETURNING photo_token`,
+    [recordId]
+  );
+  return rows[0] ? String(rows[0].photo_token) : '';
+}
+
 module.exports = router;
+module.exports.ensurePhotoToken = ensurePhotoToken;

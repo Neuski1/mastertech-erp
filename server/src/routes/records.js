@@ -39,6 +39,7 @@ function ccFeeText() {
 }
 const { requireRole } = require('../middleware/auth');
 const { sendEmail } = require('../services/email');
+const { ensurePhotoToken } = require('./publicPhotos');
 const { generateRecordPdf } = require('../services/recordPdf');
 
 // ---------------------------------------------------------------------------
@@ -1118,6 +1119,14 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       }
     }
 
+    // Permanent photo token for the public photo links below. approval_token is
+    // cleared after estimate approval, so invoices can't rely on it.
+    let recordPhotoToken = '';
+    if (photosRes.rows.length > 0) {
+      try { recordPhotoToken = await ensurePhotoToken(r.id); }
+      catch (err) { console.error('Photo token error (non-fatal):', err.message); }
+    }
+
     const methodLabels = { credit_card: 'Card', check: 'Check', cash: 'Cash', zelle: 'Zelle' };
     const payments = payRes.rows;
     const deposit = parseFloat(r.deposit_amount) || 0;
@@ -1271,7 +1280,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         // Customer is not logged into the ERP, so photo links must go through
         // the token-protected public route (the authed route returns
         // "Authentication required" from email clicks).
-        const photoToken = r.approval_token || r.payment_token || '';
+        const photoToken = recordPhotoToken || r.approval_token || r.payment_token || '';
         items.forEach(p => {
           const url = p.onedrive_url
             || `${backendBase}/api/public/records/${r.id}/photos/${p.id}/image?token=${photoToken}`;
@@ -1547,6 +1556,11 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
     // Photo block — inline thumbnails for uploaded photos (using the public
     // image endpoint) and a list of OneDrive links for legacy linked photos.
     let photoBlock = '';
+    let recordPhotoToken = '';
+    if (photosForEmail.length > 0) {
+      try { recordPhotoToken = await ensurePhotoToken(id); }
+      catch (err) { console.error('Photo token error (non-fatal):', err.message); }
+    }
     if (photosForEmail.length > 0) {
       const catLabels = { before: 'Before', during: 'During', after: 'After', damage: 'Damage', other: 'Other' };
       const grouped = {};
@@ -1560,7 +1574,7 @@ router.post('/:id/send-estimate-approval', requireRole('admin', 'service_writer'
         photoBlock += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">';
         items.forEach(p => {
           // Token-protected public route — customers aren't logged in
-          const photoToken = record.approval_token || token || record.payment_token || '';
+          const photoToken = recordPhotoToken || record.approval_token || token || record.payment_token || '';
           const url = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}`;
           const downloadUrl = p.onedrive_url || `${backendUrl}/api/public/records/${id}/photos/${p.id}/image?token=${photoToken}&download=1`;
           photoBlock += `<div style="text-align:center;">
