@@ -1745,7 +1745,10 @@ router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => 
       // out the last day of the month BEFORE the effective date.
       const firstInvoice = new Date(eff.getFullYear(), eff.getMonth(), 0);
       const n = {
-        firstName: r.first_name ? r.first_name.charAt(0) + r.first_name.slice(1).toLowerCase() : 'there',
+        // Title-case every word, so "TIM & JORJA" reads "Tim & Jorja", not "Tim & jorja".
+        firstName: r.first_name
+          ? r.first_name.trim().toLowerCase().replace(/(^|[\s/&-])([a-z])/g, (m, a, b) => a + b.toUpperCase())
+          : 'there',
         spaceLabel: r.space_label || 'your storage space',
         oldRate: usd(r.previous_rate),
         newRate: usd(r.new_rate),
