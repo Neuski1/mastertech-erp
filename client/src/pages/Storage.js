@@ -1410,7 +1410,11 @@ function RateIncreaseModal({ onClose, onApplied }) {
     finally { setSending(false); }
   };
 
-  const sampleHtml = notices && notices.notices ? (notices.notices.find(n => n.html) || {}).html : null;
+  // Click any customer in the list to read the exact letter they will get.
+  const [viewChangeId, setViewChangeId] = useState(null);
+  const viewable = notices && notices.notices ? notices.notices.filter(n => n.html) : [];
+  const viewing = viewable.find(n => n.change_id === viewChangeId) || viewable[0] || null;
+  const sampleHtml = viewing ? viewing.html : null;
 
   return (
     <div style={overlayStyle} onClick={onClose}>
@@ -1541,10 +1545,21 @@ function RateIncreaseModal({ onClose, onApplied }) {
                     : `Sent ${notices.sent} - skipped ${notices.skipped} - failed ${notices.failed}`}
                 </div>
                 <ul style={{ margin: 0, paddingLeft: '18px', color: '#4b5563' }}>
-                  {notices.notices.map(n => (
-                    <li key={n.change_id}>{n.space} - {n.customer}: {money(n.old_rate)} to {money(n.new_rate)} ({n.result})</li>
-                  ))}
+                  {notices.notices.map(n => {
+                    const isViewing = viewing && viewing.change_id === n.change_id;
+                    return (
+                      <li key={n.change_id}
+                        onClick={() => n.html && setViewChangeId(n.change_id)}
+                        style={{ cursor: n.html ? 'pointer' : 'default', fontWeight: isViewing ? 700 : 400,
+                                 color: isViewing ? '#1e3a5f' : undefined, textDecoration: n.html && !isViewing ? 'underline dotted' : 'none' }}>
+                        {n.space} - {n.customer}: {money(n.old_rate)} to {money(n.new_rate)} ({n.result}){isViewing ? ' - showing below' : ''}
+                      </li>
+                    );
+                  })}
                 </ul>
+                {viewable.length > 1 && (
+                  <div style={{ marginTop: '6px', color: '#6b7280' }}>Click any name to see that customer's letter.</div>
+                )}
                 {sampleHtml && (
                   // Inline, not a popup window: popup blockers ate the old
                   // "Open sample letter" button without a trace.
