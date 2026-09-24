@@ -1265,6 +1265,11 @@ pool.query(`
   CREATE INDEX IF NOT EXISTS idx_storage_rate_changes_unnotified
     ON storage_rate_changes(notified_at) WHERE notified_at IS NULL;
 `).then(() => console.log('Migration 063 (storage rate changes) ready'))
+  // Migration 063b - rate_live_at: when the new rate actually replaced
+  // monthly_rate. NULL means scheduled but not live yet. See
+  // services/storageRateChanges.js for the go-live rule.
+  .then(() => pool.query('ALTER TABLE storage_rate_changes ADD COLUMN IF NOT EXISTS rate_live_at TIMESTAMPTZ'))
+  .then(() => require('./services/storageRateChanges').promoteDueRateChanges())
   .catch(err => console.error('Migration 063 error:', err.message));
 
 // Migration 064 — work-order stock pulls move in a trigger, not in routes.

@@ -358,6 +358,9 @@ async function eligibleRows(dbc, year, month, billingIds = null) {
 
 async function runInvoices({ year, month, dryRun = true, billingIds = null } = {}) {
   const p = (year && month) ? { year, month } : nextPeriod();
+  // Scheduled rate increases go live before anything is invoiced.
+  try { await require('../services/storageRateChanges').promoteDueRateChanges(); }
+  catch (e) { console.error('[storageInvoice] rate promote:', e.message); }
   const dbc = await pool.connect();
   let rows, prepaid = [];
   try {
