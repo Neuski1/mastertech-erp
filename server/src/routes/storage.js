@@ -1767,7 +1767,7 @@ router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => 
       }
       if (dryRun) {
         item.result = 'would send';
-        if (out.length === 0) item.html = buildRateNoticeHtml(n); // one sample to eyeball
+        item.html = buildRateNoticeHtml(n); // every letter, so each one can be read before sending
         out.push(item); continue;
       }
 
