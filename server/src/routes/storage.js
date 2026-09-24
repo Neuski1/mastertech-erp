@@ -1666,11 +1666,11 @@ function buildRateNoticeHtml(n) {
 
     <p style="margin:0 0 14px;">${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep of the property.</p>
 
-    <p style="margin:0 0 14px;">Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from <strong>${n.oldRate} to ${n.newRate} per month</strong>. That first shows up on the invoice we send on ${n.firstInvoiceLong}.</p>
+    <p style="margin:0 0 14px;">Starting ${n.effectiveLong}, your ${n.storageKind} storage rate goes from <strong>${n.oldRate} to ${n.newRate} per month</strong>. That first shows up on the invoice we send on ${n.firstInvoiceLong}.</p>
 
     <p style="margin:0 0 14px;">${autopayLine}</p>
 
-    <p style="margin:0 0 14px;">Nothing else changes. Same space, same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.</p>
+    <p style="margin:0 0 14px;">Nothing else changes. Same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.</p>
 
     <p style="margin:0 0 14px;">If you have any questions, give us a call at (303) 557-2214.</p>
 
@@ -1693,11 +1693,11 @@ function buildRateNoticeText(n) {
 
 ${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep of the property.
 
-Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from ${n.oldRate} to ${n.newRate} per month. That first shows up on the invoice we send on ${n.firstInvoiceLong}.
+Starting ${n.effectiveLong}, your ${n.storageKind} storage rate goes from ${n.oldRate} to ${n.newRate} per month. That first shows up on the invoice we send on ${n.firstInvoiceLong}.
 
 ${autopayLine}
 
-Nothing else changes. Same space, same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.
+Nothing else changes. Same secure lot, same pickup and drop-off hours Monday through Friday, 9 to 6. Give us two hours notice by call or text and we will have your rig pulled out and ready to hook up.
 
 If you have any questions, give us a call at (303) 557-2214.
 
@@ -1753,6 +1753,9 @@ router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => 
         firstInvoiceLong: longDate(firstInvoice),
         autopayOn: !!r.autopay_enabled,
         historyLine: rateHistoryLine(r.space_type),
+        // No space numbers in customer letters: storage is not a dedicated
+        // spot, same rule the invoices follow.
+        storageKind: r.space_type === 'indoor' ? 'indoor' : 'outdoor',
         effectiveMonth: MONTH_NAMES[eff.getMonth()],
         firstInvoiceShort: `${MONTH_NAMES[firstInvoice.getMonth()]} ${firstInvoice.getDate()}`,
       };
