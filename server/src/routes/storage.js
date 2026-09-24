@@ -1646,7 +1646,7 @@ function buildRateNoticeHtml(n) {
   const logo = `${process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app'}/logo-mark.png?v=2`;
   const autopayLine = n.autopayOn
     ? `You are on automatic payment, so there is nothing for you to do. Your card on file will simply be charged the new amount.`
-    : `Your next invoice will show the new amount. Nothing else about how you pay changes.`;
+    : `Beginning with your ${n.effectiveMonth} storage invoice, sent ${n.firstInvoiceShort}, you will see the new amount. Nothing else about how you pay changes.`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
@@ -1664,7 +1664,7 @@ function buildRateNoticeHtml(n) {
   <div style="padding:26px 28px;font-size:14px;color:#111;line-height:1.6;">
     <p style="margin:0 0 14px;">Hi ${n.firstName},</p>
 
-    <p style="margin:0 0 14px;">${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep on the yard.</p>
+    <p style="margin:0 0 14px;">${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep of the property.</p>
 
     <p style="margin:0 0 14px;">Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from <strong>${n.oldRate} to ${n.newRate} per month</strong>. That first shows up on the invoice we send on ${n.firstInvoiceLong}.</p>
 
@@ -1688,10 +1688,10 @@ function buildRateNoticeHtml(n) {
 function buildRateNoticeText(n) {
   const autopayLine = n.autopayOn
     ? 'You are on automatic payment, so there is nothing for you to do. Your card on file will simply be charged the new amount.'
-    : 'Your next invoice will show the new amount. Nothing else about how you pay changes.';
+    : `Beginning with your ${n.effectiveMonth} storage invoice, sent ${n.firstInvoiceShort}, you will see the new amount. Nothing else about how you pay changes.`;
   return `Hi ${n.firstName},
 
-${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep on the yard.
+${n.historyLine} Our own costs have not held still in that time. Insurance and property taxes especially, along with utilities and the general upkeep of the property.
 
 Starting ${n.effectiveLong}, your rate for ${n.spaceLabel} goes from ${n.oldRate} to ${n.newRate} per month. That first shows up on the invoice we send on ${n.firstInvoiceLong}.
 
@@ -1753,6 +1753,8 @@ router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => 
         firstInvoiceLong: longDate(firstInvoice),
         autopayOn: !!r.autopay_enabled,
         historyLine: rateHistoryLine(r.space_type),
+        effectiveMonth: MONTH_NAMES[eff.getMonth()],
+        firstInvoiceShort: `${MONTH_NAMES[firstInvoice.getMonth()]} ${firstInvoice.getDate()}`,
       };
       const item = { change_id: r.change_id, billing_id: r.billing_id, customer: [r.first_name, r.last_name].filter(Boolean).join(' '),
                      space: r.space_label, email: r.email_primary || null,
