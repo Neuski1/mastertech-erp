@@ -1720,7 +1720,7 @@ router.post('/rate-increase/notices', requireRole('admin'), async (req, res) => 
     const { rows } = await pool.query(
       `SELECT rc.id AS change_id, rc.storage_billing_id AS billing_id,
               rc.previous_rate::numeric AS previous_rate, rc.new_rate::numeric AS new_rate,
-              rc.effective_date,
+              rc.effective_date::text AS effective_date,
               sb.autopay_enabled,
               ss.label AS space_label, ss.space_type,
               c.id AS customer_id, c.first_name, c.last_name, c.email_primary, c.email_invalid
