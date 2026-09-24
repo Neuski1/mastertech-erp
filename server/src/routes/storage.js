@@ -1460,6 +1460,7 @@ ${personalBlock}
 // nobody gets told twice.
 // ---------------------------------------------------------------------------
 
+const { isDue: isRateChangeDue } = require('../services/storageRateChanges');
 const MONTH_NAMES = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December'];
 const usd = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1481,18 +1482,27 @@ async function rateIncreaseRows(targets) {
             COALESCE(sb.linear_feet, u.linear_feet, ss.linear_feet)::numeric AS linear_feet,
             ss.label, ss.space_type,
             TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer,
-            c.email_primary, c.email_invalid
+            c.email_primary, c.email_invalid,
+            pend.new_rate AS pending_rate, pend.effective_date::text AS pending_effective
        FROM storage_billing sb
        JOIN customers c ON c.id = sb.customer_id
        LEFT JOIN units u ON u.id = sb.unit_id
        LEFT JOIN storage_spaces ss ON ss.id = sb.space_id
+       LEFT JOIN LATERAL (
+         SELECT rc.new_rate, rc.effective_date FROM storage_rate_changes rc
+          WHERE rc.storage_billing_id = sb.id AND rc.rate_live_at IS NULL
+          ORDER BY rc.effective_date DESC, rc.id DESC LIMIT 1
+       ) pend ON TRUE
       WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NULL
       ORDER BY ss.space_type, ss.label`
   );
 
   return rows.map(r => {
     const lf = r.linear_feet != null ? parseFloat(r.linear_feet) : null;
-    const cur = parseFloat(r.current_rate) || 0;
+    // A scheduled-but-not-live increase counts as the current rate here, so a
+    // box already raised for a future date shows "already at rate" and can
+    // never be raised a second time on top of it.
+    const cur = parseFloat(r.pending_rate != null ? r.pending_rate : r.current_rate) || 0;
     const target = r.space_type === 'indoor' ? targets.indoor : targets.outdoor;
     const newRate = (lf != null && target != null) ? Math.round(lf * target * 100) / 100 : cur;
     const curPerFoot = lf ? Math.round((cur / lf) * 100) / 100 : null;
@@ -1574,14 +1584,22 @@ router.post('/rate-increase/apply', requireRole('admin'), async (req, res) => {
     for (const r of chosen) {
       if (r.no_linear_feet) { skipped.push({ ...r, reason: 'no linear feet on file' }); continue; }
       if (r.already_at_rate) { skipped.push({ ...r, reason: 'already at the new rate' }); continue; }
-      await client.query(
-        'UPDATE storage_billing SET monthly_rate = $2::numeric, updated_at = NOW() WHERE id = $1',
-        [r.billing_id, r.new_rate]
-      );
+      // Log the change as SCHEDULED. monthly_rate is not touched here unless
+      // the change is already due; otherwise promoteDueRateChanges() switches
+      // it on the last day of the month before the effective month, which is
+      // the run that bills the effective month. (Sept 24, 2026: writing it
+      // immediately would have billed an 11/1 increase on the 9/30 run.)
+      const live = isRateChangeDue(effective);
+      if (live) {
+        await client.query(
+          'UPDATE storage_billing SET monthly_rate = $2::numeric, updated_at = NOW() WHERE id = $1',
+          [r.billing_id, r.new_rate]
+        );
+      }
       await client.query(
         `INSERT INTO storage_rate_changes
-           (storage_billing_id, previous_rate, new_rate, per_foot_rate, effective_date, applied_by)
-         VALUES ($1, $2, $3, $4, $5::date, $6)`,
+           (storage_billing_id, previous_rate, new_rate, per_foot_rate, effective_date, applied_by, rate_live_at)
+         VALUES ($1, $2, $3, $4, $5::date, $6, ${live ? 'NOW()' : 'NULL'})`,
         [r.billing_id, r.current_rate, r.new_rate, r.target_per_foot, effective, req.user?.id || null]
       );
       applied.push(r);

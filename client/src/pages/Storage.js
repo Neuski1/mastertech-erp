@@ -1334,6 +1334,15 @@ function RateIncreaseModal({ onClose, onApplied }) {
   const [notices, setNotices] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  // Notices that were applied in an earlier session and never sent. Without
+  // this, closing the window after Apply left no way to send them.
+  const [pendingNotices, setPendingNotices] = useState(0);
+
+  useEffect(() => {
+    api.getStorageRateNoticesPending()
+      .then(r => setPendingNotices(r.pending || 0))
+      .catch(() => {});
+  }, []);
 
   const money = (n) => `$${(parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -1503,11 +1512,13 @@ function RateIncreaseModal({ onClose, onApplied }) {
         )}
 
         {/* Step 3 - notices */}
-        {applied && (
+        {(applied || pendingNotices > 0) && (
           <div style={{ marginTop: '16px', padding: '14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px' }}>
             <div style={{ fontWeight: 700, color: '#065f46', marginBottom: '6px' }}>
-              Rates updated: {applied.applied_count} space(s), effective {applied.effective_date}
-              {applied.skipped_count > 0 ? ` - ${applied.skipped_count} skipped` : ''}
+              {applied
+                ? <>Rates scheduled: {applied.applied_count} space(s), effective {applied.effective_date}
+                    {applied.skipped_count > 0 ? ` - ${applied.skipped_count} skipped` : ''}</>
+                : <>{pendingNotices} rate change notice{pendingNotices === 1 ? '' : 's'} waiting to go out</>}
             </div>
             <p style={{ fontSize: '0.82rem', color: '#374151', margin: '0 0 10px' }}>
               No customer has been told yet. Preview the notice first, then send.
@@ -1535,8 +1546,10 @@ function RateIncreaseModal({ onClose, onApplied }) {
                   ))}
                 </ul>
                 {sampleHtml && (
-                  <button onClick={() => { const w = window.open('', '_blank'); if (w) { w.document.write(sampleHtml); w.document.close(); } }}
-                    style={{ ...btnTinyGray, marginTop: '8px' }}>Open sample letter</button>
+                  // Inline, not a popup window: popup blockers ate the old
+                  // "Open sample letter" button without a trace.
+                  <iframe title="Sample rate notice" srcDoc={sampleHtml}
+                    style={{ width: '100%', height: '520px', marginTop: '10px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff' }} />
                 )}
               </div>
             )}

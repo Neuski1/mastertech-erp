@@ -11,6 +11,7 @@ const pool = require('../db/pool');
 const square = require('../services/square');
 const { sendEmail } = require('../services/email');
 const { monthlyCharge } = require('../services/storageProration');
+const { promoteDueRateChanges } = require('../services/storageRateChanges');
 const settings = require('../db/settings');
 
 
@@ -339,6 +340,8 @@ async function runCharges({ year, month, dryRun = false, billingIds = null } = {
     return { error: 'Square not configured', charged: 0 };
   }
   const p = (year && month) ? { year, month } : nextPeriod();
+  // Scheduled rate increases go live before anything is charged.
+  try { await promoteDueRateChanges(); } catch (e) { console.error('[storageAutopay] rate promote:', e.message); }
   const dbc = await pool.connect();
   let billings;
   try { billings = await eligibleBillings(dbc, p.year, p.month, billingIds); }
@@ -403,6 +406,7 @@ function startStorageAutopayCron() {
   // the first five days of a month; retry declines and stalled rows any day.
   cron.schedule('0 6 * * *', async () => {
     try {
+      await promoteDueRateChanges();
       if (isLastDayOfMonth()) await runCharges({});
       else await runCatchUp();
       await runRetries();
