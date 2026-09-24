@@ -56,6 +56,21 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
   }
 });
 
+// GET /api/public/records/:recordId/photos/download-all?token=...
+// Every photo on the work order as one .zip, for the "Download all photos"
+// link in invoice and estimate emails.
+router.get('/:recordId/photos/download-all', async (req, res) => {
+  try {
+    const ok = await validateToken(req.params.recordId, req.query.token);
+    if (!ok) return res.status(403).json({ error: 'This photo link is invalid or expired. Please use the links from your most recent email, or contact Master Tech RV at (303) 557-2214.' });
+    const { streamPhotoZip } = require('./photos');
+    await streamPhotoZip(req.params.recordId, res);
+  } catch (err) {
+    console.error('Public photo zip error:', err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
+
 // Returns the record's permanent photo token, creating one if missing.
 async function ensurePhotoToken(recordId) {
   const { rows } = await pool.query(
