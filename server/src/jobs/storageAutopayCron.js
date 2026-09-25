@@ -59,6 +59,9 @@ async function eligibleBillings(dbc, year, month, billingIds = null) {
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
             sb.autopay_card_id, sb.square_customer_id,
             sb.autopay_card_brand, sb.autopay_card_last4,
+            sb.autopay_bank_auth_token, sb.autopay_bank_auth_amount,
+            sb.autopay_bank_auth_start::text AS autopay_bank_auth_start,
+            sb.autopay_bank_name, sb.autopay_bank_last4, sb.autopay_setup_token,
             sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
             sp.label AS space_label,
             c.first_name, c.last_name, c.email_primary
@@ -67,7 +70,8 @@ async function eligibleBillings(dbc, year, month, billingIds = null) {
        LEFT JOIN customers c ON c.id = sb.customer_id
       WHERE sb.autopay_enabled = TRUE
         AND sb.deleted_at IS NULL
-        AND sb.autopay_card_id IS NOT NULL
+        AND (sb.autopay_card_id IS NOT NULL
+             OR (sb.payment_method = 'ach' AND sb.autopay_bank_auth_token IS NOT NULL))
         AND sb.square_customer_id IS NOT NULL
         AND (sb.billing_end_date IS NULL OR sb.billing_end_date >= $1::date)
         AND (sb.scheduled_move_out IS NULL OR sb.scheduled_move_out >= $1::date)
@@ -97,12 +101,48 @@ async function chargeOne(b, year, month, { dryRun }) {
     return { billing_id: b.billing_id, space: b.space_label, skipped: 'lease does not cover this month' };
   }
   const rent = charge.amount;
-  const fee = chargeFee(b.payment_method, rent);
+
+  // Which source pays this month. An ACH box with a bank authorization that
+  // covers this month is debited from the bank at the ACH fee. Otherwise a card
+  // on file pays at the CARD fee, whatever the box's method says: the fee
+  // follows what Square actually charges, never the dropdown.
+  const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const bankCovers = b.payment_method === 'ach' && b.autopay_bank_auth_token
+    && b.autopay_bank_auth_start && b.autopay_bank_auth_start.slice(0, 10) <= periodStart;
+  const source = bankCovers ? 'bank' : (b.autopay_card_id ? 'card' : null);
+  if (!source) {
+    return { billing_id: b.billing_id, space: b.space_label, skipped: 'bank authorization starts later and no card on file' };
+  }
+  const fee = chargeFee(source === 'bank' ? 'ach' : 'credit_card', rent);
   const amountCents = Math.round((rent + fee) * 100);
   const proratedNote = charge.prorated ? ` prorated ${charge.days}/${charge.daysInMonth} days` : '';
   const label = `${b.space_label || 'Storage'} ${year}-${String(month).padStart(2, '0')}${proratedNote}`;
+
+  // A recurring bank authorization is for one fixed amount. Debiting anything
+  // else is not authorized, so stop and ask the customer to re-authorize.
+  if (source === 'bank') {
+    const authCents = Math.round(parseFloat(b.autopay_bank_auth_amount) * 100);
+    if (authCents !== amountCents) {
+      const why = `Bank authorization is for $${(authCents / 100).toFixed(2)} but ${year}-${String(month).padStart(2, '0')} is $${(amountCents / 100).toFixed(2)}. The customer must re-authorize.`;
+      if (dryRun) return { billing_id: b.billing_id, space: b.space_label, rent, fee, amount: amountCents / 100, source, needs_reauthorization: why };
+      // One notice per month, not one per daily run. The bank-authorize route
+      // clears this row when the customer re-authorizes, so the charge can run.
+      const ins = await pool.query(
+        `INSERT INTO storage_autopay_charges (storage_billing_id, year, month, status, attempts, amount, last_error, last_attempt_at)
+         VALUES ($1, $2, $3, 'failed_final', 0, $4, $5, NOW())
+         ON CONFLICT (storage_billing_id, year, month) DO NOTHING RETURNING id`,
+        [b.billing_id, year, month, amountCents / 100, why]
+      );
+      if (ins.rows.length) {
+        await notifyBankReauth(b, year, month, amountCents / 100, authCents / 100);
+        await notifyOwnerFailure(b, year, month, why, true);
+      }
+      return { billing_id: b.billing_id, space: b.space_label, skipped: why };
+    }
+  }
+
   if (dryRun) {
-    return { billing_id: b.billing_id, space: b.space_label, rent, fee, amount: amountCents / 100,
+    return { billing_id: b.billing_id, space: b.space_label, rent, fee, amount: amountCents / 100, source,
              prorated: charge.prorated, days: charge.days, days_in_month: charge.daysInMonth, would_charge: true };
   }
 
@@ -135,7 +175,8 @@ async function chargeOne(b, year, month, { dryRun }) {
     try {
       const resp = await square.client.payments.create({
         idempotencyKey,
-        sourceId: b.autopay_card_id,
+        // Bank: the reusable recurring BAUTH token, never the BACT id.
+        sourceId: source === 'bank' ? b.autopay_bank_auth_token : b.autopay_card_id,
         customerId: b.square_customer_id,
         amountMoney: { amount: BigInt(amountCents), currency: 'USD' },
         locationId: square.locationId,
@@ -151,7 +192,11 @@ async function chargeOne(b, year, month, { dryRun }) {
       error = e.errors ? e.errors.map(x => x.detail).join('; ') : (e.message || 'charge failed');
     }
 
-    const ok = payment && (payment.status === 'COMPLETED' || payment.status === 'APPROVED');
+    // An ACH debit comes back PENDING and settles over a few business days.
+    // It is recorded as paid now; if the bank later returns it, the Square
+    // webhook calls handleBankPaymentFailure() to reopen the month.
+    const ok = payment && (payment.status === 'COMPLETED' || payment.status === 'APPROVED'
+      || (source === 'bank' && payment.status === 'PENDING'));
     if (ok) {
       // The card has already been charged at this point. Record what we can and
       // never let a bookkeeping error make a completed charge look unpaid, so
@@ -224,7 +269,8 @@ async function chargeOne(b, year, month, { dryRun }) {
       dbc.release();
       // Both notices go out on the first decline. Carol asked not to wait for
       // the 3-day retry to find out, and neither should the customer.
-      await notifyCustomerDecline(b, year, month, error, amountCents / 100, finalFail);
+      if (source === 'bank') await notifyBankDecline(b, year, month, error, amountCents / 100);
+      else await notifyCustomerDecline(b, year, month, error, amountCents / 100, finalFail);
       await notifyOwnerFailure(b, year, month, error, finalFail);
       return { billing_id: b.billing_id, failed: error || 'declined', attempts, final: finalFail };
     }
@@ -317,6 +363,92 @@ async function notifyCustomerDecline(b, year, month, error, amount, finalAttempt
 const MONTH_NAMES = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December'];
 
+// --- ACH bank autopay notices ------------------------------------------------
+function bankEmailShell(inner) {
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;color:#1f2937;line-height:1.5">${inner}
+    <p style="margin-top:22px;color:#6b7280;font-size:0.85rem">Master Tech RV Repair and Storage<br/>6590 E. 49th Ave., Commerce City, CO 80022<br/>(303) 557-2214</p></div>`;
+}
+const bankBtn = (href, text) => href
+  ? `<a href="${href}" style="display:inline-block;padding:12px 22px;margin:6px 0;background:#1e3a5f;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:0.95rem">${text}</a>`
+  : '';
+
+async function bankSetupUrl(b) {
+  try { return await require('./storageInvoiceCron').autopayUrlFor(b.billing_id); }
+  catch (e) { return null; }
+}
+
+// The month's amount no longer matches the fixed amount the customer
+// authorized (usually a rate change). Nothing was debited.
+async function notifyBankReauth(b, year, month, amount, authorized) {
+  if (!b.email_primary) return;
+  const url = await bankSetupUrl(b);
+  const period = `${MONTH_NAMES[month - 1]} ${year}`;
+  const name = b.first_name ? b.first_name.charAt(0) + b.first_name.slice(1).toLowerCase() : 'there';
+  const html = bankEmailShell(`<p>Hi ${name},</p>
+    <p>Your automatic bank payment is set up for <strong>$${authorized.toFixed(2)}</strong> a month, and your ${period} storage comes to <strong>$${amount.toFixed(2)}</strong>. Your bank only lets us debit the amount you approved, so nothing was taken out.</p>
+    <p>It takes about a minute to approve the new amount. Your bank account stays connected.</p>
+    <p>${bankBtn(url, 'Approve the New Amount')}</p>
+    <p>If you have any questions, give us a call at (303) 557-2214.</p>`);
+  const text = `Hi ${name},\n\nYour automatic bank payment is set up for $${authorized.toFixed(2)} a month, and your ${period} storage comes to $${amount.toFixed(2)}. Nothing was taken out.\n\nApprove the new amount: ${url || 'call (303) 557-2214'}\n`;
+  try { await sendEmail({ to: b.email_primary, subject: `Please approve your new ${period} storage amount`, html, text }); }
+  catch (e) { console.error('[storageAutopay] bank reauth email failed:', e.message); }
+}
+
+async function notifyBankDecline(b, year, month, error, amount) {
+  if (!b.email_primary) return;
+  const url = await bankSetupUrl(b);
+  const period = `${MONTH_NAMES[month - 1]} ${year}`;
+  const name = b.first_name ? b.first_name.charAt(0) + b.first_name.slice(1).toLowerCase() : 'there';
+  const acct = b.autopay_bank_last4 ? `${b.autopay_bank_name || 'bank account'} ending ${b.autopay_bank_last4}` : 'bank account on file';
+  const html = bankEmailShell(`<p>Hi ${name},</p>
+    <p>We were not able to debit <strong>$${amount.toFixed(2)}</strong> from your ${acct} for ${period} storage.</p>
+    <p>You can reconnect your bank account here, or give us a call at (303) 557-2214 and we will sort it out.</p>
+    <p>${bankBtn(url, 'Reconnect Bank Account')}</p>`);
+  const text = `Hi ${name},\n\nWe were not able to debit $${amount.toFixed(2)} from your ${acct} for ${period} storage.\nReconnect: ${url || 'call (303) 557-2214'}\n`;
+  try { await sendEmail({ to: b.email_primary, subject: `Your ${period} storage payment did not go through`, html, text }); }
+  catch (e) { console.error('[storageAutopay] bank decline email failed:', e.message); }
+}
+
+// Called by the Square webhook when a payment moves to FAILED or CANCELED.
+// ACH debits are recorded as paid while PENDING, so a later bank return has to
+// reopen the month: charge row failed, month unpaid (unless Carol marked it
+// paid by hand), and both Carol and the customer told.
+async function handleBankPaymentFailure(payment) {
+  const status = payment?.status;
+  if (!payment?.id || !['FAILED', 'CANCELED'].includes(status)) return { handled: false };
+  const { rows } = await pool.query(
+    `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, ac.amount, ac.status
+       FROM storage_autopay_charges ac WHERE ac.square_payment_id = $1`,
+    [payment.id]
+  );
+  if (!rows.length) return { handled: false };
+  const ch = rows[0];
+  if (ch.status === 'failed_final') return { handled: true, already: true };
+  const reason = `Bank debit ${status.toLowerCase()} after it was submitted (Square ${payment.id})`;
+  await pool.query(
+    `UPDATE storage_autopay_charges SET status='failed_final', last_error=$2, updated_at=NOW()
+      WHERE square_payment_id=$1`, [payment.id, reason]
+  );
+  await pool.query(
+    `UPDATE storage_payment_status SET status='unpaid'
+      WHERE storage_billing_id=$1 AND year=$2 AND month=$3 AND source IN ('auto','square')`,
+    [ch.billing_id, ch.year, ch.month]
+  );
+  const { rows: bRows } = await pool.query(
+    `SELECT sb.id AS billing_id, sb.customer_id, sb.monthly_rate, sb.autopay_bank_name, sb.autopay_bank_last4,
+            sp.label AS space_label, c.first_name, c.last_name, c.email_primary
+       FROM storage_billing sb LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+       LEFT JOIN customers c ON c.id = sb.customer_id WHERE sb.id = $1`, [ch.billing_id]
+  );
+  const b = bRows[0];
+  if (b) {
+    await notifyBankDecline(b, ch.year, ch.month, reason, parseFloat(ch.amount));
+    await notifyOwnerFailure(b, ch.year, ch.month, `${reason}. The month is back to unpaid; the storage billing history row still shows the charge and should be corrected.`, true);
+  }
+  console.log(`[storageAutopay] ${reason}; billing ${ch.billing_id} ${ch.year}-${ch.month} reopened`);
+  return { handled: true };
+}
+
 async function notifyOwnerFailure(b, year, month, error, finalFail) {
   const name = [b.first_name, b.last_name].filter(Boolean).join(' ') || `customer ${b.customer_id}`;
   const stage = finalFail ? 'after the retry, no further attempts' : 'first attempt, one retry left';
@@ -365,6 +497,9 @@ async function runRetries() {
       `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
               sb.autopay_card_brand, sb.autopay_card_last4,
+              sb.autopay_bank_auth_token, sb.autopay_bank_auth_amount,
+              sb.autopay_bank_auth_start::text AS autopay_bank_auth_start,
+              sb.autopay_bank_name, sb.autopay_bank_last4, sb.autopay_setup_token,
               c.first_name, c.last_name, c.email_primary, sb.customer_id
          FROM storage_autopay_charges ac
          JOIN storage_billing sb ON sb.id = ac.storage_billing_id
@@ -376,7 +511,9 @@ async function runRetries() {
              OR (ac.status = 'pending' AND ac.created_at <= NOW() - INTERVAL '1 hour')
               )
           AND sb.deleted_at IS NULL
-          AND sb.autopay_enabled = TRUE AND sb.autopay_card_id IS NOT NULL`
+          AND sb.autopay_enabled = TRUE
+          AND (sb.autopay_card_id IS NOT NULL
+               OR (sb.payment_method = 'ach' AND sb.autopay_bank_auth_token IS NOT NULL))`
     );
     due = rows;
   } finally { dbc.release(); }
@@ -417,4 +554,4 @@ function startStorageAutopayCron() {
   console.log('[storageAutopay] Storage autopay cron scheduled (charges last day of month, retries daily)');
 }
 
-module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp };
+module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp, handleBankPaymentFailure };

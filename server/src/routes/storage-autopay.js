@@ -23,6 +23,7 @@ const { sendEmail } = require('../services/email');
 const square = require('../services/square');
 const settings = require('../db/settings');
 const company = require('../db/company');
+const { bankPlan } = require('../services/storageBankAutopay');
 
 // "5th", "1st", "22nd". The late-fee day is owner-editable, so the reminder
 // cannot hardcode the suffix the way it did when the day was always the 5th.
@@ -74,6 +75,18 @@ router.get('/setup/:token', async (req, res) => {
       already_enrolled: !!b.autopay_enabled,
       card_last4: b.autopay_card_last4 || null,
       card_brand: b.autopay_card_brand || null,
+      payment_method: b.payment_method || null,
+      // ACH boxes get the bank flow instead of the card form.
+      bank: b.payment_method === 'ach' ? {
+        connected: !!b.autopay_bank_account_id,
+        bank_account_id: b.autopay_bank_account_id || null,
+        bank_name: b.autopay_bank_name || null,
+        last4: b.autopay_bank_last4 || null,
+        authorized: !!b.autopay_bank_auth_token,
+        auth_amount: b.autopay_bank_auth_amount != null ? parseFloat(b.autopay_bank_auth_amount) : null,
+        auth_start: b.autopay_bank_auth_start ? String(b.autopay_bank_auth_start instanceof Date ? b.autopay_bank_auth_start.toISOString() : b.autopay_bank_auth_start).slice(0, 10) : null,
+        plan: await bankPlan(b.id),
+      } : null,
     });
   } catch (err) {
     console.error('GET storage-autopay/setup error:', err);
@@ -195,6 +208,108 @@ router.post('/setup/:token', express.json(), async (req, res) => {
   }
 });
 
+// --- Public: ACH bank autopay -------------------------------------------------
+// Two steps, both on the same token link:
+//   1) POST /setup/:token/bank            { sourceId: bnon token, holderName }
+//      Plaid (inside Square's SDK) verified the account; store it on file
+//      through the Bank Accounts API and keep only Square's BACT id + bank
+//      name + last 4.
+//   2) POST /setup/:token/bank-authorize  { sourceId: BAUTH token, amount, startDate }
+//      The customer approved a RECURRING_CHARGE for the amount bankPlan()
+//      quoted. Store the reusable BAUTH token, the amount and the start month,
+//      and turn autopay on. Nothing is debited here; the monthly engine does it.
+async function ensureSquareCustomer(b, db = pool) {
+  if (b.square_customer_id) return b.square_customer_id;
+  if (b.cust_square_id) return b.cust_square_id;
+  const cResp = await square.client.customers.create({
+    idempotencyKey: crypto.randomUUID(),
+    givenName: b.first_name || undefined,
+    familyName: b.last_name || undefined,
+    companyName: b.company_name || undefined,
+    emailAddress: b.email_primary || undefined,
+    phoneNumber: b.phone_primary || undefined,
+    referenceId: String(b.customer_id),
+  });
+  const id = cResp.customer.id;
+  await db.query('UPDATE customers SET square_customer_id = $1 WHERE id = $2', [id, b.customer_id]);
+  return id;
+}
+
+const squareErr = (err, fallback) => (err && err.errors ? err.errors.map(e => e.detail).join('; ') : (err && err.message) || fallback);
+
+router.post('/setup/:token/bank', express.json(), async (req, res) => {
+  const { sourceId } = req.body || {};
+  if (!sourceId) return res.status(400).json({ error: 'Missing bank token' });
+  try {
+    const b = await loadBillingByToken(req.params.token);
+    if (!b) return res.status(404).json({ error: 'This autopay link is no longer valid.' });
+    if (b.payment_method !== 'ach') return res.status(409).json({ error: 'This space is not set up for bank payments. Please call us.' });
+
+    const squareCustomerId = await ensureSquareCustomer(b);
+    const resp = await square.client.bankAccounts.createBankAccount({
+      idempotencyKey: crypto.randomUUID(),
+      sourceId,
+      customerId: squareCustomerId,
+    });
+    const acct = (resp && (resp.bankAccount || (resp.data && resp.data.bankAccount))) || {};
+    if (!acct.id) throw new Error('Square did not return a bank account');
+
+    await pool.query(
+      `UPDATE storage_billing
+          SET square_customer_id = $1, autopay_bank_account_id = $2, autopay_bank_name = $3,
+              autopay_bank_last4 = $4,
+              -- a new account voids any authorization tied to the old one
+              autopay_bank_auth_token = NULL, autopay_bank_auth_amount = NULL, autopay_bank_auth_start = NULL
+        WHERE id = $5`,
+      [squareCustomerId, acct.id, acct.bankName || null, acct.accountNumberSuffix || null, b.id]
+    );
+    res.json({ ok: true, bank_account_id: acct.id, bank_name: acct.bankName || null,
+               last4: acct.accountNumberSuffix || null, status: acct.status || null,
+               plan: await bankPlan(b.id) });
+  } catch (err) {
+    const detail = squareErr(err, 'Bank account could not be saved');
+    console.error('POST storage-autopay/setup/bank error:', detail);
+    res.status(502).json({ error: `Could not connect the bank account: ${detail}` });
+  }
+});
+
+router.post('/setup/:token/bank-authorize', express.json(), async (req, res) => {
+  const { sourceId, amount, startDate } = req.body || {};
+  if (!sourceId) return res.status(400).json({ error: 'Missing authorization token' });
+  try {
+    const b = await loadBillingByToken(req.params.token);
+    if (!b) return res.status(404).json({ error: 'This autopay link is no longer valid.' });
+    if (b.payment_method !== 'ach' || !b.autopay_bank_account_id) {
+      return res.status(409).json({ error: 'Connect a bank account first.' });
+    }
+    // The amount the customer approved must be the amount we will debit.
+    const plan = await bankPlan(b.id);
+    if (!plan || Math.round(parseFloat(amount) * 100) !== Math.round(plan.amount * 100)) {
+      return res.status(409).json({ error: 'The amount changed while this page was open. Please reload and approve again.' });
+    }
+    await pool.query(
+      `UPDATE storage_billing
+          SET autopay_bank_auth_token = $1, autopay_bank_auth_amount = $2, autopay_bank_auth_start = $3::date,
+              autopay_bank_authorized_at = NOW(), autopay_bank_authorized_ip = $4, autopay_enabled = TRUE
+        WHERE id = $5`,
+      [sourceId, plan.amount, plan.periodStart, req.ip, b.id]
+    );
+    // A month that was blocked waiting for re-authorization can run again.
+    await pool.query(
+      `DELETE FROM storage_autopay_charges
+        WHERE storage_billing_id = $1 AND status = 'failed_final'
+          AND last_error LIKE 'Bank authorization is for%'`,
+      [b.id]
+    );
+    res.json({ ok: true, amount: plan.amount, month_label: plan.monthLabel, charge_date: plan.chargeDate,
+               bank_name: b.autopay_bank_name, last4: b.autopay_bank_last4 });
+  } catch (err) {
+    const detail = squareErr(err, 'Authorization could not be saved');
+    console.error('POST storage-autopay/setup/bank-authorize error:', detail);
+    res.status(500).json({ error: detail });
+  }
+});
+
 // --- Staff: create/return the autopay setup link for a billing ------------
 router.post('/:billingId/link', requireAuth, requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
@@ -228,7 +343,8 @@ router.delete('/:billingId', requireAuth, requireRole('admin', 'service_writer',
     await pool.query(
       `UPDATE storage_billing
           SET autopay_enabled = FALSE, autopay_card_id = NULL, autopay_card_brand = NULL,
-              autopay_card_last4 = NULL, autopay_card_exp = NULL, autopay_authorized_at = NULL
+              autopay_card_last4 = NULL, autopay_card_exp = NULL, autopay_authorized_at = NULL,
+              autopay_bank_auth_token = NULL, autopay_bank_auth_amount = NULL, autopay_bank_auth_start = NULL
         WHERE id = $1`,
       [req.params.billingId]
     );

@@ -2169,6 +2169,13 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
             {/* Storage autopay (card on file, auto-charged monthly by Square) */}
             <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
               <label style={{ ...labelStyle, color: '#065f46' }}>Monthly Autopay</label>
+              {space.payment_method === 'ach' && (
+                <div style={{ fontSize: '0.8rem', color: space.autopay_bank_authorized ? '#065f46' : '#b45309', marginBottom: '8px' }}>
+                  {space.autopay_bank_authorized
+                    ? <>Bank autopay: {space.autopay_bank_name || 'Bank'}{space.autopay_bank_last4 ? ' ending ' + space.autopay_bank_last4 : ''}, ${parseFloat(space.autopay_bank_auth_amount).toFixed(2)}/mo starting {space.autopay_bank_auth_start}.{space.autopay_card_last4 ? ' The card on file only covers months before that.' : ''}</>
+                    : <>Bank autopay not set up yet. The setup link below takes this customer to the bank (ACH) setup, not the card form.{space.autopay_card_last4 ? ' Until then the card on file is charged, at the card fee.' : ''}</>}
+                </div>
+              )}
               {space.autopay_enabled ? (
                 <div style={{ fontSize: '0.85rem', color: '#065f46' }}>
                   <strong>ON</strong> \u2014 {space.autopay_card_brand || 'Card'}{space.autopay_card_last4 ? ' ending ' + space.autopay_card_last4 : ''} on file.

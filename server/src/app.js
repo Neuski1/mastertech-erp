@@ -1272,6 +1272,24 @@ pool.query(`
   .then(() => require('./services/storageRateChanges').promoteDueRateChanges())
   .catch(err => console.error('Migration 063 error:', err.message));
 
+// Migration 067 - ACH bank autopay. A bank account on file (Square BACT id,
+// stored through the Bank Accounts API after Plaid) plus a RECURRING_CHARGE
+// authorization (BAUTH token) for a FIXED monthly amount starting at a given
+// month. The charge engine debits the bank only when the month's amount equals
+// the authorized amount; anything else needs the customer to re-authorize.
+pool.query(`
+  ALTER TABLE storage_billing
+    ADD COLUMN IF NOT EXISTS autopay_bank_account_id TEXT,
+    ADD COLUMN IF NOT EXISTS autopay_bank_name TEXT,
+    ADD COLUMN IF NOT EXISTS autopay_bank_last4 TEXT,
+    ADD COLUMN IF NOT EXISTS autopay_bank_auth_token TEXT,
+    ADD COLUMN IF NOT EXISTS autopay_bank_auth_amount NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS autopay_bank_auth_start DATE,
+    ADD COLUMN IF NOT EXISTS autopay_bank_authorized_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS autopay_bank_authorized_ip TEXT;
+`).then(() => console.log('Migration 067 (ACH bank autopay) ready'))
+  .catch(err => console.error('Migration 067 error:', err.message));
+
 // Migration 064 — work-order stock pulls move in a trigger, not in routes.
 // See server/src/db/partsStockSync.js for why and for the holding rule.
 require('./db/partsStockSync').installPartsStockSync(pool);
