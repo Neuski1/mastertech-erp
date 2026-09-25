@@ -163,6 +163,9 @@ router.get('/', async (req, res) => {
               sb.monthly_rate, sb.billing_start_date, sb.billing_end_date,
               sb.scheduled_move_out,
               sb.autopay_enabled, sb.autopay_card_brand, sb.autopay_card_last4,
+              sb.autopay_bank_name, sb.autopay_bank_last4, sb.autopay_bank_auth_amount,
+              sb.autopay_bank_auth_start::text AS autopay_bank_auth_start,
+              (sb.autopay_bank_auth_token IS NOT NULL) AS autopay_bank_authorized,
               (EXISTS (SELECT 1 FROM customer_documents cd
                        WHERE cd.doc_type = 'storage_contract' AND cd.related_id = sb.id)) AS has_signed_contract,
               sb.due_day, sb.square_customer_id, sb.square_sub_id, sb.payment_method,

@@ -123,6 +123,16 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
   if (event.type === 'payment.created' || event.type === 'payment.updated') {
     const payment = event.data?.object?.payment;
     if (!payment) return;
+    // A storage ACH autopay debit that the bank returned after we recorded it.
+    if (payment.status === 'FAILED' || payment.status === 'CANCELED') {
+      try {
+        const { handleBankPaymentFailure } = require('../jobs/storageAutopayCron');
+        await handleBankPaymentFailure(payment);
+      } catch (err) {
+        console.error('Square webhook bank failure handling error:', err.message);
+      }
+      return;
+    }
     try {
       const { recordSquarePayment, recordStoragePayment } = require('../jobs/squareReconcileCron');
       const result = await recordSquarePayment(payment);
