@@ -554,4 +554,24 @@ function startStorageAutopayCron() {
   console.log('[storageAutopay] Storage autopay cron scheduled (charges last day of month, retries daily)');
 }
 
-module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp, handleBankPaymentFailure };
+// One-time bank debit for a single month, with a one-time CHARGE authorization
+// the customer just approved on the setup page (the month before their
+// recurring authorization starts). Goes through chargeOne() so the amount
+// check, idempotency key, paid marking and billing history are identical to
+// the monthly run. The token is used right away because one-time bank
+// authorizations are short-lived.
+async function chargeBankOnce(billingId, year, month, bauthToken, expectedAmount) {
+  const dbc = await pool.connect();
+  let rows;
+  try { rows = await eligibleBillings(dbc, year, month, [billingId]); }
+  finally { dbc.release(); }
+  if (!rows.length) return { skipped: 'not eligible (already paid, not active, or no autopay)' };
+  const b = { ...rows[0],
+    payment_method: 'ach',
+    autopay_bank_auth_token: bauthToken,
+    autopay_bank_auth_amount: expectedAmount,
+    autopay_bank_auth_start: `${year}-${String(month).padStart(2, '0')}-01` };
+  return chargeOne(b, year, month, { dryRun: false });
+}
+
+module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp, handleBankPaymentFailure, chargeBankOnce };

@@ -69,16 +69,38 @@ async function bankPlan(billingId, db = pool) {
   let guard = 0;
   while (paidKeys.has(k) && guard++ < 24) k++;
 
+  // What one month costs by bank: the latest pending rate effective by then,
+  // else the live rate, prorated by the lease dates, plus the ACH fee.
+  const priceMonth = (yy, mm) => {
+    const start = `${yy}-${pad(mm)}-01`;
+    let r = parseFloat(b.monthly_rate) || 0;
+    for (const p of pend) if (p.eff <= start) r = parseFloat(p.new_rate);
+    const cc = monthlyCharge(r, yy, mm, b.billing_start_date, b.scheduled_move_out || b.billing_end_date);
+    const rt = cc.billable ? cc.amount : r;
+    const f = achFee(rt);
+    return { year: yy, month: mm, periodStart: start, rent: rt, fee: f,
+             amount: Math.round((rt + f) * 100) / 100, prorated: !!cc.prorated, billable: cc.billable,
+             monthLabel: new Date(Date.UTC(yy, mm - 1, 15)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) };
+  };
+
+  // A month that falls BEFORE the recurring authorization starts (next month,
+  // unpaid, while an increase is pending) can be paid by a one-time bank debit
+  // right away, so the customer is off the card immediately.
+  const nextK = monthKey(now.y, now.m) + 1;
+  let bridge = null;
+  if (nextK < k && !paidKeys.has(nextK)) {
+    const nk = fromKey(nextK);
+    const bm = priceMonth(nk.y, nk.m);
+    if (bm.billable) bridge = bm;
+  }
+
   const { y, m } = fromKey(k);
   const monthStart = `${y}-${pad(m)}-01`;
-  // Rate for that month: the latest pending change effective by then, else the live rate.
-  let rate = parseFloat(b.monthly_rate) || 0;
-  for (const p of pend) if (p.eff <= monthStart) rate = parseFloat(p.new_rate);
-
-  const c = monthlyCharge(rate, y, m, b.billing_start_date, b.scheduled_move_out || b.billing_end_date);
-  const rent = c.billable ? c.amount : rate;
-  const fee = achFee(rent);
-  const amount = Math.round((rent + fee) * 100) / 100;
+  const pm = priceMonth(y, m);
+  const c = { prorated: pm.prorated };
+  const rent = pm.rent;
+  const fee = pm.fee;
+  const amount = pm.amount;
 
   // Charged on the last day of the month before; never a date in the past.
   const last = new Date(Date.UTC(y, m - 1, 0));
@@ -91,6 +113,7 @@ async function bankPlan(billingId, db = pool) {
     monthLabel: new Date(Date.UTC(y, m - 1, 15)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
     rent, fee, amount, chargeDate,
     prorated: !!c.prorated,
+    bridge,
   };
 }
 
