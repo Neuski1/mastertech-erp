@@ -224,6 +224,7 @@ function BankAutopay({ token, info, config }) {
   const [error, setError] = useState('');
   const [done, setDone] = useState(null);
   const [changing, setChanging] = useState(false);
+  const [payBridge, setPayBridge] = useState(true);
   const achRef = useRef(null);
 
   const getAch = useCallback(async () => {
@@ -270,9 +271,21 @@ function BankAutopay({ token, info, config }) {
         frequency: { months: 1 },
         startDate: plan.chargeDate,
       });
+      // Optional one-time debit for the month before the recurring one starts.
+      let bridgeToken = null;
+      if (plan.bridge && payBridge) {
+        bridgeToken = await tokenizeAch(ach, {
+          intent: 'CHARGE',
+          bankAccountId: bank.bank_account_id,
+          accountHolderName: holder.trim() || undefined,
+          amount: plan.bridge.amount.toFixed(2),
+          currency: 'USD',
+        });
+      }
       const res = await fetch(`${API_BASE}/storage-autopay/setup/${token}/bank-authorize`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId: bauth, amount: plan.amount, startDate: plan.chargeDate }),
+        body: JSON.stringify({ sourceId: bauth, amount: plan.amount, startDate: plan.chargeDate,
+                               ...(bridgeToken ? { bridgeSourceId: bridgeToken, bridgeAmount: plan.bridge.amount } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not save the approval.');
@@ -302,6 +315,12 @@ function BankAutopay({ token, info, config }) {
         <div style={{ fontSize: 46 }}>&#9989;</div>
         <h2 style={{ color: '#065f46', margin: '8px 0 12px' }}>Bank autopay is set up</h2>
         <p style={{ color: '#374151', fontSize: 14 }}>We will debit {money(done.amount)} from your {acctName} for your storage, starting with {done.month_label}. The first debit is on {longDate(done.charge_date)}.</p>
+        {done.bridge && done.bridge.charged && (
+          <p style={{ color: '#374151', fontSize: 14 }}>Your {done.bridge.month_label} storage of {money(done.bridge.charged)} is paid from the same account. It can take a few business days to show at your bank.</p>
+        )}
+        {done.bridge && done.bridge.error && (
+          <p style={{ color: '#b45309', fontSize: 14 }}>We could not take the one-time payment for next month from your bank, so it will be billed the usual way. Give us a call at (303) 557-2214 if you have questions.</p>
+        )}
         <p style={{ color: '#6b7280', fontSize: 13 }}>If you have any questions, give us a call at (303) 557-2214.</p>
       </div>
     );
@@ -332,6 +351,13 @@ function BankAutopay({ token, info, config }) {
           <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 3 }} />
           <span>I authorize Master Tech RV Repair &amp; Storage to debit {money(plan.amount)} from my {acctName} on the last day of each month for the next month&rsquo;s storage, starting {longDate(plan.chargeDate)}, until I cancel. I can cancel anytime by calling (303) 557-2214.</span>
         </label>
+        {plan.bridge && (
+          <label style={{ display: 'flex', gap: 8, fontSize: 12.5, color: '#374151', marginBottom: 16, cursor: 'pointer', lineHeight: 1.5,
+                          padding: '10px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+            <input type="checkbox" checked={payBridge} onChange={e => setPayBridge(e.target.checked)} style={{ marginTop: 3 }} />
+            <span>Also pay my <strong>{plan.bridge.monthLabel}</strong> storage now from this account: {money(plan.bridge.amount)} (rent {money(plan.bridge.rent)} + bank transfer fee {money(plan.bridge.fee)}), one time.</span>
+          </label>
+        )}
         {errBox}
         {btn(busy === 'approve' ? 'Waiting for approval...' : 'Approve Monthly Debit', approve, !agree || !!busy)}
         <p style={{ textAlign: 'center', marginTop: 12 }}>

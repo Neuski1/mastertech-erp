@@ -301,8 +301,21 @@ router.post('/setup/:token/bank-authorize', express.json(), async (req, res) => 
           AND last_error LIKE 'Bank authorization is for%'`,
       [b.id]
     );
+    // Optional one-time debit for the month before the recurring one starts.
+    let bridgeResult = null;
+    const { bridgeSourceId, bridgeAmount } = req.body || {};
+    if (bridgeSourceId && plan.bridge) {
+      if (Math.round(parseFloat(bridgeAmount) * 100) !== Math.round(plan.bridge.amount * 100)) {
+        bridgeResult = { error: 'amount changed; not charged' };
+      } else {
+        const { chargeBankOnce } = require('../jobs/storageAutopayCron');
+        const r = await chargeBankOnce(b.id, plan.bridge.year, plan.bridge.month, bridgeSourceId, plan.bridge.amount);
+        bridgeResult = r.charged ? { charged: r.charged, month_label: plan.bridge.monthLabel }
+                                 : { error: r.failed || r.skipped || 'not charged' };
+      }
+    }
     res.json({ ok: true, amount: plan.amount, month_label: plan.monthLabel, charge_date: plan.chargeDate,
-               bank_name: b.autopay_bank_name, last4: b.autopay_bank_last4 });
+               bank_name: b.autopay_bank_name, last4: b.autopay_bank_last4, bridge: bridgeResult });
   } catch (err) {
     const detail = squareErr(err, 'Authorization could not be saved');
     console.error('POST storage-autopay/setup/bank-authorize error:', detail);
