@@ -40,6 +40,10 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true
 }));
+// Resend delivery webhook (bounces, spam complaints). Mounted before
+// express.json because the Svix signature covers the raw bytes. No JWT;
+// the signature is the auth. See routes/resendWebhook.js.
+app.use('/api/resend/webhook', express.raw({ type: '*/*', limit: '1mb' }), require('./routes/resendWebhook'));
 app.use(express.json({ limit: '5mb' }));
 
 // Health check endpoint (no auth required)
@@ -1204,6 +1208,25 @@ pool.query(`
   ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS posted_by VARCHAR(80);
 `).then(() => console.log('Migration 060c (campaign posted_url) ready'))
   .catch(err => console.error('Migration 060c error:', err.message));
+
+// Migration 070: Resend delivery events. One row per webhook delivery, keyed
+// on svix-id so a retried delivery is a no-op. Additive only.
+pool.query(`
+  CREATE TABLE IF NOT EXISTS email_events (
+    id SERIAL PRIMARY KEY,
+    svix_id VARCHAR(100) NOT NULL UNIQUE,
+    event_type VARCHAR(40) NOT NULL,
+    email_id VARCHAR(100),
+    recipients TEXT,
+    subject TEXT,
+    bounce_type VARCHAR(40),
+    payload JSONB,
+    outcome JSONB,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(event_type, received_at DESC);
+`).then(() => console.log('Migration 070 (email_events) ready'))
+  .catch(err => console.error('Migration 070 error:', err.message));
 
 // Migration 061: marketing calendar. Twelve rolling months, six behind and six
 // ahead. The ERP is the master; Terri and Smile read and write these rows
