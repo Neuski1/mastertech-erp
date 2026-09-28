@@ -10,7 +10,9 @@
 // which shows the progress bar, every update sent so far, the photos the tech
 // chose to share, and an Approve button when an estimate is waiting.
 //
-// Nothing here is automatic. A person always presses Send. The master switch
+// One text is automatic: Checked In goes out the first time a work order moves
+// into active shop work (autoCheckIn, below; Carol, Sept 28, 2026). Every
+// other update waits for a person to press Send. The master switch
 // `status_texts_enabled` in Business Settings starts OFF so the wording can be
 // approved before the first real customer gets one.
 // ---------------------------------------------------------------------------
@@ -301,6 +303,31 @@ async function logUpdate(r, { type, body, photos, userId, delivery, error, provi
   }
 }
 
+// Statuses that mean the RV is physically in the shop and work is active.
+// Approved (Not Started), Schedule Customer and Scheduled are deliberately
+// absent: the customer has said yes but the RV is not on the lot yet.
+const CHECKIN_STATUSES = ['in_progress', 'order_parts', 'awaiting_parts', 'awaiting_approval'];
+
+// Called by PATCH /api/records/:id/status after the change commits. Sends the
+// Checked In text the first time a work order enters active work, and never
+// again once one has gone out. Returns what happened so the screen can say so.
+async function autoCheckIn(recordId, { from, to, userId }) {
+  if (!CHECKIN_STATUSES.includes(to) || CHECKIN_STATUSES.includes(from)) return null;
+  if (!isEnabled()) return { sent: false, reason: 'switched_off' };
+  if (!settings.bool('status_text_auto_checkin', true)) return { sent: false, reason: 'auto_off' };
+
+  const { rows } = await pool.query(
+    `SELECT 1 FROM record_status_updates
+      WHERE record_id = $1 AND update_type = 'checked_in' AND delivery_status = 'sent' LIMIT 1`,
+    [recordId]
+  );
+  if (rows.length) return { sent: false, reason: 'already_sent' };
+
+  const out = await sendStatusUpdate(recordId, { type: 'checked_in', userId, dryRun: false });
+  if (out.ok) return { sent: true, to: out.to, body: out.body };
+  return { sent: false, reason: 'blocked', error: out.error };
+}
+
 async function listUpdates(recordId) {
   const { rows } = await pool.query(
     `SELECT s.*, u.name AS sent_by_name
@@ -342,6 +369,8 @@ module.exports = {
   composeOptions,
   buildMessage,
   sendStatusUpdate,
+  autoCheckIn,
+  CHECKIN_STATUSES,
   listUpdates,
   statusPageUrl,
   installStatusUpdates,

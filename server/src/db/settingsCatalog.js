@@ -45,7 +45,7 @@ const CATEGORIES = [
   { key: 'help_you_sell', label: 'Help You Sell Defaults', sort: 70,
     blurb: 'Starting values on a new Help You Sell agreement. Each agreement can still be changed individually.' },
   { key: 'status_texts', label: 'Status Texts', sort: 75,
-    blurb: 'The work order updates a technician texts to a customer from the Text Update button. Nothing sends on its own: a person always presses Send. Write {first_name}, {rv}, {wo}, {link} or {note} and the ERP fills them in. Every text ends with "Reply STOP to opt out."' },
+    blurb: 'The work order updates texted to a customer from the Text Update button. Checked In can go out on its own when a work order first moves into active work; everything else waits for a person to press Send. Write {first_name}, {rv}, {wo}, {link} or {note} and the ERP fills them in. Every text ends with "Reply STOP to opt out."' },
   { key: 'automation',   label: 'Automation', sort: 80,
     blurb: 'Switches for the automatic emails and texts the system sends on its own.' },
 ];
@@ -167,6 +167,9 @@ const SETTINGS = [
   { key: 'status_texts_enabled', category: 'status_texts', sort: 10, value_type: 'boolean',
     label: 'Allow status texts to customers', fallback: false,
     help: 'Off: the Text Update button previews but will not send. On: technicians and service writers can text customers from any work order.' },
+  { key: 'status_text_auto_checkin', category: 'status_texts', sort: 15, value_type: 'boolean',
+    label: 'Send Checked In automatically', fallback: true,
+    help: 'Sends the Checked In text on its own the first time a work order moves into In Progress, Order Parts, Awaiting Parts or Awaiting Approval. Never on Not Started or Scheduled, because the RV is not here yet. Only once per work order.' },
   { key: 'status_text_checked_in', category: 'status_texts', sort: 20, value_type: 'longtext',
     label: 'Text: Checked in', fallback: "Hi {first_name}, it's Master Tech RV. Your {rv} is checked in on work order #{wo}. We'll text you as the job moves along. Follow it here: {link}" },
   { key: 'status_text_in_bay', category: 'status_texts', sort: 30, value_type: 'longtext',

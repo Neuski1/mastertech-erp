@@ -83,6 +83,7 @@ function getPage(token) {
   // The seed never overwrites a value, so a rerun against the same database
   // would inherit the switch from last time. Start from OFF.
   await setSetting('status_texts_enabled', 'false');
+  await setSetting('status_text_auto_checkin', 'true');
 
   // Fixtures.
   const cols = async (t) => (await pool.query(
@@ -196,6 +197,35 @@ function getPage(token) {
   await pool.query('UPDATE customers SET sms_opt_out = FALSE, phone_primary = NULL WHERE id = $1', [cust.id]);
   const nophone = await svc.sendStatusUpdate(rec.id, { type: 'complete' });
   check('no phone refused', [nophone.ok, nophone.status], [false, 400]);
+
+  // Automatic Checked In on the first move into active work.
+  await pool.query("UPDATE customers SET phone_primary = '(303) 555-0142' WHERE id = $1", [cust.id]);
+  const { rows: [rec3] } = await pool.query(
+    `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4803,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
+  const before = sent.length;
+  check('estimate -> scheduled sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'scheduled' }), null);
+  check('estimate -> approved (Not Started) sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'approved' }), null);
+  check('schedule_customer sends nothing', await svc.autoCheckIn(rec3.id, { from: 'approved', to: 'schedule_customer' }), null);
+  check('no texts yet', sent.length, before);
+  const first = await svc.autoCheckIn(rec3.id, { from: 'scheduled', to: 'in_progress' });
+  check('scheduled -> in_progress sends Checked In', first.sent, true);
+  truthy('it is the Checked In wording', sent[sent.length - 1].text.startsWith("Hi Gary, it's Master Tech RV. Your 2019 Grand Design Imagine is checked in on work order #4803."));
+  check('moving between active statuses sends nothing', await svc.autoCheckIn(rec3.id, { from: 'in_progress', to: 'awaiting_parts' }), null);
+  const again = await svc.autoCheckIn(rec3.id, { from: 'on_hold', to: 'in_progress' });
+  check('never twice on one work order', again, { sent: false, reason: 'already_sent' });
+  const { rows: [rec4] } = await pool.query(
+    `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4804,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
+  const direct = await svc.autoCheckIn(rec4.id, { from: 'estimate', to: 'in_progress' });
+  check('estimate straight to in_progress sends', direct.sent, true);
+  await setSetting('status_text_auto_checkin', 'false');
+  const { rows: [rec5] } = await pool.query(
+    `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4805,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
+  check('auto switch off stops it', await svc.autoCheckIn(rec5.id, { from: 'estimate', to: 'in_progress' }), { sent: false, reason: 'auto_off' });
+  await setSetting('status_text_auto_checkin', 'true');
+  await setSetting('status_texts_enabled', 'false');
+  check('master switch off stops it', await svc.autoCheckIn(rec5.id, { from: 'estimate', to: 'in_progress' }), { sent: false, reason: 'switched_off' });
+  await setSetting('status_texts_enabled', 'true');
+  await pool.query('UPDATE customers SET phone_primary = NULL WHERE id = $1', [cust.id]);
 
   // History.
   const hist = await svc.listUpdates(rec.id);

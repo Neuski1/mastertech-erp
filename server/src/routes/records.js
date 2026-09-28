@@ -879,7 +879,21 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
     const { rows: updated } = await pool.query(
       'SELECT * FROM records WHERE id = $1', [req.params.id]
     );
-    res.json({ ...updated[0], labor_lines_created: laborLinesCreated });
+
+    // First move into active shop work (the RV is here) sends the Checked In
+    // text on its own, once per work order. Never on Not Started, Schedule
+    // Customer or Scheduled: the RV is not on the lot yet. A text problem never
+    // undoes or fails the status change. See services/statusUpdates.js.
+    let checkinText = null;
+    try {
+      checkinText = await require('../services/statusUpdates')
+        .autoCheckIn(req.params.id, { from: record.status, to: newStatus, userId: req.user?.id });
+    } catch (e) {
+      console.error('[status] auto check-in text failed:', e.message);
+      checkinText = { sent: false, reason: 'error', error: e.message };
+    }
+
+    res.json({ ...updated[0], labor_lines_created: laborLinesCreated, checkin_text: checkinText });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('PATCH /api/records/:id/status error:', err);
