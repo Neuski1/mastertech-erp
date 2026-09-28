@@ -171,6 +171,18 @@ export default function RecordDetail() {
     }
   };
 
+  // The server sends the Checked In text on its own the first time a work
+  // order moves into active work. Say so, or say why it did not go.
+  const reportCheckinText = (result) => {
+    const c = result && result.checkin_text;
+    if (!c) return;
+    if (c.sent) {
+      setSuccessMsg('Checked In text sent to the customer.');
+    } else if (c.reason === 'blocked') {
+      setError(`Status changed, but the Checked In text did not go out: ${c.error || 'unknown reason'}`);
+    }
+  };
+
   const handleAdvanceStatus = async () => {
     const next = NEXT_STATUS[record.status];
     if (!next) return;
@@ -191,6 +203,8 @@ export default function RecordDetail() {
         setSuccessMsg(`${result.labor_lines_created} labor line${result.labor_lines_created > 1 ? 's' : ''} created from job description`);
         setTimeout(() => setSuccessMsg(''), 5000);
       }
+      reportCheckinText(result);
+      setCommLogKey(k => k + 1);
       await fetchRecord();
     } catch (err) {
       // Parse missing_hours_lines from backend error if present
@@ -272,6 +286,8 @@ export default function RecordDetail() {
         setSuccessMsg(`${result.labor_lines_created} labor line${result.labor_lines_created > 1 ? 's' : ''} created from job description`);
         setTimeout(() => setSuccessMsg(''), 5000);
       }
+      reportCheckinText(result);
+      setCommLogKey(k => k + 1);
       await fetchRecord();
     } catch (err) {
       setError(err.message);
