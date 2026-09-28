@@ -156,7 +156,7 @@ function payInstructions(method, autopayOn, brand, last4, failing = false, final
       }
       return autopayOn
         ? 'No action needed. Your bank account on file will be debited automatically on the due date.'
-        : `Use the button above to connect your bank account for automatic monthly payment, or call us at ${company.phone()}.`;
+        : `Use the Pay by Bank button above to pay this invoice from your bank account. Prefer to pay another way? Call us at ${company.phone()}.`;
     case 'zelle':  return `Please send your Zelle payment to ${company.zelleEmail()}.`;
     case 'check':  return `Please mail or drop off your check to ${company.nameAndAddress()}.`;
     case 'cash':   return `Please drop off your payment at the office, ${company.pickupHours()}.`;
@@ -262,8 +262,8 @@ function buildInvoiceHtml(inv) {
       <table style="width:100%;border-collapse:collapse;">
         <tr>
           ${inv.autopayUrl ? `<td style="text-align:center;padding:4px 6px;">
-            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">${inv.bankSetup ? (inv.bankConnected ? 'Pay by Bank' : 'Set Up Bank Payments') : inv.autopayFailing ? 'Update Card on File' : 'Set Up Automatic Payment'}</a>
-            <div style="font-size:11px;color:#475569;margin-top:6px;">${inv.bankSetup ? (inv.bankConnected ? 'One tap from your bank account on file. 1% fee.' : 'Connect your checking account once. 1% fee.') : inv.autopayFailing ? 'Replace the card we have on file. Billed automatically each month.' : 'Save your card once. Billed automatically each month.'}</div>
+            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">${inv.bankSetup ? 'Pay by Bank' : inv.autopayFailing ? 'Update Card on File' : 'Set Up Automatic Payment'}</a>
+            <div style="font-size:11px;color:#475569;margin-top:6px;">${inv.bankSetup ? (inv.bankConnected ? 'Approve with one tap from your bank account on file.' : 'Connect your checking account once, then approve.') : inv.autopayFailing ? 'Replace the card we have on file. Billed automatically each month.' : 'Save your card once. Billed automatically each month.'}</div>
           </td>` : ''}
           ${inv.payUrl ? `<td style="text-align:center;padding:4px 6px;">
             <a href="${inv.payUrl}" style="display:inline-block;padding:13px 20px;background:#fff;color:#1e3a5f;border:2px solid #1e3a5f;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay This Invoice</a>
@@ -480,7 +480,8 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     // A bank-transfer customer with no bank autopay yet gets the enrollment
     // button (bank flow on the same setup page). No card pay link: paying the
     // ACH-fee total by card would short the card fee.
-    if (first.payment_method === 'ach' && !first.bank_authorized && !inv.termEndLabel && !dryRun) {
+    // Also in a dry run, so the preview shows the button (the link only reads a token).
+    if (first.payment_method === 'ach' && !first.bank_authorized && !inv.termEndLabel) {
       inv.autopayUrl = await autopayUrlFor(first.billing_id);
       inv.bankSetup = true; inv.bankConnected = !!first.bank_connected;
     }
@@ -669,7 +670,7 @@ async function sendAdhocInvoice({
     // No autopay enrollment on a lease that ends this month: see the monthly engine.
     if (!inv.termEndLabel) inv.autopayUrl = await autopayUrlFor(id);
   }
-  if (s.payment_method === 'ach' && !s.bank_authorized && !inv.termEndLabel && !dryRun) {
+  if (s.payment_method === 'ach' && !s.bank_authorized && !inv.termEndLabel) {
     inv.autopayUrl = await autopayUrlFor(id);
     inv.bankSetup = true; inv.bankConnected = !!s.bank_connected;
   }

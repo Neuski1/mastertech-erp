@@ -120,9 +120,12 @@ router.get('/record-photos', requireRole('admin', 'service_writer'), async (req,
     let where = 'p.photo_data IS NOT NULL';
     if (q) {
       params.push(`%${q}%`);
-      where += ` AND (r.record_number ILIKE $1 OR c.last_name ILIKE $1 OR c.first_name ILIKE $1
+      // record_number is an integer column and units.year is smallint; ILIKE
+      // only works on text, so cast. Without the cast every search 500'd with
+      // "operator does not exist: integer ~~* unknown".
+      where += ` AND (r.record_number::text ILIKE $1 OR c.last_name ILIKE $1 OR c.first_name ILIKE $1
                  OR c.company_name ILIKE $1 OR r.job_description ILIKE $1
-                 OR u.make ILIKE $1 OR u.model ILIKE $1)`;
+                 OR u.make ILIKE $1 OR u.model ILIKE $1 OR u.year::text ILIKE $1)`;
     }
     const { rows } = await pool.query(
       `SELECT p.id, p.record_id, p.category, p.label, p.filename, p.created_at,

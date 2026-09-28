@@ -1196,6 +1196,15 @@ pool.query(`
 `).then(() => console.log('Migration 060b (campaign hero image + social posts + approval) ready'))
   .catch(err => console.error('Migration 060b error:', err.message));
 
+// Migration 060c: where a social post went live, and who recorded it. The
+// Smile post runner publishes a human-approved piece and records the live URL
+// through mark-posted with the marketing agent key. Additive only.
+pool.query(`
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS posted_url TEXT;
+  ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS posted_by VARCHAR(80);
+`).then(() => console.log('Migration 060c (campaign posted_url) ready'))
+  .catch(err => console.error('Migration 060c error:', err.message));
+
 // Migration 061: marketing calendar. Twelve rolling months, six behind and six
 // ahead. The ERP is the master; Terri and Smile read and write these rows
 // through /api/marketing-calendar instead of a markdown file on OneDrive.
