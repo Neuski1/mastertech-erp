@@ -1102,7 +1102,7 @@ function InlineBoxEditor({ space, canSeeFinancials, onChanged, onOpenFull }) {
           <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: '0.78rem', color: '#374151', marginTop: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!space.billed_by_square}
               onChange={(e) => saveBilling({ billed_by_square: e.target.checked }, 'Square billing')} style={{ marginTop: 2 }} />
-            <span>Billed by a Square recurring invoice (Square bank autopay). The ERP sends no invoice and charges nothing for this space, and marks months paid when Square collects.</span>
+            <span>Billed by a Square recurring invoice (Square bank autopay). The ERP sends no invoice and charges nothing for this space, and marks months paid when Square collects. Put the new series number (the part before -R- on the Square invoice) in Square Series ID above.</span>
           </label>
         </div>
       </div>

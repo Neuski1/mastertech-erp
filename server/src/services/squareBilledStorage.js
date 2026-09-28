@@ -30,29 +30,34 @@ function monthFor(dueDate) {
   return { year: y, month: m };
 }
 
-async function searchPaidInvoices(customerId) {
-  const out = [];
-  let cursor;
-  for (let page = 0; page < 5; page++) {
-    const resp = await square.client.invoices.search({
-      query: { filter: { locationIds: [square.locationId], customerIds: [customerId] },
-               sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' } },
-      limit: 100,
-      ...(cursor ? { cursor } : {}),
-    });
-    const d = resp?.data || resp?.result || resp || {};
-    for (const inv of (d.invoices || [])) out.push(inv);
-    cursor = d.cursor;
-    if (!cursor) break;
+// Every PAID invoice in the location, grouped by recurring series number (the
+// part of the invoice number before '-R-', e.g. 3982-R-0002). Matching on the
+// series the box names, never on the customer alone, keeps a repair invoice
+// for the same customer from ever being counted as storage rent, and works
+// even when the series sits on a different Square customer record than the
+// ERP's (Cohen has two).
+async function paidInvoicesBySeries() {
+  const bySeries = new Map();
+  const page = await square.client.invoices.list({ locationId: square.locationId, limit: 200 });
+  let n = 0;
+  for await (const inv of page) {
+    if (++n > 3000) break;
+    if (inv.status !== 'PAID') continue;
+    const num = String(inv.invoiceNumber || '');
+    const i = num.indexOf('-R-');
+    if (i <= 0) continue;
+    const series = num.slice(0, i).trim();
+    if (!bySeries.has(series)) bySeries.set(series, []);
+    bySeries.get(series).push(inv);
   }
-  return out.filter(inv => inv.status === 'PAID');
+  return bySeries;
 }
 
 async function syncSquareBilledStorage({ dryRun = false } = {}) {
   if (!square.locationId) return { error: 'Square not configured' };
   const { rows: boxes } = await pool.query(
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate,
-            COALESCE(sb.square_customer_id, c.square_customer_id) AS sq_customer,
+            sb.square_sub_id AS series,
             sb.billing_start_date::text AS start_date, sp.label AS space_label
        FROM storage_billing sb
        JOIN customers c ON c.id = sb.customer_id
@@ -60,11 +65,14 @@ async function syncSquareBilledStorage({ dryRun = false } = {}) {
       WHERE sb.billed_by_square = TRUE AND sb.deleted_at IS NULL AND sb.billing_end_date IS NULL`
   );
   const results = [];
+  let bySeries = null;
   for (const b of boxes) {
-    if (!b.sq_customer) { results.push({ billing_id: b.billing_id, skipped: 'no Square customer id' }); continue; }
-    let invoices;
-    try { invoices = await searchPaidInvoices(b.sq_customer); }
-    catch (e) { results.push({ billing_id: b.billing_id, error: e.message }); continue; }
+    if (!b.series) { results.push({ billing_id: b.billing_id, skipped: 'no Square series number on the box' }); continue; }
+    if (!bySeries) {
+      try { bySeries = await paidInvoicesBySeries(); }
+      catch (e) { return { error: e.message, boxes: boxes.length, marked: 0, results }; }
+    }
+    const invoices = bySeries.get(String(b.series).trim()) || [];
     for (const inv of invoices) {
       const pr = (inv.paymentRequests || [])[0] || {};
       const period = monthFor(pr.dueDate);
