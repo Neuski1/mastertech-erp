@@ -1477,12 +1477,14 @@ ${paymentDetailHtml}
                         setEmailPayLinkType(e.target.value);
                         const p = parseFloat(record.parts_subtotal) || 0;
                         const d = parseFloat(record.amount_due) || 0;
-                        setEmailPayLinkAmount(e.target.value === 'parts_deposit' ? (p > 0 ? p.toFixed(2) : '') : (d > 0 ? d.toFixed(2) : ''));
+                        const t = e.target.value;
+                        setEmailPayLinkAmount(t === 'other' ? '' : t === 'parts_deposit' ? (p > 0 ? p.toFixed(2) : '') : (d > 0 ? d.toFixed(2) : ''));
                       }} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem' }}>
                         <option value="parts_deposit">Parts Deposit</option>
                         {['complete', 'payment_pending', 'partial', 'paid'].includes(record.status) && (
                           <option value="final_payment">Final Payment</option>
                         )}
+                        <option value="other">Other (type amount)</option>
                       </select>
                     </div>
                     <div style={{ width: '120px' }}>
@@ -2484,6 +2486,7 @@ function PaymentLinkModal({ recordId, record, onClose }) {
     setPaymentType(t);
     if (t === 'parts_deposit' && suggestedParts > 0) setAmount(suggestedParts.toFixed(2));
     if (t === 'final_payment' && suggestedFinal > 0) setAmount(suggestedFinal.toFixed(2));
+    if (t === 'other') setAmount('');
   };
 
   const handleGenerate = async () => {
@@ -2532,6 +2535,7 @@ function PaymentLinkModal({ recordId, record, onClose }) {
                 {isInvoice && (
                   <TypeOption active={paymentType === 'final_payment'} onClick={() => handleTypeChange('final_payment')} title="Final Payment" desc="Work complete. Moves WO to Paid." />
                 )}
+                <TypeOption active={paymentType === 'other'} onClick={() => handleTypeChange('other')} title="Other" desc="Type any amount. Split bills, partial payments." />
               </div>
             </div>
 
@@ -2545,6 +2549,7 @@ function PaymentLinkModal({ recordId, record, onClose }) {
               <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>
                 {paymentType === 'parts_deposit' && suggestedParts > 0 && `Suggested: $${suggestedParts.toFixed(2)} (parts subtotal)`}
                 {paymentType === 'final_payment' && suggestedFinal > 0 && `Suggested: $${suggestedFinal.toFixed(2)} (amount due)`}
+                {paymentType === 'other' && suggestedFinal > 0 && `Balance due: $${suggestedFinal.toFixed(2)}. Enter any amount up to that.`}
               </div>
             </div>
 
@@ -2579,7 +2584,7 @@ function PaymentLinkModal({ recordId, record, onClose }) {
               </button>
             </div>
             <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: 10, fontSize: '0.8rem', color: '#374151' }}>
-              <div>Type: {link.payment_type === 'parts_deposit' ? 'Parts Deposit' : 'Final Payment'}</div>
+              <div>Type: {link.payment_type === 'parts_deposit' ? 'Parts Deposit' : link.payment_type === 'other' ? 'Other' : 'Final Payment'}</div>
               <div>Amount: ${(parseInt(link.amount_cents) / 100).toFixed(2)}</div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
@@ -2703,7 +2708,7 @@ function OnlinePaymentLinksSection({ recordId, refreshKey }) {
     try { await navigator.clipboard.writeText(`${base}/pay/${token}`); } catch {}
   };
 
-  const typeLabel = (t) => t === 'parts_deposit' ? 'Parts Deposit' : 'Final Payment';
+  const typeLabel = (t) => t === 'parts_deposit' ? 'Parts Deposit' : t === 'other' ? 'Other' : 'Final Payment';
 
   return (
     <div style={{ margin: '12px 0', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>

@@ -6,7 +6,7 @@
 const crypto = require('crypto');
 const pool = require('../db/pool');
 
-const VALID_TYPES = new Set(['parts_deposit', 'final_payment']);
+const VALID_TYPES = new Set(['parts_deposit', 'final_payment', 'other']);
 
 function linkBase(req) {
   // Prefer explicit PAYMENT_LINK_BASE_URL, then FRONTEND_URL, then the request host.
@@ -79,7 +79,9 @@ function buildPayButtonHtml({
   recordNumber,
   customerName,
 }) {
-  const label = paymentTypeLabel === 'Parts Deposit' ? 'Pay Parts Deposit' : 'Pay Invoice';
+  const label = paymentTypeLabel === 'Parts Deposit' ? 'Pay Parts Deposit'
+    : paymentTypeLabel === 'Payment' ? 'Pay Now'
+    : 'Pay Invoice';
   return `
   <div style="margin:24px 0;padding:24px;background:#eff6ff;border:2px solid #bfdbfe;border-radius:8px;text-align:center;">
     <p style="margin:0 0 6px;font-size:13px;color:#1e3a5f;text-transform:uppercase;letter-spacing:1px;font-weight:600;">${paymentTypeLabel}</p>

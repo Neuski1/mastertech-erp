@@ -4,7 +4,7 @@ import { api } from '../api/client';
 const PAYMENT_TYPES = [
   { value: 'final_payment', label: 'Final Payment' },
   { value: 'deposit', label: 'Deposit' },
-  { value: 'partial_payment', label: 'Partial Payment' },
+  { value: 'partial_payment', label: 'Other (type amount)' },
 ];
 
 export default function SquarePayment({ recordId, amountDue, onSuccess, onClose }) {

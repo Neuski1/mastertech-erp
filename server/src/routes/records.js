@@ -1112,7 +1112,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
 
         if (linkType && linkAmountDollars > 0) {
           const cents = Math.round(linkAmountDollars * 100);
-          const typeLabel = linkType === 'parts_deposit' ? 'Parts Deposit' : 'Invoice Payment';
+          const typeLabel = linkType === 'parts_deposit' ? 'Parts Deposit'
+            : linkType === 'other' ? 'Payment'
+            : 'Invoice Payment';
           const link = await getOrCreateLink({
             recordId: r.id,
             paymentType: linkType,

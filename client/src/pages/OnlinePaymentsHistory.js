@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { formatDateTime } from '../utils/dateFormat';
 
-const TYPE_LABELS = { parts_deposit: 'Parts Deposit', final_payment: 'Final Payment' };
+const TYPE_LABELS = { parts_deposit: 'Parts Deposit', final_payment: 'Final Payment', other: 'Other' };
 const STATUS_STYLES = {
   paid: { background: '#d1fae5', color: '#065f46' },
   pending: { background: '#fef3c7', color: '#92400e' },
@@ -95,6 +95,7 @@ export default function OnlinePaymentsHistory() {
             <option value="">All types</option>
             <option value="parts_deposit">Parts Deposit</option>
             <option value="final_payment">Final Payment</option>
+            <option value="other">Other</option>
           </select>
         </div>
         <div>
