@@ -71,6 +71,7 @@ app.use('/api/records/approve', require('./routes/estimate-approval')); // Custo
 app.use('/api/appointments/reschedule', require('./routes/appointmentReschedule')); // Public reschedule-request form from confirmation email
 app.use('/api/estimate-lines/approve', require('./routes/estimate-line-approval')); // Line-level approval from email
 app.use('/api/public/records', require('./routes/publicPhotos')); // Token-protected photo links in customer emails
+app.use('/api/public/status', require('./routes/publicStatus')); // Job status page linked from every status text
 app.use('/api/public/marketing-images', require('./routes/publicMarketingImages')); // Campaign email images — public by design, library only
 
 // Protected API routes — all require authentication
@@ -105,6 +106,7 @@ app.use('/api/estimates', requireAuth, require('./routes/estimates'));
 app.use('/api/marketing', requireAuth, require('./routes/marketing'));
 app.use('/api/vendors', requireAuth, require('./routes/vendors'));
 app.use('/api/records', requireAuth, require('./routes/photos'));
+app.use('/api/records', requireAuth, require('./routes/statusUpdates')); // Text Update button on the work order
 app.use('/api/records', requireAuth, require('./routes/recordDocuments'));
 app.use('/api/parts-sales', requireAuth, require('./routes/partsSales'));
 app.use('/api/reports', requireAuth, require('./routes/reports'));
@@ -1290,6 +1292,13 @@ pool.query(`
     ADD COLUMN IF NOT EXISTS autopay_bank_auth_variable BOOLEAN NOT NULL DEFAULT FALSE;
 `).then(() => console.log('Migration 067 (ACH bank autopay) ready'))
   .catch(err => console.error('Migration 067 error:', err.message));
+
+// Migration 068 - work order status texts. One row per text a technician
+// sends from the Text Update button; drives the customer's status page.
+// See services/statusUpdates.js. Purely additive.
+require('./services/statusUpdates').installStatusUpdates(pool)
+  .then(() => console.log('Migration 068 (status texts) ready'))
+  .catch(err => console.error('Migration 068 error:', err.message));
 
 // Migration 064 — work-order stock pulls move in a trigger, not in routes.
 // See server/src/db/partsStockSync.js for why and for the holding rule.

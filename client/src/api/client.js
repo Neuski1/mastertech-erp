@@ -89,6 +89,9 @@ export const api = {
 
   // Record Photos
   getRecordPhotos: (recordId) => request(`/records/${recordId}/photos`),
+  // Work order status texts (Text Update button)
+  getStatusUpdates: (recordId) => request(`/records/${recordId}/status-updates`),
+  sendStatusUpdate: (recordId, data) => request(`/records/${recordId}/status-updates`, { method: 'POST', body: JSON.stringify(data) }),
   uploadRecordPhotos: (recordId, files) => {
     return new Promise((resolve, reject) => {
       const formData = new FormData();

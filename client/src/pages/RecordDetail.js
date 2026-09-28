@@ -12,6 +12,7 @@ import SquarePayment from '../components/SquarePayment';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
+import StatusTextModal from '../components/StatusTextModal';
 import { BulletDisplay } from '../components/BulletTextarea';
 import useIsMobile from '../utils/useIsMobile';
 import { formatDate, formatDateTime } from '../utils/dateFormat';
@@ -86,6 +87,8 @@ export default function RecordDetail() {
   const [showEstimateEmailModal, setShowEstimateEmailModal] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
+  const [showStatusText, setShowStatusText] = useState(false);
+  const [commLogKey, setCommLogKey] = useState(0);
   const [reminderChannel, setReminderChannel] = useState('both');
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState(null);
@@ -863,7 +866,12 @@ ${paymentDetailHtml}
             </select>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {canEditRecords && !['void', 'filed'].includes(record.status) && (
+            <button onClick={() => setShowStatusText(true)} style={{ padding: '8px 16px', backgroundColor: '#5FD584', color: '#1e3a5f', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>
+              Text Update
+            </button>
+          )}
           {canEditRecords && NEXT_STATUS[record.status] && (
             <button onClick={handleAdvanceStatus} style={btnPrimary}>
               {NEXT_LABEL[record.status] || 'Advance Status'}
@@ -1356,6 +1364,17 @@ ${paymentDetailHtml}
         />
       )}
 
+      {showStatusText && (
+        <StatusTextModal
+          recordId={record.id}
+          onClose={() => setShowStatusText(false)}
+          onSent={(out) => {
+            setSuccessMsg(`Text sent to the customer: "${(out && out.body ? out.body : '').slice(0, 90)}${out && out.body && out.body.length > 90 ? '...' : ''}"`);
+            setCommLogKey(k => k + 1);
+          }}
+        />
+      )}
+
       {/* Send Payment Reminder Modal — choose Email / Text / Both */}
       {showReminderModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
@@ -1539,7 +1558,7 @@ ${paymentDetailHtml}
       {/* Photos */}
       <PhotoLinksSection recordId={record.id} isEditable={isEditable} customerEmail={record.email_primary || ''} />
 
-      <CommunicationLog customerId={record.customer_id} recordId={record.id} />
+      <CommunicationLog key={commLogKey} customerId={record.customer_id} recordId={record.id} />
     </div>
   );
 }
