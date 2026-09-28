@@ -237,7 +237,8 @@ function BankAutopay({ token, info, config }) {
   }, [config]);
 
   const plan = bank.plan;
-  const needsApproval = bank.connected && (!bank.authorized || Math.round((bank.auth_amount || 0) * 100) !== Math.round(plan.amount * 100));
+  const needsApproval = bank.connected && (!bank.authorized
+    || (!bank.auth_variable && Math.round((bank.auth_amount || 0) * 100) !== Math.round(plan.amount * 100)));
 
   const connect = async () => {
     if (!holder.trim()) { setError('Enter the name on the bank account.'); return; }
@@ -262,15 +263,33 @@ function BankAutopay({ token, info, config }) {
     setError(''); setBusy('approve');
     try {
       const ach = await getAch();
-      const bauth = await tokenizeAch(ach, {
-        intent: 'RECURRING_CHARGE',
-        bankAccountId: bank.bank_account_id,
-        accountHolderName: holder.trim() || undefined,
-        amount: plan.amount.toFixed(2),
-        currency: 'USD',
-        frequency: { months: 1 },
-        startDate: plan.chargeDate,
-      });
+      // Square's SDK wants `cadence: 'MONTHLY'` (or a frequency object keyed
+      // days/weekly/monthly/yearly) and a startDate in the future. Ask for a
+      // VARIABLE-amount authorization first, so a rate change or a prorated
+      // month never needs the customer again; if Square will not grant that,
+      // fall back to a fixed amount.
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const startDate = plan.chargeDate > tomorrow ? plan.chargeDate : tomorrow;
+      let bauth, variable = true;
+      try {
+        bauth = await tokenizeAch(ach, {
+          intent: 'RECURRING_CHARGE',
+          bankAccountId: bank.bank_account_id,
+          startDate,
+          cadence: 'MONTHLY',
+          variableAmount: true,
+        });
+      } catch (varErr) {
+        variable = false;
+        bauth = await tokenizeAch(ach, {
+          intent: 'RECURRING_CHARGE',
+          bankAccountId: bank.bank_account_id,
+          startDate,
+          cadence: 'MONTHLY',
+          amount: plan.amount.toFixed(2),
+          currency: 'USD',
+        });
+      }
       // Optional one-time debit for the month before the recurring one starts.
       let bridgeToken = null;
       if (plan.bridge && payBridge) {
@@ -284,7 +303,7 @@ function BankAutopay({ token, info, config }) {
       }
       const res = await fetch(`${API_BASE}/storage-autopay/setup/${token}/bank-authorize`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId: bauth, amount: plan.amount, startDate: plan.chargeDate,
+        body: JSON.stringify({ sourceId: bauth, amount: plan.amount, startDate, variable,
                                ...(bridgeToken ? { bridgeSourceId: bridgeToken, bridgeAmount: plan.bridge.amount } : {}) }),
       });
       const data = await res.json();
@@ -300,7 +319,9 @@ function BankAutopay({ token, info, config }) {
       style={{ width: '100%', padding: 14, background: disabled ? '#9ca3af' : NAVY, color: '#fff', border: 'none', borderRadius: 8,
                fontSize: 15, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer' }}>{label}</button>
   );
-  const acctName = `${bank.bank_name || 'bank account'}${bank.last4 ? ` ending in ${bank.last4}` : ''}`;
+  // Square returns short bank names in title case ("Umb"); those are acronyms.
+  const bankLabel = bank.bank_name ? (bank.bank_name.length <= 4 ? bank.bank_name.toUpperCase() : bank.bank_name) : 'bank account';
+  const acctName = `${bankLabel}${bank.last4 ? ` account ending in ${bank.last4}` : ''}`;
   const summary = (
     <div style={{ padding: '12px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, margin: '0 0 16px', fontSize: 14, color: NAVY, lineHeight: 1.6 }}>
       Starting with your <strong>{plan.monthLabel}</strong> storage<br/>
@@ -349,7 +370,7 @@ function BankAutopay({ token, info, config }) {
         {summary}
         <label style={{ display: 'flex', gap: 8, fontSize: 12.5, color: '#374151', marginBottom: 16, cursor: 'pointer', lineHeight: 1.5 }}>
           <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 3 }} />
-          <span>I authorize Master Tech RV Repair &amp; Storage to debit {money(plan.amount)} from my {acctName} on the last day of each month for the next month&rsquo;s storage, starting {longDate(plan.chargeDate)}, until I cancel. I can cancel anytime by calling (303) 557-2214.</span>
+          <span>I authorize Master Tech RV Repair &amp; Storage to debit my monthly storage charge from my {acctName} on the last day of each month for the next month&rsquo;s storage, starting {longDate(plan.chargeDate)}, until I cancel. At today&rsquo;s rate that is {money(plan.amount)} a month; I will get written notice before any rate change. I can cancel anytime by calling (303) 557-2214.</span>
         </label>
         {plan.bridge && (
           <label style={{ display: 'flex', gap: 8, fontSize: 12.5, color: '#374151', marginBottom: 16, cursor: 'pointer', lineHeight: 1.5,

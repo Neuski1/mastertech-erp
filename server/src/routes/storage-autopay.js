@@ -83,6 +83,7 @@ router.get('/setup/:token', async (req, res) => {
         bank_name: b.autopay_bank_name || null,
         last4: b.autopay_bank_last4 || null,
         authorized: !!b.autopay_bank_auth_token,
+        auth_variable: !!b.autopay_bank_auth_variable,
         auth_amount: b.autopay_bank_auth_amount != null ? parseFloat(b.autopay_bank_auth_amount) : null,
         auth_start: b.autopay_bank_auth_start ? String(b.autopay_bank_auth_start instanceof Date ? b.autopay_bank_auth_start.toISOString() : b.autopay_bank_auth_start).slice(0, 10) : null,
         plan: await bankPlan(b.id),
@@ -290,9 +291,10 @@ router.post('/setup/:token/bank-authorize', express.json(), async (req, res) => 
     await pool.query(
       `UPDATE storage_billing
           SET autopay_bank_auth_token = $1, autopay_bank_auth_amount = $2, autopay_bank_auth_start = $3::date,
-              autopay_bank_authorized_at = NOW(), autopay_bank_authorized_ip = $4, autopay_enabled = TRUE
+              autopay_bank_authorized_at = NOW(), autopay_bank_authorized_ip = $4, autopay_enabled = TRUE,
+              autopay_bank_auth_variable = $6
         WHERE id = $5`,
-      [sourceId, plan.amount, plan.periodStart, req.ip, b.id]
+      [sourceId, plan.amount, plan.periodStart, req.ip, b.id, req.body.variable === true]
     );
     // A month that was blocked waiting for re-authorization can run again.
     await pool.query(
