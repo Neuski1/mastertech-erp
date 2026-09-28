@@ -44,6 +44,8 @@ const CATEGORIES = [
     blurb: 'Pickup window and the after-hours storage fee that prints on the invoice terms.' },
   { key: 'help_you_sell', label: 'Help You Sell Defaults', sort: 70,
     blurb: 'Starting values on a new Help You Sell agreement. Each agreement can still be changed individually.' },
+  { key: 'status_texts', label: 'Status Texts', sort: 75,
+    blurb: 'The work order updates a technician texts to a customer from the Text Update button. Nothing sends on its own: a person always presses Send. Write {first_name}, {rv}, {wo}, {link} or {note} and the ERP fills them in. Every text ends with "Reply STOP to opt out."' },
   { key: 'automation',   label: 'Automation', sort: 80,
     blurb: 'Switches for the automatic emails and texts the system sends on its own.' },
 ];
@@ -157,6 +159,32 @@ const SETTINGS = [
     label: 'Default notice period (days)', fallback: 30, min: 0, max: 365 },
   { key: 'hys_payment_days', category: 'help_you_sell', sort: 40, value_type: 'integer',
     label: 'Default payment window after sale (days)', fallback: 5, min: 0, max: 365 },
+
+  // -- Status texts -------------------------------------------------------
+  // Starts OFF so the wording can be approved before the first customer gets
+  // one. Templates mirror UPDATE_TYPES in services/statusUpdates.js; the
+  // fallbacks there and here must stay identical.
+  { key: 'status_texts_enabled', category: 'status_texts', sort: 10, value_type: 'boolean',
+    label: 'Allow status texts to customers', fallback: false,
+    help: 'Off: the Text Update button previews but will not send. On: technicians and service writers can text customers from any work order.' },
+  { key: 'status_text_checked_in', category: 'status_texts', sort: 20, value_type: 'longtext',
+    label: 'Text: Checked in', fallback: "Hi {first_name}, it's Master Tech RV. Your {rv} is checked in on work order #{wo}. We'll text you as the job moves along. Follow it here: {link}" },
+  { key: 'status_text_in_bay', category: 'status_texts', sort: 30, value_type: 'longtext',
+    label: 'Text: In a service bay', fallback: 'Hi {first_name}, your {rv} just rolled into a service bay at Master Tech RV. {link}' },
+  { key: 'status_text_work_started', category: 'status_texts', sort: 40, value_type: 'longtext',
+    label: 'Text: Work started', fallback: 'Hi {first_name}, our technician has started work on your {rv}. {link}' },
+  { key: 'status_text_needs_approval', category: 'status_texts', sort: 50, value_type: 'longtext',
+    label: 'Text: Needs your approval', fallback: 'Hi {first_name}, we found something on your {rv} that needs your OK before we go further. Photos and the estimate are here: {link}' },
+  { key: 'status_text_parts_ordered', category: 'status_texts', sort: 60, value_type: 'longtext',
+    label: 'Text: Parts ordered', fallback: "Hi {first_name}, parts for your {rv} are on order. {note} We'll text you when they arrive. {link}" },
+  { key: 'status_text_parts_received', category: 'status_texts', sort: 70, value_type: 'longtext',
+    label: 'Text: Parts received', fallback: 'Hi {first_name}, the parts for your {rv} are in and work is back underway. {link}' },
+  { key: 'status_text_delayed', category: 'status_texts', sort: 80, value_type: 'longtext',
+    label: 'Text: Work delayed', fallback: "Hi {first_name}, heads up: your {rv} is taking longer than planned. {note} We'll keep you posted. {link}" },
+  { key: 'status_text_complete', category: 'status_texts', sort: 90, value_type: 'longtext',
+    label: 'Text: Ready for pickup', fallback: 'Hi {first_name}, good news. Your {rv} is done and ready for pickup. Call (303) 557-2214 to set a time. {link}' },
+  { key: 'status_text_custom', category: 'status_texts', sort: 100, value_type: 'longtext',
+    label: 'Text: Custom message', fallback: 'Hi {first_name}, {note} {link}' },
 
   // -- Automation ---------------------------------------------------------
   { key: 'payment_reminders_enabled', category: 'automation', sort: 10, value_type: 'boolean',
