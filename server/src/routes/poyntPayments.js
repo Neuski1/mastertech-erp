@@ -24,7 +24,9 @@ const {
   findTransactionByReference,
 } = require('../services/poynt');
 
-const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
+// 'other' = any amount staff type in (split bills, partial payments). It
+// behaves like a final payment against the balance but never overshoots it.
+const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment', 'other']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // After a final_payment link is paid: close the record only when nothing is
@@ -52,13 +54,40 @@ async function settleFinalPaymentStatus(recordId, client) {
 }
 
 function typeLabel(t) {
-  return t === 'parts_deposit' ? 'Parts Deposit' : 'Invoice Payment';
+  if (t === 'parts_deposit') return 'Parts Deposit';
+  if (t === 'other') return 'Payment';
+  return 'Invoice Payment';
 }
 
 // Map link payment_type to the DB payment_type_type enum value.
-// The enum has 'deposit' but links use 'parts_deposit'; 'final_payment' exists in both.
+// The enum has 'deposit' but links use 'parts_deposit'; 'final_payment' exists in both;
+// an 'other' link records as 'partial_payment'.
 function dbPaymentType(t) {
-  return t === 'parts_deposit' ? 'deposit' : t;
+  if (t === 'parts_deposit') return 'deposit';
+  if (t === 'other') return 'partial_payment';
+  return t;
+}
+
+// Balance-applied link types: final_payment and other. Both are refused if
+// larger than what is still owed, and both can close the work order.
+function isBalanceLink(t) {
+  return t === 'final_payment' || t === 'other';
+}
+
+// After a link is paid, move the WO status. A final payment always settles
+// (paid if zero left, else partial). An 'other' payment only settles a WO
+// that is already an invoice, so a custom amount taken mid-job does not flip
+// an in-progress record to partial.
+async function settleLinkStatus(link, client) {
+  if (link.payment_type === 'final_payment') {
+    return settleFinalPaymentStatus(link.record_id, client);
+  }
+  if (link.payment_type === 'other') {
+    const { rows } = await client.query('SELECT status FROM records WHERE id = $1', [link.record_id]);
+    if (rows[0] && ['complete', 'payment_pending', 'partial', 'paid'].includes(rows[0].status)) {
+      return settleFinalPaymentStatus(link.record_id, client);
+    }
+  }
 }
 
 // =============================================================================
@@ -316,9 +345,7 @@ router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_w
     }
     const { recalculateTotals } = require('../db/calculations');
     await recalculateTotals(link.record_id, client);
-    if (link.payment_type === 'final_payment') {
-      await settleFinalPaymentStatus(link.record_id, client);
-    }
+    await settleLinkStatus(link, client);
     await client.query('COMMIT');
     res.json({ ok: true, duplicate_skipped: duplicateSkipped });
   } catch (err) {
@@ -508,14 +535,7 @@ router.get('/links/:id/terminal-status', requireAuth, async (req, res) => {
     );
     const { recalculateTotals } = require('../db/calculations');
     await recalculateTotals(link.record_id, client);
-    if (link.payment_type === 'final_payment') {
-      await client.query(
-        `UPDATE records SET status = 'paid', payment_pending_since = NULL,
-                            reminder_count = 0, last_reminder_sent_at = NULL
-           WHERE id = $1`,
-        [link.record_id]
-      );
-    }
+    await settleLinkStatus(link, client);
     await client.query('COMMIT');
     res.json({ status: 'paid', settled: true, transactionId: txnId, recordNumber: link.record_number });
   } catch (err) {
@@ -622,7 +642,7 @@ router.post('/:token/charge', async (req, res) => {
     // own link. Once one pays, an older full-balance link must not be able to
     // charge more than is still owed. Parts deposits are exempt (they are
     // taken against an estimate before the balance is final).
-    if (link.payment_type === 'final_payment') {
+    if (isBalanceLink(link.payment_type)) {
       const { rows: balRows } = await client.query(
         'SELECT amount_due FROM records WHERE id = $1', [link.record_id]
       );
@@ -738,9 +758,7 @@ router.post('/:token/charge', async (req, res) => {
     // Only FINAL payments advance WO status, and only to 'paid' once the
     // balance is actually zero. A split payment (two payers, one link each)
     // leaves the record 'partial' until the second half lands.
-    if (link.payment_type === 'final_payment') {
-      await settleFinalPaymentStatus(link.record_id, client);
-    }
+    await settleLinkStatus(link, client);
 
     await client.query('COMMIT');
 
