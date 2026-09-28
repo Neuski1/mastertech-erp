@@ -27,6 +27,30 @@ const {
 const PAYMENT_TYPES = new Set(['parts_deposit', 'final_payment']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// After a final_payment link is paid: close the record only when nothing is
+// left owing; otherwise mark it partial so it stays on the open list and the
+// reminder machinery keeps working. Must run after recalculateTotals.
+async function settleFinalPaymentStatus(recordId, client) {
+  const { rows } = await client.query(
+    'SELECT status, amount_due FROM records WHERE id = $1', [recordId]
+  );
+  if (rows.length === 0 || rows[0].status === 'void') return;
+  const dueCents = Math.round((parseFloat(rows[0].amount_due) || 0) * 100);
+  if (dueCents <= 0) {
+    await client.query(
+      `UPDATE records SET status = 'paid', payment_pending_since = NULL,
+                          reminder_count = 0, last_reminder_sent_at = NULL
+         WHERE id = $1`,
+      [recordId]
+    );
+  } else {
+    await client.query(
+      "UPDATE records SET status = 'partial' WHERE id = $1 AND status <> 'partial'",
+      [recordId]
+    );
+  }
+}
+
 function typeLabel(t) {
   return t === 'parts_deposit' ? 'Parts Deposit' : 'Invoice Payment';
 }
@@ -293,11 +317,7 @@ router.post('/links/:id/mark-paid', requireAuth, requireRole('admin', 'service_w
     const { recalculateTotals } = require('../db/calculations');
     await recalculateTotals(link.record_id, client);
     if (link.payment_type === 'final_payment') {
-      await client.query(
-        `UPDATE records SET status = 'paid', payment_pending_since = NULL, reminder_count = 0, last_reminder_sent_at = NULL
-           WHERE id = $1 AND status <> 'void'`,
-        [link.record_id]
-      );
+      await settleFinalPaymentStatus(link.record_id, client);
     }
     await client.query('COMMIT');
     res.json({ ok: true, duplicate_skipped: duplicateSkipped });
@@ -593,6 +613,29 @@ router.post('/:token/charge', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'This invoice has already been paid.' });
     }
+    if (link.status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This payment link has been cancelled. Please call (303) 557-2214 for an updated link.' });
+    }
+
+    // Split-payment guard: when two people split an invoice, each gets their
+    // own link. Once one pays, an older full-balance link must not be able to
+    // charge more than is still owed. Parts deposits are exempt (they are
+    // taken against an estimate before the balance is final).
+    if (link.payment_type === 'final_payment') {
+      const { rows: balRows } = await client.query(
+        'SELECT amount_due FROM records WHERE id = $1', [link.record_id]
+      );
+      const dueCents = Math.round((parseFloat(balRows[0] && balRows[0].amount_due) || 0) * 100);
+      if (parseInt(link.amount_cents) > dueCents + 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: dueCents > 0
+            ? `The balance on this invoice has changed to $${(dueCents / 100).toFixed(2)}. Your card was not charged. Please call (303) 557-2214 for an updated link.`
+            : 'This invoice has already been paid in full. Your card was not charged.',
+        });
+      }
+    }
 
     // Charge the nonce directly — Poynt Collect nonces go straight to
     // chargeToken with { nonce } (NOT a separate tokenize step, which is
@@ -692,14 +735,11 @@ router.post('/:token/charge', async (req, res) => {
     const { recalculateTotals } = require('../db/calculations');
     await recalculateTotals(link.record_id, client);
 
-    // Only FINAL payments advance WO status
+    // Only FINAL payments advance WO status, and only to 'paid' once the
+    // balance is actually zero. A split payment (two payers, one link each)
+    // leaves the record 'partial' until the second half lands.
     if (link.payment_type === 'final_payment') {
-      await client.query(
-        `UPDATE records SET status = 'paid', payment_pending_since = NULL,
-                            reminder_count = 0, last_reminder_sent_at = NULL
-           WHERE id = $1`,
-        [link.record_id]
-      );
+      await settleFinalPaymentStatus(link.record_id, client);
     }
 
     await client.query('COMMIT');

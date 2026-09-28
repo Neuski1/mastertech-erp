@@ -40,16 +40,20 @@ async function getOrCreateLink({
     throw new Error(`Invalid amountCents: ${amountCents}`);
   }
 
-  // Look for a pending link we can reuse
+  // Look for a pending link we can reuse. The recipient is part of the key:
+  // when two people split an invoice 50/50 the amounts match, and reusing one
+  // token would hand both payers the same link (the second would find it
+  // already paid).
   const { rows: existing } = await client.query(
     `SELECT * FROM online_payments
       WHERE record_id = $1
         AND payment_type = $2
         AND amount_cents = $3
         AND status = 'pending'
+        AND LOWER(COALESCE(customer_email, '')) = LOWER(COALESCE($4, ''))
       ORDER BY created_at DESC
       LIMIT 1`,
-    [recordId, paymentType, amountCents]
+    [recordId, paymentType, amountCents, customerEmail]
   );
   if (existing.length > 0) return existing[0];
 
