@@ -227,6 +227,36 @@ function getPage(token) {
   await setSetting('status_texts_enabled', 'true');
   await pool.query('UPDATE customers SET phone_primary = NULL WHERE id = $1', [cust.id]);
 
+  // Expected completion line.
+  await pool.query("UPDATE customers SET phone_primary = '(303) 555-0142' WHERE id = $1", [cust.id]);
+  check('date format', svc.longCompletionDate('2026-10-03'), 'Saturday, October 3');
+  check('no date: no line, warns', [svc.completionInfo({ expected_completion: null }).line, !!svc.completionInfo({ expected_completion: null }).warning], [null, true]);
+  check('past date: no line, warns', [svc.completionInfo({ expected_completion: '2026-09-01' }, '2026-09-28').line, !!svc.completionInfo({ expected_completion: '2026-09-01' }, '2026-09-28').warning], [null, true]);
+  check('today reads today', svc.completionInfo({ expected_completion: '2026-09-28' }, '2026-09-28').line, 'Expected completion date: today.');
+  check('future date line', svc.completionInfo({ expected_completion: '2030-10-03' }, '2026-09-28').line, 'Expected completion date: Thursday, October 3.');
+  await pool.query("UPDATE records SET expected_completion_date = '2030-10-03' WHERE id = $1", [rec.id]);
+  const o2 = await svc.composeOptions(rec.id);
+  const d = (k) => o2.types.find(t => t.key === k).draft;
+  truthy('work_started draft ends with the date', d('work_started').endsWith('Expected completion date: Thursday, October 3.'));
+  truthy('checked_in draft ends with the date', d('checked_in').endsWith('Expected completion date: Thursday, October 3.'));
+  truthy('parts_ordered draft ends with the date', d('parts_ordered').endsWith('Expected completion date: Thursday, October 3.'));
+  truthy('delayed draft has no date line', !d('delayed').includes('Expected completion'));
+  truthy('ready for pickup has no date line', !d('complete').includes('Expected completion'));
+  check('no warning when date is good', o2.completion.warning, null);
+  const dr = await svc.sendStatusUpdate(rec.id, { type: 'in_bay', dryRun: true });
+  truthy('template send: link, then date, then STOP', /\/api\/public\/status\/\S+ Expected completion date: Thursday, October 3\. Reply STOP to opt out\.$/.test(dr.body));
+  const dd = await svc.sendStatusUpdate(rec.id, { type: 'delayed', note: 'Awning arm backordered to Oct 10.', dryRun: true });
+  truthy('delayed send has no date line', !dd.body.includes('Expected completion'));
+  const pgc = await getPage(String(rec.photo_token));
+  truthy('status page shows expected completion', pgc.html.includes('Expected completion: <b style="color:#1e3a5f">Thursday, October 3</b>'));
+  await pool.query("UPDATE records SET expected_completion_date = '2020-01-01' WHERE id = $1", [rec.id]);
+  const o3 = await svc.composeOptions(rec.id);
+  truthy('past date: draft has no line and a warning', !o3.types.find(t => t.key === 'work_started').draft.includes('Expected completion') && !!o3.completion.warning);
+  const pgp = await getPage(String(rec.photo_token));
+  truthy('status page hides a past date', !pgp.html.includes('Expected completion:'));
+  await pool.query('UPDATE records SET expected_completion_date = NULL WHERE id = $1', [rec.id]);
+  await pool.query('UPDATE customers SET phone_primary = NULL WHERE id = $1', [cust.id]);
+
   // History.
   const hist = await svc.listUpdates(rec.id);
   check('history newest first, all attempts', hist.map(h => h.update_type), ['complete', 'needs_approval', 'needs_approval', 'parts_ordered', 'work_started']);

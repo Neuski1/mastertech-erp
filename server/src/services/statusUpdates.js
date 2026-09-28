@@ -122,12 +122,56 @@ function withStopLine(body) {
   return `${b} ${STOP_LINE}`;
 }
 
+// ---- Expected completion line --------------------------------------------
+// Every text except "Work delayed" and "Ready for pickup" ends with the work
+// order's Expected Completion date, so the customer is never left wondering
+// (Carol, Sept 28). Delayed carries its own new date in the tech's note; Ready
+// for pickup is already done. No date on the work order, or a date already in
+// the past, means no line: a stale promise is worse than none.
+const NO_COMPLETION_LINE = new Set(['delayed', 'complete']);
+const COMPLETION_FALLBACK = 'Expected completion date: {completion_date}.';
+
+function denverToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+}
+
+// "2026-10-03" -> "Friday, October 3". Built at noon UTC and formatted in UTC
+// so no server time zone can shift it a day (the #249 lesson).
+function longCompletionDate(ymd) {
+  return new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric',
+  });
+}
+
+// { date, text, line, warning }: line is null when nothing should be added.
+function completionInfo(r, today = denverToday()) {
+  const date = r.expected_completion || null;
+  if (!date) {
+    return { date: null, text: null, line: null,
+      warning: 'No Expected Completion date on this work order, so the text will not give the customer a date. Set one in the Dates section first.' };
+  }
+  if (date < today) {
+    return { date, text: longCompletionDate(date), line: null,
+      warning: `The Expected Completion date (${longCompletionDate(date)}) is in the past, so it was left off. Update it in the Dates section, or use Work delayed.` };
+  }
+  const text = date === today ? 'today' : longCompletionDate(date);
+  const line = render(settings.str('status_text_completion_line', COMPLETION_FALLBACK), { completion_date: text });
+  return { date, text, line, warning: null };
+}
+
+function withCompletion(body, type, info) {
+  if (NO_COMPLETION_LINE.has(type) || !info.line) return body;
+  if (body.includes(info.line)) return body;
+  return `${String(body).trim()} ${info.line}`;
+}
+
 async function loadRecord(recordId) {
   const { rows } = await pool.query(
     `SELECT r.id, r.record_number, r.status, r.customer_id, r.photo_token,
             c.first_name, c.last_name, c.phone_primary, c.phone_secondary,
             COALESCE(c.sms_opt_out, FALSE) AS sms_opt_out,
-            u.year, u.make, u.model
+            u.year, u.make, u.model,
+            to_char(r.expected_completion_date, 'YYYY-MM-DD') AS expected_completion
        FROM records r
        JOIN customers c ON c.id = r.customer_id
        LEFT JOIN units u ON u.id = r.unit_id
@@ -150,6 +194,7 @@ async function composeOptions(recordId) {
   if (!r) return null;
   const link = statusPageUrl(r.photo_token);
   const baseVars = { first_name: niceFirstName(r.first_name), rv: rvLabel(r), wo: r.record_number, link };
+  const completion = completionInfo(r);
 
   const phone = normalizePhone(r.phone_primary) || normalizePhone(r.phone_secondary);
   const optedOut = r.sms_opt_out || (phone ? await isPhoneOptedOut(phone) : false);
@@ -178,9 +223,13 @@ async function composeOptions(recordId) {
       needs_note: t.needsNote,
       template: templateFor(t.key),
       // Draft with {note} left for the modal to fill as the tech types.
-      draft: render(templateFor(t.key).split('{note}').join('\u0000NOTE\u0000'), baseVars)
-        .split('\u0000NOTE\u0000').join('{note}'),
+      draft: withCompletion(
+        render(templateFor(t.key).split('{note}').join('\u0000NOTE\u0000'), baseVars)
+          .split('\u0000NOTE\u0000').join('{note}'),
+        t.key, completion),
+      adds_completion: !NO_COMPLETION_LINE.has(t.key),
     })),
+    completion: { date: completion.date, text: completion.text, line: completion.line, warning: completion.warning },
   };
 }
 
@@ -201,10 +250,12 @@ async function buildMessage(recordId, { type, note, message }) {
     body = render(templateFor(type), {
       first_name: niceFirstName(r.first_name), rv: rvLabel(r), wo: r.record_number, link, note: cleanNote,
     });
+    body = withCompletion(body, type, completionInfo(r));
   } else {
     body = render(body, { note: cleanNote, link });
   }
-  if (type === 'custom' && !body.replace(link, '').replace(/^Hi \S+,?/i, '').trim()) {
+  const cLine = completionInfo(r).line;
+  if (type === 'custom' && !body.replace(link, '').replace(cLine || '\u0000', '').replace(/^Hi \S+,?/i, '').trim()) {
     return { error: 'Type the message you want to send.', status: 400 };
   }
   return { record: r, body: withStopLine(body), link };
@@ -376,6 +427,8 @@ module.exports = {
   installStatusUpdates,
   // exported for tests
   render,
+  completionInfo,
+  longCompletionDate,
   rvLabel,
   niceFirstName,
   withStopLine,

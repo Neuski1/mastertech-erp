@@ -130,7 +130,8 @@ router.get('/:token', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.approval_token, r.approval_token_expires_at,
-              r.approved_by_customer_at, c.first_name, u.year, u.make, u.model
+              r.approved_by_customer_at, c.first_name, u.year, u.make, u.model,
+              to_char(r.expected_completion_date, 'YYYY-MM-DD') AS expected_completion
          FROM records r
          JOIN customers c ON c.id = r.customer_id
          LEFT JOIN units u ON u.id = r.unit_id
@@ -175,6 +176,13 @@ router.get('/:token', async (req, res) => {
         }).join('')
       : `<p class="sub">No updates yet. We'll text you as soon as work starts.</p>`;
 
+    // Same rule as the texts: no date, or a date already past, shows nothing.
+    const { completionInfo } = require('../services/statusUpdates');
+    const ci = stage < 3 && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? completionInfo(r) : null;
+    const expectedHtml = ci && ci.line
+      ? `<div class="sub" style="margin-top:-12px">Expected completion: <b style="color:#1e3a5f">${esc(ci.text)}</b></div>`
+      : '';
+
     res.set('Cache-Control', 'no-store');
     res.send(page(`Work order #${r.record_number}`, `
       <h1>Your ${esc(rvLabel(r))}</h1>
@@ -182,6 +190,7 @@ router.get('/:token', async (req, res) => {
       <div class="steps">${stepHtml}</div>
       <div class="labels">${labelHtml}</div>
       <div class="now">Right now: ${esc(nowText)}</div>
+      ${expectedHtml}
       ${approveUrl ? `<a class="cta" href="${esc(approveUrl)}">Review and approve the estimate</a>` : ''}
       <h2>Updates</h2>
       ${updatesHtml}
