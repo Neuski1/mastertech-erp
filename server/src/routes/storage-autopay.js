@@ -325,6 +325,34 @@ router.post('/setup/:token/bank-authorize', express.json(), async (req, res) => 
   }
 });
 
+// One-time bank debit for the bridge month, sent AFTER the monthly approval is
+// saved (see the setup page). Only allowed once a bank account and a recurring
+// authorization are on file; chargeBankOnce() refuses a month already paid.
+router.post('/setup/:token/bank-bridge', express.json(), async (req, res) => {
+  const { sourceId, amount } = req.body || {};
+  if (!sourceId) return res.status(400).json({ error: 'Missing authorization token' });
+  try {
+    const b = await loadBillingByToken(req.params.token);
+    if (!b) return res.status(404).json({ error: 'This autopay link is no longer valid.' });
+    if (b.payment_method !== 'ach' || !b.autopay_bank_account_id || !b.autopay_bank_auth_token) {
+      return res.status(409).json({ error: 'Approve the monthly debit first.' });
+    }
+    const plan = await bankPlan(b.id);
+    if (!plan || !plan.bridge) return res.status(409).json({ error: 'Nothing to pay ahead; that month is already covered.' });
+    if (Math.round(parseFloat(amount) * 100) !== Math.round(plan.bridge.amount * 100)) {
+      return res.status(409).json({ error: 'The amount changed. Please reload the page.' });
+    }
+    const { chargeBankOnce } = require('../jobs/storageAutopayCron');
+    const r = await chargeBankOnce(b.id, plan.bridge.year, plan.bridge.month, sourceId, plan.bridge.amount);
+    res.json({ ok: true, bridge: r.charged ? { charged: r.charged, month_label: plan.bridge.monthLabel }
+                                           : { error: r.failed || r.skipped || 'not charged' } });
+  } catch (err) {
+    const detail = squareErr(err, 'One-time payment failed');
+    console.error('POST storage-autopay/setup/bank-bridge error:', detail);
+    res.status(500).json({ error: detail });
+  }
+});
+
 // --- Staff: create/return the autopay setup link for a billing ------------
 router.post('/:billingId/link', requireAuth, requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {

@@ -227,14 +227,20 @@ function BankAutopay({ token, info, config }) {
   const [payBridge, setPayBridge] = useState(true);
   const achRef = useRef(null);
 
+  // A FRESH ach instance for every tokenize. Square's ACH object only clears
+  // its "tokenization in process" flag after the approval window's promise
+  // chain unwinds, which is after it has already handed us the token. Reusing
+  // the instance for the next step (the one-time October debit) failed with
+  // "the tokenization request is already in process". Sept 28, 2026.
   const getAch = useCallback(async () => {
-    if (achRef.current) return achRef.current;
+    try { if (achRef.current) await achRef.current.destroy(); } catch (_) {}
     const Square = await loadSquareSdk(config.environment);
     const payments = Square.payments(config.applicationId, config.locationId);
-    const ach = await payments.ach({ redirectURI: window.location.href, transactionId: `sto-${Date.now()}` });
+    const ach = await payments.ach({ redirectURI: window.location.href, transactionId: `sto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
     achRef.current = ach;
     return ach;
   }, [config]);
+  const settle = () => new Promise(r => setTimeout(r, 1200));
 
   const plan = bank.plan;
   const needsApproval = bank.connected && (!bank.authorized
@@ -281,7 +287,8 @@ function BankAutopay({ token, info, config }) {
         });
       } catch (varErr) {
         variable = false;
-        bauth = await tokenizeAch(ach, {
+        await settle();
+        bauth = await tokenizeAch(await getAch(), {
           intent: 'RECURRING_CHARGE',
           bankAccountId: bank.bank_account_id,
           startDate,
@@ -290,24 +297,35 @@ function BankAutopay({ token, info, config }) {
           currency: 'USD',
         });
       }
-      // Optional one-time debit for the month before the recurring one starts.
-      let bridgeToken = null;
-      if (plan.bridge && payBridge) {
-        bridgeToken = await tokenizeAch(ach, {
-          intent: 'CHARGE',
-          bankAccountId: bank.bank_account_id,
-          accountHolderName: holder.trim() || undefined,
-          amount: plan.bridge.amount.toFixed(2),
-          currency: 'USD',
-        });
-      }
+      // Save the monthly approval FIRST, so a problem with the optional
+      // one-time payment below can never cost the customer their autopay.
       const res = await fetch(`${API_BASE}/storage-autopay/setup/${token}/bank-authorize`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId: bauth, amount: plan.amount, startDate, variable,
-                               ...(bridgeToken ? { bridgeSourceId: bridgeToken, bridgeAmount: plan.bridge.amount } : {}) }),
+        body: JSON.stringify({ sourceId: bauth, amount: plan.amount, startDate, variable }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not save the approval.');
+
+      // Optional one-time debit for the month before the recurring one starts.
+      if (plan.bridge && payBridge) {
+        try {
+          await settle();
+          const bridgeToken = await tokenizeAch(await getAch(), {
+            intent: 'CHARGE',
+            bankAccountId: bank.bank_account_id,
+            amount: plan.bridge.amount.toFixed(2),
+            currency: 'USD',
+          });
+          const r2 = await fetch(`${API_BASE}/storage-autopay/setup/${token}/bank-bridge`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceId: bridgeToken, amount: plan.bridge.amount }),
+          });
+          const d2 = await r2.json();
+          data.bridge = r2.ok ? d2.bridge : { error: d2.error || 'not charged' };
+        } catch (bErr) {
+          data.bridge = { error: bErr.message || 'not charged' };
+        }
+      }
       setDone(data);
     } catch (e) { setError(e.message || 'Could not save the approval.'); }
     finally { setBusy(''); }
