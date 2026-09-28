@@ -9,9 +9,10 @@ const { sendEmail } = require('../services/email');
 //
 // Smile creates and edits campaign DRAFTS with the cowork key so a piece Terri
 // put on the calendar can be built without a human retyping it. Approve,
-// reject, needs-photo, send, mark-posted and delete stay JWT admin only, and
-// send is already blocked until approval_status = 'approved'. A person is
-// always the one who says yes.
+// reject, needs-photo, send and delete stay JWT admin only, and send is
+// already blocked until approval_status = 'approved'. A person is always the
+// one who says yes. mark-posted also takes the agent key, but only for a piece
+// already approved and only with the live posted_url (see that route).
 // ---------------------------------------------------------------------------
 const { requireAuthOrAgentKey } = require('../middleware/agentAuth');
 
@@ -381,15 +382,72 @@ router.post('/:id/needs-photo', requireAuth, requireRole('admin'), async (req, r
 // The ERP does not publish to Facebook, Instagram or YouTube. It drafts the
 // post and holds the picture; a human posts it and marks it here, which is
 // what fills the calendar's response column later.
+//
+// The marketing agent key may call this ONE human-gated endpoint, because it
+// only records that a piece a person already approved went out. It cannot
+// approve anything. For an agent the route requires:
+//   - a posted_url (http or https), the live post, so the record is checkable
+//   - approval_status = 'approved' at the moment of the update (atomic, so a
+//     second call for the same piece gets 409 and nothing double-posts)
+// Approve, reject, needs-photo, send and delete stay signed-in admin only.
+// A signed-in admin can still mark any social post posted, URL optional.
 // ---------------------------------------------------------------------------
-router.post('/:id/mark-posted', requireAuth, requireRole('admin'), async (req, res) => {
+function validPostedUrl(u) {
+  if (typeof u !== 'string') return null;
+  const s = u.trim();
+  if (s.length > 2000) return null;
   try {
-    const { rows } = await pool.query(
-      `UPDATE email_campaigns SET status = 'sent', approval_status = 'posted', posted_at = NOW(), sent_at = NOW()
-       WHERE id = $1 AND campaign_type = 'social' RETURNING *`,
-      [req.params.id]
-    );
-    if (rows.length === 0) return res.status(400).json({ error: 'Not a social post, or already gone' });
+    const parsed = new URL(s);
+    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') ? s : null;
+  } catch (e) { return null; }
+}
+
+router.post('/:id/mark-posted', requireAuthOrAgentKey, async (req, res, next) => {
+  if (req.isAgent) return next();
+  return requireRole('admin')(req, res, next);
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const postedUrl = body.posted_url ? validPostedUrl(body.posted_url) : null;
+
+    if (body.posted_url && !postedUrl) {
+      return res.status(400).json({ error: 'posted_url must be a full http(s) URL' });
+    }
+
+    let rows;
+    if (req.isAgent) {
+      if (!postedUrl) {
+        return res.status(400).json({ error: 'posted_url is required when an agent marks a post as posted' });
+      }
+      ({ rows } = await pool.query(
+        `UPDATE email_campaigns
+            SET status = 'sent', approval_status = 'posted', posted_at = NOW(), sent_at = NOW(),
+                posted_url = $2, posted_by = $3
+          WHERE id = $1 AND campaign_type = 'social' AND approval_status = 'approved'
+          RETURNING *`,
+        [req.params.id, postedUrl, `agent:${req.agentName || 'unknown'}`]
+      ));
+      if (rows.length === 0) {
+        const { rows: cur } = await pool.query(
+          'SELECT campaign_type, approval_status FROM email_campaigns WHERE id = $1', [req.params.id]
+        );
+        if (cur.length === 0) return res.status(404).json({ error: 'Campaign not found' });
+        if (cur[0].campaign_type !== 'social') return res.status(400).json({ error: 'Not a social post' });
+        return res.status(409).json({
+          error: `Refused: approval_status is '${cur[0].approval_status}', not 'approved'. Only a person approves a post.`,
+          approval_status: cur[0].approval_status,
+        });
+      }
+    } else {
+      ({ rows } = await pool.query(
+        `UPDATE email_campaigns
+            SET status = 'sent', approval_status = 'posted', posted_at = NOW(), sent_at = NOW(),
+                posted_url = COALESCE($2, posted_url), posted_by = $3
+          WHERE id = $1 AND campaign_type = 'social' RETURNING *`,
+        [req.params.id, postedUrl, (req.user && (req.user.email || req.user.name)) || 'admin']
+      ));
+      if (rows.length === 0) return res.status(400).json({ error: 'Not a social post, or already gone' });
+    }
 
     if (rows[0].calendar_row_id) {
       try {

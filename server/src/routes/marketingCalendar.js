@@ -156,6 +156,8 @@ router.get('/whoami', (req, res) => res.json({
   authenticated_as: req.agentName ? `${req.agentName} agent key` : `signed-in user (${req.user?.email || 'unknown'})`,
   can_write_calendar: true,
   can_approve: !req.isAgent,
+  // Agents may record that an APPROVED social post went live, with its URL.
+  can_mark_posted_approved: true,
 }));
 
 // ---------------------------------------------------------------------------
