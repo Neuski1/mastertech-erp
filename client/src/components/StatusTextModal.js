@@ -191,6 +191,9 @@ export default function StatusTextModal({ recordId, onClose, onSent }) {
               rows={4}
               style={input}
             />
+            {current && current.adds_completion && data.completion && data.completion.warning && (
+              <div style={{ ...warnBox, marginTop: 8, fontSize: '0.8rem' }}>{data.completion.warning}</div>
+            )}
             <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: 4 }}>
               Customer sees: <em>{finalText}</em>
               <div style={{ marginTop: 2 }}>{finalText.length} characters{finalText.length > 160 ? ` (arrives as ${Math.ceil(finalText.length / 153)} texts)` : ''}. The link opens their job status page.</div>
