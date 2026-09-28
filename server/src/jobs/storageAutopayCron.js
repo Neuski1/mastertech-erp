@@ -53,7 +53,7 @@ function nextPeriod(d = new Date()) {
   return { year: y, month: m };
 }
 
-async function eligibleBillings(dbc, year, month, billingIds = null) {
+async function eligibleBillings(dbc, year, month, billingIds = null, oneTime = false) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
@@ -68,10 +68,13 @@ async function eligibleBillings(dbc, year, month, billingIds = null) {
        FROM storage_billing sb
        LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
        LEFT JOIN customers c ON c.id = sb.customer_id
-      WHERE sb.autopay_enabled = TRUE
-        AND sb.deleted_at IS NULL
-        AND (sb.autopay_card_id IS NOT NULL
-             OR (sb.payment_method = 'ach' AND sb.autopay_bank_auth_token IS NOT NULL))
+      WHERE sb.deleted_at IS NULL
+        ${oneTime
+          // A customer-approved one-time bank payment: no autopay needed.
+          ? `AND sb.autopay_bank_account_id IS NOT NULL`
+          : `AND sb.autopay_enabled = TRUE
+             AND (sb.autopay_card_id IS NOT NULL
+                  OR (sb.payment_method = 'ach' AND sb.autopay_bank_auth_token IS NOT NULL))`}
         AND sb.square_customer_id IS NOT NULL
         AND (sb.billing_end_date IS NULL OR sb.billing_end_date >= $1::date)
         AND (sb.scheduled_move_out IS NULL OR sb.scheduled_move_out >= $1::date)
@@ -109,9 +112,13 @@ async function chargeOne(b, year, month, { dryRun }) {
   const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const bankCovers = b.payment_method === 'ach' && b.autopay_bank_auth_token
     && b.autopay_bank_auth_start && b.autopay_bank_auth_start.slice(0, 10) <= periodStart;
-  const source = bankCovers ? 'bank' : (b.autopay_card_id ? 'card' : null);
+  // An ACH customer asked to be off the card, so a card on file is never
+  // charged for them. Without a bank authorization covering the month they pay
+  // from the invoice's Pay by Bank button instead.
+  const source = bankCovers ? 'bank' : ((b.autopay_card_id && b.payment_method !== 'ach') ? 'card' : null);
   if (!source) {
-    return { billing_id: b.billing_id, space: b.space_label, skipped: 'bank authorization starts later and no card on file' };
+    return { billing_id: b.billing_id, space: b.space_label,
+             skipped: b.payment_method === 'ach' ? 'ACH customer: pays by bank from the invoice' : 'no card on file' };
   }
   const fee = chargeFee(source === 'bank' ? 'ach' : 'credit_card', rent);
   const amountCents = Math.round((rent + fee) * 100);
@@ -564,11 +571,12 @@ function startStorageAutopayCron() {
 async function chargeBankOnce(billingId, year, month, bauthToken, expectedAmount) {
   const dbc = await pool.connect();
   let rows;
-  try { rows = await eligibleBillings(dbc, year, month, [billingId]); }
+  try { rows = await eligibleBillings(dbc, year, month, [billingId], true); }
   finally { dbc.release(); }
-  if (!rows.length) return { skipped: 'not eligible (already paid, not active, or no autopay)' };
+  if (!rows.length) return { skipped: 'not eligible (already paid, not active, or no bank on file)' };
   const b = { ...rows[0],
     payment_method: 'ach',
+    autopay_bank_auth_variable: false,
     autopay_bank_auth_token: bauthToken,
     autopay_bank_auth_amount: expectedAmount,
     autopay_bank_auth_start: `${year}-${String(month).padStart(2, '0')}-01` };

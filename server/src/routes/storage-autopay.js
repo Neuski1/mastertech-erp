@@ -23,7 +23,7 @@ const { sendEmail } = require('../services/email');
 const square = require('../services/square');
 const settings = require('../db/settings');
 const company = require('../db/company');
-const { bankPlan } = require('../services/storageBankAutopay');
+const { bankPlan, recurringAvailable } = require('../services/storageBankAutopay');
 
 // "5th", "1st", "22nd". The late-fee day is owner-editable, so the reminder
 // cannot hardcode the suffix the way it did when the day was always the 5th.
@@ -87,6 +87,7 @@ router.get('/setup/:token', async (req, res) => {
         auth_amount: b.autopay_bank_auth_amount != null ? parseFloat(b.autopay_bank_auth_amount) : null,
         auth_start: b.autopay_bank_auth_start ? String(b.autopay_bank_auth_start instanceof Date ? b.autopay_bank_auth_start.toISOString() : b.autopay_bank_auth_start).slice(0, 10) : null,
         plan: await bankPlan(b.id),
+        recurring_available: recurringAvailable(),
       } : null,
     });
   } catch (err) {
@@ -334,17 +335,20 @@ router.post('/setup/:token/bank-bridge', express.json(), async (req, res) => {
   try {
     const b = await loadBillingByToken(req.params.token);
     if (!b) return res.status(404).json({ error: 'This autopay link is no longer valid.' });
-    if (b.payment_method !== 'ach' || !b.autopay_bank_account_id || !b.autopay_bank_auth_token) {
-      return res.status(409).json({ error: 'Approve the monthly debit first.' });
+    if (b.payment_method !== 'ach' || !b.autopay_bank_account_id) {
+      return res.status(409).json({ error: 'Connect a bank account first.' });
     }
     const plan = await bankPlan(b.id);
-    if (!plan || !plan.bridge) return res.status(409).json({ error: 'Nothing to pay ahead; that month is already covered.' });
-    if (Math.round(parseFloat(amount) * 100) !== Math.round(plan.bridge.amount * 100)) {
+    // With a recurring authorization on file, only the gap month before it
+    // starts is paid here; without one, the earliest unpaid month is.
+    const target = b.autopay_bank_auth_token ? plan && plan.bridge : plan && plan.payNow;
+    if (!target) return res.status(409).json({ error: 'Nothing is due right now. That month is already paid.' });
+    if (Math.round(parseFloat(amount) * 100) !== Math.round(target.amount * 100)) {
       return res.status(409).json({ error: 'The amount changed. Please reload the page.' });
     }
     const { chargeBankOnce } = require('../jobs/storageAutopayCron');
-    const r = await chargeBankOnce(b.id, plan.bridge.year, plan.bridge.month, sourceId, plan.bridge.amount);
-    res.json({ ok: true, bridge: r.charged ? { charged: r.charged, month_label: plan.bridge.monthLabel }
+    const r = await chargeBankOnce(b.id, target.year, target.month, sourceId, target.amount);
+    res.json({ ok: true, bridge: r.charged ? { charged: r.charged, month_label: target.monthLabel }
                                            : { error: r.failed || r.skipped || 'not charged' } });
   } catch (err) {
     const detail = squareErr(err, 'One-time payment failed');

@@ -94,6 +94,17 @@ async function bankPlan(billingId, db = pool) {
     if (bm.billable) bridge = bm;
   }
 
+  // The month a one-time "Pay by Bank" covers: the earliest unpaid, billable
+  // month among this month and next. Used when recurring bank authorization
+  // is not available on the Square account (see ACH_RECURRING below).
+  let payNow = null;
+  for (const kk of [monthKey(now.y, now.m), nextK]) {
+    if (paidKeys.has(kk)) continue;
+    const f = fromKey(kk);
+    const pmx = priceMonth(f.y, f.m);
+    if (pmx.billable) { payNow = pmx; break; }
+  }
+
   const { y, m } = fromKey(k);
   const monthStart = `${y}-${pad(m)}-01`;
   const pm = priceMonth(y, m);
@@ -114,7 +125,17 @@ async function bankPlan(billingId, db = pool) {
     rent, fee, amount, chargeDate,
     prorated: !!c.prorated,
     bridge,
+    payNow,
   };
 }
 
-module.exports = { bankPlan, achFee };
+// Square's RECURRING_CHARGE bank authorization is not enabled on the Master
+// Tech Square account: every recurring variant fails inside Square's
+// authorization window with "An unexpected error occurred while authorizing
+// the payment", while a one-time CHARGE on the same bank account works
+// (tested live Sept 28, 2026). Until Square enables it, ACH customers pay each
+// month with a one-tap "Pay by Bank" from their invoice. Set ACH_RECURRING=on
+// in Railway once Square turns it on; the recurring path is already built.
+const recurringAvailable = () => String(process.env.ACH_RECURRING || '').toLowerCase() === 'on';
+
+module.exports = { bankPlan, achFee, recurringAvailable };

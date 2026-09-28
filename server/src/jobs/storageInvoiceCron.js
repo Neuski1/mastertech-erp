@@ -262,8 +262,8 @@ function buildInvoiceHtml(inv) {
       <table style="width:100%;border-collapse:collapse;">
         <tr>
           ${inv.autopayUrl ? `<td style="text-align:center;padding:4px 6px;">
-            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">${inv.bankSetup ? 'Set Up Bank Autopay' : inv.autopayFailing ? 'Update Card on File' : 'Set Up Automatic Payment'}</a>
-            <div style="font-size:11px;color:#475569;margin-top:6px;">${inv.bankSetup ? 'Connect your checking account once. Paid automatically each month.' : inv.autopayFailing ? 'Replace the card we have on file. Billed automatically each month.' : 'Save your card once. Billed automatically each month.'}</div>
+            <a href="${inv.autopayUrl}" style="display:inline-block;padding:13px 20px;background:#1e3a5f;color:#fff;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">${inv.bankSetup ? (inv.bankConnected ? 'Pay by Bank' : 'Set Up Bank Payments') : inv.autopayFailing ? 'Update Card on File' : 'Set Up Automatic Payment'}</a>
+            <div style="font-size:11px;color:#475569;margin-top:6px;">${inv.bankSetup ? (inv.bankConnected ? 'One tap from your bank account on file. 1% fee.' : 'Connect your checking account once. 1% fee.') : inv.autopayFailing ? 'Replace the card we have on file. Billed automatically each month.' : 'Save your card once. Billed automatically each month.'}</div>
           </td>` : ''}
           ${inv.payUrl ? `<td style="text-align:center;padding:4px 6px;">
             <a href="${inv.payUrl}" style="display:inline-block;padding:13px 20px;background:#fff;color:#1e3a5f;border:2px solid #1e3a5f;font-size:13.5px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay This Invoice</a>
@@ -318,7 +318,7 @@ async function eligibleRows(dbc, year, month, billingIds = null) {
   const { rows } = await dbc.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
-            (sb.autopay_bank_auth_token IS NOT NULL) AS bank_authorized,
+            (sb.autopay_bank_auth_token IS NOT NULL) AS bank_authorized, (sb.autopay_bank_account_id IS NOT NULL) AS bank_connected,
             sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
             -- TRUE when autopay is on but the most recent charge attempt was
             -- declined and nothing has succeeded since. Self-clearing: the next
@@ -480,7 +480,7 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
     // ACH-fee total by card would short the card fee.
     if (first.payment_method === 'ach' && !first.bank_authorized && !inv.termEndLabel && !dryRun) {
       inv.autopayUrl = await autopayUrlFor(first.billing_id);
-      inv.bankSetup = true;
+      inv.bankSetup = true; inv.bankConnected = !!first.bank_connected;
     }
 
     // Offer ACH to card payers, showing what they would actually save.
@@ -575,7 +575,7 @@ async function sendAdhocInvoice({
   const { rows } = await pool.query(
     `SELECT sb.id AS billing_id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled,
             sb.autopay_card_brand, sb.autopay_card_last4,
-            (sb.autopay_bank_auth_token IS NOT NULL) AS bank_authorized,
+            (sb.autopay_bank_auth_token IS NOT NULL) AS bank_authorized, (sb.autopay_bank_account_id IS NOT NULL) AS bank_connected,
             sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
             COALESCE((SELECT ac.status IN ('failed', 'failed_final')
                         FROM storage_autopay_charges ac
@@ -669,7 +669,7 @@ async function sendAdhocInvoice({
   }
   if (s.payment_method === 'ach' && !s.bank_authorized && !inv.termEndLabel && !dryRun) {
     inv.autopayUrl = await autopayUrlFor(id);
-    inv.bankSetup = true;
+    inv.bankSetup = true; inv.bankConnected = !!s.bank_connected;
   }
   if (s.payment_method === 'credit_card' && fee > 0) inv.achNote = true;
 

@@ -348,6 +348,18 @@ function BankAutopay({ token, info, config }) {
     </div>
   );
 
+  if (done && done.payOnly) {
+    return (
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 46 }}>&#9989;</div>
+        <h2 style={{ color: '#065f46', margin: '8px 0 12px' }}>Payment sent</h2>
+        <p style={{ color: '#374151', fontSize: 14 }}>Your {done.bridge.month_label} storage of {money(done.bridge.charged)} is paid from your {acctName}. It can take a few business days to show at your bank.</p>
+        <p style={{ color: '#374151', fontSize: 14 }}>Next month your invoice will have a Pay by Bank button that brings you right back here. No bank login needed.</p>
+        <p style={{ color: '#6b7280', fontSize: 13 }}>If you have any questions, give us a call at (303) 557-2214.</p>
+      </div>
+    );
+  }
+
   if (done) {
     return (
       <div style={{ textAlign: 'center' }}>
@@ -380,6 +392,60 @@ function BankAutopay({ token, info, config }) {
     );
   }
 
+  // Recurring bank debits are not enabled on the Square account yet, so a
+  // connected bank pays one month at a time: one approval, no bank login.
+  if (bank.connected && !bank.recurring_available && !bank.authorized && !changing) {
+    const due = plan.payNow;
+    if (!due) {
+      return (
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 40 }}>&#127974;</div>
+          <h2 style={{ color: NAVY, margin: '8px 0 12px', fontSize: 18 }}>You&rsquo;re all paid up</h2>
+          <p style={{ color: '#374151', fontSize: 14 }}>Your {acctName} is on file. Each month your invoice will have a Pay by Bank button: one tap, no bank login.</p>
+          <p style={{ color: '#6b7280', fontSize: 13 }}>If you have any questions, give us a call at (303) 557-2214.</p>
+        </div>
+      );
+    }
+    const payOnce = async () => {
+      setError(''); setBusy('pay');
+      try {
+        const tokenOnce = await tokenizeAch(await getAch(), {
+          intent: 'CHARGE', bankAccountId: bank.bank_account_id,
+          amount: due.amount.toFixed(2), currency: 'USD',
+        });
+        const r = await fetch(`${API_BASE}/storage-autopay/setup/${token}/bank-bridge`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceId: tokenOnce, amount: due.amount }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'The payment did not go through.');
+        if (!d.bridge || !d.bridge.charged) throw new Error((d.bridge && d.bridge.error) || 'The payment did not go through.');
+        setDone({ payOnly: true, bridge: d.bridge });
+      } catch (e) { setError(e.message || 'The payment did not go through.'); }
+      finally { setBusy(''); }
+    };
+    return (
+      <>
+        <h2 style={{ color: NAVY, margin: '0 0 6px', fontSize: 20 }}>Pay by Bank</h2>
+        <p style={{ color: '#374151', fontSize: 14, margin: '0 0 16px' }}>Your {acctName} is connected.</p>
+        <div style={{ padding: '12px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, margin: '0 0 16px', fontSize: 14, color: NAVY, lineHeight: 1.6 }}>
+          <strong>{due.monthLabel}</strong> storage<br/>
+          Rent {money(due.rent)} + bank transfer fee {money(due.fee)} = <strong>{money(due.amount)}</strong>
+        </div>
+        <label style={{ display: 'flex', gap: 8, fontSize: 12.5, color: '#374151', marginBottom: 16, cursor: 'pointer', lineHeight: 1.5 }}>
+          <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>I authorize Master Tech RV Repair &amp; Storage to debit {money(due.amount)} one time from my {acctName} for my {due.monthLabel} storage.</span>
+        </label>
+        {errBox}
+        {btn(busy === 'pay' ? 'Waiting for approval...' : `Pay ${money(due.amount)}`, payOnce, !agree || !!busy)}
+        <p style={{ color: '#6b7280', fontSize: 12, marginTop: 12, textAlign: 'center' }}>Each month your invoice will have a Pay by Bank button that brings you right back here.</p>
+        <p style={{ textAlign: 'center', marginTop: 4 }}>
+          <button onClick={() => setChanging(true)} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 12, textDecoration: 'underline', cursor: 'pointer' }}>Use a different bank account</button>
+        </p>
+      </>
+    );
+  }
+
   if (bank.connected && needsApproval && !changing) {
     return (
       <>
@@ -408,11 +474,13 @@ function BankAutopay({ token, info, config }) {
 
   return (
     <>
-      <h2 style={{ color: NAVY, margin: '0 0 6px', fontSize: 20 }}>Set Up Bank Autopay</h2>
+      <h2 style={{ color: NAVY, margin: '0 0 6px', fontSize: 20 }}>{bank.recurring_available ? 'Set Up Bank Autopay' : 'Set Up Bank Payments'}</h2>
       <p style={{ color: '#374151', fontSize: 14, margin: '0 0 16px' }}>
-        Hi {info.customer_name || 'there'}, connect your checking account and your storage is paid automatically each month. Bank transfer costs 1%, much less than a card.
+        {bank.recurring_available
+          ? <>Hi {info.customer_name || 'there'}, connect your checking account and your storage is paid automatically each month. Bank transfer costs 1%, much less than a card.</>
+          : <>Hi {info.customer_name || 'there'}, connect your checking account once and pay your storage by bank. Bank transfer costs 1%, much less than a card.</>}
       </p>
-      {summary}
+      {bank.recurring_available && summary}
       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Name on the bank account</label>
       <input value={holder} onChange={e => setHolder(e.target.value)}
         style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 15, marginBottom: 16 }} />
