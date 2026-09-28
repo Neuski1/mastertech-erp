@@ -166,6 +166,7 @@ router.get('/', async (req, res) => {
               sb.autopay_bank_name, sb.autopay_bank_last4, sb.autopay_bank_auth_amount,
               sb.autopay_bank_auth_start::text AS autopay_bank_auth_start,
               (sb.autopay_bank_auth_token IS NOT NULL) AS autopay_bank_authorized,
+              sb.billed_by_square,
               (EXISTS (SELECT 1 FROM customer_documents cd
                        WHERE cd.doc_type = 'storage_contract' AND cd.related_id = sb.id)) AS has_signed_contract,
               sb.due_day, sb.square_customer_id, sb.square_sub_id, sb.payment_method,
@@ -560,6 +561,10 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
   if (payment_method !== undefined) {
     updates.push(`payment_method = $${idx++}`);
     values.push(payment_method || null);
+  }
+  if (req.body.billed_by_square !== undefined) {
+    updates.push(`billed_by_square = $${idx++}`);
+    values.push(!!req.body.billed_by_square);
   }
 
   if (updates.length === 0 && !space_type) {

@@ -1289,7 +1289,9 @@ pool.query(`
     ADD COLUMN IF NOT EXISTS autopay_bank_auth_start DATE,
     ADD COLUMN IF NOT EXISTS autopay_bank_authorized_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS autopay_bank_authorized_ip TEXT,
-    ADD COLUMN IF NOT EXISTS autopay_bank_auth_variable BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS autopay_bank_auth_variable BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Migration 069: box billed by a Square Dashboard recurring invoice.
+    ADD COLUMN IF NOT EXISTS billed_by_square BOOLEAN NOT NULL DEFAULT FALSE;
 `).then(() => console.log('Migration 067 (ACH bank autopay) ready'))
   .catch(err => console.error('Migration 067 error:', err.message));
 

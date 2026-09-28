@@ -338,6 +338,9 @@ router.post('/setup/:token/bank-bridge', express.json(), async (req, res) => {
     if (b.payment_method !== 'ach' || !b.autopay_bank_account_id) {
       return res.status(409).json({ error: 'Connect a bank account first.' });
     }
+    if (b.billed_by_square) {
+      return res.status(409).json({ error: 'Your storage is billed through your Square invoice, so there is nothing to pay here.' });
+    }
     const plan = await bankPlan(b.id);
     // With a recurring authorization on file, only the gap month before it
     // starts is paid here; without one, the earliest unpaid month is.

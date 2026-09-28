@@ -336,6 +336,8 @@ async function eligibleRows(dbc, year, month, billingIds = null) {
        LEFT JOIN units u ON u.id = sb.unit_id
        LEFT JOIN customers c ON c.id = sb.customer_id
       WHERE sb.deleted_at IS NULL
+        -- Billed by a Square recurring invoice (bank autopay lives in Square).
+        AND sb.billed_by_square IS NOT TRUE
         AND (sb.billing_end_date IS NULL OR sb.billing_end_date >= $1::date)
         AND (sb.scheduled_move_out IS NULL OR sb.scheduled_move_out >= $1::date)
         AND COALESCE(sb.monthly_rate, 0) > 0

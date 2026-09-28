@@ -507,6 +507,17 @@ router.post('/storage-autopay-run', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/square-billed-sync { dryRun } — mark months paid for
+// boxes billed by a Square recurring invoice (services/squareBilledStorage.js).
+router.post('/square-billed-sync', requireCoworkKey, async (req, res) => {
+  try {
+    const { syncSquareBilledStorage } = require('../services/squareBilledStorage');
+    res.json(await syncSquareBilledStorage({ dryRun: req.body?.dryRun !== false }));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/cowork-admin/square-series-lookup?series=1495 — READ-ONLY.
 // Finds the Square customer behind a recurring invoice series and lists their
 // cards on file. Used when a storage customer's ERP email/phone does not match

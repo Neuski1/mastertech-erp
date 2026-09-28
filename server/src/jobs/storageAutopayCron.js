@@ -73,6 +73,7 @@ async function eligibleBillings(dbc, year, month, billingIds = null, oneTime = f
           // A customer-approved one-time bank payment: no autopay needed.
           ? `AND sb.autopay_bank_account_id IS NOT NULL`
           : `AND sb.autopay_enabled = TRUE
+             AND sb.billed_by_square IS NOT TRUE
              AND (sb.autopay_card_id IS NOT NULL
                   OR (sb.payment_method = 'ach' AND sb.autopay_bank_auth_token IS NOT NULL))`}
         AND sb.square_customer_id IS NOT NULL
@@ -552,6 +553,8 @@ function startStorageAutopayCron() {
   cron.schedule('0 6 * * *', async () => {
     try {
       await promoteDueRateChanges();
+      try { await require('../services/squareBilledStorage').syncSquareBilledStorage(); }
+      catch (e) { console.error('[squareBilled] sync failed:', e.message); }
       if (isLastDayOfMonth()) await runCharges({});
       else await runCatchUp();
       await runRetries();
