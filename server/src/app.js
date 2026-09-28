@@ -1286,7 +1286,8 @@ pool.query(`
     ADD COLUMN IF NOT EXISTS autopay_bank_auth_amount NUMERIC(10,2),
     ADD COLUMN IF NOT EXISTS autopay_bank_auth_start DATE,
     ADD COLUMN IF NOT EXISTS autopay_bank_authorized_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS autopay_bank_authorized_ip TEXT;
+    ADD COLUMN IF NOT EXISTS autopay_bank_authorized_ip TEXT,
+    ADD COLUMN IF NOT EXISTS autopay_bank_auth_variable BOOLEAN NOT NULL DEFAULT FALSE;
 `).then(() => console.log('Migration 067 (ACH bank autopay) ready'))
   .catch(err => console.error('Migration 067 error:', err.message));
 

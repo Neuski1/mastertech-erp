@@ -59,7 +59,7 @@ async function eligibleBillings(dbc, year, month, billingIds = null) {
     `SELECT sb.id AS billing_id, sb.customer_id, sb.space_id, sb.monthly_rate, sb.payment_method,
             sb.autopay_card_id, sb.square_customer_id,
             sb.autopay_card_brand, sb.autopay_card_last4,
-            sb.autopay_bank_auth_token, sb.autopay_bank_auth_amount,
+            sb.autopay_bank_auth_token, sb.autopay_bank_auth_amount, sb.autopay_bank_auth_variable,
             sb.autopay_bank_auth_start::text AS autopay_bank_auth_start,
             sb.autopay_bank_name, sb.autopay_bank_last4, sb.autopay_setup_token,
             sb.billing_start_date, sb.scheduled_move_out, sb.billing_end_date,
@@ -120,7 +120,8 @@ async function chargeOne(b, year, month, { dryRun }) {
 
   // A recurring bank authorization is for one fixed amount. Debiting anything
   // else is not authorized, so stop and ask the customer to re-authorize.
-  if (source === 'bank') {
+  // A VARIABLE-amount authorization covers whatever the month costs.
+  if (source === 'bank' && !b.autopay_bank_auth_variable) {
     const authCents = Math.round(parseFloat(b.autopay_bank_auth_amount) * 100);
     if (authCents !== amountCents) {
       const why = `Bank authorization is for $${(authCents / 100).toFixed(2)} but ${year}-${String(month).padStart(2, '0')} is $${(amountCents / 100).toFixed(2)}. The customer must re-authorize.`;
@@ -497,7 +498,7 @@ async function runRetries() {
       `SELECT ac.storage_billing_id AS billing_id, ac.year, ac.month, sb.monthly_rate, sb.payment_method,
               sb.autopay_card_id, sb.square_customer_id, sp.label AS space_label,
               sb.autopay_card_brand, sb.autopay_card_last4,
-              sb.autopay_bank_auth_token, sb.autopay_bank_auth_amount,
+              sb.autopay_bank_auth_token, sb.autopay_bank_auth_amount, sb.autopay_bank_auth_variable,
               sb.autopay_bank_auth_start::text AS autopay_bank_auth_start,
               sb.autopay_bank_name, sb.autopay_bank_last4, sb.autopay_setup_token,
               c.first_name, c.last_name, c.email_primary, sb.customer_id
