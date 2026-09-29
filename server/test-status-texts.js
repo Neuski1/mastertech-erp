@@ -204,7 +204,9 @@ function getPage(token) {
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4803,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
   const before = sent.length;
   check('estimate -> scheduled sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'scheduled' }), null);
-  check('estimate -> approved (Not Started) sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'approved' }), null);
+  for (const st of ['order_parts', 'awaiting_parts', 'awaiting_approval', 'on_hold', 'complete', 'payment_pending']) {
+    check(`estimate -> ${st} sends nothing`, await svc.autoCheckIn(rec3.id, { from: 'estimate', to: st }), null);
+  }
   check('schedule_customer sends nothing', await svc.autoCheckIn(rec3.id, { from: 'approved', to: 'schedule_customer' }), null);
   check('no texts yet', sent.length, before);
   check('estimate -> awaiting_approval sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'awaiting_approval' }), null);
@@ -220,6 +222,11 @@ function getPage(token) {
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4804,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
   const direct = await svc.autoCheckIn(rec4.id, { from: 'estimate', to: 'in_progress' });
   check('estimate straight to in_progress sends', direct.sent, true);
+  const { rows: [rec6] } = await pool.query(
+    `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4806,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
+  const ns = await svc.autoCheckIn(rec6.id, { from: 'estimate', to: 'approved' });
+  check('estimate -> Not Started sends Checked In', ns.sent, true);
+  check('Not Started -> In Progress does not send again', await svc.autoCheckIn(rec6.id, { from: 'approved', to: 'in_progress' }), null);
   await setSetting('status_text_auto_checkin', 'false');
   const { rows: [rec5] } = await pool.query(
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4805,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
