@@ -724,6 +724,8 @@ const pool = require('./db/pool');
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_service_drop_off'");
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_diagnostics'");
     await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_estimate_build'");
+    // Customer stays on site while the tech does the work (quick jobs).
+    await pool.query("ALTER TYPE appointment_type_type ADD VALUE IF NOT EXISTS 'rv_service_and_wait'");
     // Migration 054: customers can have a second email on file (used as an
     // alternate point of contact, surfaced everywhere email_primary is).
     await pool.query('ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_secondary VARCHAR(255)');

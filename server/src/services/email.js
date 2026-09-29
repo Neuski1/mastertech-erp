@@ -104,6 +104,7 @@ const APPT_TYPE_LABELS = {
   storage_drop_off:    'Storage Drop Off',
   rv_service_pickup:   'RV Service Pickup',
   rv_service_drop_off: 'RV Service Drop Off',
+  rv_service_and_wait: 'RV Service and Wait',
   rv_diagnostics:      'RV Diagnostics',
   rv_estimate_build:   'RV Estimate Build',
   rv_repair:           'RV Repair',

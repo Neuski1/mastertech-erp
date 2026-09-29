@@ -1982,6 +1982,7 @@ function ScheduleModal({ record, onSuccess, onClose }) {
                 <option value="storage_drop_off">Storage Drop Off</option>
                 <option value="rv_service_pickup">RV Service Pickup</option>
                 <option value="rv_service_drop_off">RV Service Drop Off</option>
+                <option value="rv_service_and_wait">RV Service and Wait</option>
                 <option value="rv_diagnostics">RV Diagnostics</option>
                 <option value="rv_estimate_build">RV Estimate Build</option>
                 <option value="rv_repair">RV Repair</option>

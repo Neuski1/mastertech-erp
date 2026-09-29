@@ -656,7 +656,7 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
         const scheduledTime = appt.scheduled_at
           ? new Date(appt.scheduled_at).toLocaleTimeString('en-US', { timeZone: 'America/Denver', hour: 'numeric', minute: '2-digit' })
           : '';
-        const typeLabel = (appt.appointment_type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const typeLabel = (appt.appointment_type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/\bRv\b/g, 'RV').replace(/\bAnd\b/g, 'and');
         const firstName = appt.first_name || 'Valued Customer';
 
         const html = `

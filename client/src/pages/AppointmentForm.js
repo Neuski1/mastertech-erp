@@ -9,6 +9,7 @@ const APPT_TYPES = [
   { value: 'storage_drop_off', label: 'Storage Drop Off' },
   { value: 'rv_service_pickup', label: 'RV Service Pickup' },
   { value: 'rv_service_drop_off', label: 'RV Service Drop Off' },
+  { value: 'rv_service_and_wait', label: 'RV Service and Wait' },
   { value: 'rv_diagnostics', label: 'RV Diagnostics' },
   { value: 'rv_estimate_build', label: 'RV Estimate Build' },
   { value: 'rv_repair', label: 'RV Repair' },
