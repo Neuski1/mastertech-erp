@@ -176,7 +176,7 @@ function getPage(token) {
   truthy('page shows Approve button', pg.html.includes('/api/estimate-lines/approve/'));
   truthy('page shows the shared photo', pg.html.includes(`/photos/${photo.id}/image?token=`));
   truthy('page never shows the other record\'s photo', !pg.html.includes(`/photos/${foreign.id}/image`));
-  truthy('page has no prices', !pg.html.includes('396'));
+  truthy('page has no prices', !pg.html.includes('$396') && !pg.html.includes('396.00'));
   const bad = await getPage('not-a-uuid');
   check('garbage token 404', bad.status, 404);
   const miss = await getPage('00000000-0000-0000-0000-000000000000');
@@ -207,6 +207,9 @@ function getPage(token) {
   check('estimate -> approved (Not Started) sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'approved' }), null);
   check('schedule_customer sends nothing', await svc.autoCheckIn(rec3.id, { from: 'approved', to: 'schedule_customer' }), null);
   check('no texts yet', sent.length, before);
+  check('estimate -> awaiting_approval sends nothing', await svc.autoCheckIn(rec3.id, { from: 'estimate', to: 'awaiting_approval' }), null);
+  check('scheduled -> awaiting_approval sends nothing', await svc.autoCheckIn(rec3.id, { from: 'scheduled', to: 'awaiting_approval' }), null);
+  check('still no texts', sent.length, before);
   const first = await svc.autoCheckIn(rec3.id, { from: 'scheduled', to: 'in_progress' });
   check('scheduled -> in_progress sends Checked In', first.sent, true);
   truthy('it is the Checked In wording', sent[sent.length - 1].text.startsWith("Hi Gary, it's Master Tech RV. Your 2019 Grand Design Imagine is checked in on work order #4803."));

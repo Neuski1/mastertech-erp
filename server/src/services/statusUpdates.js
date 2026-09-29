@@ -357,7 +357,10 @@ async function logUpdate(r, { type, body, photos, userId, delivery, error, provi
 // Statuses that mean the RV is physically in the shop and work is active.
 // Approved (Not Started), Schedule Customer and Scheduled are deliberately
 // absent: the customer has said yes but the RV is not on the lot yet.
-const CHECKIN_STATUSES = ['in_progress', 'order_parts', 'awaiting_parts', 'awaiting_approval'];
+// Awaiting Approval is absent too (Carol, Sept 29): an estimate waiting on the
+// customer's yes says nothing about where the RV is. Leaving Awaiting Approval
+// for In Progress still sends it, because by then the RV is here.
+const CHECKIN_STATUSES = ['in_progress', 'order_parts', 'awaiting_parts'];
 
 // Called by PATCH /api/records/:id/status after the change commits. Sends the
 // Checked In text the first time a work order enters active work, and never
