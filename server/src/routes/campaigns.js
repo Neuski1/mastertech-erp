@@ -488,11 +488,20 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 // every future seasonal email. Duplicate protection is now per campaign, plus
 // an optional recency guard the sender chooses.
 //
-// Storage: outdoor units are the ones that need winterizing, so storage
-// customers are IN the audience by default. 'none' restores the old blanket
-// exclusion if a campaign ever wants it.
+// Storage modes (September 28, 2026, Carol: "I need them separated"):
+//   all      everyone, storage customers included
+//   none     everyone EXCEPT current storage customers
+//   storage  ONLY current storage customers, indoor and outdoor
+//   outdoor  ONLY current outdoor storage customers
+//   indoor   ONLY current indoor storage customers
+// outdoor and indoor used to mean "everyone, minus storage customers of the
+// other type", so an "Outdoor storage only" send went to the whole customer
+// list plus the outdoor boxes. They are now true lists. A customer renting
+// both kinds of space is on both lists. "Current" means an active
+// storage_billing row (no billing_end_date, not deleted).
 // ---------------------------------------------------------------------------
-const STORAGE_MODES = ['all', 'outdoor', 'indoor', 'none'];
+const STORAGE_MODES = ['all', 'none', 'storage', 'outdoor', 'indoor'];
+const STORAGE_ONLY_MODES = ['storage', 'outdoor', 'indoor'];
 
 async function buildAudienceQuery(db, opts = {}) {
   const mode = STORAGE_MODES.includes(opts.storage) ? opts.storage : 'all';
@@ -517,17 +526,17 @@ async function buildAudienceQuery(db, opts = {}) {
         SELECT DISTINCT customer_id FROM storage_billing
         WHERE billing_end_date IS NULL AND deleted_at IS NULL
       )`;
-  } else if (mode === 'outdoor' || mode === 'indoor') {
-    // Drop only the storage customers who have none of the wanted type. A
-    // customer with both an indoor and an outdoor space stays in.
-    params.push(mode);
+  } else if (STORAGE_ONLY_MODES.includes(mode)) {
+    let typeClause = '';
+    if (mode !== 'storage') {
+      params.push(mode);
+      typeClause = ` AND s.space_type::text = $${params.length}`;
+    }
     q += `
-      AND c.id NOT IN (
+      AND c.id IN (
         SELECT sb.customer_id FROM storage_billing sb
         JOIN storage_spaces s ON s.id = sb.space_id
-        WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL
-        GROUP BY sb.customer_id
-        HAVING BOOL_AND(s.space_type <> $${params.length})
+        WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL${typeClause}
       )`;
   }
 
@@ -600,18 +609,10 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
         `SELECT COUNT(DISTINCT customer_id) AS cnt FROM storage_billing WHERE billing_end_date IS NULL AND deleted_at IS NULL`
       );
       excludedStorage = parseInt(rows[0].cnt);
-    } else if (built.mode === 'outdoor' || built.mode === 'indoor') {
-      const { rows } = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM (
-           SELECT sb.customer_id FROM storage_billing sb
-           JOIN storage_spaces s ON s.id = sb.space_id
-           WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL
-           GROUP BY sb.customer_id
-           HAVING BOOL_AND(s.space_type <> $1)
-         ) x`, [built.mode]
-      );
-      excludedStorage = parseInt(rows[0].cnt);
     }
+    // In a storage-only mode, everyone who is not on that storage list is
+    // left out by design; the screen says so instead of counting them.
+    const storageOnly = STORAGE_ONLY_MODES.includes(built.mode);
 
     let excludedOpenOrders = 0;
     if (built.openOrders === 'exclude') {
@@ -654,16 +655,51 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
       } catch { /* tables don't exist */ }
     }
 
+    // A storage-only list is small (tens, not hundreds), so the whole-database
+    // exclusion counts above would read as nonsense ("412 open work orders"
+    // on a list of 18). Recount every exclusion inside the list itself, so
+    // the breakdown adds up to the list on screen.
+    let storageListTotal = null;
+    let noEmailCount = parseInt(noEmail[0].count);
+    if (storageOnly) {
+      const typeFilter = built.mode === 'storage' ? '' : ' AND s.space_type::text = $1';
+      const typeParams = built.mode === 'storage' ? [] : [built.mode];
+      const { rows: lr } = await pool.query(
+        `WITH list AS (
+           SELECT DISTINCT c.id, c.email_primary, c.marketing_opt_out, c.email_invalid
+           FROM storage_billing sb
+           JOIN storage_spaces s ON s.id = sb.space_id
+           JOIN customers c ON c.id = sb.customer_id AND c.deleted_at IS NULL
+           WHERE sb.billing_end_date IS NULL AND sb.deleted_at IS NULL${typeFilter}
+         )
+         SELECT
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE email_primary IS NULL OR email_primary = '') AS no_email,
+           COUNT(*) FILTER (WHERE email_primary <> '' AND marketing_opt_out IS TRUE) AS opt_out,
+           COUNT(*) FILTER (WHERE email_primary <> '' AND email_invalid IS TRUE) AS invalid,
+           COUNT(*) FILTER (WHERE id IN (SELECT customer_id FROM records
+                                        WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void'))) AS open_orders
+         FROM list`, typeParams
+      );
+      storageListTotal = parseInt(lr[0].total);
+      noEmailCount = parseInt(lr[0].no_email);
+      excludedOptOut = parseInt(lr[0].opt_out);
+      excludedInvalid = parseInt(lr[0].invalid);
+      excludedOpenOrders = built.openOrders === 'exclude' ? parseInt(lr[0].open_orders) : 0;
+    }
+
     const days = Math.ceil(eligible.length / DAILY_LIMIT);
 
     res.json({
       totalWithEmail: customers.length,
       unsubscribed: unsubCount,
-      noEmail: parseInt(noEmail[0].count),
+      noEmail: noEmailCount,
       excludedStorage,
       excludedOpenOrders,
       storageIncluded,
       storageMode: built.mode,
+      storageOnly,
+      storageListTotal,
       excludedOptOut,
       excludedInvalid,
       excludedAlreadySent,
