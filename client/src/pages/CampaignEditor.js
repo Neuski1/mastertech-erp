@@ -538,17 +538,34 @@ export default function CampaignEditor() {
                 <label style={labelStyle}>Storage customers</label>
                 <select
                   value={form.target_filter?.storage || 'all'}
-                  onChange={(e) => setForm({ ...form, target_filter: { ...form.target_filter, storage: e.target.value } })}
+                  onChange={(e) => {
+                    const storage = e.target.value;
+                    const storageOnly = ['storage', 'outdoor', 'indoor'].includes(storage);
+                    // A storage list is a notice to people renting a space, so
+                    // an open work order is no reason to leave them off it.
+                    setForm({ ...form, target_filter: {
+                      ...form.target_filter,
+                      storage,
+                      ...(storageOnly ? { open_orders: 'include' } : {}),
+                    } });
+                  }}
                   style={inputStyle}
                   disabled={!isDraft}
                 >
-                  <option value="all">Include everyone</option>
-                  <option value="outdoor">Outdoor storage only</option>
-                  <option value="indoor">Indoor storage only</option>
-                  <option value="none">Leave storage customers out</option>
+                  <optgroup label="All customers">
+                    <option value="all">Everyone, storage customers included</option>
+                    <option value="none">Everyone except storage customers</option>
+                  </optgroup>
+                  <optgroup label="Storage customers only">
+                    <option value="outdoor">Outdoor storage customers only</option>
+                    <option value="indoor">Indoor storage customers only</option>
+                    <option value="storage">All storage customers (indoor and outdoor)</option>
+                  </optgroup>
                 </select>
                 <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '4px 0 0' }}>
-                  Outdoor units are the ones that need winterizing.
+                  {['storage', 'outdoor', 'indoor'].includes(form.target_filter?.storage)
+                    ? 'Only customers currently renting that kind of space. Nobody else gets this email.'
+                    : 'Outdoor units are the ones that need winterizing.'}
                 </p>
               </div>
               <div>
@@ -594,10 +611,14 @@ export default function CampaignEditor() {
                     {audience.eligible - removedIds.size} emails will be sent
                     {removedIds.size > 0 && <span style={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 400, marginLeft: '8px' }}>({removedIds.size} manually removed)</span>}
                   </div>
-                  {audience.storageIncluded > 0 && (
+                  {audience.storageOnly ? (
+                    <div style={{ color: '#065f46', fontSize: '0.8rem' }}>
+                      {audience.storageMode === 'outdoor' ? 'Outdoor storage list' : audience.storageMode === 'indoor' ? 'Indoor storage list' : 'All storage customers'}
+                      {': '}{audience.storageListTotal} customer{audience.storageListTotal === 1 ? '' : 's'} currently renting. Nobody outside this list gets it.
+                    </div>
+                  ) : audience.storageIncluded > 0 && (
                     <div style={{ color: '#065f46', fontSize: '0.8rem' }}>
                       Includes {audience.storageIncluded} storage customer{audience.storageIncluded === 1 ? '' : 's'}
-                      {audience.storageMode !== 'all' ? ` (${audience.storageMode} only)` : ''}
                     </div>
                   )}
                   <div style={{ color: '#6b7280', fontSize: '0.8rem', borderTop: '1px solid #e5e7eb', paddingTop: '8px', marginTop: '4px' }}>Excluded:</div>
