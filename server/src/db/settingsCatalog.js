@@ -169,7 +169,7 @@ const SETTINGS = [
     help: 'Off: the Text Update button previews but will not send. On: technicians and service writers can text customers from any work order.' },
   { key: 'status_text_auto_checkin', category: 'status_texts', sort: 15, value_type: 'boolean',
     label: 'Send Checked In automatically', fallback: true,
-    help: 'Sends the Checked In text on its own the first time a work order moves into In Progress, Order Parts, Awaiting Parts or Awaiting Approval. Never on Not Started or Scheduled, because the RV is not here yet. Only once per work order.' },
+    help: 'Sends the Checked In text on its own the first time a work order moves into In Progress, Order Parts or Awaiting Parts. Never on Not Started, Scheduled or Awaiting Approval, because the RV may not be here yet. Only once per work order.' },
   { key: 'status_text_completion_line', category: 'status_texts', sort: 17, value_type: 'longtext',
     label: 'Expected completion line', fallback: 'Expected completion date: {completion_date}.',
     help: 'Added to the end of every status text except Work delayed and Ready for pickup. {completion_date} becomes the work order\'s Expected Completion date, written like "Friday, October 3". Left off when the work order has no date or the date has passed.' },
