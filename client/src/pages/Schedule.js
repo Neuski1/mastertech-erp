@@ -8,6 +8,7 @@ const APPT_TYPES = [
   { value: 'storage_drop_off', label: 'Storage Drop Off' },
   { value: 'rv_service_pickup', label: 'RV Service Pickup' },
   { value: 'rv_service_drop_off', label: 'RV Service Drop Off' },
+  { value: 'rv_service_and_wait', label: 'RV Service and Wait' },
   { value: 'rv_diagnostics', label: 'RV Diagnostics' },
   { value: 'rv_estimate_build', label: 'RV Estimate Build' },
   { value: 'rv_repair', label: 'RV Repair' },
@@ -31,6 +32,7 @@ const TYPE_COLORS = {
   storage_drop_off:    { bg: '#7c3aed', dark: '#6d28d9' }, // deep purple
   rv_service_pickup:   { bg: '#ea580c', dark: '#c2410c' }, // orange
   rv_service_drop_off: { bg: '#059669', dark: '#047857' }, // emerald green
+  rv_service_and_wait: { bg: '#db2777', dark: '#be185d' }, // pink
   rv_diagnostics:      { bg: '#dc2626', dark: '#b91c1c' }, // red
   rv_estimate_build:   { bg: '#d97706', dark: '#b45309' }, // amber
   // Existing
