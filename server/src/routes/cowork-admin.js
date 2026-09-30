@@ -481,6 +481,31 @@ router.post('/storage-invoice-adhoc', requireCoworkKey, async (req, res) => {
   }
 });
 
+// POST /api/cowork-admin/storage-receipt
+// Preview or test the Zelle/check/cash payment receipt for one box and month.
+// Body: { billing_id, year, month, dryRun, test_to? }
+// dryRun defaults to true and returns the rendered HTML with the skip reason,
+// if any. test_to sends the real email to that address (subject prefixed
+// [TEST]) without claiming the month or logging it. Live sends only happen
+// from the billing grid click, and only with storage_receipts_enabled = 'true'.
+router.post('/storage-receipt', requireCoworkKey, async (req, res) => {
+  try {
+    const { sendStorageReceipt } = require('../services/storageReceipts');
+    const testTo = req.body?.test_to || null;
+    const result = await sendStorageReceipt({
+      billingId: Number(req.body?.billing_id),
+      year: Number(req.body?.year),
+      month: Number(req.body?.month),
+      // Never a live customer send from here: preview, or test to an address.
+      dryRun: !testTo,
+      testTo,
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // POST /api/cowork-admin/storage-autopay-run
 // Run the TESTED autopay charge engine for specific boxes and a specific month.
 // This moves real money, so it is deliberately narrow: billing_ids is REQUIRED
