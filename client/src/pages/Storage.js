@@ -2500,8 +2500,35 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
 // AddSpaceModal — create new storage space (admin only)
 // ---------------------------------------------------------------------------
 
+// Waitlist names often come in ALL CAPS from intake; "Hi KARLO" reads like
+// shouting, so greet by first name in normal case.
+function waitlistFirstName(entry) {
+  const raw = (entry.first_name || entry.contact_name || '').trim().split(/\s+/)[0] || '';
+  if (!raw) return 'there';
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+// "2026-10-15" -> "October 15, 2026" without timezone drift.
+function formatEffectiveDate(ymd) {
+  if (!ymd) return '';
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+// Canned waitlist message. Same text goes out by email and SMS. Says
+// "opening", never "space": storage customers don't get an assigned spot.
+function buildWaitlistMessage(entry, effectiveDate) {
+  const typeWord = entry.space_type === 'indoor' ? 'an indoor' : 'an outdoor';
+  const when = effectiveDate ? formatEffectiveDate(effectiveDate) : '[pick an effective date]';
+  return `Hi ${waitlistFirstName(entry)}, this is Carol at Master Tech RV. Good news: we have ${typeWord} storage opening for your RV starting ${when}. Reply to this message or call us at (303) 557-2214 to claim it. If we don't hear from you within 48 business hours, we'll offer it to the next person on the waitlist.`;
+}
+
 function WaitlistNotifyModal({ entry, onClose, onSent }) {
-  const [message, setMessage] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [message, setMessage] = useState(() => buildWaitlistMessage(entry, ''));
+  const [edited, setEdited] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
 
@@ -2510,11 +2537,28 @@ function WaitlistNotifyModal({ entry, onClose, onSent }) {
   const phone = entry.phone_primary || entry.contact_phone || null;
   const typeLabel = entry.space_type === 'indoor' ? 'Indoor' : 'Outdoor';
 
+  // Keep the template in sync with the date until Carol hand-edits the text.
+  const handleDateChange = (value) => {
+    setEffectiveDate(value);
+    if (!edited) setMessage(buildWaitlistMessage(entry, value));
+  };
+
+  const resetTemplate = () => {
+    setEdited(false);
+    setMessage(buildWaitlistMessage(entry, effectiveDate));
+  };
+
+  const canSend = !!effectiveDate && message.trim().length > 0 && !message.includes('[pick an effective date]');
+
   const handleSend = async () => {
+    if (!canSend) {
+      setError('Pick an effective date first.');
+      return;
+    }
     setSending(true);
     setError('');
     try {
-      const res = await api.notifyWaitlistEntry(entry.id, { personalMessage: message });
+      const res = await api.notifyWaitlistEntry(entry.id, { personalMessage: message.trim(), effectiveDate });
       const parts = [];
       if (res.results?.email === 'sent') parts.push('Email sent');
       if (res.results?.sms === 'sent') parts.push('SMS sent');
@@ -2538,22 +2582,38 @@ function WaitlistNotifyModal({ entry, onClose, onSent }) {
         </div>
         {error && <div style={errorBannerSmall}>{error}</div>}
         <div style={{ marginBottom: '12px' }}>
-          <label style={labelStyle}>Personal Message (optional)</label>
+          <label style={labelStyle}>Effective Date</label>
+          <input
+            type="date"
+            value={effectiveDate}
+            onChange={(e) => handleDateChange(e.target.value)}
+            autoFocus
+            style={{ ...inputStyleFull, maxWidth: '200px' }}
+          />
+        </div>
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <label style={labelStyle}>Message</label>
+            {edited && (
+              <button type="button" onClick={resetTemplate}
+                style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}>
+                Reset to template
+              </button>
+            )}
+          </div>
           <textarea
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder={`Hi ${name}, an ${typeLabel.toLowerCase()} space just opened up. Let me know if you'd like it.`}
-            rows={5}
-            autoFocus
-            style={{ ...inputStyleFull, minHeight: '110px', fontFamily: 'inherit', resize: 'vertical' }}
+            onChange={(e) => { setMessage(e.target.value); setEdited(true); }}
+            rows={6}
+            style={{ ...inputStyleFull, minHeight: '130px', fontFamily: 'inherit', resize: 'vertical' }}
           />
           <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '4px' }}>
-            Email: shown as a highlighted block above the standard availability message. SMS: replaces the canned text. Leave blank to send the default messages.
+            This exact text goes out by email and by text. Edit it here if you want to add anything.
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={sending} style={btnSecondary}>Cancel</button>
-          <button onClick={handleSend} disabled={sending} style={btnPrimary}>
+          <button onClick={handleSend} disabled={sending || !canSend} style={btnPrimary}>
             {sending ? 'Sending...' : 'Send Notification'}
           </button>
         </div>
