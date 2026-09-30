@@ -267,6 +267,15 @@ function getPage(token) {
   await pool.query('UPDATE records SET expected_completion_date = NULL WHERE id = $1', [rec.id]);
   await pool.query('UPDATE customers SET phone_primary = NULL WHERE id = $1', [cust.id]);
 
+  // Ready for pickup promises the invoice email and exposes what the modal needs.
+  const oi = await svc.composeOptions(rec.id);
+  truthy('pickup text says the invoice is being emailed', oi.types.find(t => t.key === 'complete').draft.includes("We're emailing your final invoice now."));
+  check('in_progress is not an invoice yet', oi.invoice.is_invoice, false);
+  await pool.query("UPDATE records SET status = 'complete' WHERE id = $1", [rec.id]);
+  const oc = await svc.composeOptions(rec.id);
+  check('complete is an invoice', oc.invoice.is_invoice, true);
+  await pool.query("UPDATE records SET status = 'in_progress' WHERE id = $1", [rec.id]);
+
   // History.
   const hist = await svc.listUpdates(rec.id);
   check('history newest first, all attempts', hist.map(h => h.update_type), ['complete', 'needs_approval', 'needs_approval', 'parts_ordered', 'work_started']);

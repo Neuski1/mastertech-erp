@@ -1385,7 +1385,7 @@ ${paymentDetailHtml}
           recordId={record.id}
           onClose={() => setShowStatusText(false)}
           onSent={(out) => {
-            setSuccessMsg(`Text sent to the customer: "${(out && out.body ? out.body : '').slice(0, 90)}${out && out.body && out.body.length > 90 ? '...' : ''}"`);
+            setSuccessMsg(`Text sent to the customer${out && out.invoiceEmail ? `, and the invoice was emailed to ${out.invoiceEmail.sentTo}` : ''}: "${(out && out.body ? out.body : '').slice(0, 90)}${out && out.body && out.body.length > 90 ? '...' : ''}"`);
             setCommLogKey(k => k + 1);
           }}
         />

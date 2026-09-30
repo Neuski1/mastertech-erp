@@ -41,6 +41,7 @@ export default function StatusTextModal({ recordId, onClose, onSent }) {
   const [picked, setPicked] = useState([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [emailInvoice, setEmailInvoice] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -75,7 +76,14 @@ export default function StatusTextModal({ recordId, onClose, onSent }) {
   const finalText = message ? `${message.trim()}${/reply stop/i.test(message) ? '' : ` ${data?.stop_line || 'Reply STOP to opt out.'}`}` : '';
   const noteMissing = current && current.needs_note && !note.trim() && !edited;
   const customEmpty = type === 'custom' && !note.trim() && !edited;
-  const canSend = data && data.can_send && message.trim() && !noteMissing && !customEmpty && !sending;
+  // Ready for pickup: the text promises the final invoice email, so the same
+  // tap sends it. It can only go once the work order is an invoice.
+  const isPickup = type === 'complete';
+  const inv = data?.invoice || {};
+  const pickupNotInvoice = isPickup && !inv.is_invoice;
+  const willEmailInvoice = isPickup && inv.is_invoice && !!inv.email && emailInvoice;
+  const amountDue = Number(inv.amount_due || 0);
+  const canSend = data && data.can_send && message.trim() && !noteMissing && !customEmpty && !pickupNotInvoice && !sending;
 
   const togglePhoto = (id) => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : [...p, id]));
 
@@ -83,10 +91,22 @@ export default function StatusTextModal({ recordId, onClose, onSent }) {
     setError('');
     setSending(true);
     try {
+      // Email first: if the invoice cannot go, the text must not promise it.
+      let invoiceEmail = null;
+      if (willEmailInvoice) {
+        try {
+          invoiceEmail = await api.emailDocument(recordId, amountDue > 0
+            ? { includePaymentLink: true, paymentLinkType: 'final_payment', paymentLinkAmountDollars: amountDue }
+            : { includePaymentLink: false });
+        } catch (e) {
+          setError(`The invoice email did not go out, so the text was not sent either: ${e.message}`);
+          return;
+        }
+      }
       const out = await api.sendStatusUpdate(recordId, {
         type, note, message: message.trim(), photo_ids: picked,
       });
-      onSent && onSent(out);
+      onSent && onSent({ ...out, invoiceEmail });
       onClose();
     } catch (err) {
       setError(err.message);
@@ -199,11 +219,32 @@ export default function StatusTextModal({ recordId, onClose, onSent }) {
               <div style={{ marginTop: 2 }}>{finalText.length} characters{finalText.length > 160 ? ` (arrives as ${Math.ceil(finalText.length / 153)} texts)` : ''}. The link opens their job status page.</div>
             </div>
 
+            {isPickup && pickupNotInvoice && (
+              <div style={{ ...warnBox, marginTop: 12 }}>
+                Mark the work order <strong>Complete</strong> first. Ready for pickup emails the final invoice, and it is not an invoice until then.
+              </div>
+            )}
+            {isPickup && !pickupNotInvoice && !inv.email && (
+              <div style={{ ...warnBox, marginTop: 12 }}>
+                {inv.email_invalid ? 'The email on file is flagged as bad' : 'There is no email on file'}, so no invoice email can go out. Take "We're emailing your final invoice now." out of the text before sending.
+              </div>
+            )}
+            {isPickup && !pickupNotInvoice && inv.email && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 12, padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem' }}>
+                <input type="checkbox" checked={emailInvoice} onChange={e => setEmailInvoice(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>
+                  <strong>Also email the final invoice</strong> to {inv.email}
+                  {amountDue > 0 ? ` with a pay link for $${amountDue.toFixed(2)}` : ' (paid in full, no pay link)'}
+                  {!emailInvoice && <span style={{ display: 'block', color: '#b45309', fontSize: '0.8rem', marginTop: 4 }}>The text says the invoice is on its way. Edit the text, or email the invoice yourself.</span>}
+                </span>
+              </label>
+            )}
+
             {error && <div style={errBox}>{error}</div>}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               <button onClick={send} disabled={!canSend} style={{ ...sendBtn, opacity: canSend ? 1 : 0.5, cursor: canSend ? 'pointer' : 'not-allowed' }}>
-                {sending ? 'Sending...' : 'Send Text'}
+                {sending ? 'Sending...' : (willEmailInvoice ? 'Send Text and Invoice' : 'Send Text')}
               </button>
               <button onClick={onClose} style={cancelBtn}>Cancel</button>
             </div>

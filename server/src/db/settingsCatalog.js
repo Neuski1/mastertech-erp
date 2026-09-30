@@ -188,7 +188,7 @@ const SETTINGS = [
   { key: 'status_text_delayed', category: 'status_texts', sort: 80, value_type: 'longtext',
     label: 'Text: Work delayed', fallback: "Hi {first_name}, heads up: your {rv} is taking longer than planned. {note} We'll keep you posted. {link}" },
   { key: 'status_text_complete', category: 'status_texts', sort: 90, value_type: 'longtext',
-    label: 'Text: Ready for pickup', fallback: 'Hi {first_name}, good news. Your {rv} is done and ready for pickup. Call (303) 557-2214 to set a time. {link}' },
+    label: 'Text: Ready for pickup', fallback: "Hi {first_name}, good news. Your {rv} is done and ready for pickup. We're emailing your final invoice now. Call (303) 557-2214 to set a time. {link}" },
   { key: 'status_text_custom', category: 'status_texts', sort: 100, value_type: 'longtext',
     label: 'Text: Custom message', fallback: 'Hi {first_name}, {note} {link}' },
 
