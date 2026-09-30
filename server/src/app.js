@@ -1336,6 +1336,13 @@ require('./services/statusUpdates').installStatusUpdates(pool)
   .then(() => console.log('Migration 068 (status texts) ready'))
   .catch(err => console.error('Migration 068 error:', err.message));
 
+// Migration 071 - storage payment receipts. Adds
+// storage_payment_status.receipt_sent_at and the storage_receipts_enabled
+// switch (off). See services/storageReceipts.js. Purely additive.
+require('./services/storageReceipts').installStorageReceipts(pool)
+  .then(() => console.log('Migration 071 (storage receipts) ready'))
+  .catch(err => console.error('Migration 071 error:', err.message));
+
 // Migration 064 — work-order stock pulls move in a trigger, not in routes.
 // See server/src/db/partsStockSync.js for why and for the holding rule.
 require('./db/partsStockSync').installPartsStockSync(pool);

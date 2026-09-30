@@ -149,6 +149,8 @@ export default function Storage() {
 
   // Add space modal
   const [showAddSpace, setShowAddSpace] = useState(false);
+  // Ended boxes never closed out; hidden from the space cards (see GET /api/storage).
+  const [unclosed, setUnclosed] = useState([]);
 
   // Waitlist state
   const [activeTab, setActiveTab] = useState('spaces'); // 'spaces' | 'waitlist' | 'helpyousell'
@@ -206,6 +208,7 @@ export default function Storage() {
     try {
       const data = await api.getStorageSpaces();
       setSpaces(data.spaces);
+      setUnclosed(data.unclosed || []);
       setSummary(data.summary);
       setRates(data.rates);
     } catch (err) {
@@ -420,6 +423,25 @@ export default function Storage() {
       {actionMsg && <div style={successBanner}>{actionMsg} <button onClick={() => setActionMsg('')} style={closeBtnStyle}>x</button></div>}
 
       {activeTab === 'spaces' && <>
+      {/* Ended but never closed out: hidden from the cards, still active in billing */}
+      {unclosed.length > 0 && (isAdmin || canEditRecords) && (
+        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '0.85rem', color: '#92400e' }}>
+          <strong>{unclosed.length === 1 ? '1 ended box was' : `${unclosed.length} ended boxes were`} never closed out.</strong> Billing stopped, but the record is still active and hidden from the space cards.
+          {unclosed.map(u => (
+            <div key={u.billing_id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+              <span>{u.customer} ({u.label || 'no space'}), billing ended {String(u.billing_end_date).slice(0, 10)}</span>
+              <button
+                onClick={async () => {
+                  if (!window.confirm(`Close out ${u.customer} on ${u.label}? Their history stays.`)) return;
+                  try { await api.endStorage(u.billing_id); fetchSpaces(); }
+                  catch (err) { setError(err.message); }
+                }}
+                style={{ padding: '4px 10px', fontSize: '0.78rem', background: '#92400e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+              >Close Out</button>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Summary Bar */}
       {summary && (
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>

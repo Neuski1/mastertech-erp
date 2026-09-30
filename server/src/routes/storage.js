@@ -229,8 +229,25 @@ router.get('/', async (req, res) => {
     const outdoor = spaces.filter(s => s.space_type === 'outdoor');
     const indoor = spaces.filter(s => s.space_type === 'indoor');
 
+    // Boxes whose billing ended but that were never closed out. The query
+    // above hides them (billing_end_date IS NULL), yet the grid, receipts and
+    // reports still see them as active. The Spaces tab shows these in a
+    // warning with a Close Out button.
+    const { rows: unclosed } = await pool.query(
+      `SELECT sb.id AS billing_id, sb.billing_end_date::text AS billing_end_date,
+              sb.scheduled_move_out::text AS scheduled_move_out,
+              ss.label, TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer
+         FROM storage_billing sb
+         LEFT JOIN storage_spaces ss ON ss.id = sb.space_id
+         LEFT JOIN customers c ON c.id = sb.customer_id
+        WHERE sb.deleted_at IS NULL AND sb.billing_end_date IS NOT NULL
+          AND sb.billing_end_date < CURRENT_DATE
+        ORDER BY ss.label`
+    );
+
     res.json({
       spaces,
+      unclosed,
       summary: {
         total: spaces.length,
         outdoor: { total: outdoor.length, occupied: outdoor.filter(s => s.billing_id).length },
@@ -707,14 +724,21 @@ router.patch('/:id/move', requireRole('admin', 'service_writer', 'technician'), 
 // DELETE /api/storage/:id — End storage (set billing_end_date)
 // ---------------------------------------------------------------------------
 router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const explicit = !!req.body?.end_date;
   const endDate = req.body?.end_date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
 
   try {
+    // A box whose billing end date was already set (a lease that ran out) is
+    // hidden from the Spaces tab but still active. It used to be refused here
+    // too, so nothing in the app could close it (Schaap, Indoor 3, Sept 2026).
+    // Now it closes, keeping its existing end date unless one is given.
     const { rows } = await pool.query(
-      `UPDATE storage_billing SET billing_end_date = $1, deleted_at = NOW()
-       WHERE id = $2 AND deleted_at IS NULL AND billing_end_date IS NULL
+      `UPDATE storage_billing
+          SET billing_end_date = CASE WHEN $3 THEN $1::date ELSE COALESCE(billing_end_date, $1::date) END,
+              deleted_at = NOW()
+       WHERE id = $2 AND deleted_at IS NULL
        RETURNING *`,
-      [endDate, req.params.id]
+      [endDate, req.params.id, explicit]
     );
 
     if (rows.length === 0) {
@@ -997,6 +1021,17 @@ router.post('/payment-grid', requireRole('admin', 'service_writer', 'technician'
       throw e;
     } finally {
       client.release();
+    }
+
+    // Zelle / check / cash box turned green: email the customer a receipt.
+    // Fire and forget, so a slow mail server never holds up the grid click.
+    // All the rules (method, amount, once per month, on/off switch) live in
+    // services/storageReceipts.js.
+    if (status === 'paid') {
+      require('../services/storageReceipts')
+        .sendStorageReceipt({ billingId: Number(storage_billing_id), year: y, month: m, userId: req.user?.id || null })
+        .then(r => { if (r.result !== 'skipped') console.log('storage receipt:', r.result, r.billing_id, `${r.year}-${r.month}`, r.error || ''); })
+        .catch(e => console.error('storage receipt error:', e.message));
     }
 
     res.json({ ...statusRow, charge_id: charge ? charge.id : null,
