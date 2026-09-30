@@ -39,11 +39,15 @@ const UPDATE_TYPES = [
   { key: 'delayed',        label: 'Work delayed',      stage: 2, needsNote: true,
     fallback: "Hi {first_name}, heads up: your {rv} is taking longer than planned. {note} We'll keep you posted. {link}" },
   { key: 'complete',       label: 'Ready for pickup',  stage: 3, needsNote: false,
-    fallback: 'Hi {first_name}, good news. Your {rv} is done and ready for pickup. Call (303) 557-2214 to set a time. {link}' },
+    fallback: "Hi {first_name}, good news. Your {rv} is done and ready for pickup. We're emailing your final invoice now. Call (303) 557-2214 to set a time. {link}" },
   { key: 'custom',         label: 'Custom message',    stage: null, needsNote: false,
     fallback: 'Hi {first_name}, {note} {link}' },
 ];
 const BY_KEY = new Map(UPDATE_TYPES.map(t => [t.key, t]));
+
+// A work order prints and emails as an Invoice in these statuses (same list as
+// the email-document route in records.js).
+const INVOICE_STATUSES = ['complete', 'payment_pending', 'partial', 'paid'];
 
 // Which update a tech most likely wants, given where the work order sits.
 const SUGGEST_BY_STATUS = {
@@ -169,6 +173,7 @@ async function loadRecord(recordId) {
   const { rows } = await pool.query(
     `SELECT r.id, r.record_number, r.status, r.customer_id, r.photo_token,
             c.first_name, c.last_name, c.phone_primary, c.phone_secondary,
+            c.email_primary, COALESCE(c.email_invalid, FALSE) AS email_invalid, r.amount_due,
             COALESCE(c.sms_opt_out, FALSE) AS sms_opt_out,
             u.year, u.make, u.model,
             to_char(r.expected_completion_date, 'YYYY-MM-DD') AS expected_completion
@@ -209,6 +214,15 @@ async function composeOptions(recordId) {
     record_id: r.id,
     record_number: r.record_number,
     record_status: r.status,
+    // Ready for pickup emails the final invoice in the same tap. That only
+    // makes sense once the work order IS an invoice (status Complete or later)
+    // and there is a good address to send it to.
+    invoice: {
+      is_invoice: INVOICE_STATUSES.includes(r.status),
+      email: r.email_invalid ? null : (r.email_primary || null),
+      email_invalid: !!r.email_invalid,
+      amount_due: r.amount_due == null ? 0 : Number(r.amount_due),
+    },
     customer_name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
     to: phone,
     link,
