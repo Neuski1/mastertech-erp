@@ -1387,8 +1387,8 @@ router.delete('/waitlist/:id', requireRole('admin', 'service_writer', 'technicia
 // POST /api/storage/waitlist/:id/notify — Notify customer of availability
 router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), async (req, res) => {
   try {
-    // Optional personal message from Carol — appears as a highlighted block
-    // in the email and replaces the canned SMS body when provided.
+    // Message from the Notify modal (template + effective date). When provided
+    // it replaces the canned email body and the canned SMS text.
     const personalMessage = (req.body && req.body.personalMessage || '').trim();
 
     const { rows } = await pool.query(
@@ -1399,19 +1399,27 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
     );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
     const entry = rows[0];
-    const name = entry.first_name || entry.contact_name || 'Customer';
+    // Intake often stores names in ALL CAPS; greet by first name in normal case.
+    const rawName = (entry.first_name || entry.contact_name || '').trim().split(/\s+/)[0] || '';
+    const name = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase() : 'there';
     const email = entry.email || entry.contact_email;
     const phone = entry.phone || entry.contact_phone;
     const typeLabel = entry.space_type === 'indoor' ? 'indoor' : 'outdoor';
 
     const results = { email: null, sms: null };
 
-    // HTML escape + paragraph break the personal message for email
-    const escaped = personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const personalBlock = personalMessage ? `
-      <div style="margin:14px 0;padding:14px 18px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:4px;">
-        <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.5;white-space:pre-wrap;">${escaped}</p>
-      </div>` : '';
+    // The modal sends the full message (template with the effective date
+    // filled in). When present it IS the email body, not a block stacked on
+    // top of a second canned message. Wording says "opening", never "space":
+    // storage customers don't get an assigned spot.
+    const escaped = personalMessage.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const emailBody = personalMessage
+      ? `<p style="white-space:pre-wrap;">${escaped}</p>
+<p>Thank you,<br/>Carol Neu<br/>Master Tech RV Repair &amp; Storage<br/>(303) 557-2214</p>`
+      : `<p>Hi ${name},</p>
+<p>Good news: we have an <strong>${typeLabel} storage</strong> opening for your RV at Master Tech RV Repair &amp; Storage.</p>
+<p>Reply to this email or call us at <strong>(303) 557-2214</strong> to claim it. If we don't hear from you within 48 business hours, we'll offer it to the next person on the waitlist.</p>
+<p>Thank you,<br/>Carol Neu<br/>Master Tech RV Repair &amp; Storage</p>`;
 
     // Send email notification
     if (email) {
@@ -1424,13 +1432,8 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
           // CC service@ so Carol has a record of exactly what message went
           // out (mirrors the estimate-approval email pattern).
           cc: 'service@mastertechrvrepair.com',
-          subject: `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} Storage Space Available — Master Tech RV`,
-          html: `<p>Hi ${name},</p>
-${personalBlock}
-<p>Great news! An <strong>${typeLabel} storage</strong> space has become available at Master Tech RV Repair & Storage.</p>
-<p>Since you're on our waitlist, we wanted to give you first opportunity to reserve this spot.</p>
-<p>Please call us at <strong>(303) 557-2214</strong> or reply to this email as soon as possible to secure your space. Spots fill up quickly!</p>
-<p>Thank you,<br/>Master Tech RV Repair & Storage</p>`
+          subject: 'Your RV storage opening at Master Tech RV',
+          html: emailBody,
         });
         results.email = 'sent';
       } catch (emailErr) {
@@ -1443,9 +1446,10 @@ ${personalBlock}
     // normalization, opt-out checks, and provider config; results.sms only
     // says 'sent' when the text actually went out.
     if (phone) {
+      // Only tack on the shop number if the message doesn't already carry it.
       const smsBody = personalMessage
-        ? `${personalMessage}\n\n— Master Tech RV (303) 557-2214`
-        : `Hi ${name}! An ${typeLabel} storage space is now available at Master Tech RV. Call us at (303) 557-2214 to reserve your spot before it's taken!`;
+        ? (personalMessage.includes('557-2214') ? personalMessage : `${personalMessage}\n\nMaster Tech RV (303) 557-2214`)
+        : `Hi ${name}, this is Carol at Master Tech RV. We have an ${typeLabel} storage opening for your RV. Reply to this text or call (303) 557-2214 to claim it. If we don't hear from you within 48 business hours, we'll offer it to the next person on the waitlist.`;
       try {
         const smsResult = await sendSMS(phone, smsBody);
         results.sms = smsResult.success ? 'sent' : ('not sent: ' + (smsResult.skipped || smsResult.error || 'unknown'));
@@ -1467,7 +1471,7 @@ ${personalBlock}
     if (results.email === 'sent') sentChannels.push('Email');
     if (results.sms === 'sent') sentChannels.push('SMS');
     const bodyForLog = personalMessage
-      || `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} storage space available — reserve by calling (303) 557-2214.`;
+      || `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} storage opening available; reply or call (303) 557-2214 within 48 business hours.`;
     await logCustomerContact({
       customerId: entry.customer_id,
       channel: sentChannels.length ? sentChannels.join(' + ') : 'Attempted',
