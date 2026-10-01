@@ -300,6 +300,12 @@ router.patch('/:id', requireAdminOrAgentKey, async (req, res) => {
     updates.push(`approval_status = $${idx++}`); values.push(req.body.approval_status);
   }
   if (target_filter !== undefined) { updates.push(`target_filter = $${idx++}`); values.push(JSON.stringify(target_filter)); }
+  // The link to a calendar row is two-sided: email_campaigns.calendar_row_id
+  // drives approve/reject status sync, marketing_calendar.campaign_id drives
+  // the calendar view. POST set both; PATCH used to drop this field silently,
+  // which left campaign 32 linked on neither side (Oct 1 2026).
+  const linkRow = req.body.calendar_row_id !== undefined;
+  if (linkRow) { updates.push(`calendar_row_id = $${idx++}`); values.push(req.body.calendar_row_id || null); }
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
   values.push(req.params.id);
   try {
@@ -308,6 +314,11 @@ router.patch('/:id', requireAdminOrAgentKey, async (req, res) => {
       values
     );
     if (rows.length === 0) return res.status(400).json({ error: 'Campaign not found or not in draft status' });
+    if (linkRow && rows[0].calendar_row_id) {
+      try {
+        await pool.query('UPDATE marketing_calendar SET campaign_id = $1, updated_at = NOW() WHERE id = $2', [rows[0].id, rows[0].calendar_row_id]);
+      } catch (linkErr) { console.error('Calendar link failed:', linkErr.message); }
+    }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

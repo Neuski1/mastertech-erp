@@ -308,6 +308,18 @@ router.patch('/:id', async (req, res) => {
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Calendar row not found' });
 
+    // Linking from the calendar side has to reach the campaign too, or
+    // approve/reject never moves this row's status (syncCalendarStatus reads
+    // email_campaigns.calendar_row_id). Only fills an empty link on a draft.
+    if (req.body.campaign_id && rows[0].campaign_id) {
+      try {
+        await pool.query(
+          "UPDATE email_campaigns SET calendar_row_id = $1 WHERE id = $2 AND calendar_row_id IS NULL",
+          [rows[0].id, rows[0].campaign_id]
+        );
+      } catch (err) { console.error('Campaign link sync failed:', err.message); }
+    }
+
     // Moving a piece on the calendar moves the piece itself. Without this the
     // Run date column on the Campaigns list would still show the old day, and
     // the two views would disagree about the same thing.
