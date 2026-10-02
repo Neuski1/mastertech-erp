@@ -1426,7 +1426,7 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
       try {
         const { Resend } = require('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);
-        await resend.emails.send({
+        const sendRes = await resend.emails.send({
           from: 'Master Tech RV <service@mastertechrvrepair.com>',
           to: email,
           // CC service@ so Carol has a record of exactly what message went
@@ -1435,6 +1435,10 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
           subject: 'Your RV storage opening at Master Tech RV',
           html: emailBody,
         });
+        // The Resend SDK returns { error } instead of throwing on API errors.
+        if (sendRes && sendRes.error) {
+          throw new Error(sendRes.error.message || sendRes.error.name || 'Resend rejected the email');
+        }
         results.email = 'sent';
       } catch (emailErr) {
         console.error('Waitlist email error:', emailErr);
@@ -1459,17 +1463,26 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
       }
     }
 
-    // Mark as notified
-    await pool.query(
-      `UPDATE storage_waitlist SET status = 'notified', notified_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [req.params.id]
-    );
-
-    // Log the outreach on the customer record (Marketing & Notes) so Carol can
-    // see exactly what went out and when, straight from the customer's card.
     const sentChannels = [];
     if (results.email === 'sent') sentChannels.push('Email');
     if (results.sms === 'sent') sentChannels.push('SMS');
+
+    // Only flip to "notified" when something actually reached the customer,
+    // otherwise the row looks handled when nobody heard a thing.
+    if (sentChannels.length) {
+      await pool.query(
+        `UPDATE storage_waitlist SET status = 'notified', notified_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [req.params.id]
+      );
+    }
+
+    // Log the outreach on the customer record (Marketing & Notes) so Carol can
+    // see exactly what went out and when, straight from the customer's card.
+    // A channel that failed is named with its reason even when the other
+    // channel went through.
+    const failNotes = [];
+    if (results.email && results.email !== 'sent') failNotes.push(`email ${results.email}`);
+    if (results.sms && results.sms !== 'sent') failNotes.push(`SMS ${results.sms}`);
     const bodyForLog = personalMessage
       || `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} storage opening available; reply or call (303) 557-2214 within 48 business hours.`;
     await logCustomerContact({
@@ -1477,7 +1490,7 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
       channel: sentChannels.length ? sentChannels.join(' + ') : 'Attempted',
       campaign: 'Storage availability notification',
       notes: sentChannels.length
-        ? `Availability notice sent via ${sentChannels.join(' and ')}. Message: "${bodyForLog}"`
+        ? `Availability notice sent via ${sentChannels.join(' and ')}.${failNotes.length ? ` Not delivered: ${failNotes.join('; ')}.` : ''} Message: "${bodyForLog}"`
         : `Availability notice attempted but nothing delivered (email: ${results.email || 'none'}, SMS: ${results.sms || 'none'}). Message: "${bodyForLog}"`,
       userId: req.user && req.user.id,
     });
