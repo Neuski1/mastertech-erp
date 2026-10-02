@@ -2552,17 +2552,28 @@ function WaitlistNotifyModal({ entry, onClose, onSent }) {
 
   const handleSend = async () => {
     if (!canSend) {
-      setError('Pick an effective date first.');
+      setError(!effectiveDate
+        ? 'Pick an effective date first.'
+        : 'The message still says [pick an effective date]. Click Reset to template or type the date in.');
       return;
     }
     setSending(true);
     setError('');
     try {
       const res = await api.notifyWaitlistEntry(entry.id, { personalMessage: message.trim(), effectiveDate });
+      const r = res.results || {};
       const parts = [];
-      if (res.results?.email === 'sent') parts.push('Email sent');
-      if (res.results?.sms === 'sent') parts.push('SMS sent');
-      onSent(parts.length ? parts.join(' + ') : 'Notified (no contact method available)');
+      const problems = [];
+      if (r.email === 'sent') parts.push('Email sent');
+      else if (r.email) problems.push(`Email did not go out (${r.email})`);
+      if (r.sms === 'sent') parts.push('Text sent');
+      else if (r.sms) problems.push(`Text did not go out (${r.sms})`);
+      if (!parts.length) {
+        // Nothing delivered: keep the modal open so the problem is visible.
+        setError(problems.length ? problems.join('. ') : 'No email or phone on file, nothing was sent.');
+        return;
+      }
+      onSent([...parts, ...problems].join('. '));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -2613,7 +2624,9 @@ function WaitlistNotifyModal({ entry, onClose, onSent }) {
         </div>
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} disabled={sending} style={btnSecondary}>Cancel</button>
-          <button onClick={handleSend} disabled={sending || !canSend} style={btnPrimary}>
+          {/* Stays clickable without a date: a greyed-out button with no
+              explanation read as "broken". Clicking says what's missing. */}
+          <button onClick={handleSend} disabled={sending} style={{ ...btnPrimary, opacity: canSend ? 1 : 0.6 }}>
             {sending ? 'Sending...' : 'Send Notification'}
           </button>
         </div>
