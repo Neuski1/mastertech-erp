@@ -64,6 +64,7 @@ async function sendSMS(rawPhone, body) {
   const to = normalizePhone(rawPhone);
   if (!to) {
     console.log('[sms] invalid phone — skipping:', rawPhone);
+    if (rawPhone && String(rawPhone).trim()) notifySmsProblem(rawPhone, body, 'the phone number is not a valid US number');
     return { success: false, skipped: 'invalid_phone' };
   }
   if (await isPhoneOptedOut(to)) {
@@ -76,7 +77,30 @@ async function sendSMS(rawPhone, body) {
     console.log(`[sms] sent to ${to} (id=${result.id || 'n/a'})`);
     return { success: true, sid: result.id };
   }
+  notifySmsProblem(to, body, result.error || 'Dialpad refused it');
   return { success: false, error: result.error };
+}
+
+// Bell notification for a text that did not go out. Fire and forget: the
+// caller already gets the failure back, this just makes sure a person sees it.
+// Opted-out and not-configured skips are deliberate and do not notify.
+function notifySmsProblem(phone, body, reason) {
+  (async () => {
+    const { notify, customersByPhone, fullName, formatPhone } = require('./notifications');
+    const pretty = formatPhone(phone);
+    const custs = await customersByPhone(phone);
+    const c = custs[0];
+    const who = c ? (fullName(c) || pretty) : pretty;
+    const preview = String(body || '').replace(/\s+/g, ' ').slice(0, 140);
+    await notify({
+      type: 'sms_failed',
+      title: `Text to ${who} failed`,
+      body: `Text to ${pretty} did not send: ${reason}.\nMessage: "${preview}${String(body || '').length > 140 ? '...' : ''}"`,
+      customerId: c ? c.id : null,
+      link: c ? `/customers/${c.id}` : null,
+      dedupeKey: `sms_failed:${String(phone).replace(/\D/g, '').slice(-10) || pretty}`,
+    });
+  })().catch(err => console.error('[sms] notify failed:', err.message));
 }
 
 // Format date/time helpers

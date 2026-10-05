@@ -907,6 +907,8 @@ async function sendBatchForCampaign(campaignId, limit) {
           subject: campaign.subject,
           html,
           text: campaign.body_html.replace(/<[^>]*>/g, ''),
+          // Marks it as marketing so a bounce does not ring the bell.
+          tags: [{ name: 'category', value: 'marketing' }, { name: 'campaign_id', value: String(campaign.id) }],
         });
 
         if (result.success) {

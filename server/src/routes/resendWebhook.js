@@ -21,12 +21,20 @@
 // Every event lands in email_events, keyed on the svix-id, so a retry from
 // Resend is a no-op.
 //
+// A permanent bounce on a CUSTOMER-FACING email (confirmation, invoice,
+// estimate, receipt) also opens a notification on the bell. Marketing
+// campaign bounces do not: one newsletter can bounce 50 at once, and those
+// addresses are flagged anyway. A campaign is recognized by its Resend tag
+// (category=marketing) or, for sends from before tagging, by a subject that
+// matches a campaign.
+//
 // Mounted in app.js BEFORE express.json with express.raw, because the
 // signature is computed over the exact bytes Resend sent.
 
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../db/pool');
+const { notify } = require('../services/notifications');
 
 const router = express.Router();
 const TOLERANCE_SECONDS = 5 * 60;
@@ -79,7 +87,33 @@ async function logToCustomer(client, customerId, triggerEvent, text) {
   );
 }
 
-async function handleEvent(client, event) {
+// Resend sends tags as an object ({ category: 'marketing' }); older payloads
+// and the send API use an array of { name, value }. Accept both.
+function tagValue(data, name) {
+  const tags = data && data.tags;
+  if (!tags) return null;
+  if (Array.isArray(tags)) {
+    const t = tags.find(x => x && x.name === name);
+    return t ? t.value : null;
+  }
+  return typeof tags === 'object' ? (tags[name] ?? null) : null;
+}
+
+async function isMarketingEmail(client, data) {
+  if (tagValue(data, 'category') === 'marketing') return true;
+  const subject = (data && data.subject) || '';
+  if (!subject) return false;
+  try {
+    const { rows } = await client.query(
+      `SELECT 1 FROM email_campaigns WHERE TRIM(subject) = TRIM($1) LIMIT 1`, [subject]
+    );
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function handleEvent(client, event, pending = []) {
   const type = event.type;
   const data = event.data || {};
   const emails = recipientsOf(data);
@@ -109,6 +143,24 @@ async function handleEvent(client, event) {
       for (const r of rows) {
         await logToCustomer(client, r.id, 'email_bounce',
           `Email bounced (${bounceType || 'bounce'}): ${email}\nSubject: ${subject}${message ? `\nReason: ${message}` : ''}\nAddress flagged as bad email.`);
+      }
+      if (!(await isMarketingEmail(client, data))) {
+        const body = `"${subject}" to ${email} bounced${message ? `: ${message}` : '.'} `
+          + 'The address is now flagged as bad, so nothing else will be emailed there. Call the customer for a good address.';
+        if (rows.length) {
+          for (const r of rows) {
+            pending.push({
+              type: 'email_bounce', customerId: r.id, link: `/customers/${r.id}`,
+              title: `Email bounced: ${email}`, body, dedupeKey: `email_bounce:${r.id}`,
+            });
+          }
+        } else {
+          pending.push({
+            type: 'email_bounce', title: `Email bounced: ${email}`,
+            body: body + ' No customer has this as their primary email.',
+            dedupeKey: `email_bounce:${email}`,
+          });
+        }
       }
       outcome.push({ email, action: rows.length ? 'flagged_invalid' : 'no_customer_match', customer_ids: rows.map(r => r.id) });
     } else if (type === 'email.complained') {
@@ -182,9 +234,13 @@ router.post('/', async (req, res) => {
       await client.query('ROLLBACK');
       return res.json({ ok: true, duplicate: true });
     }
-    const outcome = await handleEvent(client, event);
+    const pending = [];
+    const outcome = await handleEvent(client, event, pending);
     await client.query('UPDATE email_events SET outcome = $2 WHERE id = $1', [ins.rows[0].id, JSON.stringify(outcome)]);
     await client.query('COMMIT');
+    // After COMMIT, so a notification can never roll back the flag, and a
+    // retried delivery (duplicate svix-id) never notifies twice.
+    for (const n of pending) await notify(n);
     console.log('Resend webhook:', event.type, JSON.stringify(outcome));
     return res.json({ ok: true, outcome });
   } catch (err) {
@@ -200,3 +256,4 @@ router.post('/', async (req, res) => {
 module.exports = router;
 module.exports.verifySvix = verifySvix;
 module.exports.recipientsOf = recipientsOf;
+module.exports.tagValue = tagValue;

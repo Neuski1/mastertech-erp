@@ -130,6 +130,14 @@ router.post('/:token', express.urlencoded({ extended: true }), async (req, res) 
       || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://mastertech-erp-production-cb96.up.railway.app');
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
 
+    require('../services/notifications').notifyLater({
+      type: 'reschedule_request',
+      title: `${name} wants to reschedule (${fmtLabel(appt.appointment_type)})`,
+      body: `Currently ${curStr}. Requested ${reqPretty} (Mountain).${(note || '').trim() ? ` Note: ${(note || '').trim()}` : ''} Confirm or adjust in Schedule, then re-send the confirmation.`,
+      customerId: appt.customer_id, recordId: appt.record_id || null, link: `/schedule/${appt.id}`,
+      dedupeKey: `appointment_request:${appt.id}`,
+    });
+
     sendEmail({
       to: 'service@mastertechrvrepair.com',
       subject: `Reschedule request — ${name} (${fmtLabel(appt.appointment_type)})`,
@@ -224,6 +232,15 @@ router.post('/:token/cancel', express.urlencoded({ extended: true }), async (req
     const curStr = appt.scheduled_at
       ? new Date(appt.scheduled_at).toLocaleString('en-US', { timeZone:'America/Denver', dateStyle:'medium', timeStyle:'short' }) : '—';
     const frontendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
+
+    require('../services/notifications').notifyLater({
+      type: 'cancel_request',
+      title: `${name} wants to cancel (${fmtLabel(appt.appointment_type)})`,
+      body: `Scheduled ${curStr}. Reason: ${(reason || '').trim()}. Confirm the cancellation in Schedule.`,
+      customerId: appt.customer_id, recordId: appt.record_id || null, link: `/schedule/${appt.id}`,
+      dedupeKey: `appointment_request:${appt.id}`,
+      severity: 'urgent',
+    });
 
     sendEmail({
       to: 'service@mastertechrvrepair.com',

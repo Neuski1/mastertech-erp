@@ -423,6 +423,13 @@ router.post('/:token', express.urlencoded({ extended: false }), async (req, res)
     } catch (e) { console.error('Comm log error:', e.message); }
 
     // Notify staff
+    require('../services/notifications').notifyLater({
+      type: 'estimate_approved',
+      title: `${tokenData.customer_name || 'Customer'} approved ${totalApproved} line${totalApproved === 1 ? '' : 's'} on WO #${tokenData.record_number}`,
+      body: `Approved online: ${approvedLaborIds.length} labor, ${approvedPartsIds.length} parts. Order parts and keep the job moving.`,
+      customerId: tokenData.customer_id, recordId, link: `/records/${recordId}`,
+      dedupeKey: `estimate_lines_approved:${recordId}`,
+    });
     const backendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
     sendEmail({
       to: 'service@mastertechrvrepair.com',
