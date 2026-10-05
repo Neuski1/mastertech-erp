@@ -9,12 +9,15 @@ const { TYPES } = require('../services/notifications');
 
 router.use(requireRole('admin', 'service_writer'));
 
-// GET /api/notifications/count -> { open, urgent }
+// GET /api/notifications/count -> { open, urgent, latest_at }
+// latest_at is the newest last_at among open items. The pop-up compares it to
+// what this browser tab last dismissed, so a new or repeated alert pops again.
 router.get('/count', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS open,
-              COUNT(*) FILTER (WHERE severity = 'urgent')::int AS urgent
+              COUNT(*) FILTER (WHERE severity = 'urgent')::int AS urgent,
+              MAX(last_at) AS latest_at
          FROM notifications WHERE handled_at IS NULL`
     );
     res.json(rows[0]);
