@@ -372,7 +372,7 @@ router.post('/', acceptPhotos, async (req, res) => {
       .then((r) => console.log(JSON.stringify({
         evt: 'lead_alerts', lead_id: leadId,
         sms: r.shop_sms.results.map((x) => `${x.to}:${x.success ? 'sent' : (x.skipped || x.error)}`),
-        shop_email: r.shop_email.result?.success ? 'sent' : r.shop_email.result?.error,
+        shop_email: r.shop_email.result?.success ? 'sent' : (r.shop_email.result?.skipped || r.shop_email.result?.error),
         customer_email: r.customer_email.result?.success ? 'sent' : (r.customer_email.result?.error || 'no address'),
       })))
       .catch((err) => console.error('[leadAlerts] unexpected failure:', err.message));

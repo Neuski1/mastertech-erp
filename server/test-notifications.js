@@ -191,7 +191,7 @@ function sign(id, ts, body) {
     message: 'RV: 2021 Airstream Basecamp | Services: Roof reseal | Issue: leak over door', source: 'website' });
   const nl = await open('new_lead');
   check('new lead notifies with link and detail', [nl.length, nl[0].link, /Roof reseal/.test(nl[0].body)], [1, '/leads/501', true]);
-  check('shop lead email still sent', emails.some(e => /Pat Camper/.test(e.subject || '') || /Pat Camper/.test(e.html || '')), true);
+  check('shop lead email NOT sent (ERP only)', emails.some(e => /Pat Camper/.test(e.subject || '') || /Pat Camper/.test(e.html || '')), false);
   const dry = await sendLeadAlerts({ id: 502, name: 'Dry Run' }, { dryRun: true });
   check('dry run does not notify', [(await open('new_lead')).length, !!dry.dryRun], [1, true]);
 
