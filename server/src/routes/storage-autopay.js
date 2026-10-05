@@ -612,7 +612,11 @@ async function buildReminder(b, req, { year, month, day }, { preview }) {
         const resp = await square.client.checkout.paymentLinks.create({
           idempotencyKey: crypto.randomUUID(),
           quickPay: {
-            name: `RV Storage, ${monthName}, ${b.first_name || ''} ${b.last_name || ''}`.trim(),
+            // squareReconcileCron matches a payment to the grid ONLY by
+            // "Invoice S<YYYY><MM>-<customer_id>" in the line name. Without it
+            // the payment lands in Square and the box stays red (Riggins,
+            // Oct 5, 2026).
+            name: `RV Storage, Invoice S${year}${String(month).padStart(2, '0')}-${b.customer_id}, ${monthName}`,
             priceMoney: { amount: BigInt(Math.round(total * 100)), currency: 'USD' },
             locationId: square.locationId,
           },
