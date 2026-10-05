@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -43,6 +43,17 @@ import PayOnline from './pages/PayOnline';
 import StorageAutopaySetup from './pages/StorageAutopaySetup';
 import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
 import Notifications from './pages/Notifications';
+import NotificationPopup from './components/NotificationPopup';
+
+// Last pop-up dismissal for this tab: { latest, at } in epoch ms.
+function readPopupSeen(ref) {
+  if (ref.current) return ref.current;
+  try {
+    const raw = window.sessionStorage.getItem('notifPopupSeen');
+    if (raw) ref.current = JSON.parse(raw);
+  } catch (e) { /* storage blocked: memory only */ }
+  return ref.current || { latest: 0, at: 0 };
+}
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -63,6 +74,7 @@ function AppLayout() {
   const { user, logout, canManageUsers, canManageSettings, isAdmin, isServiceWriter } = useAuth();
   const canSeeNotifications = isAdmin || isServiceWriter;
   const [bell, setBell] = useState({ open: 0, urgent: 0 });
+  const [popupOpen, setPopupOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [partnersDue, setPartnersDue] = useState(0);
@@ -100,13 +112,37 @@ function AppLayout() {
     return () => { cancelled = true; };
   }, [location.pathname]);
 
+  // Notification pop-up. Shows when the ERP is opened with anything open, when
+  // a new or repeated alert arrives, and every 2 hours while anything urgent is
+  // still open. Remembered per browser tab (sessionStorage, with an in-memory
+  // fallback when storage is blocked) so a click around the app does not
+  // re-pop it.
+  const popupSeen = useRef(null);
+  const latestAt = useRef(0);
+  const closePopup = useCallback(() => {
+    const seen = { latest: latestAt.current, at: Date.now() };
+    popupSeen.current = seen;
+    try { window.sessionStorage.setItem('notifPopupSeen', JSON.stringify(seen)); } catch (e) { /* memory only */ }
+    setPopupOpen(false);
+  }, []);
+
   // Notification bell. Refetched on navigation, every minute, and the moment
   // the Notifications page marks something handled.
   useEffect(() => {
     if (!canSeeNotifications) return undefined;
     let cancelled = false;
     const load = () => api.getNotificationCount()
-      .then(d => { if (!cancelled) setBell({ open: d.open || 0, urgent: d.urgent || 0 }); })
+      .then(d => {
+        if (cancelled) return;
+        setBell({ open: d.open || 0, urgent: d.urgent || 0 });
+        const latest = d.latest_at ? new Date(d.latest_at).getTime() : 0;
+        latestAt.current = latest;
+        if (!d.open || location.pathname.startsWith('/notifications')) return;
+        const seen = readPopupSeen(popupSeen);
+        const somethingNew = latest > (seen.latest || 0);
+        const urgentNag = (d.urgent || 0) > 0 && Date.now() - (seen.at || 0) > 2 * 60 * 60 * 1000;
+        if (somethingNew || urgentNag) setPopupOpen(true);
+      })
       .catch(() => { /* the bell is informational, never block the app */ });
     load();
     const t = setInterval(load, 60000);
@@ -260,6 +296,10 @@ function AppLayout() {
           </nav>
         )}
       </header>
+
+      {canSeeNotifications && popupOpen && !location.pathname.startsWith('/notifications') && (
+        <NotificationPopup onClose={closePopup} />
+      )}
 
       {/* Content — padded below fixed header */}
       <main style={{
