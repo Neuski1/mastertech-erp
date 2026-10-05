@@ -549,61 +549,70 @@ router.post('/send-links', requireAuth, requireRole('admin'), async (req, res) =
   }
 });
 
-// --- Staff: payment reminder for the current month ------------------------
-// POST /:billingId/remind — emails the customer that rent is due by the late-fee
-// day or a late fee applies, with the same two payment buttons as the invoice.
-// The day, the fee amount, the fee percentages and the shop's contact details
-// all come from Business Settings; the literals here are only the fallback for
-// when the settings table cannot be read.
-router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
-  try {
-    const now = new Date();
-    const year = now.getFullYear(), month = now.getMonth() + 1;
-    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    const { rows } = await pool.query(
-      `SELECT sb.id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled, sb.autopay_setup_token,
-              sp.label AS space_label, c.first_name, c.email_primary,
-              (SELECT si.total FROM storage_invoices si WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3) AS invoice_total,
-              (SELECT ps.status FROM storage_payment_status ps WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3) AS pay_status
-         FROM storage_billing sb
-         LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
-         LEFT JOIN customers c ON c.id = sb.customer_id
-        WHERE sb.id = $1 AND sb.deleted_at IS NULL`,
-      [req.params.billingId, year, month]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Billing not found' });
-    const b = rows[0];
-    if (!b.email_primary) return res.status(400).json({ error: 'Customer has no email on file' });
-    if (b.pay_status === 'paid') return res.status(400).json({ error: `${MONTHS[month-1]} is already marked paid` });
+// --- Staff: payment reminders ----------------------------------------------
+// Rebuilt Oct 5, 2026. One builder serves three routes:
+//   GET  /remind-candidates        every active, non-autopay box unpaid for
+//                                   the current month, with when it was last
+//                                   reminded. Feeds the Spaces-tab modal.
+//   POST /:billingId/remind?preview=1  rendered email, nothing sent, no
+//                                   Square link created.
+//   POST /:billingId/remind         sends it and logs it to Communication
+//                                   History as storage_payment_reminder.
+// Month and day are Denver time. Before the late-fee day the email says pay
+// by the 5th or a late fee applies; on or after it, it says past due, pay
+// today, and makes no fee promise (the ERP does not bill late fees).
 
-    const rent = parseFloat(b.monthly_rate);
-    const isCard = b.payment_method === 'credit_card';
-    const fee = isCard ? Math.round(rent * settings.num('storage_card_fee_pct', 0.035) * 100) / 100
-              : b.payment_method === 'ach'
-                ? Math.max(Math.round(rent * settings.num('storage_ach_fee_pct', 0.01) * 100) / 100,
-                           settings.money('storage_ach_fee_min', 1.00))
-                : 0;
-    const lateFee = settings.money('storage_late_fee', 25.00);
-    const lateDay = settings.int('storage_late_fee_day', 5);
-    const lateDayOrdinal = ordinal(lateDay);
-    const total = Number(b.invoice_total) || Math.round((rent + fee) * 100) / 100;
+const REMIND_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-    // Autopay setup link
+function denverToday() {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
+  return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+}
+
+const REMIND_SELECT = `
+  SELECT sb.id, sb.monthly_rate, sb.payment_method, sb.autopay_enabled, sb.autopay_setup_token,
+         sp.label AS space_label, c.id AS customer_id, c.first_name, c.last_name,
+         c.email_primary, c.email_invalid,
+         COALESCE(NULLIF(c.phone_mobile, ''), NULLIF(c.phone_primary, '')) AS phone,
+         COALESCE(c.sms_opt_out, FALSE) AS sms_opt_out,
+         (SELECT si.total FROM storage_invoices si WHERE si.storage_billing_id = sb.id AND si.year = $2 AND si.month = $3) AS invoice_total,
+         (SELECT ps.status FROM storage_payment_status ps WHERE ps.storage_billing_id = sb.id AND ps.year = $2 AND ps.month = $3) AS pay_status,
+         (SELECT MAX(cl.sent_at) FROM communication_log cl
+           WHERE cl.customer_id = sb.customer_id AND cl.trigger_event = 'storage_payment_reminder'
+             AND cl.sent_at >= make_date($2, $3, 1)) AS reminded_at
+    FROM storage_billing sb
+    LEFT JOIN storage_spaces sp ON sp.id = sb.space_id
+    LEFT JOIN customers c ON c.id = sb.customer_id`;
+
+async function buildReminder(b, req, { year, month, day }, { preview }) {
+  const rent = parseFloat(b.monthly_rate);
+  const isCard = b.payment_method === 'credit_card';
+  const fee = isCard ? Math.round(rent * settings.num('storage_card_fee_pct', 0.035) * 100) / 100
+            : b.payment_method === 'ach'
+              ? Math.max(Math.round(rent * settings.num('storage_ach_fee_pct', 0.01) * 100) / 100,
+                         settings.money('storage_ach_fee_min', 1.00))
+              : 0;
+  const lateFee = settings.money('storage_late_fee', 25.00);
+  const lateDay = settings.int('storage_late_fee_day', 5);
+  const pastDue = day >= lateDay;
+  const total = Number(b.invoice_total) || Math.round((rent + fee) * 100) / 100;
+  const monthName = `${REMIND_MONTHS[month - 1]} ${year}`;
+
+  let autopayUrl = `${publicBase(req)}/storage-autopay/setup-link-preview`;
+  let payUrl = null;
+  if (!preview) {
     let token = b.autopay_setup_token;
     if (!token) {
       const upd = await pool.query('UPDATE storage_billing SET autopay_setup_token = gen_random_uuid() WHERE id = $1 RETURNING autopay_setup_token', [b.id]);
       token = upd.rows[0].autopay_setup_token;
     }
-    const autopayUrl = `${publicBase(req)}/storage-autopay/${token}`;
-
-    // One-time pay link for card payers
-    let payUrl = null;
+    autopayUrl = `${publicBase(req)}/storage-autopay/${token}`;
     if (isCard && square.locationId) {
       try {
         const resp = await square.client.checkout.paymentLinks.create({
           idempotencyKey: crypto.randomUUID(),
           quickPay: {
-            name: `RV Storage — Invoice S${year}${String(month).padStart(2, '0')}-reminder-${b.id}`,
+            name: `RV Storage, ${monthName}, ${b.first_name || ''} ${b.last_name || ''}`.trim(),
             priceMoney: { amount: BigInt(Math.round(total * 100)), currency: 'USD' },
             locationId: square.locationId,
           },
@@ -614,19 +623,26 @@ router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_wri
         payUrl = link.url || link.longUrl || link.long_url || null;
       } catch (e) { /* reminder still goes without the link */ }
     }
+  } else if (isCard) {
+    payUrl = '#pay-link-created-on-send';
+  }
 
-    const monthName = `${MONTHS[month-1]} ${year}`;
-    const name = b.first_name || 'there';
-    const payHow = b.payment_method === 'zelle' ? `Send your Zelle payment to ${company.zelleEmail()}.`
-      : b.payment_method === 'check' ? `Mail or drop off your check to ${company.fullAddress()}.`
-      : b.payment_method === 'cash' ? `Drop off your payment at the office, ${company.pickupHours()}.`
-      : 'Use one of the buttons below.';
-    const buttons = (isCard) ? `
+  const name = (b.first_name || 'there').trim().toLowerCase().replace(/(^|[\s&-])([a-z])/g, (m, a, c) => a + c.toUpperCase());
+  const payHow = b.payment_method === 'zelle' ? `Send your Zelle payment to ${company.zelleEmail()}.`
+    : b.payment_method === 'check' ? `Mail or drop off your check to ${company.fullAddress()}.`
+    : b.payment_method === 'cash' ? `Drop off your payment at the office, ${company.pickupHours()}.`
+    : 'Use the button below.';
+  const dueLine = pastDue
+    ? `Your <strong>${monthName}</strong> storage rent of <strong>$${total.toFixed(2)}</strong> was due on the 1st and is now past due. Please pay today.`
+    : `A friendly reminder that your <strong>${monthName}</strong> storage rent of <strong>$${total.toFixed(2)}</strong> is due. Please pay by the ${ordinal(lateDay)} to avoid a $${lateFee.toFixed(2)} late fee.`;
+  const dueText = dueLine.replace(/<[^>]+>/g, '');
+  const subject = pastDue ? `Past due: ${monthName} RV storage` : `Payment reminder: ${monthName} RV storage`;
+  const buttons = isCard ? `
       <div style="text-align:center;margin:22px 0;">
-        ${payUrl ? `<a href="${payUrl}" style="display:inline-block;margin:4px 8px;padding:13px 22px;background:#1e3a5f;color:#fff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay ${'$'}${total.toFixed(2)} Now</a>` : ''}
+        ${payUrl ? `<a href="${payUrl}" style="display:inline-block;margin:4px 8px;padding:13px 22px;background:#1e3a5f;color:#fff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;">Pay $${total.toFixed(2)} Now</a>` : ''}
         <a href="${autopayUrl}" style="display:inline-block;margin:4px 8px;padding:13px 22px;background:#fff;color:#1e3a5f;border:2px solid #1e3a5f;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;">Set Up Autopay</a>
       </div>` : '';
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
   <div style="background:#1e3a5f;padding:18px 32px;">
@@ -634,26 +650,115 @@ router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_wri
   </div>
   <div style="padding:26px 32px;">
     <p style="font-size:15px;color:#111;margin:0 0 12px;">Hi ${name},</p>
-    <p style="font-size:14px;color:#374151;line-height:1.6;margin:0 0 12px;">
-      A friendly reminder that your <strong>${monthName}</strong> storage rent of
-      <strong>${'$'}${total.toFixed(2)}</strong> is due.
-    </p>
-    <p style="font-size:14px;color:#991b1b;line-height:1.6;margin:0 0 12px;">
-      <strong>Please pay by the ${lateDayOrdinal} to avoid a ${'$'}${lateFee.toFixed(2)} late fee.</strong>
-    </p>
+    <p style="font-size:14px;color:${pastDue ? '#991b1b' : '#374151'};line-height:1.6;margin:0 0 12px;">${dueLine}</p>
     <p style="font-size:13.5px;color:#374151;line-height:1.6;margin:0 0 6px;">${payHow}</p>
     ${buttons}
-    <p style="font-size:13px;color:#374151;margin:14px 0 0;">Questions? Reply to this email or call ${company.phone()}.</p>
+    <p style="font-size:13px;color:#374151;margin:14px 0 0;">Already paid? Thank you, please ignore this. Questions? Reply to this email or call ${company.phone()}.</p>
   </div>
   <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:12px 32px;text-align:center;">
     <p style="margin:0;color:#6b7280;font-size:11px;">${company.plainTextFooter()}</p>
   </div>
 </div></body></html>`;
-    const text = `Hi ${name},\n\nA friendly reminder that your ${monthName} storage rent of ${'$'}${total.toFixed(2)} is due.\n\nPlease pay by the ${lateDayOrdinal} to avoid a ${'$'}${lateFee.toFixed(2)} late fee.\n\n${payHow}${payUrl ? `\n\nPay now: ${payUrl}` : ''}\nSet up autopay: ${autopayUrl}\n\nQuestions? Reply or call ${company.phone()}.\n\n${company.name()}`;
+  const text = `Hi ${name},\n\n${dueText}\n\n${payHow}${payUrl && !preview ? `\n\nPay now: ${payUrl}` : ''}${isCard ? `\nSet up autopay: ${autopayUrl}` : ''}\n\nAlready paid? Thank you, please ignore this. Questions? Reply or call ${company.phone()}.\n\n${company.name()}`;
+  const smsPay = b.payment_method === 'zelle' ? ` Zelle to ${company.zelleEmail()}.`
+    : b.payment_method === 'check' ? ' Mail or drop off your check at the shop.'
+    : b.payment_method === 'cash' ? ' Drop off payment at the office.'
+    : payUrl ? ` Pay here: ${preview ? '[pay link]' : payUrl}`
+    : '';
+  const sms = pastDue
+    ? `Hi ${name}, this is Master Tech RV. Your ${monthName} storage rent of $${total.toFixed(2)} is past due. Please pay today.${smsPay} Already paid? Thanks, ignore this. Questions? (303) 557-2214. Reply STOP to opt out.`
+    : `Hi ${name}, reminder from Master Tech RV: your ${monthName} storage rent of $${total.toFixed(2)} is due. Pay by the ${ordinal(lateDay)} to avoid a $${lateFee.toFixed(2)} late fee.${smsPay} Questions? (303) 557-2214. Reply STOP to opt out.`;
+  return { subject, html, text, sms, total, pastDue };
+}
 
-    const result = await sendEmail({ to: b.email_primary, subject: `Payment reminder — ${monthName} RV storage`, html, text });
-    if (!result || !result.success) return res.status(502).json({ error: result?.error || 'Email failed' });
-    res.json({ ok: true, sent_to: b.email_primary, total });
+router.get('/remind-candidates', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const t = denverToday();
+    const { rows } = await pool.query(
+      `${REMIND_SELECT}
+        WHERE sb.deleted_at IS NULL
+          AND NOT COALESCE(sb.autopay_enabled, FALSE)
+          AND (sb.billing_start_date IS NULL OR sb.billing_start_date < (make_date($2, $3, 1) + INTERVAL '1 month'))
+          AND (sb.billing_end_date IS NULL OR sb.billing_end_date >= make_date($2, $3, 1))
+          AND ($1::int IS NULL OR sb.id = $1::int)
+        ORDER BY sp.label`,
+      [req.query.billing_id ? Number(req.query.billing_id) : null, t.year, t.month]
+    );
+    const list = rows
+      .filter(b => b.pay_status !== 'paid')
+      .map(b => ({
+        billing_id: b.id,
+        customer: [b.first_name, b.last_name].filter(Boolean).join(' '),
+        space: b.space_label,
+        payment_method: b.payment_method,
+        email: b.email_primary || null,
+        email_bad: !!b.email_invalid,
+        phone: b.phone || null,
+        sms_opt_out: !!b.sms_opt_out,
+        pay_status: b.pay_status || 'unpaid',
+        total: Number(b.invoice_total) || null,
+        reminded_at: b.reminded_at,
+      }));
+    res.json({ year: t.year, month: t.month, month_name: REMIND_MONTHS[t.month - 1],
+               past_due: t.day >= settings.int('storage_late_fee_day', 5), candidates: list });
+  } catch (err) {
+    console.error('GET storage-autopay/remind-candidates error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:billingId/remind', requireAuth, requireRole('admin', 'service_writer', 'bookkeeper'), async (req, res) => {
+  try {
+    const preview = req.query.preview === '1' || req.body?.preview === true;
+    const t = denverToday();
+    const { rows } = await pool.query(`${REMIND_SELECT} WHERE sb.id = $1 AND sb.deleted_at IS NULL`,
+      [req.params.billingId, t.year, t.month]);
+    if (!rows.length) return res.status(404).json({ error: 'Billing not found' });
+    const b = rows[0];
+    if (b.pay_status === 'paid') return res.status(400).json({ error: `${REMIND_MONTHS[t.month - 1]} is already marked paid` });
+    const canEmail = !!b.email_primary && !b.email_invalid;
+    const canText = !!b.phone && !b.sms_opt_out;
+    if (!preview && !canEmail && !canText) {
+      return res.status(400).json({ error: 'No usable email or phone on file' });
+    }
+
+    const r = await buildReminder(b, req, t, { preview });
+    if (preview) {
+      return res.json({ ok: true, preview: true,
+        to: canEmail ? b.email_primary : null, phone: canText ? b.phone : null, ...r });
+    }
+
+    // Email and text both go. Either one landing counts as sent; each
+    // channel is logged on its own line in Communication History.
+    const log = (channel, content, status) => pool.query(
+      `INSERT INTO communication_log
+         (customer_id, channel, trigger_event, message_content, delivery_status, is_manual, sent_by_user_id)
+       VALUES ($1,$2,'storage_payment_reminder',$3,$4,TRUE,$5)`,
+      [b.customer_id, channel, content, status, req.user?.id || null]
+    ).catch(e => console.error('reminder log failed:', e.message));
+
+    const out = { email: 'skipped', text: 'skipped' };
+    if (canEmail) {
+      const er = await sendEmail({ to: b.email_primary, subject: r.subject, html: r.html, text: r.text });
+      out.email = er && er.success ? 'sent' : `failed: ${er?.error || 'unknown'}`;
+      if (er && er.success) await log('email', `To: ${b.email_primary}\nSubject: ${r.subject}\n\n${r.text}`, 'sent');
+    } else {
+      out.email = b.email_invalid ? 'skipped: email flagged bad' : 'skipped: no email';
+    }
+    if (canText) {
+      const { sendSMS } = require('../services/sms');
+      const sr = await sendSMS(b.phone, r.sms);
+      out.text = sr && sr.success ? 'sent' : `failed: ${sr?.skipped || sr?.error || 'unknown'}`;
+      if (sr && sr.success) await log('sms', `To: ${b.phone}\n\n${r.sms}`, 'sent');
+    } else {
+      out.text = b.sms_opt_out ? 'skipped: opted out of texts' : 'skipped: no phone';
+    }
+
+    if (out.email !== 'sent' && out.text !== 'sent') {
+      return res.status(502).json({ error: `Email ${out.email}; text ${out.text}`, ...out });
+    }
+    const sentTo = [out.email === 'sent' ? b.email_primary : null, out.text === 'sent' ? b.phone : null].filter(Boolean).join(' and ');
+    res.json({ ok: true, sent_to: sentTo, ...out, total: r.total, past_due: r.pastDue });
   } catch (err) {
     console.error('POST storage-autopay/:id/remind error:', err);
     res.status(500).json({ error: err.message });

@@ -123,6 +123,7 @@ export default function Storage() {
   const location = useLocation();
   const [waitlistPrefill, setWaitlistPrefill] = useState(null);
   const [showRateIncrease, setShowRateIncrease] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
   const [spaces, setSpaces] = useState([]);
   const [summary, setSummary] = useState(null);
   const [rates, setRates] = useState({});
@@ -379,6 +380,9 @@ export default function Storage() {
           )}
           {activeTab === 'spaces' && isAdmin && (
             <button onClick={() => setShowRateIncrease(true)} style={btnSecondary}>Rate Increase</button>
+          )}
+          {activeTab === 'spaces' && (isAdmin || canEditRecords) && (
+            <button onClick={() => setShowReminders(true)} style={{ ...btnPrimary, backgroundColor: '#b45309' }}>Payment Reminders</button>
           )}
           {activeTab === 'waitlist' && (isAdmin || canEditRecords) && (
             <button onClick={() => setShowAddWaitlist(true)} style={btnPrimary}>
@@ -774,6 +778,8 @@ export default function Storage() {
           onApplied={(msg) => { setActionMsg(msg || 'Rate increase applied'); refreshSpaces(); fetchWaitlist(); }}
         />
       )}
+
+      {showReminders && <PaymentRemindersModal onClose={() => setShowReminders(false)} />}
 
       {/* Add Space Modal */}
       {showAddSpace && (
@@ -1608,6 +1614,141 @@ const rmTd = { padding: '5px 8px' };
 // ---------------------------------------------------------------------------
 // SummaryCard component
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// PaymentRemindersModal - every non-autopay box unpaid for the current month.
+// Each reminder goes by email AND text (whichever the customer can receive).
+// Preview shows the exact email and text before anything is sent.
+// ---------------------------------------------------------------------------
+function PaymentRemindersModal({ onClose }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  const [picked, setPicked] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [results, setResults] = useState({});
+
+  useEffect(() => {
+    api.getStorageReminderCandidates()
+      .then(d => {
+        setData(d);
+        const p = {};
+        d.candidates.forEach(c => {
+          const reachable = (c.email && !c.email_bad) || (c.phone && !c.sms_opt_out);
+          p[c.billing_id] = reachable && !c.reminded_at;
+        });
+        setPicked(p);
+      })
+      .catch(e => setErr(e.message));
+  }, []);
+
+  const chosen = data ? data.candidates.filter(c => picked[c.billing_id]) : [];
+  const fmtDate = (s) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+
+  const showPreview = async (c) => {
+    try { setPreview({ ...(await api.previewStorageReminder(c.billing_id)), customer: c.customer }); }
+    catch (e) { setErr(e.message); }
+  };
+
+  const sendAll = async () => {
+    if (!chosen.length) return;
+    if (!window.confirm(`Email and text a payment reminder to ${chosen.length} customer${chosen.length === 1 ? '' : 's'}?`)) return;
+    setSending(true); setErr('');
+    const res = {};
+    for (const c of chosen) {
+      try {
+        const r = await api.sendStorageReminder(c.billing_id);
+        res[c.billing_id] = `Email ${r.email}, text ${r.text}`;
+      } catch (e) { res[c.billing_id] = 'Error: ' + e.message; }
+      setResults({ ...res });
+    }
+    setSending(false);
+    try {
+      const d = await api.getStorageReminderCandidates();
+      setData(d);
+      setPicked({});
+    } catch (e) { /* keep the results on screen */ }
+  };
+
+  const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 };
+  const box = { background: '#fff', borderRadius: '10px', width: 'min(760px, 95vw)', maxHeight: '90vh', overflowY: 'auto', padding: '22px' };
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={box} onClick={e => e.stopPropagation()}>
+        <h2 style={{ margin: '0 0 6px', color: '#1e3a5f', fontSize: '1.15rem' }}>
+          Payment Reminders{data ? `: ${data.month_name} ${data.year}` : ''}
+        </h2>
+        <div style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: '14px' }}>
+          Boxes not on autopay and not marked paid this month. Each one gets an email and a text.
+          {data && (data.past_due
+            ? ' It is past the late-fee day, so the message says past due, pay today.'
+            : ' Before the late-fee day, the message says pay by then or a late fee applies.')}
+        </div>
+        {err && <div style={{ color: '#991b1b', fontSize: '0.85rem', marginBottom: '10px' }}>{err}</div>}
+        {!data && !err && <div>Loading...</div>}
+        {data && data.candidates.length === 0 && <div style={{ color: '#065f46' }}>Everyone not on autopay is paid for {data.month_name}.</div>}
+        {data && data.candidates.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: '#374151', borderBottom: '1px solid #e5e7eb' }}>
+                <th style={{ padding: '6px' }}></th><th style={{ padding: '6px' }}>Customer</th>
+                <th style={{ padding: '6px' }}>Pays by</th><th style={{ padding: '6px' }}>Email / Text</th>
+                <th style={{ padding: '6px' }}>Last reminded</th><th style={{ padding: '6px' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.candidates.map(c => {
+                const emailOk = c.email && !c.email_bad;
+                const textOk = c.phone && !c.sms_opt_out;
+                return (
+                  <tr key={c.billing_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '6px' }}>
+                      <input type="checkbox" disabled={sending || (!emailOk && !textOk)} checked={!!picked[c.billing_id]}
+                        onChange={e => setPicked({ ...picked, [c.billing_id]: e.target.checked })} />
+                    </td>
+                    <td style={{ padding: '6px' }}>{c.customer}<div style={{ color: '#9ca3af', fontSize: '0.75rem' }}>{c.space}</div></td>
+                    <td style={{ padding: '6px', textTransform: 'capitalize' }}>{(c.payment_method || 'unset').replace('_', ' ')}</td>
+                    <td style={{ padding: '6px', fontSize: '0.78rem' }}>
+                      <span style={{ color: emailOk ? '#065f46' : '#991b1b' }}>{emailOk ? 'Email' : 'No email'}</span>{' / '}
+                      <span style={{ color: textOk ? '#065f46' : '#991b1b' }}>{textOk ? 'Text' : (c.sms_opt_out ? 'Opted out' : 'No phone')}</span>
+                    </td>
+                    <td style={{ padding: '6px' }}>{c.reminded_at ? fmtDate(c.reminded_at) : <span style={{ color: '#9ca3af' }}>Not yet</span>}</td>
+                    <td style={{ padding: '6px' }}>
+                      <button type="button" onClick={() => showPreview(c)} style={{ ...btnSecondary, padding: '3px 10px', fontSize: '0.75rem' }}>Preview</button>
+                      {results[c.billing_id] && <div style={{ fontSize: '0.72rem', marginTop: '3px', color: results[c.billing_id].startsWith('Error') ? '#991b1b' : '#065f46' }}>{results[c.billing_id]}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        {preview && (
+          <div style={{ marginTop: '16px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px', background: '#f9fafb' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong style={{ fontSize: '0.85rem' }}>Preview: {preview.customer}</strong>
+              <button type="button" onClick={() => setPreview(null)} style={{ ...btnSecondary, padding: '2px 8px', fontSize: '0.72rem' }}>Close preview</button>
+            </div>
+            <div style={{ fontSize: '0.8rem', margin: '8px 0 4px', color: '#374151' }}><strong>Text</strong> {preview.phone ? `to ${preview.phone}` : '(will not send)'}</div>
+            <div style={{ fontSize: '0.82rem', background: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px', whiteSpace: 'pre-wrap' }}>{preview.sms}</div>
+            <div style={{ fontSize: '0.8rem', margin: '10px 0 4px', color: '#374151' }}><strong>Email</strong> {preview.to ? `to ${preview.to}` : '(will not send)'}: {preview.subject}</div>
+            <iframe title="reminder email preview" srcDoc={preview.html} style={{ width: '100%', height: '340px', border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff' }} />
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+          <button type="button" onClick={onClose} style={btnSecondary}>Close</button>
+          {data && data.candidates.length > 0 && (
+            <button type="button" onClick={sendAll} disabled={sending || !chosen.length}
+              style={{ ...btnPrimary, backgroundColor: '#b45309', opacity: sending || !chosen.length ? 0.6 : 1 }}>
+              {sending ? 'Sending...' : `Email + Text ${chosen.length}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SummaryCard({ label, occupied, total, color }) {
   return (
     <div style={{
@@ -2218,7 +2359,7 @@ function DetailModal({ space, allSpaces = [], canEdit, isAdmin, canSeeFinancials
                     <button type="button" onClick={handleAutopayLink} disabled={autopayBusy} style={{ ...btnPrimary, padding: '6px 14px', fontSize: '0.8rem' }}>{autopayBusy ? 'Working...' : 'Get autopay setup link'}</button>
                     <button type="button" disabled={autopayBusy}
                       onClick={async () => {
-                        if (!window.confirm('Email this customer a reminder to pay by the 5th (or a $25 late fee applies)?')) return;
+                        if (!window.confirm('Email and text this customer a payment reminder for this month?')) return;
                         setAutopayBusy(true); setAutopayMsg('');
                         try { const r = await api.sendStorageReminder(space.billing_id); setAutopayMsg('Reminder sent to ' + r.sent_to); }
                         catch (err) { setAutopayMsg('Error: ' + (err.message || 'could not send')); }
