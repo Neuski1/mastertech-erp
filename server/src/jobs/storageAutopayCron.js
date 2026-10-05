@@ -461,6 +461,15 @@ async function handleBankPaymentFailure(payment) {
 async function notifyOwnerFailure(b, year, month, error, finalFail) {
   const name = [b.first_name, b.last_name].filter(Boolean).join(' ') || `customer ${b.customer_id}`;
   const stage = finalFail ? 'after the retry, no further attempts' : 'first attempt, one retry left';
+  // Bell notification, one per space per month. The retry bumps the same one.
+  await require('../services/notifications').notify({
+    type: 'autopay_declined',
+    title: `Autopay declined: ${name} (${b.space_label || 'space'})`,
+    body: `${year}-${String(month).padStart(2, '0')} storage, $${parseFloat(b.monthly_rate || 0).toFixed(2)}, ${stage}. Reason: ${error || 'declined'}. The customer was emailed links to update the card and to pay. The space stays unpaid until one of those happens.`,
+    customerId: b.customer_id || null,
+    link: '/storage',
+    dedupeKey: `autopay_declined:${b.billing_id}:${year}-${month}`,
+  });
   try {
     await sendEmail({
       to: ownerEmail(),
@@ -586,4 +595,4 @@ async function chargeBankOnce(billingId, year, month, bauthToken, expectedAmount
   return chargeOne(b, year, month, { dryRun: false });
 }
 
-module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp, handleBankPaymentFailure, chargeBankOnce };
+module.exports = { startStorageAutopayCron, runCharges, runRetries, runCatchUp, handleBankPaymentFailure, chargeBankOnce, notifyOwnerFailure };

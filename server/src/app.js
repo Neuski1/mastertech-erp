@@ -96,6 +96,7 @@ app.use('/api/suppliers', requireAuth, require('./routes/suppliers'));
 app.use('/api/appointments', requireAuth, require('./routes/appointments'));
 app.use('/api/schedule-closures', requireAuth, require('./routes/scheduleClosures'));
 app.use('/api/communications', requireAuth, require('./routes/communications'));
+app.use('/api/notifications', requireAuth, require('./routes/notifications')); // Bell + Notifications page (admin, service_writer)
 app.use('/api/square/pos', require('./routes/square-pos')); // POS checkout — callback is public, other routes use requireRole internally
 app.use('/api/square/terminal', requireAuth, require('./routes/square-terminal'));
 app.use('/api/square/webhook', require('./routes/square-webhook')); // No auth — Square calls directly
@@ -1342,6 +1343,14 @@ require('./services/statusUpdates').installStatusUpdates(pool)
 require('./services/storageReceipts').installStorageReceipts(pool)
   .then(() => console.log('Migration 071 (storage receipts) ready'))
   .catch(err => console.error('Migration 071 error:', err.message));
+
+// Migration 072 - notification center. One row per open alert (bounced email,
+// failed text, STOP reply, autopay decline, estimate approval, reschedule or
+// cancel request, new lead). Stays open until someone marks it handled.
+// See services/notifications.js. Purely additive.
+require('./services/notifications').installNotifications(pool)
+  .then(() => console.log('Migration 072 (notifications) ready'))
+  .catch(err => console.error('Migration 072 error:', err.message));
 
 // Migration 064 — work-order stock pulls move in a trigger, not in routes.
 // See server/src/db/partsStockSync.js for why and for the holding rule.

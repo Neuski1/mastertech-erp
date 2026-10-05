@@ -86,6 +86,25 @@ router.post('/webhook', async (req, res) => {
           [`%${digits}`]
         );
         console.log(`[dialpad-webhook] opted out ${rowCount} customer(s) matching ${digits}`);
+        const { notify, customersByPhone, fullName, formatPhone } = require('../services/notifications');
+        const custs = await customersByPhone(digits);
+        const pretty = formatPhone(digits);
+        if (custs.length) {
+          for (const c of custs) {
+            await notify({
+              type: 'sms_opt_out', customerId: c.id, link: `/customers/${c.id}`,
+              title: `${fullName(c) || pretty} replied ${text}`,
+              body: `${pretty} replied "${payload.text}". They are opted out and will get no more texts from the ERP, including appointment confirmations and status updates. Email or call them instead.`,
+              dedupeKey: `sms_opt_out:${c.id}`,
+            });
+          }
+        } else {
+          await notify({
+            type: 'sms_opt_out', title: `${pretty} replied ${text}`,
+            body: `${pretty} replied "${payload.text}" but matches no customer. Nothing to change.`,
+            dedupeKey: `sms_opt_out:${digits}`,
+          });
+        }
       } else if (startKeywords.includes(text)) {
         const { rowCount } = await pool.query(
           `UPDATE customers

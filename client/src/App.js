@@ -42,6 +42,7 @@ import PartsOnOrder from './pages/PartsOnOrder';
 import PayOnline from './pages/PayOnline';
 import StorageAutopaySetup from './pages/StorageAutopaySetup';
 import OnlinePaymentsHistory from './pages/OnlinePaymentsHistory';
+import Notifications from './pages/Notifications';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -59,7 +60,9 @@ function RequireAuth({ children }) {
 }
 
 function AppLayout() {
-  const { user, logout, canManageUsers, canManageSettings } = useAuth();
+  const { user, logout, canManageUsers, canManageSettings, isAdmin, isServiceWriter } = useAuth();
+  const canSeeNotifications = isAdmin || isServiceWriter;
+  const [bell, setBell] = useState({ open: 0, urgent: 0 });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [partnersDue, setPartnersDue] = useState(0);
@@ -96,6 +99,20 @@ function AppLayout() {
       .catch(() => { /* badge is informational, never block the nav */ });
     return () => { cancelled = true; };
   }, [location.pathname]);
+
+  // Notification bell. Refetched on navigation, every minute, and the moment
+  // the Notifications page marks something handled.
+  useEffect(() => {
+    if (!canSeeNotifications) return undefined;
+    let cancelled = false;
+    const load = () => api.getNotificationCount()
+      .then(d => { if (!cancelled) setBell({ open: d.open || 0, urgent: d.urgent || 0 }); })
+      .catch(() => { /* the bell is informational, never block the app */ });
+    load();
+    const t = setInterval(load, 60000);
+    window.addEventListener('notifications-changed', load);
+    return () => { cancelled = true; clearInterval(t); window.removeEventListener('notifications-changed', load); };
+  }, [location.pathname, canSeeNotifications]);
 
   // Nav links: all pages, always active and clickable
   const allNavLinks = [
@@ -184,6 +201,27 @@ function AppLayout() {
         )}
 
         <div className="header-user-info" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {canSeeNotifications && (
+            <Link
+              to="/notifications"
+              title={bell.open ? `${bell.open} open notification${bell.open === 1 ? '' : 's'}${bell.urgent ? `, ${bell.urgent} urgent` : ''}` : 'Notifications'}
+              aria-label="Notifications"
+              style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', color: '#fff', padding: '4px', minHeight: '36px' }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+              {bell.open > 0 && (
+                <span style={{
+                  position: 'absolute', top: '0px', right: '-6px', minWidth: '18px', height: '18px',
+                  padding: '0 5px', borderRadius: '9px', boxSizing: 'border-box',
+                  backgroundColor: bell.urgent ? '#dc2626' : '#f59e0b', color: bell.urgent ? '#fff' : '#1e3a5f',
+                  fontSize: '0.68rem', fontWeight: 800, lineHeight: '18px', textAlign: 'center',
+                }}>{bell.open > 99 ? '99+' : bell.open}</span>
+              )}
+            </Link>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {!isMobile && (
               <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -254,6 +292,7 @@ function AppLayout() {
           <Route path="/parts-sales/:id" element={<PartsSaleDetail />} />
           <Route path="/storage" element={<Storage />} />
           <Route path="/partners" element={<Partners />} />
+          <Route path="/notifications" element={canSeeNotifications ? <Notifications /> : <Navigate to="/records" />} />
           <Route path="/marketing" element={canManageSettings ? <CampaignList /> : <Navigate to="/records" />} />
           <Route path="/marketing/calendar" element={canManageSettings ? <MarketingCalendar /> : <Navigate to="/records" />} />
           <Route path="/marketing/images" element={canManageSettings ? <MarketingImages /> : <Navigate to="/records" />} />

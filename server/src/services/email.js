@@ -70,6 +70,9 @@ async function sendViaResend(mailOptions) {
     reply_to: mailOptions.replyTo
       ? (Array.isArray(mailOptions.replyTo) ? mailOptions.replyTo : [mailOptions.replyTo])
       : undefined,
+    // Resend tags come back on webhook events, which is how a bounce tells a
+    // marketing campaign apart from an invoice or a confirmation.
+    tags: Array.isArray(mailOptions.tags) && mailOptions.tags.length ? mailOptions.tags : undefined,
     attachments: mailOptions.attachments?.map(a => ({
       filename: a.filename,
       content: Buffer.from(a.content).toString('base64'),
@@ -394,12 +397,12 @@ Our Service Makes Happy Campers!`;
 /**
  * Send a generic HTML email via Resend or SMTP
  */
-async function sendEmail({ to, cc, subject, html, text, attachments, replyTo }) {
+async function sendEmail({ to, cc, subject, html, text, attachments, replyTo, tags }) {
   if (!to) return { success: false, error: 'No recipient' };
   if (!useResend && !transporter) return { success: false, error: 'Email not configured' };
 
   const fromAddr = process.env.EMAIL_FROM || '"Master Tech RV Repair & Storage" <service@mastertechrvrepair.com>';
-  const mailOptions = { from: fromAddr, to, cc, subject, html, text, attachments, replyTo };
+  const mailOptions = { from: fromAddr, to, cc, subject, html, text, attachments, replyTo, tags };
 
   try {
     if (useResend) {

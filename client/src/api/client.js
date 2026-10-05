@@ -548,6 +548,13 @@ export const api = {
   getPartnerFunnelStats: () => request('/partners/funnel-stats'),
   getPartnersDue: () => request('/partners?due=true'),
   getPartnersDueCount: () => request('/partners/due-count'),
+
+  // Notifications (bell)
+  getNotificationCount: () => request('/notifications/count'),
+  getNotifications: (status = 'open', type = '') => request(`/notifications?status=${status}${type ? `&type=${encodeURIComponent(type)}` : ''}`),
+  markNotificationHandled: (id) => request(`/notifications/${id}/handled`, { method: 'PATCH' }),
+  reopenNotification: (id) => request(`/notifications/${id}/reopen`, { method: 'PATCH' }),
+  handleAllNotifications: (type) => request('/notifications/handle-all', { method: 'POST', body: JSON.stringify({ type: type || null }) }),
   getPartnerActivities: (partnerId) => request(`/partners/${partnerId}/activities`),
   addPartnerActivity: (partnerId, data) => request(`/partners/${partnerId}/activities`, { method: 'POST', body: JSON.stringify(data) }),
   deletePartnerActivity: (partnerId, actId) => request(`/partners/${partnerId}/activities/${actId}`, { method: 'DELETE' }),

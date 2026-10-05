@@ -86,6 +86,13 @@ router.get('/:token', async (req, res) => {
 
     // Notify staff
     const customerName = `${record.first_name || ''} ${record.last_name || ''}`.trim();
+    require('../services/notifications').notifyLater({
+      type: 'estimate_approved',
+      title: `${customerName || 'Customer'} approved Estimate #${record.record_number}`,
+      body: `Approved online. The record moved to ${record.status === 'awaiting_approval' ? 'In Progress' : 'Approved'}. Order parts and get it on the schedule.`,
+      customerId: record.customer_id, recordId: record.id, link: `/records/${record.id}`,
+      dedupeKey: `estimate_approved:${record.id}`,
+    });
     const backendUrl = process.env.FRONTEND_URL || 'https://mastertech-erp.vercel.app';
     sendEmail({
       to: 'service@mastertechrvrepair.com',

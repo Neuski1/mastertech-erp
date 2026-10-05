@@ -182,6 +182,24 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
 
   if (dryRun) return out;
 
+  // 0. Bell notification. First, so it exists even if every provider is down.
+  {
+    const p = leadParts(lead.message);
+    const isWaitList = /wait[\s-]?list|storage/i.test(lead.source || '') ||
+                       /storage|wait list/i.test(lead.message || '');
+    const detail = [p.rv && (p.rv + (p.length ? `, ${p.length}` : '')), p.services, p.issue]
+      .filter(Boolean).join(' | ');
+    await require('./notifications').notify({
+      type: 'new_lead',
+      title: `${isWaitList ? 'Storage wait list' : 'New lead'}: ${lead.name || 'No name'}`,
+      body: [lead.phone, lead.email, detail, photoCount ? `${photoCount} photo${photoCount === 1 ? '' : 's'}` : '']
+        .filter(Boolean).join(' | ') || 'Open the lead for details.',
+      customerId: lead.customer_id || null,
+      link: `/leads/${lead.id}`,
+      dedupeKey: `new_lead:${lead.id}`,
+    });
+  }
+
   // 1. Shop SMS. sendSMS already normalizes, checks opt-out and logs.
   for (const n of numbers) {
     try {
