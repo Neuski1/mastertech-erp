@@ -1,14 +1,10 @@
 /**
  * Lead alerts — what replaces the formsubmit.co relay.
  *
- * Two sends on every accepted lead, both best effort. Neither can fail the
- * lead: the row is already committed before any of this runs, and every path
- * here swallows its own errors and logs them.
- *
- *   1. SMS to the shop (Carol and Mark), with a tap-to-call number and a link
- *      straight to that lead in the ERP so a reply is two taps away.
- *   2. Email to the shop with Reply-To set to the CUSTOMER, so hitting reply
- *      in Gmail writes to them rather than to service@.
+ * Every accepted lead raises an urgent bell notification in the ERP. That is
+ * the ONLY shop alert. Shop texts and shop emails were turned off Oct 5, 2026
+ * so leads are tracked in one place (the Leads page) and not in Gmail/Dialpad.
+ * Nothing here can fail the lead: the row is committed before this runs.
  *
  * The customer autoresponder lives here too and is sent separately, so the
  * shop alert still goes out if the customer's address bounces.
@@ -16,7 +12,6 @@
 
 const pool = require('../db/pool');
 const { sendEmail } = require('./email');
-const { sendSMS } = require('./sms');
 
 const SHOP_PHONE = '(303) 557-2214';
 const SHOP_ADDRESS = '6590 E 49th Ave, Commerce City, CO 80022';
@@ -200,51 +195,12 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
     });
   }
 
-  // 1. Shop SMS. sendSMS already normalizes, checks opt-out and logs.
-  for (const n of numbers) {
-    try {
-      const r = await sendSMS(n, shopSms);
-      out.shop_sms.results.push({ to: n, ...r });
-    } catch (err) {
-      console.error('[leadAlerts] shop sms failed:', n, err.message);
-      out.shop_sms.results.push({ to: n, success: false, error: err.message });
-    }
-  }
-  if (!numbers.length) console.warn('[leadAlerts] SHOP_SMS_NUMBERS is not set, no shop text sent');
-
-  // 2. Shop email, reply-to the customer, with the photos ATTACHED.
-  //
-  // Not linked. An <img src> pointing at an authenticated route returns 401
-  // in a mail client and in the browser alike, which is the trap the record
-  // photo emails already work around with token URLs. Attaching avoids both
-  // the 401 and the need for another public route.
-  let attachments;
-  try {
-    const { rows: pics } = await pool.query(
-      `SELECT title, file_data, mime_type FROM customer_documents
-        WHERE doc_type = 'lead_photo' AND related_id = $1 ORDER BY id`,
-      [lead.id]
-    );
-    if (pics.length) {
-      attachments = pics.map((p, i) => ({
-        filename: `lead-photo-${i + 1}.jpg`,
-        content: p.file_data,
-        contentType: p.mime_type || 'image/jpeg',
-      }));
-    }
-  } catch (err) {
-    console.error('[leadAlerts] could not load photos to attach:', err.message);
-  }
-
-  try {
-    out.shop_email.result = await sendEmail({
-      to: shopEmail(), subject: shopMail.subject, html: shopMail.html,
-      text: shopMail.text, replyTo: lead.email || undefined, attachments,
-    });
-  } catch (err) {
-    console.error('[leadAlerts] shop email failed:', err.message);
-    out.shop_email.result = { success: false, error: err.message };
-  }
+  // Shop SMS and shop email are OFF (Carol, Oct 5, 2026): leads live in the
+  // ERP only, so each one is tracked to a close from the Leads page and the
+  // bell instead of getting buried in Gmail and Dialpad. The builders stay so
+  // the alert-preview dry run still renders, but nothing is sent to the shop.
+  out.shop_sms.results = numbers.map((n) => ({ to: n, success: false, skipped: 'shop lead texts disabled' }));
+  out.shop_email.result = { success: false, skipped: 'shop lead emails disabled' };
 
   // 3. Customer autoresponder, separately so a bad address cannot take the
   // shop alert down with it.
@@ -264,43 +220,6 @@ async function sendLeadAlerts(lead, { photoCount = 0, dryRun = false } = {}) {
     } catch (err) {
       console.error('[leadAlerts] customer email failed:', err.message);
       out.customer_email.result = { success: false, error: err.message };
-    }
-  }
-
-  // Record the SHOP alert outcome too. sendSMS does not log on its own, so
-  // without this the only way to know whether the text went out is to ask
-  // whether someone's phone buzzed. That is not a verification method.
-  // delivery_status is the delivery_status_type ENUM: sent, delivered,
-  // failed, pending. Nothing else is insertable. The first version of this
-  // wrote a sentence into it, the insert was rejected, and the missing row
-  // looked exactly like "no alert was attempted". Detail goes in the body.
-  if (lead.customer_id) {
-    const allSent = numbers.length > 0 && out.shop_sms.results.every((r) => r.success);
-    const detail = !numbers.length
-      ? 'NOT SENT — SHOP_SMS_NUMBERS is not set on Railway'
-      : out.shop_sms.results.map((r) => `${r.to}: ${r.success ? 'sent' : (r.skipped || r.error || 'failed')}`).join('; ');
-
-    try {
-      await pool.query(
-        `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
-         VALUES ($1, 'sms', 'lead_shop_alert', $2, NOW(), $3, false)`,
-        [lead.customer_id, `[${detail}]\n${shopSms}`, allSent ? 'sent' : 'failed']
-      );
-    } catch (err) {
-      console.error('[leadAlerts] shop alert log failed:', err.message);
-    }
-
-    try {
-      const ok = !!out.shop_email.result?.success;
-      await pool.query(
-        `INSERT INTO communication_log (customer_id, channel, trigger_event, message_content, sent_at, delivery_status, is_manual)
-         VALUES ($1, 'email', 'lead_shop_alert', $2, NOW(), $3, false)`,
-        [lead.customer_id,
-         ok ? shopMail.subject : `[${String(out.shop_email.result?.error || 'failed')}] ${shopMail.subject}`,
-         ok ? 'sent' : 'failed']
-      );
-    } catch (err) {
-      console.error('[leadAlerts] shop email log failed:', err.message);
     }
   }
 
