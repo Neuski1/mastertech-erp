@@ -363,6 +363,8 @@ export const api = {
   getStorageAutopayLink: (billingId) => request(`/storage-autopay/${billingId}/link`, { method: 'POST' }),
   disableStorageAutopay: (billingId) => request(`/storage-autopay/${billingId}`, { method: 'DELETE' }),
   sendStorageReminder: (billingId) => request(`/storage-autopay/${billingId}/remind`, { method: 'POST' }),
+  previewStorageReminder: (billingId) => request(`/storage-autopay/${billingId}/remind?preview=1`, { method: 'POST' }),
+  getStorageReminderCandidates: () => request('/storage-autopay/remind-candidates'),
   getStorageSignedContract: async (billingId) => {
     const headers = {};
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
