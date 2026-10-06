@@ -660,14 +660,21 @@ router.post('/:token/charge', async (req, res) => {
     // Charge the nonce directly — Poynt Collect nonces go straight to
     // chargeToken with { nonce } (NOT a separate tokenize step, which is
     // for terminal/raw card data and returns "bad request" on browser nonces).
+    // requestId is Poynt's idempotency key, so it must be unique per ATTEMPT,
+    // not per link. Reusing the link token made Poynt replay the first
+    // failure forever: a customer who mistyped their card once could never
+    // pay that link. Double charges are already prevented by the FOR UPDATE
+    // lock and the status === 'paid' check above.
+    const attemptRequestId = crypto.randomUUID();
     let charge;
     try {
-      console.log('[poynt] charging nonce (length=%d) for %d cents...', nonce.length, parseInt(link.amount_cents));
+      console.log('[poynt] charging nonce (length=%d) for %d cents, link %s, requestId %s...',
+        nonce.length, parseInt(link.amount_cents), link.payment_token, attemptRequestId);
       charge = await chargeNonce({
         nonce,
         amountCents: parseInt(link.amount_cents),
         customerEmail: customerEmail || link.customer_email || undefined,
-        requestId: link.payment_token,
+        requestId: attemptRequestId,
       });
       console.log('[poynt] charge OK:', { id: charge?.id, status: charge?.status, transactionId: charge?.transactionId });
     } catch (err) {
