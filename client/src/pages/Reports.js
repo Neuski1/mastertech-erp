@@ -321,6 +321,28 @@ export default function Reports() {
             </table>
           </div>
 
+          {/* Sales Tax owed to the state */}
+          {report.salesTax && (
+            <div className="print-section" style={sectionStyle}>
+              <h2 style={sectionTitle}>Sales Tax</h2>
+              <table style={tableStyle}>
+                <tbody>
+                  <Row label="Sales Tax Collected from Customers" value={fmtCur(report.salesTax.collected)} />
+                  <tr>
+                    <td style={{ padding: '6px 12px 6px 28px', fontSize: '0.85rem', color: '#374151' }}>
+                      Less Tax Already Paid on Purchases
+                      <div style={{ fontSize: '0.72rem', fontStyle: 'italic', color: '#6b7280', marginTop: '2px' }}>
+                        Estimate: {Math.round(report.salesTax.paidOnPurchasesPct * 100)}% of {fmtCur(report.salesTax.purchaseBasis)} parts cost and shop supplies, at the work order tax rate. CPA confirms on the return.
+                      </div>
+                    </td>
+                    <td style={{ padding: '6px 12px', textAlign: 'right', fontSize: '0.85rem', color: '#dc2626' }}>− {fmtCur(report.salesTax.paidOnPurchases)}</td>
+                  </tr>
+                  <Row label="ESTIMATED SALES TAX OWED TO STATE" value={fmtCur(report.salesTax.netOwed)} bold border />
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* Bank Balance per the books */}
           {bank && (
             <div className="print-section" style={sectionStyle}>

@@ -88,6 +88,9 @@ const SETTINGS = [
   { key: 'tax_rate', category: 'shop_rates', sort: 40, value_type: 'percent',
     label: 'Default sales tax rate', fallback: 0.0975, min: 0, max: 0.2,
     help: 'Applied to taxable parts plus shop supplies on NEW work orders. Each work order keeps the rate it was written at, so changing this never re-taxes an existing one.' },
+  { key: 'tax_paid_on_purchases_pct', category: 'shop_rates', sort: 45, value_type: 'percent',
+    label: 'Share of parts and supplies bought with sales tax already paid', fallback: 0.20, min: 0, max: 1,
+    help: 'Report-only estimate. The Financial Report multiplies parts cost plus shop supplies by this share and the tax rate, and shows it as tax already paid at purchase. Changes no invoice and posts nothing. The CPA confirms the deduction on the return.' },
 
   // -- Storage rates ------------------------------------------------------
   { key: 'storage_indoor_rate_per_ft', category: 'storage_rates', sort: 10, value_type: 'money',
