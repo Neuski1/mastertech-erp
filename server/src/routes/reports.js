@@ -108,8 +108,40 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
       LIMIT 10
     `, [from, to]);
 
+    // Actual bank balances per the books (posted journal lines) as of the
+    // report's end date. This is the number "how much is in the bank" means;
+    // the collections figure above is money IN over the whole period, before
+    // any bills, payroll, card or loan payments go out.
+    const { rows: bankRows } = await pool.query(`
+      SELECT a.account_number,
+             COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0
+                               ELSE jl.debit - jl.credit END), 0) AS balance
+        FROM accounts a
+        LEFT JOIN journal_lines jl ON jl.account_id = a.id
+        LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+                                    AND je.is_posted = TRUE
+                                    AND je.entry_date <= $1
+       WHERE a.account_number IN ('1010', '1000')
+       GROUP BY a.account_number
+    `, [to]);
+    const bankBal = (n) => parseFloat((bankRows.find(b => b.account_number === n) || {}).balance || 0);
+    const { rows: [lastPosted] } = await pool.query(`
+      SELECT MAX(je.entry_date)::text AS d
+        FROM journal_entries je
+        JOIN journal_lines jl ON jl.journal_entry_id = je.id
+        JOIN accounts a ON a.id = jl.account_id
+       WHERE je.is_posted = TRUE AND a.account_number = '1010' AND je.entry_date <= $1
+    `, [to]);
+
     res.json({
       dateRange: { from, to },
+      bank: {
+        asOf: to,
+        wellsFargo: bankBal('1010'),
+        squareSavings: bankBal('1000'),
+        total: bankBal('1010') + bankBal('1000'),
+        lastPostedDate: lastPosted ? lastPosted.d : null,
+      },
       revenue: {
         labor: parseFloat(revenue.labor),
         parts: parseFloat(revenue.parts),
