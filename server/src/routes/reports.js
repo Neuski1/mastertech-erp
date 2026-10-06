@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const settings = require('../db/settings');
 const { requireRole } = require('../middleware/auth');
 
 // GET /api/reports/financial — Financial report for date range
@@ -108,6 +109,40 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
       LIMIT 10
     `, [from, to]);
 
+    // Sales tax already paid at purchase (estimate). Carol: roughly 20% of
+    // parts and shop supplies are bought with sales tax already paid. Basis is
+    // what we PAID: parts cost (qty x cost_each) on the same paid records the
+    // revenue block counts, plus shop supplies, times the share, times each
+    // record's own tax rate. Report-only; posts nothing, changes no invoice.
+    // The CPA decides whether and how it is claimed on the return.
+    const taxPaidPct = settings.num('tax_paid_on_purchases_pct', 0.20);
+    const { rows: [purch] } = await pool.query(`
+      WITH pr AS (
+        SELECT r.id, r.tax_rate, r.shop_supplies_amount
+          FROM records r
+          LEFT JOIN (
+            SELECT record_id, MAX(payment_date) AS last_payment_date
+              FROM payments WHERE deleted_at IS NULL GROUP BY record_id
+          ) p ON p.record_id = r.id
+         WHERE r.deleted_at IS NULL AND r.status = 'paid'
+           AND COALESCE(p.last_payment_date::date, r.actual_completion_date,
+                        r.created_at::date) BETWEEN $1 AND $2
+      ), pc AS (
+        SELECT pl.record_id,
+               SUM(COALESCE(pl.quantity, 0) * COALESCE(pl.cost_each, 0)) AS parts_cost
+          FROM record_parts_lines pl
+          JOIN pr ON pr.id = pl.record_id
+         WHERE pl.deleted_at IS NULL AND COALESCE(pl.is_estimate_line, FALSE) = FALSE
+         GROUP BY pl.record_id
+      )
+      SELECT COALESCE(SUM(pc.parts_cost), 0) AS parts_cost,
+             COALESCE(SUM(pr.shop_supplies_amount), 0) AS supplies,
+             COALESCE(SUM((COALESCE(pc.parts_cost, 0) + COALESCE(pr.shop_supplies_amount, 0))
+                          * COALESCE(pr.tax_rate, 0)), 0) AS taxed_at_rate
+        FROM pr LEFT JOIN pc ON pc.record_id = pr.id
+    `, [from, to]);
+    const taxPaidOnPurchases = Math.round(parseFloat(purch.taxed_at_rate) * taxPaidPct * 100) / 100;
+
     // Actual bank balances per the books (posted journal lines) as of the
     // report's end date. This is the number "how much is in the bank" means;
     // the collections figure above is money IN over the whole period, before
@@ -135,6 +170,13 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
 
     res.json({
       dateRange: { from, to },
+      salesTax: {
+        collected: parseFloat(revenue.tax),
+        purchaseBasis: parseFloat(purch.parts_cost) + parseFloat(purch.supplies),
+        paidOnPurchasesPct: taxPaidPct,
+        paidOnPurchases: taxPaidOnPurchases,
+        netOwed: Math.round((parseFloat(revenue.tax) - taxPaidOnPurchases) * 100) / 100,
+      },
       bank: {
         asOf: to,
         wellsFargo: bankBal('1010'),
