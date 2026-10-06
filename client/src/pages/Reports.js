@@ -142,10 +142,13 @@ export default function Reports() {
   const incomeMatchesBookkeeper = subtotal + storageRev;
   const adjTotal = adjustments.reduce((sum, a) => sum + parseFloat(a.adjustment_amount || 0), 0);
   const adjustedIncome = incomeMatchesBookkeeper + adjTotal;
-  // Cash actually deposited to the bank = Income + sales tax (we collect it
-  // from the customer up front, sits in the bank until we remit to the state)
-  // MINUS credit card fees (the processor nets these out before depositing).
-  const cashToBank = r ? incomeMatchesBookkeeper + r.tax - r.ccFees : 0;
+  // Customer money collected over the whole period = Income + sales tax
+  // (collected from the customer, held until remitted) MINUS credit card fees
+  // (netted out by the processor). This is money IN over the period, before
+  // payroll, bills, card and loan payments. It is NOT a bank balance; the
+  // Bank Balance section below reads the actual balance from the books.
+  const collected = r ? incomeMatchesBookkeeper + r.tax - r.ccFees : 0;
+  const bank = report?.bank;
 
   return (
     <div style={{ maxWidth: '800px' }}>
@@ -308,10 +311,33 @@ export default function Reports() {
                   </td>
                   <td style={{ padding: '6px 12px', textAlign: 'right', fontSize: '0.8rem', color: '#6b7280' }}>− {fmtCur(r.ccFees)}</td>
                 </tr>
-                <Row label="CASH TO BANK" value={fmtCur(cashToBank)} bold border />
+                <Row label="COLLECTED FROM CUSTOMERS" value={fmtCur(collected)} bold border />
+                <tr>
+                  <td colSpan={2} style={{ padding: '2px 12px 6px', fontSize: '0.75rem', fontStyle: 'italic', color: '#6b7280' }}>
+                    Total money that came in over this whole date range, before payroll, bills, card and loan payments went out. Not a bank balance.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
+
+          {/* Bank Balance per the books */}
+          {bank && (
+            <div className="print-section" style={sectionStyle}>
+              <h2 style={sectionTitle}>Bank Balance on {formatDate(bank.asOf + 'T12:00:00')}</h2>
+              <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 12px' }}>
+                Per the books. Bank activity is posted at month-end close
+                {bank.lastPostedDate ? `; last posted ${formatDate(bank.lastPostedDate + 'T12:00:00')}` : ''}.
+              </p>
+              <table style={tableStyle}>
+                <tbody>
+                  <Row label="Wells Fargo Checking" value={fmtCur(bank.wellsFargo)} />
+                  <Row label="Square Savings" value={fmtCur(bank.squareSavings)} />
+                  <Row label="TOTAL IN THE BANK" value={fmtCur(bank.total)} bold border />
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Work Order Activity */}
           <div className="print-section" style={sectionStyle}>
