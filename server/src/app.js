@@ -699,12 +699,9 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS supplier_id INTEGER`);
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS supplier_id INTEGER`);
 
-    // Seed known suppliers
-    await pool.query(`INSERT INTO suppliers (name, website) VALUES
-      ('NTP/Stag', 'https://www.viantp.com'),
-      ('Amazon Business', 'https://www.amazon.com'),
-      ('etrailer', 'https://www.etrailer.com')
-      ON CONFLICT (name) DO NOTHING`);
+    // No supplier seed. The old seed re-inserted 'NTP/Stag', 'Amazon Business'
+    // and 'etrailer' on every deploy, recreating blank duplicates of NTP,
+    // AMAZON and ETRAILER each time they were merged away (removed Oct 7, 2026).
 
     // Migration 048: parts-on-order tracking fields for customer-specific parts
     await pool.query(`ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS order_status VARCHAR(20) DEFAULT 'not_ordered'`);
