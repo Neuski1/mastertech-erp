@@ -132,25 +132,29 @@ router.get('/vendors/details', async (req, res) => {
 // ---------------------------------------------------------------------------
 router.put('/vendors/details/:name', async (req, res) => {
   try {
-    const { website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory, order_method, default_ship_days, is_active } = req.body;
+    // Upsert by name. On an existing supplier, ONLY the fields present in the
+    // request body are changed. Before Oct 7, 2026 every column was
+    // overwritten, so "Move to Inventory" (which sends only supplier_type)
+    // silently blanked the website, contacts and account number.
+    const cols = ['website', 'contact_name', 'contact_email', 'contact_phone', 'account_number',
+      'notes', 'supplier_type', 'subcategory', 'order_method', 'default_ship_days', 'is_active'];
+    const value = (k) => {
+      const v = req.body[k];
+      if (k === 'is_active') return v === undefined ? null : !!v;
+      if (k === 'supplier_type') return v || 'inventory';
+      return v === undefined || v === '' ? null : v;
+    };
+    const params = [req.params.name, ...cols.map(value)];
+    const updates = cols
+      .filter(k => req.body[k] !== undefined)
+      .map(k => (k === 'is_active' ? `is_active = COALESCE(EXCLUDED.is_active, suppliers.is_active)` : `${k} = EXCLUDED.${k}`));
+    updates.push('updated_at = NOW()');
     const { rows } = await pool.query(
-      `INSERT INTO suppliers (name, website, contact_name, contact_email, contact_phone, account_number, notes, supplier_type, subcategory, order_method, default_ship_days, is_active)
+      `INSERT INTO suppliers (name, ${cols.join(', ')})
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, TRUE))
-       ON CONFLICT (name) DO UPDATE SET
-         website = EXCLUDED.website,
-         contact_name = EXCLUDED.contact_name,
-         contact_email = EXCLUDED.contact_email,
-         contact_phone = EXCLUDED.contact_phone,
-         account_number = EXCLUDED.account_number,
-         notes = EXCLUDED.notes,
-         supplier_type = EXCLUDED.supplier_type,
-         subcategory = EXCLUDED.subcategory,
-         order_method = EXCLUDED.order_method,
-         default_ship_days = EXCLUDED.default_ship_days,
-         is_active = EXCLUDED.is_active,
-         updated_at = NOW()
+       ON CONFLICT (name) DO UPDATE SET ${updates.join(', ')}
        RETURNING *, name AS vendor_name`,
-      [req.params.name, website || null, contact_name || null, contact_email || null, contact_phone || null, account_number || null, notes || null, supplier_type || 'inventory', subcategory || null, order_method || null, default_ship_days || null, is_active === undefined ? null : !!is_active]
+      params
     );
     res.json(rows[0]);
   } catch (err) {

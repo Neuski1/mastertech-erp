@@ -684,6 +684,12 @@ const pool = require('./db/pool');
     await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100)`);
     await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS default_ship_days INTEGER`);
     await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS order_method VARCHAR(20)`);
+    // Order method: website, phone or email (NULL = unknown). Re-created each
+    // boot so the old website/phone-only check from migration 052 can never
+    // reject Email.
+    await pool.query(`ALTER TABLE suppliers DROP CONSTRAINT IF EXISTS suppliers_order_method_chk`);
+    await pool.query(`ALTER TABLE suppliers ADD CONSTRAINT suppliers_order_method_chk
+      CHECK (order_method IS NULL OR order_method IN ('website', 'phone', 'email'))`);
     await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
     // supplier_id FKs on the consuming tables (columns only; constraints +
     // backfill are handled in migration 052 so the app stays functional even

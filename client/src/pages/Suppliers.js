@@ -26,11 +26,21 @@ export default function Suppliers() {
   const [mergeSaving, setMergeSaving] = useState(false);
   const [actionMsg, setActionMsg] = useState('');
 
-  // Misc Supplier State
-  const [addMiscModalOpen, setAddMiscModalOpen] = useState(false);
-  const [miscForm, setMiscForm] = useState({ vendor_name: '', supplier_type: 'inventory', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
   const [subcategories, setSubcategories] = useState([]);
-  const [newSubcategory, setNewSubcategory] = useState('');
+  const [vendorSaving, setVendorSaving] = useState(false);
+
+  // Backdrop clicks close a modal only when the press STARTED on the backdrop.
+  // A text selection that begins inside a field and is released past the
+  // modal edge fires a click on the backdrop, which used to close the Edit
+  // Supplier window and throw away every unsaved change.
+  const backdropDown = useRef(false);
+  const backdropProps = (close) => ({
+    onMouseDown: (e) => { backdropDown.current = e.target === e.currentTarget; },
+    onClick: (e) => {
+      if (backdropDown.current && e.target === e.currentTarget) close();
+      backdropDown.current = false;
+    },
+  });
 
   // Purchase Orders Tab State
   const [purchaseOrders, setPurchaseOrders] = useState([]);
@@ -168,6 +178,20 @@ export default function Suppliers() {
   const totalInventoryValue = mergedVendors.reduce((sum, v) => sum + parseFloat(v.total_value || 0), 0);
   const totalPurchaseOrders = mergedVendors.reduce((sum, v) => sum + parseInt(v.po_count || 0), 0);
 
+  // New supplier opens the same full form as Edit, so account number, order
+  // method and buying details go in on the first save.
+  const handleAddSupplier = () => {
+    setEditingVendor({ name: '', _isNew: true });
+    setEditFormData({
+      vendor_name: '', website: '', contact_name: '', contact_email: '', contact_phone: '',
+      account_number: '', notes: '', supplier_type: 'inventory', subcategory: '',
+      order_method: '', default_ship_days: '', preferred: false, brands_carried: '',
+      shipping_cost: '', free_shipping_threshold: '', login_url: '', payment_method_note: '',
+      return_policy: '', return_window_days: '', restocking_fee: '', last_verified_date: ''
+    });
+    setEditModalOpen(true);
+  };
+
   const handleEditVendor = (vendor) => {
     setEditingVendor(vendor);
     setEditFormData({
@@ -219,27 +243,6 @@ export default function Suppliers() {
     }
   };
 
-  const handleAddMiscSupplier = async () => {
-    const name = miscForm.vendor_name.trim();
-    if (!name) { alert('Supplier name is required'); return; }
-    const isMisc = (miscForm.supplier_type || 'inventory') === 'misc';
-    const subcat = newSubcategory.trim() || miscForm.subcategory;
-    try {
-      await api.updateVendorDetails(name, {
-        ...miscForm,
-        supplier_type: isMisc ? 'misc' : 'inventory',
-        subcategory: isMisc ? (subcat || null) : null
-      });
-      setAddMiscModalOpen(false);
-      setMiscForm({ vendor_name: '', supplier_type: 'inventory', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' });
-      setNewSubcategory('');
-      await fetchVendors();
-      setActionMsg(`Added ${isMisc ? 'misc' : 'inventory'} supplier "${name}"`);
-    } catch (err) {
-      alert('Error: ' + err.message);
-    }
-  };
-
   const handleDeleteMiscSupplier = async (name) => {
     if (!window.confirm(`Delete misc supplier "${name}"?`)) return;
     try {
@@ -278,23 +281,43 @@ export default function Suppliers() {
   };
 
   const handleSaveVendor = async () => {
-    if (!editingVendor) return;
+    if (!editingVendor || vendorSaving) return;
+    const isNew = !!editingVendor._isNew;
+    const name = isNew ? (editFormData.vendor_name || '').trim() : editingVendor.name;
+    if (!name) { alert('Supplier name is required'); return; }
+    if (isNew) {
+      // The save is an upsert by name, so a duplicate name would overwrite
+      // the existing supplier's details. Stop it here.
+      const lower = name.toLowerCase();
+      const exists = vendorDetails.some(d => (d.vendor_name || '').toLowerCase() === lower)
+        || vendors.some(v => (v.name || '').toLowerCase() === lower);
+      if (exists) { alert(`A supplier named "${name}" already exists. Use Edit on that supplier instead.`); return; }
+    }
+    setVendorSaving(true);
     try {
+      const isMisc = editFormData.supplier_type === 'misc';
       const subcat = editFormData._newSubcategory ? editFormData._newSubcategory.trim() : editFormData.subcategory;
       const buyingKeys = ['preferred', 'brands_carried', 'shipping_cost', 'free_shipping_threshold',
         'login_url', 'payment_method_note', 'return_policy', 'return_window_days',
         'restocking_fee', 'last_verified_date'];
-      const payload = { ...editFormData, subcategory: subcat || null };
+      const payload = { ...editFormData, subcategory: isMisc ? (subcat || null) : null };
       delete payload._newSubcategory;
+      delete payload.vendor_name;
       const buying = {};
       for (const k of buyingKeys) { buying[k] = payload[k]; delete payload[k]; }
-      const saved = await api.updateVendorDetails(editingVendor.name, payload);
-      const supplierId = editingVendor.id || saved?.id;
+      const saved = await api.updateVendorDetails(name, payload);
+      const supplierId = isNew ? saved?.id : (editingVendor.id || saved?.id);
       if (supplierId) await api.updateSupplierFields(supplierId, buying);
       setEditModalOpen(false);
+      setEditingVendor(null);
       await fetchVendors();
+      setActionMsg(isNew ? `Added supplier "${name}"` : `Saved "${name}"`);
     } catch (error) {
-      console.error('Error updating vendor:', error);
+      // Keep the window open with everything still typed in it.
+      console.error('Error saving supplier:', error);
+      alert('Could not save supplier: ' + (error.message || 'unknown error') + '\nYour entries are still in the form.');
+    } finally {
+      setVendorSaving(false);
     }
   };
 
@@ -695,7 +718,7 @@ export default function Suppliers() {
                 <button onClick={() => { setMergeMode(true); setMergeSelected(new Set()); setMergeInto(''); }} style={btnSecondary}>
                   Merge Suppliers
                 </button>
-                <button onClick={() => { setMiscForm({ vendor_name: '', supplier_type: 'inventory', subcategory: '', website: '', contact_name: '', contact_phone: '', notes: '' }); setNewSubcategory(''); setAddMiscModalOpen(true); }} style={{ ...btnPrimary, background: '#0d9488' }}>
+                <button onClick={handleAddSupplier} style={{ ...btnPrimary, background: '#0d9488' }}>
                   + Add Supplier
                 </button>
                 <input type="text" value={supplierSearch} onChange={(e) => setSupplierSearch(e.target.value)} placeholder="Search suppliers by name, contact..." style={{ ...inputStyle, width: '260px' }} />
@@ -822,7 +845,7 @@ export default function Suppliers() {
               </div>
               {miscSuppliers.length === 0 ? (
                 <div style={{ ...cardStyle, borderRadius: '0 0 8px 8px', textAlign: 'center', color: '#6b7280', padding: '30px' }}>
-                  No misc suppliers yet. Click <strong>+ Add Misc. Supplier</strong> above to add one.
+                  No misc suppliers yet. Click <strong>+ Add Supplier</strong> above and pick Misc Supplier.
                 </div>
               ) : (
                 <div style={{ background: '#fff', borderRadius: '0 0 8px 8px', border: '1px solid #e5e7eb', borderTop: 'none', padding: '15px' }}>
@@ -1195,9 +1218,19 @@ export default function Suppliers() {
 
       {/* EDIT VENDOR MODAL */}
       {editModalOpen && editingVendor && (
-        <div style={modalOverlayStyle} onClick={() => setEditModalOpen(false)}>
-          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ margin: '0 0 20px 0', color: '#1f2937' }}>Edit Supplier: {editingVendor.name}</h2>
+        // No backdrop close on this form: it only closes on Cancel or Save, so a
+        // stray click can never discard typed changes.
+        <div style={modalOverlayStyle}>
+          <div style={modalStyle}>
+            <h2 style={{ margin: '0 0 20px 0', color: editingVendor._isNew ? '#0d9488' : '#1f2937' }}>
+              {editingVendor._isNew ? 'Add Supplier' : `Edit Supplier: ${editingVendor.name}`}
+            </h2>
+            {editingVendor._isNew && (
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Name *</label>
+                <input type="text" value={editFormData.vendor_name || ''} onChange={(e) => setEditFormData({ ...editFormData, vendor_name: e.target.value })} style={inputStyle} placeholder="e.g. Home Depot, NTP/Stag, local shop..." autoFocus />
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Type</label>
@@ -1247,6 +1280,7 @@ export default function Suppliers() {
                   <option value="">—</option>
                   <option value="website">Website</option>
                   <option value="phone">Phone</option>
+                  <option value="email">Email</option>
                 </select>
               </div>
               <div>
@@ -1310,8 +1344,10 @@ export default function Suppliers() {
               <textarea value={editFormData.notes} onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })} style={{ ...inputStyle, minHeight: '80px', fontFamily: 'inherit' }} />
             </div>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setEditModalOpen(false)} style={btnSecondary}>Cancel</button>
-              <button onClick={handleSaveVendor} style={btnPrimary}>Save Changes</button>
+              <button onClick={() => { setEditModalOpen(false); setEditingVendor(null); }} style={btnSecondary}>Cancel</button>
+              <button onClick={handleSaveVendor} disabled={vendorSaving} style={{ ...btnPrimary, background: editingVendor._isNew ? '#0d9488' : btnPrimary.background }}>
+                {vendorSaving ? 'Saving...' : (editingVendor._isNew ? 'Add Supplier' : 'Save Changes')}
+              </button>
             </div>
           </div>
         </div>
@@ -1319,7 +1355,7 @@ export default function Suppliers() {
 
       {/* SUPPLIER DETAIL MODAL */}
       {supplierDetailOpen && supplierDetail && (
-        <div style={modalOverlayStyle} onClick={() => setSupplierDetailOpen(false)}>
+        <div style={modalOverlayStyle} {...backdropProps(() => setSupplierDetailOpen(false))}>
           <div style={{ ...modalStyle, maxWidth: '820px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div>
@@ -1411,7 +1447,7 @@ export default function Suppliers() {
 
       {/* CREATE PURCHASE ORDER MODAL */}
       {createPoModalOpen && (
-        <div style={modalOverlayStyle} onClick={() => setCreatePoModalOpen(false)}>
+        <div style={modalOverlayStyle} {...backdropProps(() => setCreatePoModalOpen(false))}>
           <div style={{ ...modalStyle, maxWidth: '800px' }} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 20px 0', color: '#1f2937' }}>New Purchase Order</h2>
 
@@ -1501,7 +1537,7 @@ export default function Suppliers() {
 
       {/* PO DETAIL MODAL */}
       {poDetailModalOpen && selectedPo && (
-        <div style={modalOverlayStyle} onClick={() => setPoDetailModalOpen(false)}>
+        <div style={modalOverlayStyle} {...backdropProps(() => setPoDetailModalOpen(false))}>
           <div style={{ ...modalStyle, maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <h2 style={{ margin: 0, color: '#1f2937' }}>{selectedPo.po_number || `Purchase Order #${selectedPo.id}`}</h2>
@@ -1667,64 +1703,9 @@ export default function Suppliers() {
         </div>
       )}
 
-      {/* ADD MISC SUPPLIER MODAL */}
-      {addMiscModalOpen && (
-        <div style={modalOverlayStyle} onClick={() => setAddMiscModalOpen(false)}>
-          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ margin: '0 0 20px 0', color: '#0d9488' }}>Add Supplier</h2>
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Type *</label>
-              <select value={miscForm.supplier_type} onChange={(e) => setMiscForm({ ...miscForm, supplier_type: e.target.value })} style={inputStyle}>
-                <option value="inventory">Inventory Supplier (stocks parts you buy)</option>
-                <option value="misc">Misc Supplier (occasional / non-inventory)</option>
-              </select>
-            </div>
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Supplier Name *</label>
-              <input type="text" value={miscForm.vendor_name} onChange={(e) => setMiscForm({ ...miscForm, vendor_name: e.target.value })} style={inputStyle} placeholder="e.g. Home Depot, Lowe's, local shop..." autoFocus />
-            </div>
-            {miscForm.supplier_type === 'misc' && (
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Subcategory</label>
-              <select value={miscForm.subcategory} onChange={(e) => { setMiscForm({ ...miscForm, subcategory: e.target.value }); if (e.target.value !== '__new__') setNewSubcategory(''); }} style={inputStyle}>
-                <option value="">None</option>
-                {subcategories.map(s => <option key={s} value={s}>{s}</option>)}
-                <option value="__new__">+ Create New Subcategory...</option>
-              </select>
-              {miscForm.subcategory === '__new__' && (
-                <input type="text" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} placeholder="Type new subcategory name (e.g. Awnings, Glass, Plumbing)..." style={{ ...inputStyle, marginTop: '6px' }} autoFocus />
-              )}
-            </div>
-            )}
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Website</label>
-              <input type="text" value={miscForm.website} onChange={(e) => setMiscForm({ ...miscForm, website: e.target.value })} style={inputStyle} placeholder="https://example.com" />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Name</label>
-                <input type="text" value={miscForm.contact_name} onChange={(e) => setMiscForm({ ...miscForm, contact_name: e.target.value })} style={inputStyle} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Contact Phone</label>
-                <input type="tel" value={miscForm.contact_phone} onChange={(e) => setMiscForm({ ...miscForm, contact_phone: handlePhoneInput(e.target.value) })} style={inputStyle} placeholder="(951) 293-1973" />
-              </div>
-            </div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Notes</label>
-              <textarea value={miscForm.notes} onChange={(e) => setMiscForm({ ...miscForm, notes: e.target.value })} style={{ ...inputStyle, minHeight: '60px', fontFamily: 'inherit' }} />
-            </div>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setAddMiscModalOpen(false)} style={btnSecondary}>Cancel</button>
-              <button onClick={handleAddMiscSupplier} style={{ ...btnPrimary, background: '#0d9488' }}>Add Supplier</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* DELETE VENDOR MODAL (reassign parts first) */}
       {deleteModal && (
-        <div style={modalOverlayStyle} onClick={() => setDeleteModal(null)}>
+        <div style={modalOverlayStyle} {...backdropProps(() => setDeleteModal(null))}>
           <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ margin: '0 0 15px 0', color: '#1f2937' }}>Delete "{deleteModal.vendor.name}"</h2>
             <p style={{ color: '#374151', marginBottom: '15px' }}>

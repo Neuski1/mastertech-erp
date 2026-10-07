@@ -59,15 +59,12 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS default_ship_days INTEGER;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS order_method VARCHAR(20);
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
--- order_method may only be 'website' or 'phone' (NULL = unknown)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'suppliers_order_method_chk') THEN
-    ALTER TABLE suppliers
-      ADD CONSTRAINT suppliers_order_method_chk
-      CHECK (order_method IS NULL OR order_method IN ('website', 'phone'));
-  END IF;
-END $$;
+-- order_method may only be 'website', 'phone' or 'email' (NULL = unknown).
+-- Email added Oct 7, 2026; app.js boot re-creates this check every deploy.
+ALTER TABLE suppliers DROP CONSTRAINT IF EXISTS suppliers_order_method_chk;
+ALTER TABLE suppliers
+  ADD CONSTRAINT suppliers_order_method_chk
+  CHECK (order_method IS NULL OR order_method IN ('website', 'phone', 'email'));
 
 -- ---------------------------------------------------------------------------
 -- 4. Merge `vendors` rows that have no matching supplier name
