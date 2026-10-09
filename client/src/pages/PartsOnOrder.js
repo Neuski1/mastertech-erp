@@ -35,6 +35,11 @@ export default function PartsOnOrder() {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [emailPick, setEmailPick] = useState({});
+  // Pull from Inventory: shelf search for the line being edited.
+  const [invQuery, setInvQuery] = useState('');
+  const [invResults, setInvResults] = useState([]);
+  const [invSearching, setInvSearching] = useState(false);
+  const [invPick, setInvPick] = useState(null);
 
   const load = useCallback(async (opts) => {
     const silent = !!(opts && opts.silent === true);
@@ -71,9 +76,54 @@ export default function PartsOnOrder() {
     });
   };
 
-  const cancelEdit = () => { setEditId(null); setForm({}); };
+  const resetInv = () => { setInvQuery(''); setInvResults([]); setInvPick(null); };
+  const cancelEdit = () => { setEditId(null); setForm({}); resetInv(); };
+
+  const runInvSearch = async (q) => {
+    setInvQuery(q);
+    if (!q || q.trim().length < 2) { setInvResults([]); return; }
+    setInvSearching(true);
+    try {
+      const rows = (await api.searchInventory(q.trim())) || [];
+      setInvResults(rows);
+      return rows;
+    } catch { setInvResults([]); return []; }
+    finally { setInvSearching(false); }
+  };
+
+  const changeStatus = async (line, value) => {
+    setForm(f => ({ ...f, order_status: value }));
+    if (value !== 'inventory') { resetInv(); return; }
+    // Start the shelf search on the part number, falling back to the description.
+    const seed = line.part_number || line.description || '';
+    setInvPick(null);
+    const rows = (await runInvSearch(seed)) || [];
+    // Already linked to a shelf item, or only one match: pick it for them.
+    const linked = line.inventory_id && rows.find(r => r.id === line.inventory_id);
+    if (linked) setInvPick(linked);
+    else if (rows.length === 1) setInvPick(rows[0]);
+  };
 
   const saveEdit = async (line) => {
+    if (form.order_status === 'inventory') {
+      if (!invPick) { alert('Pick the shelf item this part is coming from.'); return; }
+      const need = parseFloat(line.quantity) || 0;
+      const have = parseFloat(invPick.qty_on_hand) || 0;
+      if (have < need && !window.confirm(`Inventory shows ${have} on hand and this job needs ${need}. Pull it anyway? The count will go negative until it is corrected.`)) return;
+      setSaving(true);
+      try {
+        await api.pullPartFromInventory(line.id, invPick.id);
+        setEditId(null);
+        setForm({});
+        resetInv();
+        await load();
+      } catch (err) {
+        alert('Could not pull from inventory: ' + (err.message || 'error'));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     setSaving(true);
     try {
       await api.updatePart(line.record_id, line.id, {
@@ -157,7 +207,8 @@ export default function PartsOnOrder() {
                 const editing = editId === line.id;
                 const overdue = isOverdue(line);
                 return (
-                  <tr key={line.id} style={{ background: editing ? '#fffbeb' : overdue ? '#fef2f2' : '#fff' }}>
+                  <React.Fragment key={line.id}>
+                  <tr style={{ background: editing ? '#fffbeb' : overdue ? '#fef2f2' : '#fff' }}>
                     <td style={td}>
                       <Link to={`/records/${line.record_id}`} style={{ color: NAVY, fontWeight: 700, textDecoration: 'none' }}>
                         {line.record_number}
@@ -197,8 +248,9 @@ export default function PartsOnOrder() {
                     <td style={td}>{line.days_waiting != null ? `${line.days_waiting}d` : '—'}</td>
                     <td style={td}>
                       {editing ? (
-                        <select style={input} value={form.order_status} onChange={e => setForm({ ...form, order_status: e.target.value })}>
+                        <select style={input} value={form.order_status} onChange={e => changeStatus(line, e.target.value)}>
                           <option value="not_ordered">Not Ordered</option>
+                          <option value="inventory">Pull from Inventory</option>
                           <option value="ordered">Ordered</option>
                           <option value="backordered">Backordered</option>
                           <option value="received">Received</option>
@@ -219,6 +271,50 @@ export default function PartsOnOrder() {
                       )}
                     </td>
                   </tr>
+                  {editing && form.order_status === 'inventory' && (
+                    <tr style={{ background: '#fffbeb' }}>
+                      <td style={td} colSpan={12}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: NAVY, marginBottom: 6 }}>
+                          Pull from Inventory: pick the shelf item. Save takes {line.quantity} off the shelf and clears this part from the list.
+                        </div>
+                        <input
+                          style={{ ...input, width: 320, maxWidth: '100%', marginBottom: 8 }}
+                          value={invQuery}
+                          onChange={e => runInvSearch(e.target.value)}
+                          placeholder="Search inventory by part # or description"
+                          autoFocus
+                        />
+                        {invSearching && <span style={{ marginLeft: 8, fontSize: '0.75rem', color: '#6b7280' }}>Searching...</span>}
+                        {!invSearching && invQuery.trim().length >= 2 && invResults.length === 0 && (
+                          <div style={{ fontSize: '0.8rem', color: '#991b1b' }}>No inventory item matches. Try a shorter search.</div>
+                        )}
+                        {invResults.length > 0 && (
+                          <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff' }}>
+                            {invResults.map(item => {
+                              const picked = invPick && invPick.id === item.id;
+                              const short = (parseFloat(item.qty_on_hand) || 0) < (parseFloat(line.quantity) || 0);
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() => setInvPick(item)}
+                                  style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', background: picked ? '#dbeafe' : '#fff', fontSize: '0.8rem' }}
+                                >
+                                  <input type="radio" readOnly checked={!!picked} />
+                                  <span style={{ fontFamily: 'monospace', minWidth: 90, color: '#6b7280' }}>{item.part_number || '—'}</span>
+                                  <span style={{ flex: 1 }}>{item.description}</span>
+                                  {item.location && <span style={{ color: '#6b7280' }}>{item.location}</span>}
+                                  <span style={{ fontWeight: 700, color: short ? '#991b1b' : '#065f46', minWidth: 70, textAlign: 'right' }}>
+                                    {item.qty_on_hand} on hand
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

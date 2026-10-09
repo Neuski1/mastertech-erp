@@ -32,6 +32,7 @@ router.get('/', requireRole('admin', 'service_writer', 'technician'), async (req
          pl.description,
          pl.part_number,
          pl.quantity,
+         pl.inventory_id,
          pl.order_status,
          pl.po_number,
          pl.order_supplier,
@@ -99,6 +100,74 @@ router.patch('/emails/:id/dismiss', requireRole('admin', 'service_writer'), asyn
   } catch (err) {
     console.error('dismiss email error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/parts-on-order/:lineId/pull-from-inventory — we had it on the
+// shelf after all. Links the line to the inventory item and marks it
+// 'inventory'. This route never touches qty_on_hand: the parts_line_stock_sync
+// trigger (migration 064) takes the line quantity off the shelf because the
+// line now has inventory_id + is_inventory_part + order_status 'inventory'.
+// Pricing on the line is left alone; the customer was already quoted.
+// ---------------------------------------------------------------------------
+router.post('/:lineId/pull-from-inventory', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const lineId = parseInt(req.params.lineId, 10);
+  const inventoryId = parseInt((req.body || {}).inventory_id, 10);
+  if (!lineId) return res.status(400).json({ error: 'Invalid part line' });
+  if (!inventoryId) return res.status(400).json({ error: 'Pick the inventory item to pull from' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: lineRows } = await client.query(
+      `SELECT pl.id, pl.order_status, pl.is_estimate_line
+         FROM record_parts_lines pl
+         JOIN records r ON r.id = pl.record_id
+        WHERE pl.id = $1 AND pl.deleted_at IS NULL AND r.deleted_at IS NULL
+        FOR UPDATE OF pl`,
+      [lineId]
+    );
+    if (!lineRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Part line not found' }); }
+    const line = lineRows[0];
+    if (line.is_estimate_line) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This part is still on the estimate. Approve it before pulling stock.' });
+    }
+    if (line.order_status === 'received') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This part is already marked received.' });
+    }
+
+    const { rows: invRows } = await client.query(
+      `SELECT id FROM inventory WHERE id = $1 AND deleted_at IS NULL AND is_active = TRUE FOR UPDATE`,
+      [inventoryId]
+    );
+    if (!invRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Inventory item not found' }); }
+
+    await client.query(
+      `UPDATE record_parts_lines
+          SET inventory_id = $1,
+              is_inventory_part = TRUE,
+              order_status = 'inventory',
+              updated_at = NOW()
+        WHERE id = $2`,
+      [inventoryId, lineId]
+    );
+    const { rows: after } = await client.query(
+      `SELECT i.qty_on_hand, i.description, i.part_number, pl.stock_pulled_qty
+         FROM record_parts_lines pl JOIN inventory i ON i.id = pl.inventory_id
+        WHERE pl.id = $1`,
+      [lineId]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, ...after[0] });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('pull-from-inventory error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
