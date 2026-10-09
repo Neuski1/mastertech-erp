@@ -169,7 +169,7 @@ export default function FreightLinesTable({ recordId, freightLines = [], isEdita
   };
 
   const subtotal = freightLines.reduce((sum, l) => sum + parseFloat(l.amount || 0), 0);
-  const invoiceStatuses = ['complete', 'payment_pending', 'partial', 'paid'];
+  const invoiceStatuses = ['complete', 'payment_pending', 'partial', 'paid', 'written_off'];
   const hasTbdLines = freightLines.some(l => !l.amount || parseFloat(l.amount) <= 0);
   const showTbdWarning = invoiceStatuses.includes(recordStatus) && hasTbdLines;
 

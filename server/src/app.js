@@ -363,6 +363,10 @@ const pool = require('./db/pool');
     await pool.query("UPDATE records SET payment_pending_since = updated_at WHERE status = 'payment_pending' AND payment_pending_since IS NULL");
     // Migration 038: add 'filed' to record status enum
     await pool.query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'filed'");
+    // Migration 073: 'written_off' status. Closes an uncollectible invoice
+    // without voiding it (void would return installed parts to stock) and
+    // without a journal entry (cash basis: unpaid revenue was never booked).
+    await pool.query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'written_off'");
     // Migration 039: bookkeeper adjustments
     await pool.query(`CREATE TABLE IF NOT EXISTS bookkeeper_adjustments (
       id SERIAL PRIMARY KEY,

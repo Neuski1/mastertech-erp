@@ -110,7 +110,7 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Record not found' });
     }
-    if (['paid', 'void'].includes(recRows[0].status)) {
+    if (['paid', 'void', 'written_off'].includes(recRows[0].status)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Cannot add parts to a paid or voided record' });
     }

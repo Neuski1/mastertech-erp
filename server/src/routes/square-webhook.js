@@ -33,7 +33,8 @@ async function autoTransitionStatus(recordId, dbClient) {
   const rec = rows[0];
   const amountDue = parseFloat(rec.amount_due);
   const totalCollected = parseFloat(rec.total_collected);
-  if (!['complete', 'payment_pending', 'partial'].includes(rec.status)) return;
+  if (!['complete', 'payment_pending', 'partial', 'written_off'].includes(rec.status)) return;
+  if (rec.status === 'written_off' && !(amountDue <= 0 && totalCollected > 0)) return;
   if (amountDue <= 0 && totalCollected > 0) {
     await dbClient.query("UPDATE records SET status = 'paid', payment_pending_since = NULL, reminder_count = 0, last_reminder_sent_at = NULL WHERE id = $1", [recordId]);
   } else if (totalCollected > 0 && amountDue > 0 && ['complete', 'payment_pending'].includes(rec.status)) {

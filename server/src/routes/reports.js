@@ -51,7 +51,7 @@ router.get('/financial', requireRole('admin', 'bookkeeper'), async (req, res) =>
     const { rows: [activity] } = await pool.query(`
       SELECT
         COUNT(*) AS total_records,
-        COUNT(*) FILTER (WHERE status NOT IN ('paid', 'void')) AS open_count
+        COUNT(*) FILTER (WHERE status NOT IN ('paid', 'void', 'written_off')) AS open_count
       FROM records
       WHERE deleted_at IS NULL
         AND COALESCE(actual_completion_date, created_at::date) BETWEEN $1 AND $2

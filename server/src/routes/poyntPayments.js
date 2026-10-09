@@ -47,7 +47,7 @@ async function settleFinalPaymentStatus(recordId, client) {
     );
   } else {
     await client.query(
-      "UPDATE records SET status = 'partial' WHERE id = $1 AND status <> 'partial'",
+      "UPDATE records SET status = 'partial' WHERE id = $1 AND status NOT IN ('partial', 'written_off')",
       [recordId]
     );
   }
@@ -84,7 +84,7 @@ async function settleLinkStatus(link, client) {
   }
   if (link.payment_type === 'other') {
     const { rows } = await client.query('SELECT status FROM records WHERE id = $1', [link.record_id]);
-    if (rows[0] && ['complete', 'payment_pending', 'partial', 'paid'].includes(rows[0].status)) {
+    if (rows[0] && ['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(rows[0].status)) {
       return settleFinalPaymentStatus(link.record_id, client);
     }
   }

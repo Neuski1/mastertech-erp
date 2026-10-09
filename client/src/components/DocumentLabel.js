@@ -15,11 +15,12 @@ const LABEL_MAP = {
   on_hold:            'ON HOLD',
   void:               'VOID',
   filed:              'FILED ESTIMATE',
+  written_off:        'INVOICE \u2014 WRITTEN OFF',
 };
 
 function getDocColor(status) {
   if (status === 'estimate') return '#2e7d32';
-  if (['complete', 'payment_pending', 'partial', 'paid'].includes(status)) return '#4a235a';
+  if (['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(status)) return '#4a235a';
   if (status === 'void') return '#555';
   if (status === 'filed') return '#64748b';
   return '#1a2a4a'; // WO statuses + on_hold

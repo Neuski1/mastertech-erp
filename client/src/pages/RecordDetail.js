@@ -55,6 +55,7 @@ const ALL_STATUSES = [
   { value: 'complete', label: 'Complete' },
   { value: 'payment_pending', label: 'Payment Pending' },
   { value: 'paid', label: 'Paid' },
+  { value: 'written_off', label: 'Written Off (uncollectible)' },
   { value: 'on_hold', label: 'On Hold' },
   { value: 'filed', label: 'File Estimate' },
 ];
@@ -280,6 +281,10 @@ export default function RecordDetail() {
     if (newStatus === 'void') {
       if (!window.confirm('Are you sure you want to void this record? This cannot be undone.')) return;
     }
+    if (newStatus === 'written_off') {
+      const due = parseFloat(record.amount_due || 0).toFixed(2);
+      if (!window.confirm(`Write off the unpaid $${due} as uncollectible? The invoice closes, reminders stop, and no journal entry posts (cash basis). Payments already received stay as income. If the customer pays later, record the payment and it moves to Paid.`)) return;
+    }
     try {
       const result = await api.updateRecordStatus(id, newStatus, true);
       if (result.labor_lines_created > 0) {
@@ -302,7 +307,7 @@ export default function RecordDetail() {
     const amountDue = parseFloat(record.amount_due) || 0;
     // Final payment is only offered once the work order is complete and has
     // become an invoice. Before that, the only option is the parts deposit.
-    const isInvoice = ['complete', 'payment_pending', 'partial', 'paid'].includes(record.status);
+    const isInvoice = ['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(record.status);
     const defaultType = isInvoice ? 'final_payment' : 'parts_deposit';
     const defaultAmount = defaultType === 'parts_deposit' ? partsTotal : amountDue;
     setEmailPayLinkType(defaultType);
@@ -365,7 +370,7 @@ export default function RecordDetail() {
     try {
       const blob = await api.downloadRecordPdf(id);
       const url = URL.createObjectURL(blob);
-      const kind = record.status === 'estimate' ? 'Estimate' : ['complete','payment_pending','partial','paid'].includes(record.status) ? 'Invoice' : 'WorkOrder';
+      const kind = record.status === 'estimate' ? 'Estimate' : ['complete','payment_pending','partial','paid','written_off'].includes(record.status) ? 'Invoice' : 'WorkOrder';
       const a = document.createElement('a');
       a.href = url; a.download = `${kind}-${record.record_number || id}.pdf`;
       document.body.appendChild(a); a.click(); a.remove();
@@ -392,7 +397,7 @@ export default function RecordDetail() {
     let docTitle = 'WORK ORDER';
     let docColor = '#1a2a4a';
     if (r.status === 'estimate') { docTitle = 'ESTIMATE'; docColor = '#2e7d32'; }
-    else if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status)) { docTitle = 'INVOICE'; docColor = '#4a235a'; }
+    else if (['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status)) { docTitle = 'INVOICE'; docColor = '#4a235a'; }
 
     const fmtPrintDateShort = (dateStr) => {
       if (!dateStr) return '—';
@@ -457,7 +462,7 @@ export default function RecordDetail() {
     const freightSub = parseFloat(r.freight_subtotal) || 0;
 
     // Build Payment Detail section (only for invoice-stage statuses)
-    const invoiceStatuses = ['complete', 'payment_pending', 'partial', 'paid'];
+    const invoiceStatuses = ['complete', 'payment_pending', 'partial', 'paid', 'written_off'];
     const payments = r.payments || [];
     const methodLabels = { credit_card: 'Card', check: 'Check', cash: 'Cash', zelle: 'Zelle' };
     let paymentDetailHtml = '';
@@ -541,7 +546,7 @@ export default function RecordDetail() {
     <h2>${docTitle} #${r.record_number}</h2>
     <p>Original Date: ${intakeDate}</p>
     ${r.start_date ? `<p>Start Date: ${fmtPrintDateShort(r.start_date.includes('T') ? r.start_date : r.start_date + 'T12:00:00')}</p>` : ''}
-    ${!['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && r.expected_completion_date ? `<p style="font-size:15px;font-weight:bold;color:#000;margin:5px 0;">Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
+    ${!['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) && r.expected_completion_date ? `<p style="font-size:15px;font-weight:bold;color:#000;margin:5px 0;">Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
     ${r.actual_completion_date ? `<p>Completed: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : ''}
     <p>Time: ${timePrinted}</p>
   </div>
@@ -585,7 +590,7 @@ ${(r.is_insurance_job || r.insurance_company || r.claim_number || r.policy_numbe
   </div>` : ''}
 </div>` : ''}
 
-${r.job_description && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:3px 0 0;padding-left:20px;font-size:11px;line-height:1.35">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:1px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
+${r.job_description && !['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Job Description:</strong><ul style="margin:3px 0 0;padding-left:20px;font-size:11px;line-height:1.35">${r.job_description.split('\n').filter(l => l.trim()).map(l => '<li style="margin-bottom:1px">' + l.trim() + '</li>').join('')}</ul></div>` : ''}
 ${r.customer_notes ? `<div style="margin:8px 0"><strong style="font-size:12px;text-transform:uppercase;color:#1a2a4a;border-bottom:1px solid #1a2a4a;display:inline-block;padding-bottom:2px">Customer Notes:</strong><p style="margin:4px 0 0;font-size:11px;white-space:pre-wrap">${r.customer_notes}</p></div>` : ''}
 
 ${(r.labor_lines || []).length > 0 ? `
@@ -871,6 +876,9 @@ ${paymentDetailHtml}
               {ALL_STATUSES.filter(s => {
                 // Void: admin and bookkeeper only (destructive).
                 if (s.value === 'void') return isAdmin || isBookkeeper;
+                // Written Off: admin and bookkeeper only, and only from a
+                // billed invoice (or to keep showing the current status).
+                if (s.value === 'written_off') return (isAdmin || isBookkeeper) && ['complete', 'payment_pending', 'partial', 'written_off'].includes(record.status);
                 // Paid: admin, bookkeeper, and editors (incl. techs) — techs
                 // close out and collect payment at pickup all the time.
                 if (s.value === 'paid') return isAdmin || isBookkeeper || canEditRecords;
@@ -1423,7 +1431,7 @@ ${paymentDetailHtml}
 
       {/* Email Document Modal */}
       {showEmailModal && (() => {
-        const docType = record.status === 'estimate' ? 'Estimate' : ['complete','payment_pending','partial','paid'].includes(record.status) ? 'Invoice' : 'Work Order';
+        const docType = record.status === 'estimate' ? 'Estimate' : ['complete','payment_pending','partial','paid','written_off'].includes(record.status) ? 'Invoice' : 'Work Order';
         const placeholders = {
           Estimate: 'e.g. Please review your estimate and let us know if you have any questions before approving.',
           'Work Order': 'e.g. Here is your current work order summary. Please call if you have any questions.',
@@ -1481,7 +1489,7 @@ ${paymentDetailHtml}
                         setEmailPayLinkAmount(t === 'other' ? '' : t === 'parts_deposit' ? (p > 0 ? p.toFixed(2) : '') : (d > 0 ? d.toFixed(2) : ''));
                       }} style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '0.85rem' }}>
                         <option value="parts_deposit">Parts Deposit</option>
-                        {['complete', 'payment_pending', 'partial', 'paid'].includes(record.status) && (
+                        {['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(record.status) && (
                           <option value="final_payment">Final Payment</option>
                         )}
                         <option value="other">Other (type amount)</option>
@@ -1678,7 +1686,7 @@ function CopyToWOModal({ record, onClose, onSuccess }) {
         const r = await api.getRecords({ search: woSearch, limit: 15 });
         const open = (r.records || []).filter(rec =>
           rec.id !== record.id &&
-          !['paid', 'void', 'complete', 'filed'].includes(rec.status)
+          !['paid', 'void', 'written_off', 'complete', 'filed'].includes(rec.status)
         );
         setWoResults(open);
       } catch (e) { /* ignore */ }
@@ -2471,7 +2479,7 @@ function PaymentLinkModal({ recordId, record, onClose }) {
   const suggestedParts = parseFloat(record?.parts_subtotal || 0) || 0;
   const suggestedFinal = parseFloat(record?.amount_due || 0) || 0;
   // Final payment is only available once the work order is complete (an invoice).
-  const isInvoice = ['complete', 'payment_pending', 'partial', 'paid'].includes(record?.status);
+  const isInvoice = ['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(record?.status);
   const [paymentType, setPaymentType] = useState(isInvoice ? 'final_payment' : 'parts_deposit');
   const [amount, setAmount] = useState(() => {
     const seed = isInvoice ? suggestedFinal : suggestedParts;
