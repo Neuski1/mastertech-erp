@@ -9,8 +9,10 @@ const { requireRole } = require('../middleware/auth');
 // label. 'order_parts' stays on: it is the "Order Parts" step and the main
 // reason this page exists.
 // Hidden on purpose: lead, estimate, awaiting_approval, on_hold, complete,
-// payment_pending, partial, paid, filed, void, schedule_customer.
-const PARTS_ACTIVE_STATUSES = ['scheduled', 'approved', 'in_progress', 'order_parts', 'awaiting_parts'];
+// payment_pending, partial, paid, filed, void.
+// 'schedule_customer' stays on: parts should be in before the customer is
+// booked, so anything still on order here needs chasing.
+const PARTS_ACTIVE_STATUSES = ['schedule_customer', 'scheduled', 'approved', 'in_progress', 'order_parts', 'awaiting_parts'];
 const OPEN_RECORD = `r.status IN (${PARTS_ACTIVE_STATUSES.map(s => `'${s}'`).join(',')})`;
 
 // ---------------------------------------------------------------------------
