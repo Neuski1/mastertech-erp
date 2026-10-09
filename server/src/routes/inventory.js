@@ -2,6 +2,13 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
+const publicParts = require('./publicParts');
+
+// Any inventory write can change what the website Parts page shows.
+router.use((req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) publicParts.clearCache(); });
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/inventory/next-part-number?category=XX — Generate next part number

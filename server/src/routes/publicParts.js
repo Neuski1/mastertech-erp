@@ -10,14 +10,16 @@
 // the SELECT on purpose: adding a column to inventory can never leak it here.
 //
 // Customers call the shop to buy; the website shows "In stock", not a count.
-// Results are cached in memory for 15 minutes, and a simple per-IP limiter
+// Results are cached in memory for 60 seconds, and a simple per-IP limiter
 // keeps scrapers from hammering the database.
 // ---------------------------------------------------------------------------
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 
-const CACHE_MS = 15 * 60 * 1000;
+// Short cache: a part hidden in the ERP should leave the website within about
+// a minute. The inventory routes also clear this cache on every save.
+const CACHE_MS = 60 * 1000;
 let cache = null; // { at, body }
 
 // Per-IP limiter: 60 requests per 10 minutes. Cached responses still count.
@@ -65,7 +67,7 @@ router.get('/', async (req, res) => {
   const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
   if (limited(ip)) return res.status(429).json({ error: 'Too many requests' });
 
-  res.set('Cache-Control', 'public, max-age=300, s-maxage=900, stale-while-revalidate=3600');
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=60');
   if (cache && Date.now() - cache.at < CACHE_MS) return res.json(cache.body);
 
   try {
@@ -94,3 +96,4 @@ router.get('/', async (req, res) => {
 
 module.exports = router;
 module.exports._tidyName = tidyName;
+module.exports.clearCache = () => { cache = null; };
