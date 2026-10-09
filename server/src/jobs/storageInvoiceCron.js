@@ -255,6 +255,18 @@ function buildInvoiceHtml(inv) {
     </table>
   </div>
 
+  ${inv.autopayNudge ? `
+  <div style="padding:20px 32px 0;">
+    <div style="border:2px solid #5FD584;background:#f0fdf4;border-radius:8px;padding:16px 18px;">
+      <p style="margin:0 0 6px;font-size:14px;color:#065f46;font-weight:bold;">Set it and forget it: turn on automatic payment</p>
+      <p style="margin:0;font-size:12.5px;color:#065f46;line-height:1.6;">
+        Save your card once and your storage pays itself on the last day of each month. No more invoices to chase,
+        no late fees, and you will still get an email receipt every month. It takes about two minutes:
+        click <strong>Set Up Automatic Payment</strong> below.
+      </p>
+    </div>
+  </div>` : ''}
+
   ${(inv.payUrl || inv.autopayUrl) ? `
   <div style="padding:20px 32px 0;">
     <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:18px 20px;text-align:center;">
@@ -477,6 +489,10 @@ async function runInvoices({ year, month, dryRun = true, billingIds = null } = {
       });
       if (!inv.termEndLabel) inv.autopayUrl = await autopayUrlFor(first.billing_id);
     }
+    // Card payer not enrolled at all (not a failing card, not a final month):
+    // a highlighted callout above the buttons asking them to turn on autopay.
+    // Set in a dry run too so the preview shows it.
+    inv.autopayNudge = needsAction && !first.autopay_failing && !inv.termEndLabel;
     // A bank-transfer customer with no bank autopay yet gets the enrollment
     // button (bank flow on the same setup page). No card pay link: paying the
     // ACH-fee total by card would short the card fee.
@@ -670,6 +686,7 @@ async function sendAdhocInvoice({
     // No autopay enrollment on a lease that ends this month: see the monthly engine.
     if (!inv.termEndLabel) inv.autopayUrl = await autopayUrlFor(id);
   }
+  inv.autopayNudge = needsAction && !s.autopay_failing && !inv.termEndLabel;
   if (s.payment_method === 'ach' && !s.bank_authorized && !inv.termEndLabel) {
     inv.autopayUrl = await autopayUrlFor(id);
     inv.bankSetup = true; inv.bankConnected = !!s.bank_connected;
