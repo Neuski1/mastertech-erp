@@ -300,7 +300,8 @@ router.get('/:id', async (req, res) => {
 router.post('/', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const {
     part_number, description, vendor, vendor_part_number, category, location,
-    qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes, alert_when_depleted
+    qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes, alert_when_depleted,
+    hide_from_website
   } = req.body;
 
   if (!description || sale_price_each === undefined) {
@@ -311,8 +312,9 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     const { rows } = await pool.query(
       `INSERT INTO inventory
          (part_number, description, vendor, vendor_part_number, category, location,
-          qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes, alert_when_depleted)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          qty_on_hand, reorder_level, cost_each, sale_price_each, pricing_notes, alert_when_depleted,
+          hide_from_website)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         part_number || null,
@@ -327,6 +329,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
         parseFloat(sale_price_each),
         pricing_notes || null,
         alert_when_depleted === true || alert_when_depleted === 'true',
+        hide_from_website === true || hide_from_website === 'true',
       ]
     );
 
@@ -345,6 +348,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     'part_number', 'description', 'vendor', 'vendor_part_number', 'category', 'location',
     'qty_on_hand', 'reorder_level', 'cost_each', 'sale_price_each', 'is_active',
     'reorder_status', 'reorder_date', 'reorder_note', 'pricing_notes', 'alert_when_depleted',
+    'hide_from_website',
   ];
 
   const updates = [];

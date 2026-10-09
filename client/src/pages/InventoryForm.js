@@ -23,6 +23,7 @@ const emptyForm = {
   qty_on_hand: '0',
   reorder_level: '',
   alert_when_depleted: false,
+  hide_from_website: false,
   cost_each: '',
   markup: '50',
   sale_price_each: '',
@@ -75,6 +76,7 @@ export default function InventoryForm() {
           qty_on_hand: item.qty_on_hand != null ? String(item.qty_on_hand) : '0',
           reorder_level: item.reorder_level != null ? String(item.reorder_level) : '',
           alert_when_depleted: !!item.alert_when_depleted,
+          hide_from_website: !!item.hide_from_website,
           cost_each: item.cost_each != null ? String(item.cost_each) : '',
           markup: (item.cost_each && item.sale_price_each && parseFloat(item.cost_each) > 0)
             ? String(Math.round(((parseFloat(item.sale_price_each) - parseFloat(item.cost_each)) / parseFloat(item.cost_each)) * 100))
@@ -167,6 +169,7 @@ export default function InventoryForm() {
         qty_on_hand: form.qty_on_hand !== '' ? parseFloat(form.qty_on_hand) : 0,
         reorder_level: form.reorder_level !== '' ? parseFloat(form.reorder_level) : null,
         alert_when_depleted: !!form.alert_when_depleted,
+        hide_from_website: !!form.hide_from_website,
         cost_each: form.cost_each !== '' ? parseFloat(form.cost_each) : null,
         sale_price_each: parseFloat(form.sale_price_each),
         vendor: form.vendor || null,
@@ -348,6 +351,14 @@ export default function InventoryForm() {
                   onChange={(e) => setForm({ ...form, alert_when_depleted: e.target.checked })}
                 />
                 Alert only when out of stock (for single-stock items you replenish once depleted)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '13px', color: '#374151', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.hide_from_website}
+                  onChange={(e) => setForm({ ...form, hide_from_website: e.target.checked })}
+                />
+                Hide from the public Parts page on the website (shows there by default while in stock)
               </label>
             </div>
           </div>

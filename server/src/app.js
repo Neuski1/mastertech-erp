@@ -77,6 +77,7 @@ app.use('/api/estimate-lines/approve', require('./routes/estimate-line-approval'
 app.use('/api/public/records', require('./routes/publicPhotos')); // Token-protected photo links in customer emails
 app.use('/api/public/status', require('./routes/publicStatus')); // Job status page linked from every status text
 app.use('/api/public/marketing-images', require('./routes/publicMarketingImages')); // Campaign email images — public by design, library only
+app.use('/api/public/parts', require('./routes/publicParts')); // Website Parts page: names and categories only, never price/cost/qty
 
 // Protected API routes — all require authentication
 app.use('/api/records', requireAuth, require('./routes/records'));
@@ -271,6 +272,8 @@ const pool = require('./db/pool');
       UNIQUE (storage_billing_id, year, month)
     )`);
     await pool.query('ALTER TABLE inventory ADD COLUMN IF NOT EXISTS alert_when_depleted BOOLEAN NOT NULL DEFAULT FALSE');
+    // Public Parts page on the website: in-stock parts show unless flagged hidden.
+    await pool.query('ALTER TABLE inventory ADD COLUMN IF NOT EXISTS hide_from_website BOOLEAN NOT NULL DEFAULT FALSE');
     // Client-side error capture (diagnoses white-screen render crashes).
     await pool.query(`CREATE TABLE IF NOT EXISTS client_errors (
       id SERIAL PRIMARY KEY, message TEXT, stack TEXT, component_stack TEXT,
