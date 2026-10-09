@@ -556,7 +556,7 @@ async function buildAudienceQuery(db, opts = {}) {
       AND c.id NOT IN (
         SELECT DISTINCT customer_id FROM records
         WHERE deleted_at IS NULL
-        AND status NOT IN ('paid', 'void')
+        AND status NOT IN ('paid', 'void', 'written_off')
       )`;
   }
 
@@ -628,7 +628,7 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
     let excludedOpenOrders = 0;
     if (built.openOrders === 'exclude') {
       const { rows } = await pool.query(
-        `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void')`
+        `SELECT COUNT(DISTINCT customer_id) AS cnt FROM records WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void', 'written_off')`
       );
       excludedOpenOrders = parseInt(rows[0].cnt);
     }
@@ -689,7 +689,7 @@ router.get('/audience/count', requireAuth, requireRole('admin'), async (req, res
            COUNT(*) FILTER (WHERE email_primary <> '' AND marketing_opt_out IS TRUE) AS opt_out,
            COUNT(*) FILTER (WHERE email_primary <> '' AND email_invalid IS TRUE) AS invalid,
            COUNT(*) FILTER (WHERE id IN (SELECT customer_id FROM records
-                                        WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void'))) AS open_orders
+                                        WHERE deleted_at IS NULL AND status NOT IN ('paid', 'void', 'written_off'))) AS open_orders
          FROM list`, typeParams
       );
       storageListTotal = parseInt(lr[0].total);

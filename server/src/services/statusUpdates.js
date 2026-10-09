@@ -47,7 +47,7 @@ const BY_KEY = new Map(UPDATE_TYPES.map(t => [t.key, t]));
 
 // A work order prints and emails as an Invoice in these statuses (same list as
 // the email-document route in records.js).
-const INVOICE_STATUSES = ['complete', 'payment_pending', 'partial', 'paid'];
+const INVOICE_STATUSES = ['complete', 'payment_pending', 'partial', 'paid', 'written_off'];
 
 // Which update a tech most likely wants, given where the work order sits.
 const SUGGEST_BY_STATUS = {

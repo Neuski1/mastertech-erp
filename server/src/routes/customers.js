@@ -61,7 +61,7 @@ router.get('/', async (req, res) => {
   let havingClauses = [];
 
   if (has_open_records === 'true') {
-    havingClauses.push("COUNT(CASE WHEN r.status NOT IN ('paid','void','complete','filed') AND r.deleted_at IS NULL THEN 1 END) > 0");
+    havingClauses.push("COUNT(CASE WHEN r.status NOT IN ('paid','void','written_off','complete','filed') AND r.deleted_at IS NULL THEN 1 END) > 0");
   }
 
   if (has_open_estimate === 'true') {
@@ -121,7 +121,7 @@ router.get('/', async (req, res) => {
              STRING_AGG(DISTINCT TRIM(CONCAT_WS(' ', u.year::text, u.make, u.model)), ', ') FILTER (WHERE u.deleted_at IS NULL) AS unit_descriptions,
              COUNT(DISTINCT r.id) FILTER (WHERE r.deleted_at IS NULL) AS record_count,
              MAX(r.created_at) FILTER (WHERE r.deleted_at IS NULL) AS last_service_date,
-             COUNT(CASE WHEN r.status NOT IN ('paid','void','complete','filed') AND r.deleted_at IS NULL THEN 1 END) AS open_record_count
+             COUNT(CASE WHEN r.status NOT IN ('paid','void','written_off','complete','filed') AND r.deleted_at IS NULL THEN 1 END) AS open_record_count
       FROM customers c
       LEFT JOIN units u ON u.customer_id = c.id
       LEFT JOIN records r ON r.customer_id = c.id

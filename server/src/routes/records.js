@@ -55,9 +55,13 @@ const VALID_TRANSITIONS = {
   order_parts:        ['awaiting_parts', 'in_progress', 'awaiting_approval', 'complete', 'on_hold', 'void'],
   awaiting_parts:     ['order_parts', 'in_progress', 'awaiting_approval', 'complete', 'on_hold', 'void'],
   awaiting_approval:  ['in_progress', 'approved', 'order_parts', 'on_hold', 'void'],
-  complete:           ['payment_pending', 'partial', 'paid', 'on_hold', 'void'],
-  payment_pending:    ['partial', 'paid', 'on_hold', 'void'],
-  partial:            ['paid', 'on_hold', 'void'],
+  complete:           ['payment_pending', 'partial', 'paid', 'written_off', 'on_hold', 'void'],
+  payment_pending:    ['partial', 'paid', 'written_off', 'on_hold', 'void'],
+  partial:            ['paid', 'written_off', 'on_hold', 'void'],
+  // Uncollectible balance. Cash basis: no journal entry, the unpaid amount
+  // never hit income. Parts stay off the shelf (they are in the customer's
+  // RV). A late payment moves it to paid; reopening sends it back to billing.
+  written_off:        ['paid', 'partial', 'payment_pending'],
   paid:               ['void'],
   on_hold:            ['estimate', 'approved', 'schedule_customer', 'scheduled', 'in_progress', 'order_parts', 'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending', 'partial', 'void'],
   void:               [],
@@ -195,7 +199,7 @@ router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), a
         return res.status(404).json({ error: 'Target work order not found' });
       }
       const tgt = tgtRows[0];
-      if (['paid', 'void', 'complete', 'filed'].includes(tgt.status)) {
+      if (['paid', 'void', 'written_off', 'complete', 'filed'].includes(tgt.status)) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: `Cannot append to a ${tgt.status} work order` });
       }
@@ -499,7 +503,7 @@ router.get('/:id/pdf', async (req, res) => {
 
     const pdf = await generateRecordPdf(data);
     const kind = record.status === 'estimate' ? 'Estimate'
-      : ['complete','payment_pending','partial','paid'].includes(record.status) ? 'Invoice' : 'WorkOrder';
+      : ['complete','payment_pending','partial','paid','written_off'].includes(record.status) ? 'Invoice' : 'WorkOrder';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${kind}-${record.record_number || record.id}.pdf"`);
     res.send(pdf);
@@ -734,7 +738,7 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
   const ALL_STATUSES = [
     'estimate', 'approved', 'schedule_customer', 'scheduled', 'in_progress',
     'order_parts', 'awaiting_parts', 'awaiting_approval', 'complete', 'payment_pending',
-    'partial', 'paid', 'on_hold', 'void', 'filed',
+    'partial', 'paid', 'on_hold', 'void', 'filed', 'written_off',
   ];
 
   if (!ALL_STATUSES.includes(newStatus)) {
@@ -756,6 +760,23 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
     }
 
     const record = rows[0];
+
+    // Writing off a balance is a books decision: admin and bookkeeper only,
+    // and only from a billed invoice, even under manual override.
+    if (newStatus === 'written_off') {
+      if (!['admin', 'bookkeeper'].includes(req.user && req.user.role)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Only an admin or bookkeeper can write off an invoice' });
+      }
+      if (!['complete', 'payment_pending', 'partial'].includes(record.status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Only a billed invoice can be written off (this one is '${record.status}')` });
+      }
+      if (!(parseFloat(record.amount_due) > 0)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Nothing is owing on this invoice, so there is nothing to write off' });
+      }
+    }
 
     // For manual override, allow any transition (role checks done client-side)
     if (!manual_override) {
@@ -802,8 +823,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       extraUpdates.push(`payment_pending_since = NOW()`);
     }
 
-    // When status → paid or void: clear reminder tracking fields
-    if (newStatus === 'paid' || newStatus === 'void') {
+    // When status → paid, void or written off: clear reminder tracking fields
+    if (newStatus === 'paid' || newStatus === 'void' || newStatus === 'written_off') {
       extraUpdates.push(`payment_pending_since = NULL`);
       extraUpdates.push(`reminder_count = 0`);
       extraUpdates.push(`last_reminder_sent_at = NULL`);
@@ -984,7 +1005,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     // Determine document type
     let docType = 'Work Order';
     if (r.status === 'estimate') docType = 'Estimate';
-    else if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status)) docType = 'Invoice';
+    else if (['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status)) docType = 'Invoice';
 
     // For estimates: generate/refresh approval token
     let approvalUrl = null;
@@ -1162,7 +1183,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         <h2 style="color:#ffffff;margin:0;font-size:20px;">${docType}</h2>
         <p style="color:#93c5fd;margin:2px 0;font-size:13px;">#${r.record_number}</p>
         ${r.intake_date || r.created_at ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Date: ${fmtDate(r.intake_date || r.created_at)}</p>` : ''}
-        ${r.expected_completion_date && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
+        ${r.expected_completion_date && !['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
         ${r.actual_completion_date ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Completed: ${fmtDate(r.actual_completion_date)}</p>` : ''}
       </td>
     </tr></table>

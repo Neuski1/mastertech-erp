@@ -23,7 +23,7 @@ const fmtDate = (d) => {
 
 function docTitleFor(status) {
   if (status === 'estimate') return { title: 'ESTIMATE', color: '#2e7d32' };
-  if (['complete', 'payment_pending', 'partial', 'paid'].includes(status)) return { title: 'INVOICE', color: '#4a235a' };
+  if (['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(status)) return { title: 'INVOICE', color: '#4a235a' };
   return { title: 'WORK ORDER', color: NAVY };
 }
 
@@ -196,7 +196,7 @@ function generateRecordPdf(r) {
 
       // ---- Payments detail (invoice stage) ----
       const payments = r.payments || [];
-      if (['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) && payments.length) {
+      if (['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) && payments.length) {
         y = ensureSpace(y + 10, 60);
         doc.font('Helvetica-Bold').fontSize(9).fillColor(NAVY).text('PAYMENTS', left, y); y += 14;
         doc.font('Helvetica').fontSize(8.5).fillColor('#111');

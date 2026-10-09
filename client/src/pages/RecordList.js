@@ -54,7 +54,7 @@ const STATUS_GROUPS = [
     // panel up top so the two green blocks do not read as the same thing.
     key: 'closed',
     label: 'Closed',
-    statuses: ['paid', 'void'],
+    statuses: ['paid', 'void', 'written_off'],
     bg: '#ecfdf5', border: '#6ee7b7', headerBg: '#d1fae5', headerColor: '#065f46',
   },
   {
@@ -92,6 +92,7 @@ const STATUS_LABELS = {
   on_hold: 'On Hold',
   void: 'Void',
   filed: 'File Estimate',
+  written_off: 'Written Off',
 };
 
 export default function RecordList() {
@@ -391,7 +392,7 @@ export default function RecordList() {
 
   const isPastDue = (r) => {
     if (!r.expected_completion_date) return false;
-    if (['complete', 'paid', 'void', 'filed'].includes(r.status)) return false;
+    if (['complete', 'paid', 'void', 'written_off', 'filed'].includes(r.status)) return false;
     const due = new Date(r.expected_completion_date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);

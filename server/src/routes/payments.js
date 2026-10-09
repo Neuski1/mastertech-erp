@@ -21,6 +21,9 @@ async function autoTransitionStatus(recordId, client) {
 
   // Don't auto-transition from estimate, approved, or void
   if (['estimate', 'approved', 'void'].includes(rec.status)) return;
+  // A written-off invoice only reopens when it is paid in full; a partial
+  // late payment is recorded (cash is income) but the balance stays written off.
+  if (rec.status === 'written_off' && !(amountDue <= 0 && totalCollected > 0)) return;
 
   if (amountDue <= 0 && totalCollected > 0) {
     // Paid in full → move to 'paid' (closed)

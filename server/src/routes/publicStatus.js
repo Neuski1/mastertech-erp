@@ -178,7 +178,7 @@ router.get('/:token', async (req, res) => {
 
     // Same rule as the texts: no date, or a date already past, shows nothing.
     const { completionInfo } = require('../services/statusUpdates');
-    const ci = stage < 3 && !['complete', 'payment_pending', 'partial', 'paid'].includes(r.status) ? completionInfo(r) : null;
+    const ci = stage < 3 && !['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) ? completionInfo(r) : null;
     const expectedHtml = ci && ci.line
       ? `<div class="sub" style="margin-top:-12px">Expected completion: <b style="color:#1e3a5f">${esc(ci.text)}</b></div>`
       : '';
