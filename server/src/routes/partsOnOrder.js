@@ -3,10 +3,15 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole } = require('../middleware/auth');
 
-// Records whose parts we still care about chasing. Excludes closed
-// (paid/void), estimate/lead, and "filed" (job parked unless the customer
-// brings it back).
-const OPEN_RECORD = "r.status NOT IN ('paid','void','estimate','lead','filed')";
+// Records whose parts we still care about chasing. ALLOWLIST, not a
+// blocklist, so any status added later stays off this page until someone
+// decides it belongs here. 'approved' is the value behind the "Not Started"
+// label. 'order_parts' stays on: it is the "Order Parts" step and the main
+// reason this page exists.
+// Hidden on purpose: lead, estimate, awaiting_approval, on_hold, complete,
+// payment_pending, partial, paid, filed, void, schedule_customer.
+const PARTS_ACTIVE_STATUSES = ['scheduled', 'approved', 'in_progress', 'order_parts', 'awaiting_parts'];
+const OPEN_RECORD = `r.status IN (${PARTS_ACTIVE_STATUSES.map(s => `'${s}'`).join(',')})`;
 
 // ---------------------------------------------------------------------------
 // GET /api/parts-on-order — every part line still on order across open jobs
