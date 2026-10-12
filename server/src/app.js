@@ -367,6 +367,10 @@ const pool = require('./db/pool');
     // without voiding it (void would return installed parts to stock) and
     // without a journal entry (cash basis: unpaid revenue was never booked).
     await pool.query("ALTER TYPE record_status_type ADD VALUE IF NOT EXISTS 'written_off'");
+    // Migration 074: Direction to Pay. The date the customer signed the DTP at
+    // drop-off on an insurance job. The signed form itself is a
+    // record_documents row with doc_type 'dtp'. Additive only.
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS dtp_signed_date DATE');
     // Migration 039: bookkeeper adjustments
     await pool.query(`CREATE TABLE IF NOT EXISTS bookkeeper_adjustments (
       id SERIAL PRIMARY KEY,
