@@ -148,6 +148,10 @@ const SETTINGS = [
   { key: 'wo_warranty_days', category: 'work_orders', sort: 30, value_type: 'integer',
     label: 'Warranty period (days)', fallback: 60, min: 0, max: 3650,
     help: 'Parts and labor, unless the parts manufacturer states otherwise. Customer-supplied parts are labor only. Prints on estimates, work orders and invoices.' },
+  { key: 'wo_dtp_adjuster_line', category: 'work_orders', sort: 40, value_type: 'text',
+    label: 'Adjuster email: payment instruction',
+    fallback: 'Please issue payment payable to Master Tech RV Repair & Storage only, per the attached Direction to Pay. ACH preferred.',
+    help: 'Prints in a bold box at the top of every estimate emailed to an insurance adjuster with the Email Adjuster button. The signed Direction to Pay is attached automatically.' },
 
   // -- Help You Sell ------------------------------------------------------
   // These four are stored on each agreement as WHOLE numbers (5 means 5%), so

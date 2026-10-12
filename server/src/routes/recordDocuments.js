@@ -44,7 +44,7 @@ router.post('/:recordId/documents',
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-      const allowed = ['insurance', 'warranty', 'other'];
+      const allowed = ['dtp', 'insurance', 'warranty', 'other'];
       let docType = String(req.body.doc_type || 'other').toLowerCase();
       if (!allowed.includes(docType)) docType = 'other';
       const title = String(req.body.title || req.file.originalname || 'Document').slice(0, 255);
@@ -54,6 +54,17 @@ router.post('/:recordId/documents',
          RETURNING id, record_id, doc_type, title, mime_type, file_size, created_by, created_at`,
         [req.params.recordId, docType, title, req.file.buffer, req.file.mimetype, req.file.size, req.user?.id || null]
       );
+      // A signed Direction to Pay on file stamps the signed date (Denver) if
+      // nobody typed one, and marks the record as an insurance job.
+      if (docType === 'dtp') {
+        await pool.query(
+          `UPDATE records
+              SET dtp_signed_date = COALESCE(dtp_signed_date, (NOW() AT TIME ZONE 'America/Denver')::date),
+                  is_insurance_job = TRUE
+            WHERE id = $1`,
+          [req.params.recordId]
+        ).catch(e => console.error('DTP stamp error:', e.message));
+      }
       res.status(201).json(rows[0]);
     } catch (err) {
       console.error('Document upload error:', err);

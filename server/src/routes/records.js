@@ -15,6 +15,24 @@ const settings = require('../db/settings');
 // Each falls back to the literal that was hardcoded here before.
 // ---------------------------------------------------------------------------
 
+// The pay-us-only instruction at the top of an adjuster email (Business
+// Settings > Work Orders). HTML-escaped because it carries an ampersand.
+const DTP_LINE_FALLBACK = 'Please issue payment payable to Master Tech RV Repair & Storage only, per the attached Direction to Pay. ACH preferred.';
+function dtpAdjusterLine() {
+  return settings.str('wo_dtp_adjuster_line', DTP_LINE_FALLBACK);
+}
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+// A DATE column arrives from pg as a Date at UTC midnight. Formatting it in
+// Denver prints the day before, so read the calendar date straight off it.
+function fmtDateOnly(d) {
+  if (!d) return '';
+  const ymd = d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+  const [y, m, day] = ymd.split('-').map(Number);
+  return (y && m && day) ? `${m}/${day}/${y}` : '';
+}
+
 // "two (2) days" — spelled out with the numeral in brackets, the way the
 // original terms read, so the legal wording keeps its shape at any number.
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
@@ -523,6 +541,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     'is_insurance_job', 'insurance_company', 'insurance_contact_name',
     'insurance_phone', 'insurance_email', 'claim_number', 'policy_number',
     'estimate_valid_until', 'authorization_signed_at', 'authorization_number',
+    'dtp_signed_date',
     'internal_notes', 'customer_notes',
     'actual_completion_date',
     'under_warranty_amount', 'no_charge_amount', 'deductible_amount', 'deposit_amount',
@@ -983,6 +1002,9 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 // ---------------------------------------------------------------------------
 router.post('/:id/email-document', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   const { personalMessage, includePaymentLink, paymentLinkType, paymentLinkAmountDollars, toEmail, ccEmails } = req.body || {};
+  // toAdjuster: the estimate goes to the insurance adjuster with the signed
+  // Direction to Pay attached and the pay-us-only instruction at the top.
+  const toAdjuster = req.body?.toAdjuster === true;
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
@@ -998,18 +1020,46 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     if (rows.length === 0) return res.status(404).json({ error: 'Record not found' });
 
     const r = rows[0];
-    // Use custom recipient if provided, otherwise fall back to customer email
-    const email = (toEmail && toEmail.trim()) ? toEmail.trim() : r.email_primary;
-    if (!email) return res.status(400).json({ error: 'No email address provided and no email on file for this customer.' });
+    // Use custom recipient if provided, otherwise fall back to the customer
+    // email (or the adjuster's email on an adjuster send).
+    const fallbackTo = toAdjuster ? r.insurance_email : r.email_primary;
+    const email = (toEmail && toEmail.trim()) ? toEmail.trim() : fallbackTo;
+    if (!email) {
+      return res.status(400).json({ error: toAdjuster
+        ? 'No adjuster email. Enter it in the Insurance section first.'
+        : 'No email address provided and no email on file for this customer.' });
+    }
+
+    // Adjuster send: the signed Direction to Pay must be on file. No DTP, no
+    // send, so the shop never asks for payment without the form behind it.
+    let dtpAttachments = [];
+    if (toAdjuster) {
+      const dtpRes = await pool.query(
+        `SELECT title, file_data, mime_type FROM record_documents
+          WHERE record_id = $1 AND doc_type = 'dtp' AND deleted_at IS NULL AND file_data IS NOT NULL
+          ORDER BY created_at`,
+        [r.id]
+      );
+      if (dtpRes.rows.length === 0) {
+        return res.status(400).json({ error: 'No signed Direction to Pay on this work order. Upload it under Documents as "Direction to Pay" first.' });
+      }
+      dtpAttachments = dtpRes.rows.map((d, i) => {
+        let name = (d.title || `Direction_to_Pay_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+        if (d.mime_type === 'application/pdf' && !/\.pdf$/i.test(name)) name += '.pdf';
+        return { filename: name, content: d.file_data, contentType: d.mime_type || 'application/octet-stream' };
+      });
+    }
 
     // Determine document type
     let docType = 'Work Order';
     if (r.status === 'estimate') docType = 'Estimate';
     else if (['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status)) docType = 'Invoice';
 
-    // For estimates: generate/refresh approval token
+    // For estimates: generate/refresh approval token. Never on an adjuster
+    // send: the customer approves, not the insurer, and a fresh token would
+    // kill the link already in the customer's inbox.
     let approvalUrl = null;
-    if (docType === 'Estimate' && r.status === 'estimate') {
+    if (docType === 'Estimate' && r.status === 'estimate' && !toAdjuster) {
       const crypto = require('crypto');
       const token = crypto.randomUUID();
       const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
@@ -1115,7 +1165,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     // includePaymentLink=true → use the explicit type + amount from the modal.
     // includePaymentLink not sent (legacy / auto) → fall back to auto-detect
     // based on docType (backwards-compat with payment reminder emails, etc.).
-    if (poyntReady && includePaymentLink !== false) {
+    // The adjuster never gets a pay button: insurance pays per the DTP.
+    if (poyntReady && includePaymentLink !== false && !toAdjuster) {
       try {
         let linkType = paymentLinkType;
         let linkAmountDollars = paymentLinkAmountDollars;
@@ -1211,6 +1262,10 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         </td>
       </tr>
     </table>
+    ${toAdjuster ? `
+    <div style="margin:16px 0;padding:16px;background:#fef3c7;border:2px solid #b45309;border-radius:6px;">
+      <p style="margin:0;font-size:15px;font-weight:bold;color:#78350f;line-height:1.5;">${escHtml(dtpAdjusterLine())}</p>
+    </div>` : ''}
     ${personalMessage ? `
     <div style="margin:16px 0;padding:16px;background:#f0f7ff;border-left:4px solid #1a2a4a;border-radius:4px;">
       <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.6;white-space:pre-wrap;">${personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
@@ -1224,7 +1279,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       ${parseFloat(r.deductible_amount) > 0 ? `<strong>Deductible:</strong> ${fmtCur(r.deductible_amount)}<br/>` : ''}
       ${r.insurance_contact_name ? `<strong>Contact:</strong> ${r.insurance_contact_name}<br/>` : ''}
       ${r.insurance_phone ? `<strong>Phone:</strong> ${r.insurance_phone}<br/>` : ''}
-      ${r.insurance_email ? `<strong>Email:</strong> ${r.insurance_email}` : ''}
+      ${r.insurance_email ? `<strong>Email:</strong> ${r.insurance_email}<br/>` : ''}
+      ${r.dtp_signed_date ? `<strong>Direction to Pay:</strong> signed ${fmtDateOnly(r.dtp_signed_date)}` : ''}
     </div>` : ''}
 
     ${r.job_description ? `
@@ -1392,7 +1448,10 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
   </div>
 </div></body></html>`;
 
-    const subject = `${docType} #${r.record_number} — Master Tech RV Repair & Storage`;
+    const claimTag = r.claim_number ? ` — Claim #${r.claim_number}` : '';
+    const subject = toAdjuster
+      ? `${docType} #${r.record_number}${claimTag} — ${customerName} — Direction to Pay attached — Master Tech RV Repair & Storage`
+      : `${docType} #${r.record_number} — Master Tech RV Repair & Storage`;
     // Build CC list: always include shop email, plus any extra CC addresses
     const ccList = ['service@mastertechrvrepair.com'];
     if (ccEmails && ccEmails.trim()) {
@@ -1405,7 +1464,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       cc: ccList,
       subject,
       html,
-      text: `${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\n${r.job_description ? 'Job Description: ' + r.job_description + '\n' : ''}Amount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022\n(303) 557-2214`,
+      text: `${toAdjuster ? dtpAdjusterLine() + '\n\n' : ''}${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\n${toAdjuster && r.claim_number ? 'Claim #: ' + r.claim_number + '\n' : ''}${r.job_description ? 'Job Description: ' + r.job_description + '\n' : ''}Amount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022\n(303) 557-2214`,
+      attachments: dtpAttachments.length ? dtpAttachments : undefined,
     });
 
     if (result.success) {
@@ -1413,9 +1473,10 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       try {
         const logResult = await pool.query(
           `INSERT INTO communication_log (customer_id, record_id, channel, trigger_event, message_content)
-           VALUES ($1, $2, 'email', 'document_emailed', $3)
+           VALUES ($1, $2, 'email', $3, $4)
            RETURNING id`,
-          [r.customer_id, r.id, `${docType} #${r.record_number} emailed to ${email}${ccList.length > 1 ? ' (CC: ' + ccList.slice(1).join(', ') + ')' : ''}`]
+          [r.customer_id, r.id, toAdjuster ? 'adjuster_dtp_emailed' : 'document_emailed',
+           `${docType} #${r.record_number} emailed to ${toAdjuster ? 'adjuster ' : ''}${email}${toAdjuster ? ` with Direction to Pay (${dtpAttachments.length} file${dtpAttachments.length === 1 ? '' : 's'})` : ''}${ccList.length > 1 ? ' (CC: ' + ccList.slice(1).join(', ') + ')' : ''}`]
         );
         console.log(`[Record ${r.record_number}] Comm log entry created: #${logResult.rows[0].id}`);
       } catch (logErr) {

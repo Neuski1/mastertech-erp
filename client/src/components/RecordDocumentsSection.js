@@ -1,25 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 
-const TYPE_LABELS = { insurance: 'Insurance', warranty: 'Warranty', other: 'Other' };
+const TYPE_LABELS = { dtp: 'Direction to Pay', insurance: 'Insurance', warranty: 'Warranty', other: 'Other' };
 const TYPE_COLORS = {
+  dtp: { bg: '#fef3c7', fg: '#92400e' },
   insurance: { bg: '#dbeafe', fg: '#1e40af' },
   warranty: { bg: '#dcfce7', fg: '#166534' },
   other: { bg: '#f3f4f6', fg: '#374151' },
 };
 
-export default function RecordDocumentsSection({ recordId, isEditable }) {
+// onDocsChange(docs, changed): called with the current list every time it
+// loads. changed is true after an upload or delete, so the parent can refetch
+// the record (a DTP upload stamps dtp_signed_date server-side).
+export default function RecordDocumentsSection({ recordId, isEditable, defaultType = 'insurance', onDocsChange }) {
   const [docs, setDocs] = useState([]);
-  const [docType, setDocType] = useState('insurance');
+  const [docType, setDocType] = useState(defaultType);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const fileInputRef = useRef(null);
 
-  const fetchDocs = async () => {
-    try { setDocs(await api.getRecordDocuments(recordId)); } catch { setDocs([]); }
+  const fetchDocs = async (changed = false) => {
+    let list = [];
+    try { list = await api.getRecordDocuments(recordId); } catch { list = []; }
+    setDocs(list);
+    if (onDocsChange) onDocsChange(list, changed);
   };
   useEffect(() => { fetchDocs(); }, [recordId]); // eslint-disable-line
+  useEffect(() => { setDocType(defaultType); }, [defaultType]);
 
   const handleUpload = async (e) => {
     const file = e.target.files[0];
@@ -27,7 +35,7 @@ export default function RecordDocumentsSection({ recordId, isEditable }) {
     setUploading(true); setError('');
     try {
       await api.uploadRecordDocument(recordId, file, docType, file.name);
-      await fetchDocs();
+      await fetchDocs(true);
     } catch (err) {
       setError(err.message || 'Upload failed');
     } finally {
@@ -54,7 +62,7 @@ export default function RecordDocumentsSection({ recordId, isEditable }) {
     if (!window.confirm(`Delete "${doc.title}"?`)) return;
     try {
       await api.deleteRecordDocument(recordId, doc.id);
-      setDocs((prev) => prev.filter((d) => d.id !== doc.id));
+      await fetchDocs(true);
     } catch (err) {
       setError(err.message);
     }
@@ -64,11 +72,12 @@ export default function RecordDocumentsSection({ recordId, isEditable }) {
 
   return (
     <div style={{ backgroundColor: '#fff', borderRadius: 8, border: '1px solid #e5e7eb', padding: 16, marginBottom: 16 }}>
-      <h2 style={{ margin: '0 0 12px', fontSize: '1rem', color: '#1e3a5f' }}>Insurance &amp; Warranty Documents</h2>
+      <h2 style={{ margin: '0 0 12px', fontSize: '1rem', color: '#1e3a5f' }}>Documents</h2>
       {isEditable && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
           <select value={docType} onChange={(e) => setDocType(e.target.value)}
                   style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.85rem' }}>
+            <option value="dtp">Direction to Pay (signed)</option>
             <option value="insurance">Insurance</option>
             <option value="warranty">Warranty</option>
             <option value="other">Other</option>
