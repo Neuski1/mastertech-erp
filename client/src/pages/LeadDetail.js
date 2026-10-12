@@ -18,6 +18,34 @@ const QUICK_REPLIES = [
   'Got it. Can you send a photo of the problem to this number? Helps us quote it right.',
 ];
 
+// Same recovery as RecordList: the inbound lead agent sometimes truncates the
+// stored address at the "@", so fall back to the first full address in the body.
+const LEAD_EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const leadEmail = (l) => {
+  if (l && l.email && l.email.includes('@')) return l.email;
+  const m = ((l && l.message) || '').match(LEAD_EMAIL_RE);
+  return m ? m[0] : ((l && l.email) || '');
+};
+
+// Gmail compose link, matching the Email button on the Records lead list.
+// A bare mailto: does nothing on a PC with no desktop mail app, which is
+// why this button looked dead when opened from a notification.
+function gmailHref(lead, signature) {
+  const first = (lead.customer_first || (lead.name || '').trim().split(/\s+/)[0] || 'there');
+  const subject = 'Re: Your request to Master Tech RV Repair & Storage';
+  const sent = lead.created_at ? new Date(lead.created_at).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' }) : '';
+  const quoted = (lead.message || '(no message on file)').split('\n').map((ln) => '> ' + ln).join('\n');
+  const body = [
+    `Hi ${first},`, '',
+    'Thank you for reaching out to Master Tech RV Repair & Storage.', '', '',
+    ...(signature ? [signature, ''] : []),
+    '-----------------------------------------',
+    sent ? `On ${sent} you wrote:` : 'Your original request:',
+    quoted,
+  ].join('\n');
+  return `https://mail.google.com/mail/?view=cm&fs=1&authuser=service@mastertechrvrepair.com&to=${encodeURIComponent(leadEmail(lead))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 function field(message, label) {
   const m = String(message || '').match(new RegExp(label + '\\s*:\\s*([^|]*)(?:\\||$)', 'i'));
   return m ? m[1].trim() : '';
@@ -36,6 +64,13 @@ export default function LeadDetail() {
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
+  const [signature, setSignature] = useState('');
+
+  useEffect(() => {
+    api.getLeadEmailSignature()
+      .then((d) => setSignature((d && d.signature) || ''))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -44,6 +79,16 @@ export default function LeadDetail() {
       setError(err.message);
     }
   }, [id]);
+
+  // Auto-log outreach like the Records list does. Fire-and-forget so a
+  // logging failure never blocks the call or the email.
+  const autoLog = (channel) => {
+    api.logLeadCall(id, {
+      contacted_at: new Date().toISOString(),
+      entry_type: channel === 'email' ? 'email' : 'call',
+      note: channel === 'email' ? 'Emailed (auto-logged)' : 'Called (auto-logged)',
+    }).then(() => load()).catch((err) => console.error('auto-log failed', err.message));
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -114,8 +159,11 @@ export default function LeadDetail() {
       </div>
 
       <div style={S.actions}>
-        {digits && <a href={`tel:+1${digits.slice(-10)}`} style={S.call}>Call {lead.phone}</a>}
-        {lead.email && <a href={`mailto:${lead.email}`} style={S.ghost}>Email</a>}
+        {digits && <a href={`tel:+1${digits.slice(-10)}`} onClick={() => autoLog('call')} style={S.call}>Call {lead.phone}</a>}
+        {leadEmail(lead) && (
+          <a href={gmailHref(lead, signature)} target="_blank" rel="noopener noreferrer"
+             onClick={() => autoLog('email')} style={S.ghost}>Email</a>
+        )}
       </div>
 
       {lead.sms_opt_out && (
