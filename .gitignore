@@ -8,3 +8,7 @@ server/dist/
 .DS_Store
 npm-debug.log*
 pr-body.txt
+
+# local agent keys, never commit
+agent-keys.env/
+
