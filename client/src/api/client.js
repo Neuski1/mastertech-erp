@@ -82,6 +82,8 @@ export const api = {
   createEstimateFromLead: (id) => request(`/leads/${id}/create-estimate`, { method: 'POST' }),
   fileLead: (id, data = {}) => request(`/leads/${id}/file`, { method: 'POST', body: JSON.stringify(data) }),
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
+  getDtp: (id) => request(`/records/${id}/dtp`),
+  signDtp: (id, data) => request(`/records/${id}/sign-dtp`, { method: 'POST', body: JSON.stringify(data) }),
   sendReminder: (recordId, channel) => request(`/records/${recordId}/send-reminder`, { method: 'POST', body: JSON.stringify({ channel }) }),
   copyRecord: (recordId, data) => request(`/records/${recordId}/copy`, { method: 'POST', body: JSON.stringify(data) }),
   approveEstimateLines: (recordId, data) => request(`/records/${recordId}/approve-estimate-lines`, { method: 'POST', body: JSON.stringify(data) }),

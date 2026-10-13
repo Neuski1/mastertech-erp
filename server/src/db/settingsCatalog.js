@@ -152,6 +152,10 @@ const SETTINGS = [
     label: 'Adjuster email: payment instruction',
     fallback: 'Please issue payment payable to Master Tech RV Repair & Storage only, per the attached Direction to Pay. ACH preferred.',
     help: 'Prints in a bold box at the top of every estimate emailed to an insurance adjuster with the Email Adjuster button. The signed Direction to Pay is attached automatically.' },
+  { key: 'wo_dtp_terms', category: 'work_orders', sort: 50, value_type: 'longtext',
+    label: 'Direction to Pay wording (customer signs on screen)',
+    fallback: require('../services/dtpFormText'),
+    help: 'One paragraph per line. These fill in from the work order: {customer} {insurer} {claim} {policy} {unit} {vin} {wo} {address}. Changes apply to the next DTP signed; forms already signed keep the wording they were signed with.' },
 
   // -- Help You Sell ------------------------------------------------------
   // These four are stored on each agreement as WHOLE numbers (5 means 5%), so

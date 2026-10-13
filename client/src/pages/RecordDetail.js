@@ -9,6 +9,7 @@ import PartsLinesTable from '../components/PartsLinesTable';
 import CommunicationLog from '../components/CommunicationLog';
 import PhotoLinksSection from '../components/PhotoLinksSection';
 import RecordDocumentsSection from '../components/RecordDocumentsSection';
+import DtpSignatureModal from '../components/DtpSignatureModal';
 import SquarePayment from '../components/SquarePayment';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
@@ -105,6 +106,9 @@ export default function RecordDetail() {
   // Direction to Pay attached. dtpDocs mirrors the Documents section.
   const [emailToAdjuster, setEmailToAdjuster] = useState(false);
   const [dtpDocs, setDtpDocs] = useState([]);
+  const [showDtpModal, setShowDtpModal] = useState(false);
+  const [docsKey, setDocsKey] = useState(0);
+  const documentsRef = useRef(null);
 
   // Track which field is currently being edited so the polling refetch
   // does not clobber what the user is typing. null = no field focused.
@@ -1079,19 +1083,31 @@ ${paymentDetailHtml}
                 </div>
                 {/* Direction to Pay: signed at drop-off, emailed to the adjuster with the estimate */}
                 {record.is_insurance_job && (() => {
-                  const missing = [];
-                  if (dtpDocs.length === 0) missing.push('upload the signed Direction to Pay under Documents');
-                  if (!record.insurance_email) missing.push('enter the adjuster email');
-                  const ready = missing.length === 0;
+                  const hasDtp = dtpDocs.length > 0;
+                  const ready = hasDtp && !!record.insurance_email;
+                  const smallBtn = { padding: '8px 14px', borderRadius: '6px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' };
                   return (
-                    <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+                    <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
                       background: ready ? '#f0fdf4' : '#fef3c7', border: `1px solid ${ready ? '#bbf7d0' : '#fcd34d'}` }}>
                       <div style={{ flex: 1, minWidth: '220px', fontSize: '0.85rem', color: ready ? '#166534' : '#92400e' }}>
                         <strong>Direction to Pay:</strong>{' '}
-                        {ready
-                          ? `on file${record.dtp_signed_date ? ', signed ' + formatDate(record.dtp_signed_date) : ''}. Email it to the adjuster with the estimate.`
-                          : `get it signed at drop-off, then ${missing.join(' and ')}.`}
+                        {!hasDtp
+                          ? 'have the customer sign it at drop-off.'
+                          : !record.insurance_email
+                            ? `signed${record.dtp_signed_date ? ' ' + formatDate(record.dtp_signed_date) : ''}. Enter the adjuster email to send it.`
+                            : `signed${record.dtp_signed_date ? ' ' + formatDate(record.dtp_signed_date) : ''}. Email it to the adjuster with the estimate.`}
                       </div>
+                      {!hasDtp && (
+                        <button onClick={() => setShowDtpModal(true)} style={{ ...smallBtn, border: 'none', background: '#b45309', color: '#fff' }}>
+                          Customer Signs DTP
+                        </button>
+                      )}
+                      {!hasDtp && (
+                        <button onClick={() => documentsRef.current && documentsRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                          style={{ ...smallBtn, border: '1px solid #b45309', background: '#fff', color: '#b45309' }}>
+                          Upload Paper Copy
+                        </button>
+                      )}
                       <button onClick={openAdjusterEmailDialog} disabled={!ready || emailing}
                         title={ready ? 'Emails the estimate to the adjuster with the signed DTP attached' : 'Needs the signed DTP and the adjuster email'}
                         style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', fontWeight: 600, fontSize: '0.85rem',
@@ -1109,6 +1125,34 @@ ${paymentDetailHtml}
           </div>
         );
       })()}
+
+      {/* Documents: signed Direction to Pay, insurance, warranty. Sits right
+          under Insurance so the DTP is next to the button that sends it.
+          Restored: PR #97 dropped this section from the page (July 13). */}
+      <div ref={documentsRef}>
+        <RecordDocumentsSection
+          key={docsKey}
+          recordId={record.id}
+          isEditable={isEditable}
+          defaultType={record.is_insurance_job ? 'dtp' : 'insurance'}
+          onDocsChange={(docs, changed) => {
+            setDtpDocs(docs.filter(d => d.doc_type === 'dtp'));
+            if (changed) fetchRecord();
+          }}
+        />
+      </div>
+
+      {showDtpModal && (
+        <DtpSignatureModal
+          record={record}
+          onClose={() => setShowDtpModal(false)}
+          onSigned={() => {
+            setShowDtpModal(false);
+            setDocsKey(k => k + 1);
+            fetchRecord();
+          }}
+        />
+      )}
 
       {/* ─── Dates ─── */}
       <div style={sectionStyle}>
@@ -1637,18 +1681,6 @@ ${paymentDetailHtml}
 
       {/* Photos */}
       <PhotoLinksSection recordId={record.id} isEditable={isEditable} customerEmail={record.email_primary || ''} />
-
-      {/* Documents: signed Direction to Pay, insurance, warranty. Restored:
-          PR #97 dropped this section from the page by accident (July 13). */}
-      <RecordDocumentsSection
-        recordId={record.id}
-        isEditable={isEditable}
-        defaultType={record.is_insurance_job ? 'dtp' : 'insurance'}
-        onDocsChange={(docs, changed) => {
-          setDtpDocs(docs.filter(d => d.doc_type === 'dtp'));
-          if (changed) fetchRecord();
-        }}
-      />
 
       <CommunicationLog key={commLogKey} customerId={record.customer_id} recordId={record.id} />
     </div>
