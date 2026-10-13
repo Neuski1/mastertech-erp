@@ -541,7 +541,7 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     'is_insurance_job', 'insurance_company', 'insurance_contact_name',
     'insurance_phone', 'insurance_email', 'claim_number', 'policy_number',
     'estimate_valid_until', 'authorization_signed_at', 'authorization_number',
-    'dtp_signed_date',
+    'dtp_signed_date', 'rv_owned_outright',
     'internal_notes', 'customer_notes',
     'actual_completion_date',
     'under_warranty_amount', 'no_charge_amount', 'deductible_amount', 'deposit_amount',
@@ -1041,6 +1041,9 @@ router.post('/:id/sign-dtp', requireRole('admin', 'service_writer', 'technician'
     const r = await loadDtpRecord(req.params.id);
     if (!r) return res.status(404).json({ error: 'Record not found' });
     const { renderDtp, buildSignedDtpPdf } = require('../services/dtpForm');
+    if (r.rv_owned_outright === false) {
+      return res.status(400).json({ error: 'This RV has a lienholder. A Direction to Pay is only for RVs the customer owns outright.' });
+    }
     const { missing } = renderDtp(r);
     if (missing.length) {
       return res.status(400).json({ error: `Fill in the ${missing.join(' and ')} in the Insurance section before the customer signs.` });
@@ -1120,6 +1123,9 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     // send, so the shop never asks for payment without the form behind it.
     let dtpAttachments = [];
     if (toAdjuster) {
+      if (r.rv_owned_outright !== true) {
+        return res.status(400).json({ error: 'The DTP adjuster email is only for RVs the customer owns outright. Confirm ownership in the Insurance section.' });
+      }
       const dtpRes = await pool.query(
         `SELECT title, file_data, mime_type FROM record_documents
           WHERE record_id = $1 AND doc_type = 'dtp' AND deleted_at IS NULL AND file_data IS NOT NULL

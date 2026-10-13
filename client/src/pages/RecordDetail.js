@@ -1082,7 +1082,42 @@ ${paymentDetailHtml}
                   <EditableField label="DTP Signed (drop-off)" field="dtp_signed_date" value={isEditable ? toDateVal(record.dtp_signed_date) : formatDate(record.dtp_signed_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
                 </div>
                 {/* Direction to Pay: signed at drop-off, emailed to the adjuster with the estimate */}
-                {record.is_insurance_job && (() => {
+                {/* Step 1: DTP only when the customer owns the RV outright */}
+                {record.is_insurance_job && record.rv_owned_outright !== true && (() => {
+                  const smallBtn = { padding: '8px 14px', borderRadius: '6px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' };
+                  const financed = record.rv_owned_outright === false;
+                  return (
+                    <div style={{ marginTop: '12px', padding: '10px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+                      background: financed ? '#f3f4f6' : '#fef3c7', border: `1px solid ${financed ? '#d1d5db' : '#fcd34d'}` }}>
+                      <div style={{ flex: 1, minWidth: '220px', fontSize: '0.85rem', color: financed ? '#374151' : '#92400e' }}>
+                        <strong>Direction to Pay:</strong>{' '}
+                        {financed
+                          ? 'not used. This RV has a loan or lienholder, so the insurer pays the customer and lienholder.'
+                          : 'does the customer own this RV outright, with no loan or lienholder?'}
+                      </div>
+                      {financed ? (
+                        isEditable && (
+                          <button onClick={() => autoSave('rv_owned_outright', null)} style={{ ...smallBtn, border: '1px solid #9ca3af', background: '#fff', color: '#374151' }}>
+                            Change
+                          </button>
+                        )
+                      ) : (
+                        <>
+                          <button onClick={() => autoSave('rv_owned_outright', true)} disabled={!isEditable}
+                            style={{ ...smallBtn, border: 'none', background: '#b45309', color: '#fff' }}>
+                            Yes, Owned Outright
+                          </button>
+                          <button onClick={() => autoSave('rv_owned_outright', false)} disabled={!isEditable}
+                            style={{ ...smallBtn, border: '1px solid #b45309', background: '#fff', color: '#b45309' }}>
+                            No, Has a Lienholder
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                {/* Step 2: owned outright, so sign the DTP and send it */}
+                {record.is_insurance_job && record.rv_owned_outright === true && (() => {
                   const hasDtp = dtpDocs.length > 0;
                   const ready = hasDtp && !!record.insurance_email;
                   const smallBtn = { padding: '8px 14px', borderRadius: '6px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' };
@@ -1106,6 +1141,12 @@ ${paymentDetailHtml}
                         <button onClick={() => documentsRef.current && documentsRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                           style={{ ...smallBtn, border: '1px solid #b45309', background: '#fff', color: '#b45309' }}>
                           Upload Paper Copy
+                        </button>
+                      )}
+                      {!hasDtp && isEditable && (
+                        <button onClick={() => autoSave('rv_owned_outright', null)} title="Undo the owned-outright answer"
+                          style={{ background: 'none', border: 'none', color: '#92400e', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.8rem' }}>
+                          Not owned outright?
                         </button>
                       )}
                       <button onClick={openAdjusterEmailDialog} disabled={!ready || emailing}

@@ -371,6 +371,11 @@ const pool = require('./db/pool');
     // drop-off on an insurance job. The signed form itself is a
     // record_documents row with doc_type 'dtp'. Additive only.
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS dtp_signed_date DATE');
+    // Migration 075: a DTP is only offered when the customer owns the RV
+    // outright. With a lienholder the insurer pays customer and lienholder
+    // jointly, so no DTP. NULL = not asked yet, TRUE = owned outright,
+    // FALSE = financed / lienholder. Additive only.
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS rv_owned_outright BOOLEAN');
     // Migration 039: bookkeeper adjustments
     await pool.query(`CREATE TABLE IF NOT EXISTS bookkeeper_adjustments (
       id SERIAL PRIMARY KEY,

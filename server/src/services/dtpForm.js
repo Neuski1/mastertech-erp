@@ -32,6 +32,10 @@ function unitText(r) {
 function renderDtp(r) {
   const raw = settings.str('wo_dtp_terms', DTP_TERMS_FALLBACK);
   const missing = [];
+  // Carol's rule: DTP only when the customer owns the RV outright. The
+  // ownership statement is fixed, not part of the editable wording, because
+  // it is the condition the whole form rests on.
+  if (r.rv_owned_outright !== true) missing.push('"owned outright" confirmation');
   if (!r.insurance_company) missing.push('insurance company');
   const fill = (s) => company.fillTokens(String(s)
     .replace(/\{customer\}/g, customerName(r))
@@ -42,6 +46,7 @@ function renderDtp(r) {
     .replace(/\{vin\}/g, r.vin || 'not on file')
     .replace(/\{wo\}/g, String(r.record_number || '')));
   const paragraphs = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(fill);
+  paragraphs.splice(1, 0, 'I own this RV outright. There is no loan, lien or lienholder on it.');
   return { title: 'Direction to Pay', paragraphs, customer: customerName(r), missing };
 }
 
@@ -71,6 +76,7 @@ function buildSignedDtpPdf(r, { signatureData, signerName, signedAt, signedBy })
       ['Policy #', r.policy_number || ''],
       ['Adjuster', [r.insurance_contact_name, r.insurance_email, r.insurance_phone].filter(Boolean).join('  |  ')],
       ['RV', `${unitText(r)}${r.vin ? '   VIN ' + r.vin : ''}`],
+      ['Ownership', 'Owned outright, no lienholder'],
       ['Work Order #', String(r.record_number || '')],
     ];
     doc.fontSize(10);
