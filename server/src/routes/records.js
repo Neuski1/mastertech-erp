@@ -998,6 +998,92 @@ router.delete('/:id', requireRole('admin', 'service_writer', 'technician'), asyn
 });
 
 // ---------------------------------------------------------------------------
+// Direction to Pay, signed on screen at drop-off.
+// GET  /api/records/:id/dtp       — the filled-in wording the customer reads
+// POST /api/records/:id/sign-dtp  — { signatureData, signerName } -> signed
+//      PDF saved as a record_documents 'dtp' row, dtp_signed_date stamped.
+// ---------------------------------------------------------------------------
+async function loadDtpRecord(id) {
+  const { rows } = await pool.query(
+    `SELECT r.*, c.first_name, c.last_name, c.company_name, c.email_primary,
+            u.year AS unit_year, u.make AS unit_make, u.model AS unit_model, u.vin
+       FROM records r
+       JOIN customers c ON c.id = r.customer_id
+       LEFT JOIN units u ON u.id = r.unit_id
+      WHERE r.id = $1 AND r.deleted_at IS NULL`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+router.get('/:id/dtp', async (req, res) => {
+  try {
+    const r = await loadDtpRecord(req.params.id);
+    if (!r) return res.status(404).json({ error: 'Record not found' });
+    const { renderDtp } = require('../services/dtpForm');
+    res.json(renderDtp(r));
+  } catch (err) {
+    console.error('GET dtp error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/sign-dtp', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const { signatureData, signerName } = req.body || {};
+  try {
+    if (typeof signatureData !== 'string' || !signatureData.startsWith('data:image/png;base64,')) {
+      return res.status(400).json({ error: 'A drawn signature is required.' });
+    }
+    if (signatureData.length > 2_000_000) return res.status(400).json({ error: 'Signature image too large.' });
+    const name = String(signerName || '').trim().slice(0, 150);
+    if (!name) return res.status(400).json({ error: 'Type the signer\'s printed name.' });
+
+    const r = await loadDtpRecord(req.params.id);
+    if (!r) return res.status(404).json({ error: 'Record not found' });
+    const { renderDtp, buildSignedDtpPdf } = require('../services/dtpForm');
+    const { missing } = renderDtp(r);
+    if (missing.length) {
+      return res.status(400).json({ error: `Fill in the ${missing.join(' and ')} in the Insurance section before the customer signs.` });
+    }
+
+    const signedAt = new Date();
+    const pdf = await buildSignedDtpPdf(r, { signatureData, signerName: name, signedAt, signedBy: req.user?.name || req.user?.email || null });
+    const ymd = signedAt.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
+    const title = `Direction_to_Pay_WO${r.record_number}_signed_${ymd}.pdf`;
+
+    const client = await pool.connect();
+    let doc;
+    try {
+      await client.query('BEGIN');
+      const ins = await client.query(
+        `INSERT INTO record_documents (record_id, doc_type, title, file_data, mime_type, file_size, created_by)
+         VALUES ($1, 'dtp', $2, $3, 'application/pdf', $4, $5)
+         RETURNING id, record_id, doc_type, title, mime_type, file_size, created_by, created_at`,
+        [r.id, title, pdf, pdf.length, req.user?.id || null]
+      );
+      doc = ins.rows[0];
+      await client.query(
+        'UPDATE records SET dtp_signed_date = $1, is_insurance_job = TRUE WHERE id = $2',
+        [ymd, r.id]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    // No communication_log row: its channel enum is text/email only, and the
+    // signed PDF in record_documents (with its created_at) is the record.
+    res.status(201).json({ success: true, document: doc, dtp_signed_date: ymd });
+  } catch (err) {
+    console.error('POST sign-dtp error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/records/:id/email-document — Email document to customer
 // ---------------------------------------------------------------------------
 router.post('/:id/email-document', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
