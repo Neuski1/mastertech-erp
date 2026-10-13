@@ -153,8 +153,8 @@ function AppLayout() {
   // Nav links: all pages, always active and clickable
   const allNavLinks = [
     { to: '/customers', label: 'Customers' },
-    { to: '/records', label: 'Records' },
     { to: '/schedule', label: 'Schedule' },
+    { to: '/records', label: 'Records' },
     { to: '/inventory', label: 'Inventory' },
     { to: '/parts-on-order', label: 'Parts on Order' },
     { to: '/suppliers', label: 'Suppliers' },

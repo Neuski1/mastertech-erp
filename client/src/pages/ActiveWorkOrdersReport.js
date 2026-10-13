@@ -160,8 +160,9 @@ function Section({ title, count, color, records }) {
       <table style={{ ...tableStyle, tableLayout: 'fixed' }}>
         <colgroup>
           <col style={{ width: '60px' }} />
-          <col style={{ width: '150px' }} />
-          <col style={{ width: '155px' }} />
+          <col style={{ width: '64px' }} />
+          <col style={{ width: '140px' }} />
+          <col style={{ width: '135px' }} />
           <col style={{ width: '110px' }} />
           <col style={{ width: '80px' }} />
           <col style={{ minWidth: '240px' }} />
@@ -171,6 +172,7 @@ function Section({ title, count, color, records }) {
         <thead>
           <tr>
             <th style={{ ...thStyle, textAlign: 'center' }}>WO #</th>
+            <th style={{ ...thStyle, textAlign: 'center' }}>Key #</th>
             <th style={thStyle}>Customer</th>
             <th style={thStyle}>Unit</th>
             <th style={thStyle}>Status</th>
@@ -190,6 +192,7 @@ function Section({ title, count, color, records }) {
             return (
               <tr key={r.id} style={{ backgroundColor: rowBg }}>
                 <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700 }}>#{r.record_number}</td>
+                <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 600, wordBreak: 'break-word' }}>{r.key_number || '\u2014'}</td>
                 <td style={tdStyle}>
                   <div style={{ fontWeight: 600, fontSize: '12px' }}>
                     {r.last_name}{r.first_name ? `, ${r.first_name}` : ''}
@@ -224,7 +227,7 @@ function Section({ title, count, color, records }) {
             );
           })}
           {records.length === 0 && (
-            <tr><td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No records</td></tr>
+            <tr><td colSpan={9} style={{ ...tdStyle, textAlign: 'center', color: '#9ca3af' }}>No records</td></tr>
           )}
         </tbody>
       </table>

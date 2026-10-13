@@ -402,6 +402,7 @@ export default function RecordList() {
   const renderRow = (r, showDueDate = false, showPaidDate = false) => (
     <tr key={r.id} onClick={() => navigate(`/records/${r.id}`)} style={{ cursor: 'pointer' }}>
       <td style={tdStyle}><strong>{r.record_number}</strong></td>
+      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{r.key_number || '\u2014'}</td>
       <td style={tdStyle}>
         {r.last_name}{r.first_name ? `, ${r.first_name}` : ''}
         {r.company_name ? <span style={{ color: '#666', marginLeft: '6px' }}>({r.company_name})</span> : ''}
@@ -467,6 +468,15 @@ export default function RecordList() {
     const { field, dir } = sort;
     return [...recs].sort((a, b) => {
       let va = a[field], vb = b[field];
+      // Key numbers mix digits and words ("9", "12", "STORAGE"): sort 9 before
+      // 12, and keep blanks at the bottom either way.
+      if (field === 'key_number') {
+        if (!va && !vb) return 0;
+        if (!va) return 1;
+        if (!vb) return -1;
+        const c = String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: 'base' });
+        return dir === 'asc' ? c : -c;
+      }
       if (field === 'expected_completion_date' || field === 'created_at' || field === 'last_payment_date') {
         va = va ? new Date(va).getTime() : (dir === 'asc' ? Infinity : -Infinity);
         vb = vb ? new Date(vb).getTime() : (dir === 'asc' ? Infinity : -Infinity);
@@ -492,7 +502,7 @@ export default function RecordList() {
   const renderMobileCard = (r, showPaidDate = false) => (
     <div key={r.id} className="mobile-record-card" onClick={() => navigate(`/records/${r.id}`)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-        <strong style={{ fontSize: '0.9rem', color: '#1e3a5f' }}>WO #{r.record_number}</strong>
+        <strong style={{ fontSize: '0.9rem', color: '#1e3a5f' }}>WO #{r.record_number}{r.key_number ? <span style={{ fontWeight: 500, color: '#6b7280' }}> &middot; Key {r.key_number}</span> : null}</strong>
         <StatusBadge status={r.status} />
       </div>
       <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>
@@ -516,6 +526,7 @@ export default function RecordList() {
       <thead>
         <tr>
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('record_number')}>WO #{sortArrow(groupKey, 'record_number')}</th>
+          <th style={{ ...thStyle, ...sortable }} onClick={onClick('key_number')}>Key #{sortArrow(groupKey, 'key_number')}</th>
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('last_name')}>Customer{sortArrow(groupKey, 'last_name')}</th>
           <th style={thStyle}>Unit</th>
           <th style={{ ...thStyle, ...sortable }} onClick={onClick('status')}>Status{sortArrow(groupKey, 'status')}</th>
