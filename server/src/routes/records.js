@@ -361,6 +361,7 @@ router.get('/', async (req, res) => {
   if (search) {
     conditions.push(`(
       r.record_number::TEXT ILIKE $${paramIdx} OR
+      r.key_number ILIKE $${paramIdx} OR
       c.last_name ILIKE $${paramIdx} OR
       c.first_name ILIKE $${paramIdx} OR
       c.company_name ILIKE $${paramIdx} OR
@@ -391,7 +392,7 @@ router.get('/', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales, r.total_collected,
               r.created_at, r.intake_date, r.is_insurance_job, r.job_description,
-              r.expected_completion_date,
+              r.expected_completion_date, r.key_number,
               (SELECT MAX(p.payment_date) FROM payments p
                  WHERE p.record_id = r.id AND p.deleted_at IS NULL) AS last_payment_date,
               c.id AS customer_id, c.last_name, c.first_name, c.company_name,
