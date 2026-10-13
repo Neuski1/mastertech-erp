@@ -39,6 +39,15 @@ function page(title, inner) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${esc(title)} | Master Tech RV</title>
+<!-- Link-preview tags. Without a description, SMS apps (Dialpad, iMessage)
+     scrape the page body and the preview card repeats the text message
+     word for word. Keep this short and generic. -->
+<meta name="description" content="Track your RV repair status and photos.">
+<meta property="og:title" content="${esc(title)} | Master Tech RV">
+<meta property="og:description" content="Track your RV repair status and photos.">
+<meta property="og:site_name" content="Master Tech RV Repair and Storage">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
 <style>
   *{box-sizing:border-box} body{margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#111827}
   .wrap{max-width:640px;margin:0 auto;background:#fff;min-height:100vh}
