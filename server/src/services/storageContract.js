@@ -309,7 +309,7 @@ function getGuidelinesHTML() {
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
   <div style="background:#1e3a5f;padding:20px 32px;text-align:center;border-radius:12px 12px 0 0;">
     <h1 style="color:#fff;margin:0;font-size:18px;">MTRV REPAIR & STORAGE</h1>
-    <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;">6590 E. 49th Ave. &bull; Commerce City, CO 80022 &bull; (303) 557-2214</p>
+    <p style="color:#ffffff;margin:4px 0 0;font-size:11px;"><a href="https://maps.google.com/?q=6590+E+49th+Ave,+Commerce+City,+CO+80022" style="color:#ffffff !important;text-decoration:none;">6590 E. 49th Ave. &bull; Commerce City, CO 80022</a> &bull; <a href="tel:+13035572214" style="color:#ffffff !important;text-decoration:none;">(303) 557-2214</a></p>
   </div>
   <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;">
     <h2 style="color:#1e3a5f;margin:0 0 20px;font-size:18px;text-align:center;text-transform:uppercase;">Storage Guidelines</h2>

@@ -1319,8 +1319,8 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     <table style="width:100%"><tr>
       <td style="vertical-align:top;">
         <h1 style="color:#ffffff;margin:0;font-size:18px;">MASTER TECH RV REPAIR &amp; STORAGE</h1>
-        <p style="color:#93c5fd;margin:2px 0 0;font-size:11px;">6590 East 49th Avenue, Commerce City, CO 80022</p>
-        <p style="color:#93c5fd;margin:2px 0 0;font-size:11px;">(303) 557-2214 | service@mastertechrvrepair.com</p>
+        <p style="color:#ffffff;margin:2px 0 0;font-size:11px;"><a href="https://maps.google.com/?q=6590+E+49th+Ave,+Commerce+City,+CO+80022" style="color:#ffffff !important;text-decoration:none;">6590 East 49th Avenue, Commerce City, CO 80022</a></p>
+        <p style="color:#ffffff;margin:2px 0 0;font-size:11px;"><a href="tel:+13035572214" style="color:#ffffff !important;text-decoration:none;">(303) 557-2214</a> | <a href="mailto:service@mastertechrvrepair.com" style="color:#ffffff !important;text-decoration:none;">service@mastertechrvrepair.com</a></p>
         <p style="color:#93c5fd;margin:4px 0 0;font-size:11px;font-style:italic;">Our Service Makes Happy Campers!</p>
       </td>
       <td style="text-align:right;vertical-align:top;">
