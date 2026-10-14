@@ -744,6 +744,50 @@ router.patch('/:id/unit-field', requireRole('admin', 'service_writer', 'technici
   }
 });
 
+// ---------------------------------------------------------------------------
+// PATCH /api/records/:id/unit — Point this work order at a DIFFERENT RV the
+// customer already owns. Nothing is cloned or edited: the record simply
+// switches units. unit_forked is reset so a later field edit on the work order
+// forks a copy of the newly chosen RV instead of overwriting it.
+// The unit must belong to the record's customer and not be deleted.
+// ---------------------------------------------------------------------------
+router.patch('/:id/unit', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
+  const recordId = parseInt(req.params.id);
+  const unitId = parseInt(req.body.unit_id);
+  if (!Number.isInteger(unitId)) {
+    return res.status(400).json({ error: 'unit_id is required' });
+  }
+  try {
+    const recRes = await pool.query(
+      'SELECT id, customer_id, unit_id FROM records WHERE id = $1 AND deleted_at IS NULL',
+      [recordId]
+    );
+    if (recRes.rows.length === 0) return res.status(404).json({ error: 'Record not found' });
+    const rec = recRes.rows[0];
+
+    const unitRes = await pool.query(
+      'SELECT id, customer_id FROM units WHERE id = $1 AND deleted_at IS NULL',
+      [unitId]
+    );
+    if (unitRes.rows.length === 0) return res.status(404).json({ error: 'RV not found' });
+    if (unitRes.rows[0].customer_id !== rec.customer_id) {
+      return res.status(400).json({ error: "That RV belongs to a different customer" });
+    }
+    if (rec.unit_id === unitId) {
+      return res.json({ record_id: recordId, unit_id: unitId, changed: false });
+    }
+
+    await pool.query(
+      'UPDATE records SET unit_id = $1, unit_forked = FALSE WHERE id = $2',
+      [unitId, recordId]
+    );
+    res.json({ record_id: recordId, unit_id: unitId, previous_unit_id: rec.unit_id, changed: true });
+  } catch (err) {
+    console.error('PATCH /api/records/:id/unit error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ---------------------------------------------------------------------------
 // PATCH /api/records/:id/status — Change status with validation

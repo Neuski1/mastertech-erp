@@ -151,6 +151,35 @@ export default function RecordDetail() {
 
   useEffect(() => { fetchRecord(); }, [fetchRecord]);
 
+  // The customer's RVs, for the "Switch RV" picker in Unit Information.
+  const [customerUnits, setCustomerUnits] = useState([]);
+  const [switchingUnit, setSwitchingUnit] = useState(false);
+  const recordCustomerId = record ? record.customer_id : null;
+  const loadCustomerUnits = useCallback(async () => {
+    if (!recordCustomerId) return;
+    try {
+      setCustomerUnits(await api.getCustomerUnits(recordCustomerId));
+    } catch (e) { /* picker just stays hidden */ }
+  }, [recordCustomerId]);
+  useEffect(() => { loadCustomerUnits(); }, [loadCustomerUnits]);
+
+  const handleSwitchUnit = async (newUnitId) => {
+    if (!newUnitId || String(newUnitId) === String(record.unit_id)) return;
+    setSwitchingUnit(true);
+    setError('');
+    try {
+      await api.switchRecordUnit(id, parseInt(newUnitId));
+      await fetchRecord();
+      await loadCustomerUnits();
+      setSuccessMsg('RV switched on this work order.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSwitchingUnit(false);
+    }
+  };
+
   // Auto-save a single field on blur/change, routing to the correct endpoint.
   const autoSave = async (field, value) => {
     if (record && value === record[field]) return; // no change
@@ -164,7 +193,10 @@ export default function RecordDetail() {
         // Route RV edits through the record so they copy-on-write instead of
         // mutating the shared unit (which would rewrite other work orders +
         // the customer's unit box).
-        if (record.unit_id) await api.updateRecordUnitField(id, field, value);
+        if (record.unit_id) {
+          await api.updateRecordUnitField(id, field, value);
+          loadCustomerUnits(); // an edit may have forked a new RV; keep the picker current
+        }
       } else {
         const result = await api.updateRecord(id, { [field]: value });
         if (result && result.labor_lines_created > 0) {
@@ -1021,6 +1053,30 @@ ${paymentDetailHtml}
       <div style={sectionStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Unit Information</h2>
+          {isEditable && customerUnits.length > 0
+            && (customerUnits.length > 1 || String(customerUnits[0].id) !== String(record.unit_id)) && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#374151' }}>
+              Switch RV:
+              <select
+                value={String(record.unit_id || '')}
+                disabled={switchingUnit}
+                onChange={(e) => handleSwitchUnit(e.target.value)}
+                style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', maxWidth: '320px' }}
+              >
+                {!customerUnits.some(u => String(u.id) === String(record.unit_id)) && (
+                  <option value={String(record.unit_id || '')}>
+                    {[record.year, record.make, record.model].filter(Boolean).join(' ') || 'Current RV'}
+                  </option>
+                )}
+                {customerUnits.map(u => (
+                  <option key={u.id} value={String(u.id)}>
+                    {[u.year, u.make, u.model].filter(Boolean).join(' ') || `RV #${u.id}`}
+                    {u.vin ? ` (VIN ...${String(u.vin).slice(-6)})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div style={gridStyle}>
           <EditableField label="Year" field="year" value={record.year || ''} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} />

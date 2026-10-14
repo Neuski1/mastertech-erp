@@ -896,12 +896,7 @@ export default function Schedule() {
                     {mobileClosure.note && <div style={{ fontWeight: 400, fontSize: '0.8rem', marginTop: '2px' }}>{mobileClosure.note}</div>}
                   </div>
                 )}
-                {mobileAppts.length === 0 ? (
-                  <div onClick={() => goToNewAppointment(mobileKey)} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', cursor: 'pointer' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>+</div>
-                    Tap to add appointment
-                  </div>
-                ) : mobileAppts.map(appt => {
+                {mobileAppts.map(appt => {
                   const tc = getTypeColor(appt.appointment_type);
                   return (
                   <div key={appt.id} onClick={() => navigate(`/schedule/${appt.id}`)} style={{
@@ -929,6 +924,18 @@ export default function Schedule() {
                   </div>
                   );
                 })}
+                <div
+                  onClick={() => goToNewAppointment(mobileKey)}
+                  style={{
+                    textAlign: 'center', color: '#9ca3af', cursor: 'pointer',
+                    padding: mobileAppts.length ? '14px' : '40px',
+                    border: mobileAppts.length ? '1px dashed #d1d5db' : 'none',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div style={{ fontSize: '1.5rem', marginBottom: mobileAppts.length ? 0 : '8px' }}>+</div>
+                  {mobileAppts.length ? 'Add another appointment' : 'Tap to add appointment'}
+                </div>
               </div>
             );
           })()
@@ -974,9 +981,7 @@ export default function Schedule() {
                     }}
                     title={closure ? `Closed for ${closure.label}` : 'Click to add appointment'}
                   >
-                    {dayAppts.length === 0 ? (
-                      <div style={{ color: '#d1d5db', fontSize: '1.2rem', textAlign: 'center', padding: '16px 0' }}>+</div>
-                    ) : dayAppts.map(appt => {
+                    {dayAppts.map(appt => {
                       const tc = getTypeColor(appt.appointment_type);
                       return (
                       <div
@@ -1004,6 +1009,22 @@ export default function Schedule() {
                       </div>
                       );
                     })}
+                    {/* Always offer "+" so a busy day can still take another appointment */}
+                    <div
+                      className="add-appt-slot"
+                      style={{
+                        color: dayAppts.length ? '#9ca3af' : '#d1d5db',
+                        fontSize: dayAppts.length ? '0.75rem' : '1.2rem',
+                        fontWeight: dayAppts.length ? 600 : 400,
+                        textAlign: 'center',
+                        padding: dayAppts.length ? '6px 0' : '16px 0',
+                        border: dayAppts.length ? '1px dashed #d1d5db' : 'none',
+                        borderRadius: '4px',
+                        marginTop: dayAppts.length ? '4px' : 0,
+                      }}
+                    >
+                      {dayAppts.length ? '+ Add' : '+'}
+                    </div>
                   </div>
                 </div>
               );
@@ -1042,12 +1063,21 @@ export default function Schedule() {
                   title={cellClosure ? `Closed for ${cellClosure.label}` : undefined}
                 >
                   <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     fontSize: '0.8rem',
                     fontWeight: isToday ? 700 : 400,
                     color: !cell.inMonth ? '#d1d5db' : isToday ? '#1e40af' : '#374151',
                     marginBottom: '4px',
                   }}>
-                    {cell.day}
+                    <span>{cell.day}</span>
+                    {cell.inMonth && (
+                      <span
+                        title="Add appointment"
+                        style={{ color: '#9ca3af', fontWeight: 700, fontSize: '0.95rem', lineHeight: 1, padding: '0 4px' }}
+                      >
+                        +
+                      </span>
+                    )}
                   </div>
                   {cellClosure && (
                     <div style={{
