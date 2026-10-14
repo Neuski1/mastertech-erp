@@ -1424,20 +1424,21 @@ router.post('/waitlist/:id/notify', requireRole('admin', 'service_writer'), asyn
     // Send email notification
     if (email) {
       try {
-        const { Resend } = require('resend');
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        const sendRes = await resend.emails.send({
-          from: 'Master Tech RV <service@mastertechrvrepair.com>',
+        // Shared sender (same path as estimates and invoices). The old code
+        // required the 'resend' npm package, which was never a dependency, so
+        // every waitlist email failed with "Cannot find module 'resend'".
+        const { sendEmail } = require('../services/email');
+        const sendRes = await sendEmail({
           to: email,
           // CC service@ so Carol has a record of exactly what message went
           // out (mirrors the estimate-approval email pattern).
           cc: 'service@mastertechrvrepair.com',
           subject: 'Your RV storage opening at Master Tech RV',
           html: emailBody,
+          text: personalMessage || undefined,
         });
-        // The Resend SDK returns { error } instead of throwing on API errors.
-        if (sendRes && sendRes.error) {
-          throw new Error(sendRes.error.message || sendRes.error.name || 'Resend rejected the email');
+        if (!sendRes || !sendRes.success) {
+          throw new Error((sendRes && sendRes.error) || 'Email send failed');
         }
         results.email = 'sent';
       } catch (emailErr) {
