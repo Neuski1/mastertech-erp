@@ -1,22 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { LEAD_QUICK_REPLIES } from '../utils/leadReplies';
 
 // ---------------------------------------------------------------------------
 // LeadDetail — the page the shop alert text links to.
 //
 // Designed for one hand, outdoors, next to an RV. Big targets, the customer's
-// number as a tap-to-call button, and canned replies that send in two taps.
+// number as a Text button, and canned replies that send in two taps.
 // Everything sends from the shop number through Dialpad, so the thread lands
 // on the customer record instead of a personal cell.
 // ---------------------------------------------------------------------------
 
-// Carol's wording, approved 2026-09-18. These go to a customer verbatim, so
-// do not reword them without asking her.
-const QUICK_REPLIES = [
-  'Got your request, thanks. We will call you as soon as possible to get you scheduled.',
-  'Got it. Can you send a photo of the problem to this number? Helps us quote it right.',
-];
+// Carol's approved wording lives in one place, shared with the Records list.
+const QUICK_REPLIES = LEAD_QUICK_REPLIES;
 
 // Same recovery as RecordList: the inbound lead agent sometimes truncates the
 // stored address at the "@", so fall back to the first full address in the body.
@@ -65,6 +62,15 @@ export default function LeadDetail() {
   const [toast, setToast] = useState(null);
   const [photoUrls, setPhotoUrls] = useState({});
   const [signature, setSignature] = useState('');
+  const replyRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // The Text button replaced Call (tel: links were unreliable). It jumps to
+  // the Dialpad reply box below instead of handing off to a phone dialer.
+  const jumpToText = () => {
+    if (replyRef.current) replyRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (inputRef.current) setTimeout(() => inputRef.current.focus(), 300);
+  };
 
   useEffect(() => {
     api.getLeadEmailSignature()
@@ -159,7 +165,9 @@ export default function LeadDetail() {
       </div>
 
       <div style={S.actions}>
-        {digits && <a href={`tel:+1${digits.slice(-10)}`} onClick={() => autoLog('call')} style={S.call}>Call {lead.phone}</a>}
+        {digits && !lead.sms_opt_out && (
+          <button type="button" onClick={jumpToText} style={{ ...S.call, border: 'none', cursor: 'pointer' }}>Text {lead.phone}</button>
+        )}
         {leadEmail(lead) && (
           <a href={gmailHref(lead, signature)} target="_blank" rel="noopener noreferrer"
              onClick={() => autoLog('email')} style={S.ghost}>Email</a>
@@ -197,12 +205,13 @@ export default function LeadDetail() {
       )}
 
       {!lead.sms_opt_out && digits && (
-        <div style={S.replyBox}>
+        <div style={S.replyBox} ref={replyRef}>
           <div style={S.label}>Text them back, from the shop number</div>
           {QUICK_REPLIES.map((q, i) => (
             <button key={i} style={S.quick} disabled={sending} onClick={() => send(q)}>{q}</button>
           ))}
           <textarea
+            ref={inputRef}
             style={S.input}
             rows={3}
             placeholder="Or write your own…"
