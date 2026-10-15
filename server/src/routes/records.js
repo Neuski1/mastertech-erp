@@ -1139,6 +1139,12 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
   // toAdjuster: the estimate goes to the insurance adjuster with the signed
   // Direction to Pay attached and the pay-us-only instruction at the top.
   const toAdjuster = req.body?.toAdjuster === true;
+  // Documents from this work order the sender ticked to attach (inspection
+  // report, warranty paperwork). Signed DTPs are never attachable here; they
+  // only travel on an adjuster send.
+  const attachDocumentIds = Array.isArray(req.body?.attachDocumentIds)
+    ? req.body.attachDocumentIds.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n) && n > 0).slice(0, 20)
+    : [];
   try {
     const { rows } = await pool.query(
       `SELECT r.*,
@@ -1186,6 +1192,29 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         return { filename: name, content: d.file_data, contentType: d.mime_type || 'application/octet-stream' };
       });
     }
+
+    // Ticked documents (inspection report etc.). Scoped to THIS record, never
+    // a DTP, and capped at 30 MB total so the email provider accepts it.
+    let docAttachments = [];
+    if (attachDocumentIds.length) {
+      const docRes = await pool.query(
+        `SELECT id, title, file_data, mime_type, file_size FROM record_documents
+          WHERE record_id = $1 AND id = ANY($2::int[]) AND doc_type <> 'dtp'
+            AND deleted_at IS NULL AND file_data IS NOT NULL
+          ORDER BY created_at`,
+        [r.id, attachDocumentIds]
+      );
+      const totalBytes = docRes.rows.reduce((s, d) => s + (parseInt(d.file_size, 10) || (d.file_data ? d.file_data.length : 0)), 0);
+      if (totalBytes > 30 * 1024 * 1024) {
+        return res.status(400).json({ error: 'The attached documents add up to more than 30 MB. Untick one and send it separately.' });
+      }
+      docAttachments = docRes.rows.map((d, i) => {
+        let name = (d.title || `Document_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+        if (d.mime_type === 'application/pdf' && !/\.pdf$/i.test(name)) name += '.pdf';
+        return { filename: name, content: d.file_data, contentType: d.mime_type || 'application/octet-stream' };
+      });
+    }
+    const allAttachments = [...dtpAttachments, ...docAttachments];
 
     // Determine document type
     let docType = 'Work Order';
@@ -1403,6 +1432,10 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
     <div style="margin:16px 0;padding:16px;background:#fef3c7;border:2px solid #b45309;border-radius:6px;">
       <p style="margin:0;font-size:15px;font-weight:bold;color:#78350f;line-height:1.5;">${escHtml(dtpAdjusterLine())}</p>
     </div>` : ''}
+    ${docAttachments.length ? `
+    <div style="margin:16px 0;padding:12px 16px;background:#f8f9fa;border:1px solid #e5e7eb;border-radius:4px;font-size:13px;color:#374151;">
+      <strong>Attached to this email:</strong> ${docAttachments.map(a => escHtml(a.filename)).join(', ')}
+    </div>` : ''}
     ${personalMessage ? `
     <div style="margin:16px 0;padding:16px;background:#f0f7ff;border-left:4px solid #1a2a4a;border-radius:4px;">
       <p style="margin:0;font-size:14px;color:#1a2a4a;line-height:1.6;white-space:pre-wrap;">${personalMessage.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
@@ -1602,7 +1635,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
       subject,
       html,
       text: `${toAdjuster ? dtpAdjusterLine() + '\n\n' : ''}${docType} #${r.record_number}\nCustomer: ${customerName}\nUnit: ${unit}\n${toAdjuster && r.claim_number ? 'Claim #: ' + r.claim_number + '\n' : ''}${r.job_description ? 'Job Description: ' + r.job_description + '\n' : ''}Amount Due: ${fmtCur(amountDue)}\n\nFull details in the HTML version of this email.\n\nMaster Tech RV Repair & Storage\n6590 East 49th Avenue, Commerce City, CO 80022\n(303) 557-2214`,
-      attachments: dtpAttachments.length ? dtpAttachments : undefined,
+      attachments: allAttachments.length ? allAttachments : undefined,
     });
 
     if (result.success) {
@@ -1613,7 +1646,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
            VALUES ($1, $2, 'email', $3, $4)
            RETURNING id`,
           [r.customer_id, r.id, toAdjuster ? 'adjuster_dtp_emailed' : 'document_emailed',
-           `${docType} #${r.record_number} emailed to ${toAdjuster ? 'adjuster ' : ''}${email}${toAdjuster ? ` with Direction to Pay (${dtpAttachments.length} file${dtpAttachments.length === 1 ? '' : 's'})` : ''}${ccList.length > 1 ? ' (CC: ' + ccList.slice(1).join(', ') + ')' : ''}`]
+           `${docType} #${r.record_number} emailed to ${toAdjuster ? 'adjuster ' : ''}${email}${toAdjuster ? ` with Direction to Pay (${dtpAttachments.length} file${dtpAttachments.length === 1 ? '' : 's'})` : ''}${docAttachments.length ? ` with attached: ${docAttachments.map(a => a.filename).join(', ')}` : ''}${ccList.length > 1 ? ' (CC: ' + ccList.slice(1).join(', ') + ')' : ''}`]
         );
         console.log(`[Record ${r.record_number}] Comm log entry created: #${logResult.rows[0].id}`);
       } catch (logErr) {

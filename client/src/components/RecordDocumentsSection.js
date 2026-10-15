@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/client';
 
-const TYPE_LABELS = { dtp: 'Direction to Pay', insurance: 'Insurance', warranty: 'Warranty', other: 'Other' };
+const TYPE_LABELS = { dtp: 'Direction to Pay', inspection: 'Inspection Report', insurance: 'Insurance', warranty: 'Warranty', other: 'Other' };
 const TYPE_COLORS = {
   dtp: { bg: '#fef3c7', fg: '#92400e' },
+  inspection: { bg: '#ede9fe', fg: '#5b21b6' },
   insurance: { bg: '#dbeafe', fg: '#1e40af' },
   warranty: { bg: '#dcfce7', fg: '#166534' },
   other: { bg: '#f3f4f6', fg: '#374151' },
@@ -78,6 +79,7 @@ export default function RecordDocumentsSection({ recordId, isEditable, defaultTy
           <select value={docType} onChange={(e) => setDocType(e.target.value)}
                   style={{ padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.85rem' }}>
             <option value="dtp">Direction to Pay (signed)</option>
+            <option value="inspection">Inspection Report</option>
             <option value="insurance">Insurance</option>
             <option value="warranty">Warranty</option>
             <option value="other">Other</option>
