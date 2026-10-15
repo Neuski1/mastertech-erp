@@ -44,7 +44,7 @@ router.post('/:recordId/documents',
   async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-      const allowed = ['dtp', 'insurance', 'warranty', 'other'];
+      const allowed = ['dtp', 'inspection', 'insurance', 'warranty', 'other'];
       let docType = String(req.body.doc_type || 'other').toLowerCase();
       if (!allowed.includes(docType)) docType = 'other';
       const title = String(req.body.title || req.file.originalname || 'Document').slice(0, 255);

@@ -106,6 +106,10 @@ export default function RecordDetail() {
   // Direction to Pay attached. dtpDocs mirrors the Documents section.
   const [emailToAdjuster, setEmailToAdjuster] = useState(false);
   const [dtpDocs, setDtpDocs] = useState([]);
+  // Every document on the work order, and the ones ticked to attach to the
+  // next customer email. DTPs are excluded from that list on purpose.
+  const [allDocs, setAllDocs] = useState([]);
+  const [emailAttachIds, setEmailAttachIds] = useState([]);
   const [showDtpModal, setShowDtpModal] = useState(false);
   const [docsKey, setDocsKey] = useState(0);
   const documentsRef = useRef(null);
@@ -360,6 +364,7 @@ export default function RecordDetail() {
     setEmailCc(record.email_secondary || '');
     setEmailPersonalMsg('');
     setEmailToAdjuster(false);
+    setEmailAttachIds([]);
     setShowEmailModal(true);
   };
 
@@ -373,6 +378,7 @@ export default function RecordDetail() {
     setEmailPersonalMsg('');
     setEmailIncludePayLink(false);
     setEmailToAdjuster(true);
+    setEmailAttachIds([]);
     setShowEmailModal(true);
   };
 
@@ -402,6 +408,7 @@ export default function RecordDetail() {
         personalMessage: emailPersonalMsg || null,
         toEmail: emailTo.trim() || null,
         ccEmails: emailCc.trim() || null,
+        attachDocumentIds: emailAttachIds,
       };
       if (emailToAdjuster) {
         payload.toAdjuster = true;
@@ -1234,6 +1241,7 @@ ${paymentDetailHtml}
           defaultType={record.is_insurance_job ? 'dtp' : 'insurance'}
           onDocsChange={(docs, changed) => {
             setDtpDocs(docs.filter(d => d.doc_type === 'dtp'));
+            setAllDocs(docs);
             if (changed) fetchRecord();
           }}
         />
@@ -1666,6 +1674,27 @@ ${paymentDetailHtml}
                   style={{ width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.875rem', resize: 'vertical', boxSizing: 'border-box' }}
                 />
               </div>
+              {/* Attach documents from this work order. Signed DTPs never
+                  appear here; they only travel on the adjuster send. */}
+              {(() => {
+                const attachable = allDocs.filter(d => d.doc_type !== 'dtp');
+                if (attachable.length === 0) return null;
+                const typeLabel = { inspection: 'Inspection Report', insurance: 'Insurance', warranty: 'Warranty', other: 'Other' };
+                return (
+                  <div style={{ marginBottom: '16px', padding: '12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Attach documents</div>
+                    {attachable.map(d => (
+                      <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', padding: '3px 0' }}>
+                        <input type="checkbox" checked={emailAttachIds.includes(d.id)}
+                          onChange={(e) => setEmailAttachIds(ids => e.target.checked ? [...ids, d.id] : ids.filter(x => x !== d.id))} />
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>{typeLabel[d.doc_type] || 'Other'}</span>
+                        <span style={{ wordBreak: 'break-word' }}>{d.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* Payment Link Toggle (never offered on an adjuster send) */}
               {!emailToAdjuster && <div style={{ marginBottom: '16px', padding: '12px', background: emailIncludePayLink ? '#eff6ff' : '#f9fafb', border: `1px solid ${emailIncludePayLink ? '#bfdbfe' : '#e5e7eb'}`, borderRadius: '8px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: '#1e3a5f' }}>
