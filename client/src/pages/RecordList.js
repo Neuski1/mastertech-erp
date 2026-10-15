@@ -4,13 +4,13 @@ import { api } from '../api/client';
 import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useAuth } from '../context/AuthContext';
 import StatusBadge from '../components/StatusBadge';
-import { telHref } from '../utils/formatPhone';
 import useIsMobile from '../utils/useIsMobile';
+import { LEAD_QUICK_REPLIES } from '../utils/leadReplies';
 import { parseLeadMessage } from '../utils/parseLead';
 import { formatDateTime } from '../utils/dateFormat';
 
 // Lead activity rows share one table; entry_type says what each one was.
-const ENTRY_LABEL = { call: 'Call', email: 'Email', note: 'Note' };
+const ENTRY_LABEL = { call: 'Call', email: 'Email', note: 'Note', text: 'Text' };
 
 // Recover a usable email for a lead: prefer the stored email if it's a full
 // address, otherwise pull the first valid address out of the message body
@@ -150,6 +150,13 @@ export default function RecordList() {
   const [noteTarget, setNoteTarget] = useState(null);
   const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
+  // Inline text composer. Replaces the old Call button (tel: links were
+  // unreliable from the PC). Sends from the shop number through Dialpad via
+  // POST /api/leads/:id/reply, which also logs the text to the lead history.
+  const [textTarget, setTextTarget] = useState(null);
+  const [textBody, setTextBody] = useState('');
+  const [textSending, setTextSending] = useState(false);
+  const [textError, setTextError] = useState('');
   useEffect(() => {
     api.getLeadEmailSignature()
       .then(d => setLeadSignature((d && d.signature) || ''))
@@ -257,6 +264,25 @@ export default function RecordList() {
       window.alert('Could not save the note. Try again.');
     } finally {
       setNoteSaving(false);
+    }
+  };
+
+  const openText = (lead) => { setTextTarget(lead.id); setTextBody(''); setTextError(''); };
+  const closeText = () => { setTextTarget(null); setTextBody(''); setTextError(''); };
+
+  const sendLeadText = async (lead, text) => {
+    const body = String(text || '').trim();
+    if (!body || textSending) return;
+    setTextSending(true);
+    setTextError('');
+    try {
+      await api.replyToLead(lead.id, body);
+      closeText();
+      fetchLeads();
+    } catch (err) {
+      setTextError(err.message || 'Text could not be sent');
+    } finally {
+      setTextSending(false);
     }
   };
 
@@ -718,10 +744,68 @@ export default function RecordList() {
                         >Cancel</button>
                       </div>
                     )}
+                    {textTarget === l.id && (
+                      <div style={{ marginTop: '6px', padding: '8px', border: '1px solid #bfdbfe', borderRadius: '6px', backgroundColor: '#fff' }}>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', marginBottom: '6px' }}>
+                          Text {l.phone} from the shop number
+                        </div>
+                        {LEAD_QUICK_REPLIES.map((q, i) => (
+                          <button key={i} disabled={textSending} onClick={() => sendLeadText(l, q)}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left', marginBottom: '4px',
+                              padding: '6px 8px', borderRadius: '6px', fontSize: '0.8125rem',
+                              border: '1px solid #d1d5db', backgroundColor: '#f9fafb', color: '#374151',
+                              cursor: textSending ? 'default' : 'pointer',
+                            }}
+                          >{q}</button>
+                        ))}
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', marginTop: '4px' }}>
+                          <textarea
+                            value={textBody}
+                            onChange={(e) => setTextBody(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendLeadText(l, textBody);
+                              if (e.key === 'Escape') closeText();
+                            }}
+                            autoFocus
+                            rows={2}
+                            maxLength={600}
+                            placeholder="Or write your own (Ctrl+Enter to send, Esc to cancel)"
+                            style={{
+                              flex: '1 1 auto', minWidth: 0, fontSize: '0.8125rem', padding: '6px 8px',
+                              border: '1px solid #d1d5db', borderRadius: '6px',
+                              fontFamily: 'inherit', resize: 'vertical',
+                            }}
+                          />
+                          <button
+                            onClick={() => sendLeadText(l, textBody)}
+                            disabled={textSending || !textBody.trim()}
+                            style={{
+                              padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600,
+                              border: '1px solid #2563eb', backgroundColor: '#2563eb', color: '#fff',
+                              cursor: textSending || !textBody.trim() ? 'default' : 'pointer',
+                              opacity: textSending || !textBody.trim() ? 0.6 : 1,
+                            }}
+                          >{textSending ? 'Sending...' : 'Send'}</button>
+                          <button
+                            onClick={closeText}
+                            style={{
+                              padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600,
+                              border: '1px solid #d1d5db', backgroundColor: '#fff', color: '#374151', cursor: 'pointer',
+                            }}
+                          >Cancel</button>
+                        </div>
+                        {textError && (
+                          <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#b91c1c' }}>{textError}</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {l.phone && (
-                      <a href={telHref(l.phone)} onClick={() => autoLogContact(l, 'call')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Call</a>
+                      <button onClick={() => (textTarget === l.id ? closeText() : openText(l))}
+                        style={actionBtn({ border: '1px solid #2563eb', backgroundColor: textTarget === l.id ? '#2563eb' : '#fff', color: textTarget === l.id ? '#fff' : '#2563eb' })}
+                      >Text</button>
                     )}
                     {l.email && (
                       <a href={leadEmailHref(l)} target="_blank" rel="noopener noreferrer" onClick={() => autoLogContact(l, 'email')} style={{ ...actionBtn({ border: '1px solid #2563eb', color: '#2563eb' }), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Email</a>
