@@ -338,6 +338,20 @@ export default function RecordList() {
     }
   };
 
+  // Reopen puts a filed lead back in the open box with its call/note history.
+  const reopenLead = async (lead) => {
+    const who = lead.name || [lead.customer_first, lead.customer_last].filter(Boolean).join(' ') || 'this lead';
+    if (!window.confirm(`Reopen the lead from ${who}? It moves back to the open leads list.`)) return;
+    try {
+      await api.reopenLead(lead.id);
+      fetchLeads();
+      fetchClosedLeads();
+    } catch (err) {
+      console.error('Failed to reopen lead:', err);
+      window.alert('Could not reopen the lead. Try again.');
+    }
+  };
+
   const openLeadRecord = (lead) => {
     if (!lead.record_id) return;
     navigate(`/records/${lead.record_id}`);
@@ -876,6 +890,7 @@ export default function RecordList() {
                     {l.record_open && (
                       <button onClick={() => navigate(`/records/${l.record_id}`)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #2563eb', backgroundColor: '#fff', color: '#2563eb' }}>Open Record</button>
                     )}
+                    <button onClick={() => reopenLead(l)} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #16a34a', backgroundColor: '#fff', color: '#16a34a' }}>Reopen Lead</button>
                     <button onClick={() => removeLead(l, { fromClosed: true })} style={{ padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, border: '1px solid #dc2626', backgroundColor: '#fff', color: '#dc2626' }}>Delete</button>
                   </div>
                 </div>

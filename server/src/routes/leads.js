@@ -1031,4 +1031,49 @@ router.post('/:id/file', requireAuth, requireRole(...STAFF_ROLES), async (req, r
   }
 });
 
+// POST /api/leads/:id/reopen — Put a filed lead back in the open box (staff only).
+// Only filed leads reopen: a converted lead lives on its record and a deleted
+// lead no longer exists. Call/note history was never touched by filing, so it
+// comes back with the lead. Notes that filing copied onto the customer record
+// stay there as history. If filing retired the auto-created stub customer
+// (lead filed under a different existing customer), the lead is detached from
+// that stub rather than resurrecting a duplicate; filing again re-attaches it.
+router.post('/:id/reopen', requireAuth, requireRole(...STAFF_ROLES), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: leadRows } = await client.query(
+      "SELECT * FROM leads WHERE id = $1 AND deleted_at IS NOT NULL AND closed_reason = 'filed' FOR UPDATE",
+      [req.params.id]
+    );
+    if (leadRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Closed lead not found' });
+    }
+    const lead = leadRows[0];
+
+    let customerId = lead.customer_id;
+    if (customerId) {
+      const { rows: cust } = await client.query(
+        'SELECT id FROM customers WHERE id = $1 AND deleted_at IS NULL',
+        [customerId]
+      );
+      if (cust.length === 0) customerId = null;
+    }
+
+    await client.query(
+      'UPDATE leads SET deleted_at = NULL, closed_reason = NULL, customer_id = $2 WHERE id = $1',
+      [lead.id, customerId]
+    );
+    await client.query('COMMIT');
+    res.json({ id: lead.id, reopened: true, customer_id: customerId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('POST /api/leads/:id/reopen error:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

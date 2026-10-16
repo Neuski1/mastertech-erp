@@ -81,6 +81,7 @@ export const api = {
   markLeadNotSpam: (id) => request(`/leads/${id}/not-spam`, { method: 'POST' }),
   createEstimateFromLead: (id) => request(`/leads/${id}/create-estimate`, { method: 'POST' }),
   fileLead: (id, data = {}) => request(`/leads/${id}/file`, { method: 'POST', body: JSON.stringify(data) }),
+  reopenLead: (id) => request(`/leads/${id}/reopen`, { method: 'POST' }),
   emailDocument: (id, data = {}) => request(`/records/${id}/email-document`, { method: 'POST', body: JSON.stringify(data) }),
   getDtp: (id) => request(`/records/${id}/dtp`),
   signDtp: (id, data) => request(`/records/${id}/sign-dtp`, { method: 'POST', body: JSON.stringify(data) }),
