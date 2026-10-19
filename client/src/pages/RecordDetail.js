@@ -837,6 +837,8 @@ ${paymentDetailHtml}
 
   const statusEditable = !['paid', 'void'].includes(record.status);
   const isEditable = statusEditable && canEditRecords;
+  // Photos are not financial data: keep them uploadable on paid records (warranty/insurance photos arrive late)
+  const photosEditable = record.status !== 'void' && canEditRecords;
   const canDeletePayments = isAdmin || isBookkeeper;
 
 
@@ -1805,7 +1807,7 @@ ${paymentDetailHtml}
       </div>
 
       {/* Photos */}
-      <PhotoLinksSection recordId={record.id} isEditable={isEditable} customerEmail={record.email_primary || ''} />
+      <PhotoLinksSection recordId={record.id} isEditable={photosEditable} customerEmail={record.email_primary || ''} />
 
       <CommunicationLog key={commLogKey} customerId={record.customer_id} recordId={record.id} />
     </div>
