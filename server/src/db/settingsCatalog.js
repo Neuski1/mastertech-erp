@@ -79,7 +79,7 @@ const SETTINGS = [
     help: 'Default hourly rate on a new labor line. Existing work orders keep the rate they were written at.' },
   { key: 'shop_supplies_rate', category: 'shop_rates', sort: 20, value_type: 'percent',
     label: 'Shop supplies', fallback: 0.05, min: 0, max: 0.5,
-    help: 'Percentage of labor added as shop supplies. Insurance jobs never waive this, whatever the toggle says.' },
+    help: 'Percentage of labor added as shop supplies. Charged by default on every work order; the Shop Supplies toggle on a work order waives it for that job.' },
   { key: 'cc_fee_rate', category: 'shop_rates', sort: 30, value_type: 'percent',
     label: 'Credit card fee (work orders)', fallback: 0.03, min: 0, max: 0.1,
     help: 'Grossed up so the processor taking its cut of the fee and tax still leaves you whole. Enter the rate the processor charges you.' },

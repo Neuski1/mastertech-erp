@@ -131,7 +131,7 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     // Snapshot tax rate from system settings
     const taxRate = await getSetting('tax_rate');
 
-    // Shop supplies are charged by default. Insurance jobs are never waived.
+    // Shop supplies are charged by default; the record toggle can waive them.
     const shopSuppliesExempt = false;
     const ccFeeApplied = true;
 
@@ -565,12 +565,8 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     }
   }
 
-  // Insurance jobs never waive shop supplies. If the insurance flag is being
-  // toggled (and shop supplies not explicitly provided), force not-exempt.
-  if (req.body.is_insurance_job !== undefined && req.body.shop_supplies_exempt === undefined) {
-    updates.push(`shop_supplies_exempt = $${idx++}`);
-    values.push(false);
-  }
+  // Toggling the insurance flag no longer touches shop supplies. The
+  // shop_supplies_exempt toggle is the only thing that waives them.
 
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });

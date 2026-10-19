@@ -69,9 +69,10 @@ async function recalculateTotals(recordId, client) {
   // shop supplies silently vanished from the total with nothing on screen to
   // say so. The fallback is the value seeded in migration 002.
   const shopSuppliesRate = settings.num('shop_supplies_rate', 0.05);
-  // Business rule: insurance jobs NEVER waive shop supplies, even if the
-  // exempt flag happens to be set.
-  const shopSuppliesExempt = rec.shop_supplies_exempt && !rec.is_insurance_job;
+  // The per-record toggle decides, insurance or not. Shop supplies default to
+  // ON for every new record; Carol turns them off per job (Oct 19, 2026: some
+  // insurance estimates go out without them).
+  const shopSuppliesExempt = !!rec.shop_supplies_exempt;
   const shopSuppliesAmount = shopSuppliesExempt
     ? 0
     : parseFloat((laborSubtotal * shopSuppliesRate).toFixed(2));
