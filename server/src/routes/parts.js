@@ -284,9 +284,10 @@ router.post('/:recordId', requireRole('admin', 'service_writer', 'technician'), 
 
 // ---------------------------------------------------------------------------
 // POST /api/parts/:recordId/mark-all-received — One-tap "all parts are in"
-// Marks every pending part line (ordered / not_ordered / backordered) on the
+// Marks every part line actually on order (ordered / backordered) on the
 // work order as received, or only the lineIds given in the body. Estimate
-// lines and stock pulls (null order_status) are left alone.
+// lines, stock pulls (null order_status) and Not Ordered lines are left
+// alone: a part nobody ordered cannot have arrived.
 // ---------------------------------------------------------------------------
 router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer', 'technician'), async (req, res) => {
   try {
@@ -305,7 +306,7 @@ router.post('/:recordId/mark-all-received', requireRole('admin', 'service_writer
             SET order_status = 'received', updated_at = NOW()
           WHERE record_id = $1 AND deleted_at IS NULL
             AND is_estimate_line IS NOT TRUE
-            AND order_status IN ('ordered', 'not_ordered', 'backordered')`,
+            AND order_status IN ('ordered', 'backordered')`,
         [req.params.recordId]
       );
     }

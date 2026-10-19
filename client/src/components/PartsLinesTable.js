@@ -111,10 +111,12 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     }
   };
 
-  // One-tap parts check-in: lines still waiting on parts (not stock pulls,
-  // not estimate proposals)
+  // One-tap parts check-in: lines actually on order with a supplier (not stock
+  // pulls, not estimate proposals). Not Ordered lines are excluded: a part
+  // nobody has ordered yet is not "on order", and "Yes, mark all received"
+  // must never flip it to Received.
   const pendingOrderLines = (partsLines || []).filter(l =>
-    !l.is_estimate_line && ['ordered', 'not_ordered', 'backordered'].includes(l.order_status)
+    !l.is_estimate_line && ['ordered', 'backordered'].includes(l.order_status)
   );
   const [checkinDismissed, setCheckinDismissed] = useState(false);
   const [checkinSaving, setCheckinSaving] = useState(false);
@@ -177,10 +179,15 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
       if (cost > 0 && sale > 0) {
         markup = Math.round(((sale - cost) / cost) * 100).toString();
       }
-      // Fill non-inventory form from catalog
+      // Fill non-inventory form from catalog. Carry the part number across:
+      // inactive inventory items come back from /parts/search as source
+      // 'catalog', and both they and parts_catalog rows hold the supplier /
+      // manufacturer number in vendor_part_number. This used to be blanked,
+      // so a part we already had on file landed on the work order with no
+      // number and had to be typed in by hand.
       setForm({
         description: item.description,
-        part_number: '',
+        part_number: item.vendor_part_number || item.part_number || '',
         quantity: '1',
         sale_price_each: item.sale_price_each ? parseFloat(item.sale_price_each).toFixed(2) : '',
         cost_each: item.cost_each ? parseFloat(item.cost_each).toFixed(2) : '',
