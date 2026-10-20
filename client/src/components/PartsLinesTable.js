@@ -337,6 +337,19 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
     }
   };
 
+  // Inline markup: retail follows the markup. Markup is not stored; it is
+  // derived from cost and price, so setting it means setting the price to
+  // cost x (1 + markup%). Needs a cost on the line, otherwise there is
+  // nothing to mark up.
+  const handleInlineMarkup = async (line, value) => {
+    const cost = parseFloat(line.cost_each) || 0;
+    const markup = parseFloat(value);
+    if (cost <= 0 || isNaN(markup) || markup < -100) return;
+    const newPrice = parseFloat((cost * (1 + markup / 100)).toFixed(2));
+    if (newPrice === parseFloat(line.sale_price_each)) return;
+    await handleInlineSave(line.id, 'sale_price_each', newPrice);
+  };
+
   // Customer changed their mind after approving: send the line back to the
   // Inspection Findings / Estimate box as unapproved. Stock pulled for it goes
   // back on the shelf (database trigger). Nothing is deleted.
@@ -828,6 +841,11 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                 <td style={{ ...tdStyle, textAlign: 'right' }}>
                   {isEditable ? (
                     <input
+                      // Uncontrolled input: key on the value so it remounts
+                      // when fresh data arrives. Without this it kept showing
+                      // the pre-save number, and a blur saved that stale
+                      // number back over the real one.
+                      key={`qty-${line.id}-${line.quantity}`}
                       type="number" step="1" min="1"
                       defaultValue={parseFloat(line.quantity)}
                       onBlur={(e) => {
@@ -843,6 +861,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     {isEditable ? (
                       <input
+                        key={`price-${line.id}-${line.sale_price_each}`}
                         type="number" step="0.01" min="0"
                         defaultValue={parseFloat(line.sale_price_each).toFixed(2)}
                         onBlur={(e) => {
@@ -868,6 +887,7 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     {isEditable ? (
                       <input
+                        key={`cost-${line.id}-${line.cost_each}`}
                         type="number" step="0.01" min="0"
                         defaultValue={line.cost_each && parseFloat(line.cost_each) > 0 ? parseFloat(line.cost_each).toFixed(2) : ''}
                         placeholder="—"
@@ -894,11 +914,33 @@ export default function PartsLinesTable({ recordId, partsLines, isEditable, onUp
                     const pct = ((sale - cost) / cost) * 100;
                     return pct >= 40 ? '#065f46' : pct >= 20 ? '#92400e' : '#dc2626';
                   })() }}>
-                    {line.no_charge
-                      ? 'N/C'
-                      : line.cost_each && parseFloat(line.cost_each) > 0
-                        ? (((parseFloat(line.sale_price_each) - parseFloat(line.cost_each)) / parseFloat(line.cost_each)) * 100).toFixed(1) + '%'
-                        : '—'}
+                    {(() => {
+                      if (line.no_charge) return 'N/C';
+                      const cost = parseFloat(line.cost_each);
+                      if (!cost || cost <= 0) return '—';
+                      const shown = (((parseFloat(line.sale_price_each) - cost) / cost) * 100).toFixed(1);
+                      if (!isEditable) return shown + '%';
+                      // Editable markup: changing it reprices the line at
+                      // cost x (1 + markup%). Only saves when the number
+                      // actually changed, so tabbing through a rounded
+                      // figure (33.3%) never nudges the price by a cent.
+                      return (
+                        <span style={{ whiteSpace: 'nowrap' }}>
+                          <input
+                            key={`markup-${line.id}-${line.cost_each}-${line.sale_price_each}`}
+                            type="number" step="1"
+                            defaultValue={shown}
+                            title="Change the markup to reprice this part from its cost"
+                            onBlur={(e) => {
+                              if (e.target.value === '' || parseFloat(e.target.value) === parseFloat(shown)) return;
+                              handleInlineMarkup(line, e.target.value);
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                            style={{ ...inlineEditableStyle, width: '60px' }}
+                          />%
+                        </span>
+                      );
+                    })()}
                   </td>
                 )}
                 {isEditable && (
