@@ -44,19 +44,29 @@ function fetchBackup(url, key) {
 }
 
 async function run() {
-  // Load .env for COWORK_API_KEY
-  const envPath = path.join(__dirname, '..', '.env');
-  if (fs.existsSync(envPath)) {
-    const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+  // Load COWORK_API_KEY. The key lives OUTSIDE the repo in C:\Dev\agent-keys,
+  // because C:\Dev\mastertech-erp is thrown away and re-cloned before every
+  // deploy and .env is never committed. Keeping it in the repo .env is what
+  // killed this backup from Oct 10 to Oct 19, 2026. The repo .env is still
+  // read as a fallback.
+  const keyFiles = [
+    process.env.COWORK_KEY_FILE,
+    'C:\\Dev\\agent-keys\\cowork.env',
+    path.join(__dirname, '..', '.env'),
+  ].filter(Boolean);
+  for (const envPath of keyFiles) {
+    if (process.env.COWORK_API_KEY) break;
+    if (!fs.existsSync(envPath)) continue;
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
     for (const line of lines) {
       const match = line.match(/^([^#=]+)=(.*)$/);
-      if (match) process.env[match[1].trim()] = match[2].trim();
+      if (match) process.env[match[1].trim()] = match[2].trim().replace(/^"|"$/g, '');
     }
   }
 
   const key = process.env.COWORK_API_KEY;
   if (!key) {
-    log('ERROR: COWORK_API_KEY not set in .env');
+    log('ERROR: COWORK_API_KEY not found in ' + keyFiles.join(' or '));
     process.exit(1);
   }
 
