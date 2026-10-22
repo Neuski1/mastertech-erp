@@ -95,11 +95,19 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
     insurance_phone, insurance_email, claim_number, policy_number,
     estimate_valid_until, internal_notes, customer_notes,
     deposit_amount, deductible_amount, mileage_at_intake, expected_completion_date,
-    allow_no_unit
+    allow_no_unit, deadline_type, deadline_reason
   } = req.body;
 
   if (!customer_id) {
     return res.status(400).json({ error: 'customer_id is required' });
+  }
+  const isHard = deadline_type === 'hard';
+  const cleanReason = String(deadline_reason || '').trim();
+  if (isHard && !expected_completion_date) {
+    return res.status(400).json({ error: 'A hard deadline needs a due date.' });
+  }
+  if (isHard && !cleanReason) {
+    return res.status(400).json({ error: 'A hard deadline needs a reason (for example "Leaving for Moab 11/6").' });
   }
   if (!unit_id && !allow_no_unit) {
     return res.status(400).json({ error: 'unit_id is required' });
@@ -145,8 +153,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
          claim_number, policy_number, estimate_valid_until,
          internal_notes, customer_notes, deposit_amount,
          mileage_at_intake, tax_rate, shop_supplies_exempt, cc_fee_applied, intake_date,
-         expected_completion_date, deductible_amount
-       ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         expected_completion_date, deductible_amount, deadline_type, deadline_reason
+       ) VALUES ($1,$2,$3,'estimate',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING *`,
       [recordNumber, customer_id, finalUnitId, key_number || null,
        job_description || null, is_insurance_job || false,
@@ -156,7 +164,8 @@ router.post('/', requireRole('admin', 'service_writer', 'technician'), async (re
        estimate_valid_until || null, internal_notes || null,
        customer_notes || null, deposit_amount || 0,
        mileage_at_intake || null, taxRate, shopSuppliesExempt, ccFeeApplied, today,
-       expected_completion_date || null, deductible_amount || 0]
+       expected_completion_date || null, deductible_amount || 0,
+       isHard ? 'hard' : 'flexible', isHard ? cleanReason : null]
     );
 
     // The blank placeholder belongs to this record alone, so RV edits made on
@@ -392,7 +401,7 @@ router.get('/', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.amount_due, r.total_sales, r.total_collected,
               r.created_at, r.intake_date, r.is_insurance_job, r.job_description,
-              r.expected_completion_date, r.key_number,
+              r.expected_completion_date, r.key_number, r.deadline_type, r.deadline_reason,
               (SELECT MAX(p.payment_date) FROM payments p
                  WHERE p.record_id = r.id AND p.deleted_at IS NULL) AS last_payment_date,
               c.id AS customer_id, c.last_name, c.first_name, c.company_name,
@@ -549,7 +558,39 @@ router.patch('/:id', requireRole('admin', 'service_writer', 'technician'), async
     'discount_amount', 'discount_description',
     'cc_fee_applied', 'shop_supplies_exempt', 'tax_waived',
     'review_request_skip',
+    'deadline_type', 'deadline_reason',
   ];
+
+  // Hard vs flexible due date (migration 076). Hard needs a due date and a
+  // reason; going back to flexible clears the reason.
+  if (req.body.deadline_type !== undefined || req.body.deadline_reason !== undefined ||
+      req.body.expected_completion_date !== undefined) {
+    if (req.body.deadline_type !== undefined && !['flexible', 'hard'].includes(req.body.deadline_type)) {
+      return res.status(400).json({ error: 'deadline_type must be flexible or hard' });
+    }
+    const { rows: cur } = await pool.query(
+      `SELECT deadline_type, deadline_reason, to_char(expected_completion_date, 'YYYY-MM-DD') AS due
+         FROM records WHERE id = $1 AND deleted_at IS NULL`, [req.params.id]);
+    if (!cur.length) return res.status(404).json({ error: 'Record not found' });
+    const nextType = req.body.deadline_type !== undefined ? req.body.deadline_type : cur[0].deadline_type;
+    if (req.body.deadline_reason !== undefined) {
+      req.body.deadline_reason = String(req.body.deadline_reason || '').trim();
+    }
+    const nextReason = req.body.deadline_reason !== undefined ? req.body.deadline_reason : cur[0].deadline_reason;
+    const nextDue = req.body.expected_completion_date !== undefined ? (req.body.expected_completion_date || null) : cur[0].due;
+    if (nextType === 'hard') {
+      if (!nextDue) {
+        return res.status(400).json({ error: req.body.deadline_type === 'hard'
+          ? 'Set the due date before marking it a hard deadline.'
+          : 'This is a hard deadline. Switch it to flexible before clearing the due date.' });
+      }
+      if (!nextReason) {
+        return res.status(400).json({ error: 'A hard deadline needs a reason (for example "Leaving for Moab 11/6").' });
+      }
+    } else if (req.body.deadline_type === 'flexible') {
+      req.body.deadline_reason = '';
+    }
+  }
 
   const updates = [];
   const values = [];
@@ -1396,7 +1437,7 @@ router.post('/:id/email-document', requireRole('admin', 'service_writer', 'techn
         <h2 style="color:#ffffff;margin:0;font-size:20px;">${docType}</h2>
         <p style="color:#93c5fd;margin:2px 0;font-size:13px;">#${r.record_number}</p>
         ${r.intake_date || r.created_at ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Date: ${fmtDate(r.intake_date || r.created_at)}</p>` : ''}
-        ${r.expected_completion_date && !['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
+        ${r.expected_completion_date && r.deadline_type === 'hard' && !['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Due: ${fmtDate(r.expected_completion_date)}</p>` : ''}
         ${r.actual_completion_date ? `<p style="color:#93c5fd;margin:2px 0;font-size:11px;">Completed: ${fmtDate(r.actual_completion_date)}</p>` : ''}
       </td>
     </tr></table>

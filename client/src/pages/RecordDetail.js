@@ -15,6 +15,7 @@ import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
 import StatusTextModal from '../components/StatusTextModal';
+import DeadlineControl from '../components/DeadlineControl';
 import { BulletDisplay } from '../components/BulletTextarea';
 import useIsMobile from '../utils/useIsMobile';
 import { formatDate, formatDateTime } from '../utils/dateFormat';
@@ -218,7 +219,7 @@ export default function RecordDetail() {
   };
 
   // The server sends the Checked In text on its own the first time a work
-  // order moves into active work. Say so, or say why it did not go.
+  // order moves to In Progress (never on Not Started). Say so, or say why it did not go.
   const reportCheckinText = (result) => {
     const c = result && result.checkin_text;
     if (!c) return;
@@ -611,7 +612,7 @@ export default function RecordDetail() {
     <h2>${docTitle} #${r.record_number}</h2>
     <p>Original Date: ${intakeDate}</p>
     ${r.start_date ? `<p>Start Date: ${fmtPrintDateShort(r.start_date.includes('T') ? r.start_date : r.start_date + 'T12:00:00')}</p>` : ''}
-    ${!['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) && r.expected_completion_date ? `<p style="font-size:15px;font-weight:bold;color:#000;margin:5px 0;">Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
+    ${!['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) && r.expected_completion_date && (r.deadline_type === 'hard' || r.status !== 'estimate') ? `<p style="font-size:15px;font-weight:bold;color:#000;margin:5px 0;">${r.deadline_type === 'hard' ? 'HARD ' : ''}Due Date: ${fmtPrintDateShort(r.expected_completion_date.includes('T') ? r.expected_completion_date : r.expected_completion_date + 'T12:00:00')}</p>` : ''}
     ${r.actual_completion_date ? `<p>Completed: ${fmtPrintDateShort(r.actual_completion_date.includes('T') ? r.actual_completion_date : r.actual_completion_date + 'T12:00:00')}</p>` : ''}
     <p>Time: ${timePrinted}</p>
   </div>
@@ -1272,6 +1273,14 @@ ${paymentDetailHtml}
           <EditableField label="Expected Completion" field="expected_completion_date" value={isEditable ? toDateVal(record.expected_completion_date) : formatDate(record.expected_completion_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
           <EditableField label="Completion Date" field="actual_completion_date" value={isEditable ? toDateVal(record.actual_completion_date) : formatDate(record.actual_completion_date)} editable={isEditable} autoSave={autoSave} onFocus={setFocusedField} onBlur={() => setFocusedField(null)} type="date" />
         </div>
+        {!['paid', 'void', 'written_off', 'filed'].includes(record.status) && (
+          <DeadlineControl
+            record={record}
+            editable={isEditable}
+            onSaved={fetchRecord}
+            onError={(msg) => setError(msg)}
+          />
+        )}
       </div>
 
       {/* ─── Job Description ─── */}

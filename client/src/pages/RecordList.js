@@ -439,6 +439,23 @@ export default function RecordList() {
     return due < today;
   };
 
+  // Hard vs flexible due date (Oct 22, 2026). Overdue hard = red and bold,
+  // overdue flexible = amber. A HARD tag marks the real promises.
+  const isHard = (r) => r.deadline_type === 'hard';
+  const dueColor = (r) => (!isPastDue(r) ? undefined : (isHard(r) ? '#dc2626' : '#d97706'));
+  const hardTag = (r) => (isHard(r) ? (
+    <span title={r.deadline_reason || 'Hard deadline'}
+      style={{ marginLeft: '6px', background: '#dc2626', color: '#fff', fontSize: '0.65rem', fontWeight: 700,
+        padding: '1px 5px', borderRadius: '3px', letterSpacing: '0.04em', verticalAlign: 'middle' }}>HARD</span>
+  ) : null);
+  // Hard deadline due within 7 days (or already past): jumps to the top.
+  const HARD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  const isHardUrgent = (r) => {
+    if (!isHard(r) || !r.expected_completion_date) return false;
+    const due = new Date(r.expected_completion_date).getTime();
+    return due - Date.now() <= HARD_WINDOW_MS;
+  };
+
   const renderRow = (r, showDueDate = false, showPaidDate = false) => (
     <tr key={r.id} onClick={() => navigate(`/records/${r.id}`)} style={{ cursor: 'pointer' }}>
       <td style={tdStyle}><strong>{r.record_number}</strong></td>
@@ -453,8 +470,8 @@ export default function RecordList() {
       <td style={tdStyle}><StatusBadge status={r.status} /></td>
       <td style={tdStyle}>{formatDate(r.intake_date || r.created_at)}</td>
       {showDueDate && (
-        <td style={{ ...tdStyle, color: isPastDue(r) ? '#dc2626' : undefined, fontWeight: isPastDue(r) ? 600 : undefined }}>
-          {formatDate(r.expected_completion_date)}
+        <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: dueColor(r), fontWeight: isPastDue(r) ? (isHard(r) ? 700 : 600) : undefined }}>
+          {formatDate(r.expected_completion_date)}{hardTag(r)}
         </td>
       )}
       {showPaidDate && (
@@ -483,6 +500,7 @@ export default function RecordList() {
     groupSort[groupKey] || (groupKey === 'closed' ? { field: 'last_payment_date', dir: 'desc' } : null);
 
   // Default ordering for the Active Work group: surface what to work on next.
+  // 0) hard deadlines due within 7 days (or overdue) first, soonest first,
   // 1) workable jobs (in progress, not started) above jobs blocked on parts,
   // 2) within each, overdue / soonest due date first (no due date last),
   // 3) tie-break by status (in progress > not started > order parts > awaiting parts),
@@ -490,6 +508,14 @@ export default function RecordList() {
   const ACTIVE_RANK = { in_progress: 0, approved: 1, order_parts: 2, awaiting_parts: 3 };
   const isBlocked = (s) => s === 'order_parts' || s === 'awaiting_parts';
   const smartActiveSort = (recs) => [...recs].sort((a, b) => {
+    const ua = isHardUrgent(a) ? 0 : 1;
+    const ub = isHardUrgent(b) ? 0 : 1;
+    if (ua !== ub) return ua - ub;
+    if (ua === 0) {
+      const ha = new Date(a.expected_completion_date).getTime();
+      const hb = new Date(b.expected_completion_date).getTime();
+      if (ha !== hb) return ha - hb;
+    }
     const ba = isBlocked(a.status) ? 1 : 0;
     const bb = isBlocked(b.status) ? 1 : 0;
     if (ba !== bb) return ba - bb;
@@ -542,7 +568,7 @@ export default function RecordList() {
   const renderMobileCard = (r, showPaidDate = false) => (
     <div key={r.id} className="mobile-record-card" onClick={() => navigate(`/records/${r.id}`)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-        <strong style={{ fontSize: '0.9rem', color: '#1e3a5f' }}>WO #{r.record_number}{r.key_number ? <span style={{ fontWeight: 500, color: '#6b7280' }}> &middot; Key {r.key_number}</span> : null}</strong>
+        <strong style={{ fontSize: '0.9rem', color: '#1e3a5f' }}>WO #{r.record_number}{r.key_number ? <span style={{ fontWeight: 500, color: '#6b7280' }}> &middot; Key {r.key_number}</span> : null}{hardTag(r)}</strong>
         <StatusBadge status={r.status} />
       </div>
       <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>

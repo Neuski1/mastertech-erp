@@ -139,7 +139,7 @@ router.get('/:token', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.approval_token, r.approval_token_expires_at,
-              r.approved_by_customer_at, c.first_name, u.year, u.make, u.model,
+              r.approved_by_customer_at, c.first_name, u.year, u.make, u.model, r.deadline_type,
               to_char(r.expected_completion_date, 'YYYY-MM-DD') AS expected_completion
          FROM records r
          JOIN customers c ON c.id = r.customer_id
@@ -185,7 +185,8 @@ router.get('/:token', async (req, res) => {
         }).join('')
       : `<p class="sub">No updates yet. We'll text you as soon as work starts.</p>`;
 
-    // Same rule as the texts: no date, or a date already past, shows nothing.
+    // Same rule as the texts: flexible due date, no date, or a date already
+    // past shows nothing. Only hard deadlines reach the customer.
     const { completionInfo } = require('../services/statusUpdates');
     const ci = stage < 3 && !['complete', 'payment_pending', 'partial', 'paid', 'written_off'].includes(r.status) ? completionInfo(r) : null;
     const expectedHtml = ci && ci.line
