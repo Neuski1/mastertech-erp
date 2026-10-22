@@ -224,9 +224,10 @@ function getPage(token) {
   check('estimate straight to in_progress sends', direct.sent, true);
   const { rows: [rec6] } = await pool.query(
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4806,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
-  const ns = await svc.autoCheckIn(rec6.id, { from: 'estimate', to: 'approved' });
-  check('estimate -> Not Started sends Checked In', ns.sent, true);
-  check('Not Started -> In Progress does not send again', await svc.autoCheckIn(rec6.id, { from: 'approved', to: 'in_progress' }), null);
+  // Oct 22, 2026: Not Started no longer sends Checked In; In Progress does.
+  check('estimate -> Not Started sends nothing', await svc.autoCheckIn(rec6.id, { from: 'estimate', to: 'approved' }), null);
+  const ns = await svc.autoCheckIn(rec6.id, { from: 'approved', to: 'in_progress' });
+  check('Not Started -> In Progress sends Checked In', ns.sent, true);
   await setSetting('status_text_auto_checkin', 'false');
   const { rows: [rec5] } = await pool.query(
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4805,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
@@ -240,11 +241,18 @@ function getPage(token) {
   // Expected completion line.
   await pool.query("UPDATE customers SET phone_primary = '(303) 555-0142' WHERE id = $1", [cust.id]);
   check('date format', svc.longCompletionDate('2026-10-03'), 'Saturday, October 3');
-  check('no date: no line, warns', [svc.completionInfo({ expected_completion: null }).line, !!svc.completionInfo({ expected_completion: null }).warning], [null, true]);
-  check('past date: no line, warns', [svc.completionInfo({ expected_completion: '2026-09-01' }, '2026-09-28').line, !!svc.completionInfo({ expected_completion: '2026-09-01' }, '2026-09-28').warning], [null, true]);
-  check('today reads today', svc.completionInfo({ expected_completion: '2026-09-28' }, '2026-09-28').line, 'Expected completion date: today.');
-  check('future date line', svc.completionInfo({ expected_completion: '2030-10-03' }, '2026-09-28').line, 'Expected completion date: Thursday, October 3.');
-  await pool.query("UPDATE records SET expected_completion_date = '2030-10-03' WHERE id = $1", [rec.id]);
+  const H = { deadline_type: 'hard' };
+  check('flexible date: no line, notes why', [svc.completionInfo({ expected_completion: '2030-10-03' }, '2026-09-28').line, !!svc.completionInfo({ expected_completion: '2030-10-03' }, '2026-09-28').warning], [null, true]);
+  check('no date: no line, warns', [svc.completionInfo({ ...H, expected_completion: null }).line, !!svc.completionInfo({ ...H, expected_completion: null }).warning], [null, true]);
+  check('past date: no line, warns', [svc.completionInfo({ ...H, expected_completion: '2026-09-01' }, '2026-09-28').line, !!svc.completionInfo({ ...H, expected_completion: '2026-09-01' }, '2026-09-28').warning], [null, true]);
+  check('today reads today', svc.completionInfo({ ...H, expected_completion: '2026-09-28' }, '2026-09-28').line, 'Expected completion date: today.');
+  check('future date line', svc.completionInfo({ ...H, expected_completion: '2030-10-03' }, '2026-09-28').line, 'Expected completion date: Thursday, October 3.');
+  await pool.query("UPDATE records SET expected_completion_date = '2030-10-03', deadline_type = 'flexible' WHERE id = $1", [rec.id]);
+  const of = await svc.composeOptions(rec.id);
+  truthy('flexible: draft has no date line', !of.types.find(t => t.key === 'work_started').draft.includes('Expected completion'));
+  const pgf = await getPage(String(rec.photo_token));
+  truthy('status page hides a flexible date', !pgf.html.includes('Expected completion:'));
+  await pool.query("UPDATE records SET deadline_type = 'hard', deadline_reason = 'Leaving for Moab' WHERE id = $1", [rec.id]);
   const o2 = await svc.composeOptions(rec.id);
   const d = (k) => o2.types.find(t => t.key === k).draft;
   truthy('work_started draft ends with the date', d('work_started').endsWith('Expected completion date: Thursday, October 3.'));
@@ -264,7 +272,7 @@ function getPage(token) {
   truthy('past date: draft has no line and a warning', !o3.types.find(t => t.key === 'work_started').draft.includes('Expected completion') && !!o3.completion.warning);
   const pgp = await getPage(String(rec.photo_token));
   truthy('status page hides a past date', !pgp.html.includes('Expected completion:'));
-  await pool.query('UPDATE records SET expected_completion_date = NULL WHERE id = $1', [rec.id]);
+  await pool.query("UPDATE records SET expected_completion_date = NULL, deadline_type = 'flexible', deadline_reason = NULL WHERE id = $1", [rec.id]);
   await pool.query('UPDATE customers SET phone_primary = NULL WHERE id = $1', [cust.id]);
 
   // Ready for pickup promises the invoice email and exposes what the modal needs.

@@ -132,6 +132,9 @@ function withStopLine(body) {
 // (Carol, Sept 28). Delayed carries its own new date in the tech's note; Ready
 // for pickup is already done. No date on the work order, or a date already in
 // the past, means no line: a stale promise is worse than none.
+// Oct 22, 2026 (Carol): only HARD due dates go to the customer. Flexible due
+// dates are placeholders that keep the board in order, not promises, so a
+// flexible work order gets no completion line at all.
 const NO_COMPLETION_LINE = new Set(['delayed', 'complete']);
 const COMPLETION_FALLBACK = 'Expected completion date: {completion_date}.';
 
@@ -150,6 +153,10 @@ function longCompletionDate(ymd) {
 // { date, text, line, warning }: line is null when nothing should be added.
 function completionInfo(r, today = denverToday()) {
   const date = r.expected_completion || null;
+  if (r.deadline_type !== 'hard') {
+    return { date, text: date ? longCompletionDate(date) : null, line: null,
+      warning: 'Flexible due date, so the text gives the customer no completion date. Mark the work order a Hard deadline if you promised this date.' };
+  }
   if (!date) {
     return { date: null, text: null, line: null,
       warning: 'No Expected Completion date on this work order, so the text will not give the customer a date. Set one in the Dates section first.' };
@@ -175,7 +182,7 @@ async function loadRecord(recordId) {
             c.first_name, c.last_name, c.phone_primary, c.phone_secondary,
             c.email_primary, COALESCE(c.email_invalid, FALSE) AS email_invalid, r.amount_due,
             COALESCE(c.sms_opt_out, FALSE) AS sms_opt_out,
-            u.year, u.make, u.model,
+            u.year, u.make, u.model, r.deadline_type,
             to_char(r.expected_completion_date, 'YYYY-MM-DD') AS expected_completion
        FROM records r
        JOIN customers c ON c.id = r.customer_id
@@ -368,11 +375,13 @@ async function logUpdate(r, { type, body, photos, userId, delivery, error, provi
   }
 }
 
-// The only two statuses that send Checked In automatically (Carol, Sept 29):
-// Not Started (approved) and In Progress. Nothing else, ever. Scheduled,
-// Schedule Customer and Awaiting Approval can all describe an RV that is not
-// at the shop (the #308 incident texted two estimate customers).
-const CHECKIN_STATUSES = ['approved', 'in_progress'];
+// The only status that sends Checked In automatically is In Progress. Not
+// Started (approved) was dropped Oct 22, 2026 (Carol): moving an approved
+// estimate to Not Started told customers their RV was checked in when it was
+// still in their driveway. Scheduled, Schedule Customer and Awaiting Approval
+// can all describe an RV that is not at the shop either (the #308 incident).
+// Still once per work order: a WO that already got Checked In never gets it again.
+const CHECKIN_STATUSES = ['in_progress'];
 
 // Called by PATCH /api/records/:id/status after the change commits. Sends the
 // Checked In text the first time a work order enters active work, and never

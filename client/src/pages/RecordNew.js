@@ -20,6 +20,7 @@ export default function RecordNew() {
   const [newUnit, setNewUnit] = useState({ year: '', make: '', model: '', vin: '', license_plate: '' });
   const [recordData, setRecordData] = useState({
     key_number: '', job_description: '', is_insurance_job: false, expected_completion_date: '',
+    deadline_hard: false, deadline_reason: '',
     insurance_company: '', insurance_contact_name: '', insurance_phone: '', insurance_email: '',
     claim_number: '', policy_number: '', deductible_amount: '', under_warranty_amount: '', no_charge_amount: '',
   });
@@ -94,6 +95,14 @@ export default function RecordNew() {
   };
 
   const createRecord = async () => {
+    if (recordData.deadline_hard && !recordData.expected_completion_date) {
+      setError('A hard deadline needs a due date.');
+      return;
+    }
+    if (recordData.deadline_hard && !recordData.deadline_reason.trim()) {
+      setError('A hard deadline needs a reason (for example "Leaving for Moab 11/6").');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -104,6 +113,8 @@ export default function RecordNew() {
         job_description: recordData.job_description || null,
         is_insurance_job: recordData.is_insurance_job,
         expected_completion_date: recordData.expected_completion_date || null,
+        deadline_type: recordData.deadline_hard ? 'hard' : 'flexible',
+        deadline_reason: recordData.deadline_hard ? recordData.deadline_reason.trim() : null,
         insurance_company: recordData.insurance_company || null,
         insurance_contact_name: recordData.insurance_contact_name || null,
         insurance_phone: recordData.insurance_phone || null,
@@ -318,6 +329,28 @@ export default function RecordNew() {
               onChange={(e) => setRecordData({ ...recordData, expected_completion_date: e.target.value })}
               style={inputStyle}
             />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={recordData.deadline_hard}
+                onChange={(e) => setRecordData({ ...recordData, deadline_hard: e.target.checked })}
+              />
+              <span><strong>Hard deadline</strong> (the customer needs it by this date)</span>
+            </label>
+            {recordData.deadline_hard && (
+              <div style={{ marginTop: '8px' }}>
+                <label style={labelStyle}>Why is it hard? (required)</label>
+                <input
+                  value={recordData.deadline_reason}
+                  onChange={(e) => setRecordData({ ...recordData, deadline_reason: e.target.value })}
+                  placeholder='Leaving for Moab 11/6'
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+              </div>
+            )}
+            <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '6px' }}>
+              Flexible dates just keep the board in order and are never shown to the customer. Hard dates go on the customer's texts and status page.
+            </div>
           </div>
 
           <div style={{ marginTop: '16px' }}>

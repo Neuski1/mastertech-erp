@@ -30,8 +30,17 @@ function isPastDue(record) {
   return new Date(record.expected_completion_date) < new Date(new Date().toDateString());
 }
 
+// Hard deadline due within 7 days, or already past (Oct 22, 2026).
+function isHardUrgent(r) {
+  if (r.deadline_type !== 'hard' || !r.expected_completion_date) return false;
+  return new Date(r.expected_completion_date).getTime() - Date.now() <= 7 * 24 * 60 * 60 * 1000;
+}
+
 function sortRecords(records) {
   return records.sort((a, b) => {
+    const ua = isHardUrgent(a) ? 0 : 1;
+    const ub = isHardUrgent(b) ? 0 : 1;
+    if (ua !== ub) return ua - ub;
     const aDate = a.expected_completion_date ? new Date(a.expected_completion_date).getTime() : Infinity;
     const bDate = b.expected_completion_date ? new Date(b.expected_completion_date).getTime() : Infinity;
     if (aDate !== bDate) return aDate - bDate;
@@ -74,6 +83,7 @@ export default function ActiveWorkOrdersReport() {
   const attentionRecords = sortRecords(records.filter(r => ATTENTION_STATUSES.includes(r.status)));
   const allActive = [...activeRecords, ...attentionRecords];
   const pastDueCount = allActive.filter(isPastDue).length;
+  const hardCount = allActive.filter(r => r.deadline_type === 'hard').length;
   const today = formatDate();
 
   const countByStatus = (status) => allActive.filter(r => r.status === status).length;
@@ -113,6 +123,12 @@ export default function ActiveWorkOrdersReport() {
         <StatBlock label="Awaiting Parts" value={countByStatus('awaiting_parts')} color="#991b1b" />
         <StatDivider />
         <StatBlock label="Needs Attention" value={attentionRecords.length} color="#c0392b" />
+        {hardCount > 0 && (
+          <>
+            <StatDivider />
+            <StatBlock label="Hard Deadlines" value={hardCount} color="#dc2626" />
+          </>
+        )}
         {pastDueCount > 0 && (
           <>
             <StatDivider />
@@ -164,7 +180,7 @@ function Section({ title, count, color, records }) {
           <col style={{ width: '140px' }} />
           <col style={{ width: '135px' }} />
           <col style={{ width: '110px' }} />
-          <col style={{ width: '80px' }} />
+          <col style={{ width: '100px' }} />
           <col style={{ minWidth: '240px' }} />
           <col style={{ width: '75px' }} />
           <col style={{ width: '36px' }} />
@@ -186,6 +202,7 @@ function Section({ title, count, color, records }) {
           {records.map((r, i) => {
             const s = STATUS_STYLES[r.status] || { label: r.status, bg: '#f3f4f6', color: '#333' };
             const pastDue = isPastDue(r);
+            const hard = r.deadline_type === 'hard';
             const lines = getWorkLines(r.job_description);
             const rowBg = i % 2 === 0 ? '#fff' : '#f8f9fc';
 
@@ -210,9 +227,17 @@ function Section({ title, count, color, records }) {
                 <td style={tdStyle}>
                   <span style={{ ...statusPillStyle, backgroundColor: s.bg, color: s.color }}>{s.label}</span>
                 </td>
-                <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: pastDue ? '#dc2626' : '#374151', fontWeight: pastDue ? 700 : 400 }}>
-                  {fmtDate(r.expected_completion_date)}
-                  {pastDue && ' \u26A0'}
+                <td style={{ ...tdStyle, color: pastDue ? (hard ? '#dc2626' : '#d97706') : '#374151', fontWeight: pastDue ? 700 : 400 }}>
+                  <div style={{ whiteSpace: 'nowrap' }}>
+                    {fmtDate(r.expected_completion_date)}
+                    {pastDue && ' \u26A0'}
+                  </div>
+                  {hard ? (
+                    <div style={{ marginTop: '3px' }}>
+                      <span style={{ background: '#dc2626', color: '#fff', fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '3px' }}>HARD</span>
+                      {r.deadline_reason && <div style={{ fontSize: '9px', color: '#991b1b', fontWeight: 600, marginTop: '2px', whiteSpace: 'normal' }}>{r.deadline_reason}</div>}
+                    </div>
+                  ) : (r.expected_completion_date && <div style={{ fontSize: '9px', color: '#9ca3af', fontWeight: 400 }}>flexible</div>)}
                 </td>
                 <td style={tdStyle}>
                   {lines.length > 0 ? lines.map((l, j) => (

@@ -376,6 +376,16 @@ const pool = require('./db/pool');
     // jointly, so no DTP. NULL = not asked yet, TRUE = owned outright,
     // FALSE = financed / lienholder. Additive only.
     await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS rv_owned_outright BOOLEAN');
+    // Migration 076: hard vs flexible due dates (Carol, Oct 22, 2026). Most
+    // due dates are placeholders that keep the board in order; a few are real
+    // promises (customer leaving on a trip, adjuster deadline). 'hard' needs a
+    // reason, and only hard dates are ever shown or texted to the customer.
+    // Every existing work order starts flexible. Additive only.
+    await pool.query("ALTER TABLE records ADD COLUMN IF NOT EXISTS deadline_type VARCHAR(10) NOT NULL DEFAULT 'flexible'");
+    await pool.query('ALTER TABLE records ADD COLUMN IF NOT EXISTS deadline_reason TEXT');
+    await pool.query(`DO $$ BEGIN
+      ALTER TABLE records ADD CONSTRAINT records_deadline_type_chk CHECK (deadline_type IN ('flexible','hard'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
     // Migration 039: bookkeeper adjustments
     await pool.query(`CREATE TABLE IF NOT EXISTS bookkeeper_adjustments (
       id SERIAL PRIMARY KEY,
