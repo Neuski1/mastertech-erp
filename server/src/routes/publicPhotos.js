@@ -38,8 +38,12 @@ router.get('/:recordId/photos/:photoId/image', async (req, res) => {
     const ok = await validateToken(req.params.recordId, req.query.token);
     if (!ok) return res.status(403).json({ error: 'This photo link is invalid or expired. Please use the links from your most recent email, or contact Master Tech RV at (303) 557-2214.' });
 
+    // ?thumb=1 serves the small thumbnail (falls back to the full image) so
+    // the customer status page grid loads fast on a phone.
+    const wantThumb = req.query.thumb === '1';
     const { rows } = await pool.query(
-      'SELECT photo_data, content_type, filename FROM record_photos WHERE id = $1 AND record_id = $2',
+      `SELECT ${wantThumb ? 'COALESCE(thumbnail_data, photo_data)' : 'photo_data'} AS photo_data, content_type, filename
+         FROM record_photos WHERE id = $1 AND record_id = $2`,
       [req.params.photoId, req.params.recordId]
     );
     if (rows.length === 0 || !rows[0].photo_data) return res.status(404).json({ error: 'Photo not found' });
