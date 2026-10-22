@@ -67,6 +67,11 @@ export default function AppointmentForm() {
   const [apptLoad, setApptLoad] = useState(null);
   const [apptLoadFromSubmit, setApptLoadFromSubmit] = useState(false);
   const apptAckRef = useRef('');
+  // A new appointment opens on today's date as a placeholder, and today is
+  // usually full, so the instant warning waits until someone actually picks a
+  // date (Carol, Oct 22). A day clicked on the Schedule calendar arrives as
+  // prefillDate and counts as picked. Save still checks whatever date is set.
+  const dateTouchedRef = useRef(Boolean(prefillDate));
   const [newUnitYear, setNewUnitYear] = useState('');
   const [newUnitMake, setNewUnitMake] = useState('');
   const [newUnitModel, setNewUnitModel] = useState('');
@@ -194,6 +199,7 @@ export default function AppointmentForm() {
   };
 
   const handleChange = (e) => {
+    if (e.target.name === 'scheduled_date') dateTouchedRef.current = true;
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
@@ -202,6 +208,7 @@ export default function AppointmentForm() {
   // Warn the moment a full day (or a service type on a full day) is picked.
   useEffect(() => {
     if (loading) return;
+    if (!isEdit && !dateTouchedRef.current) return;
     const key = `${form.scheduled_date}|${form.appointment_type}`;
     if (key === apptAckRef.current) return;
     let alive = true;
