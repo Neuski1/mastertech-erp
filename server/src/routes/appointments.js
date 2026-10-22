@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const settings = require('../db/settings');
 const { requireRole } = require('../middleware/auth');
 const { sendAppointmentConfirmation } = require('../services/email');
 const { sendAppointmentSMS } = require('../services/sms');
@@ -67,6 +68,73 @@ function toMountainTimestamp(date, time) {
   const offset = m ? `${m[1]}${m[2].padStart(2, '0')}:00` : '-06:00';
   return `${date}T${time}:00${offset}`;
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/appointments/day-load?date=YYYY-MM-DD&exclude=<appointment id>
+// Service appointment cap (Carol, Oct 22, 2026): no more than 3 service
+// appointments a day. Storage pickups and drop offs do not count, and neither
+// do phone follow-ups or parts counter visits. Cancelled and no-show
+// appointments do not count. The screens warn when the day already holds the
+// cap (Business Settings > Work Order Policy, appt_service_daily_cap) and
+// suggest the next open weekdays. Read only; never blocks a booking.
+// ---------------------------------------------------------------------------
+const NOT_SERVICE_TYPES = ['storage', 'storage_pickup', 'storage_drop_off', 'storage_check_in', 'storage_check_out',
+  'follow_up_call', 'parts', 'parts_pickup'];
+const APPT_LOAD_DEAD = ['cancelled', 'no_show'];
+
+router.get('/day-load', async (req, res) => {
+  const date = String(req.query.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const exclude = parseInt(req.query.exclude, 10) || 0;
+  const cap = settings.int('appt_service_daily_cap', 3);
+  try {
+    const base = `a.deleted_at IS NULL AND a.id <> $2
+      AND a.appointment_type::text <> ALL($3::text[])
+      AND a.status::text <> ALL($4::text[])`;
+    const params = [date, exclude, NOT_SERVICE_TYPES, APPT_LOAD_DEAD];
+    const { rows } = await pool.query(
+      `SELECT a.id, a.appointment_type, a.scheduled_at, c.first_name, c.last_name, c.company_name
+         FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id
+        WHERE ${base} AND (a.scheduled_at AT TIME ZONE 'America/Denver')::date = $1::date
+        ORDER BY a.scheduled_at`, params);
+    const { rows: counts } = await pool.query(
+      `SELECT to_char((a.scheduled_at AT TIME ZONE 'America/Denver')::date, 'YYYY-MM-DD') AS d, COUNT(*)::int AS n
+         FROM appointments a
+        WHERE ${base} AND (a.scheduled_at AT TIME ZONE 'America/Denver')::date > $1::date
+          AND (a.scheduled_at AT TIME ZONE 'America/Denver')::date <= $1::date + 30
+        GROUP BY 1`, params);
+    let closures = [];
+    try {
+      const { rows: cl } = await pool.query(
+        `SELECT to_char(closure_date, 'YYYY-MM-DD') AS d, label FROM schedule_closures
+          WHERE closure_date BETWEEN $1::date AND $1::date + 30`, [date]);
+      closures = cl;
+    } catch (e) { /* closures are a nicety */ }
+    const closed = new Map(closures.map(c => [c.d, c.label]));
+    const byDay = new Map(counts.map(c => [c.d, c.n]));
+    const open = [];
+    const d = new Date(`${date}T12:00:00Z`);
+    for (let i = 0; i < 30 && open.length < 3; i++) {
+      d.setUTCDate(d.getUTCDate() + 1);
+      const dow = d.getUTCDay();
+      if (dow === 0 || dow === 6) continue;
+      const key = d.toISOString().slice(0, 10);
+      if (closed.has(key)) continue;
+      const n = byDay.get(key) || 0;
+      if (n < cap) open.push({ date: key, count: n });
+    }
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    res.json({
+      date, cap, count: rows.length, over: cap > 0 && rows.length >= cap,
+      weekend: dow === 0 || dow === 6,
+      records: rows.map(r => ({ ...r, time: mtDateTime(r.scheduled_at).time })),
+      next_open: open,
+    });
+  } catch (err) {
+    console.error('GET /api/appointments/day-load error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/appointments — List with filters (date range, status, technician)

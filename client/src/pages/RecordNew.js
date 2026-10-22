@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
+import DueDateLoadModal, { checkDueDateLoad } from '../components/DueDateLoadModal';
 import NewCustomerModal from '../components/NewCustomerModal';
 import BulletTextarea from '../components/BulletTextarea';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
@@ -26,6 +27,8 @@ export default function RecordNew() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [dueLoad, setDueLoad] = useState(null);
+  const dueCheckedRef = useRef('');
 
   // New Customer modal state
   const [showNewCustomer, setShowNewCustomer] = useState(false);
@@ -327,7 +330,21 @@ export default function RecordNew() {
               type="date"
               value={recordData.expected_completion_date}
               onChange={(e) => setRecordData({ ...recordData, expected_completion_date: e.target.value })}
+              onBlur={async (e) => {
+                // Due date cap warning (Oct 22, 2026): full day pops a warning.
+                const v = e.target.value;
+                if (!v || v === dueCheckedRef.current) return;
+                dueCheckedRef.current = v;
+                const load = await checkDueDateLoad(v, null);
+                if (load) setDueLoad(load);
+              }}
               style={inputStyle}
+            />
+            <DueDateLoadModal
+              load={dueLoad}
+              onKeep={() => setDueLoad(null)}
+              onPick={(d) => { setDueLoad(null); dueCheckedRef.current = d; setRecordData(prev => ({ ...prev, expected_completion_date: d })); }}
+              onCancel={() => { setDueLoad(null); dueCheckedRef.current = ''; setRecordData(prev => ({ ...prev, expected_completion_date: '' })); }}
             />
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
               <input

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../api/client';
+import DueDateLoadModal, { checkDueDateLoad } from './DueDateLoadModal';
 
 // Hard vs flexible due date on a work order (migration 076, Oct 22, 2026).
 // Flexible is the default: a placeholder date that keeps the board in order
@@ -27,6 +28,7 @@ export default function DeadlineControl({ record, editable, onSaved }) {
   const [due, setDue] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [dueLoad, setDueLoad] = useState(null);
 
   const save = async (body) => {
     setBusy(true);
@@ -49,12 +51,21 @@ export default function DeadlineControl({ record, editable, onSaved }) {
     setEditing(true);
   };
 
-  const saveHard = () => {
+  const commitHard = (date) => {
+    const body = { deadline_type: 'hard', deadline_reason: reason.trim() };
+    if (date !== ymd(record.expected_completion_date)) body.expected_completion_date = date;
+    save(body);
+  };
+
+  const saveHard = async () => {
     if (!due) { setErr('Pick the due date.'); return; }
     if (!reason.trim()) { setErr('Type the reason, for example "Leaving for Moab 11/6".'); return; }
-    const body = { deadline_type: 'hard', deadline_reason: reason.trim() };
-    if (due !== ymd(record.expected_completion_date)) body.expected_completion_date = due;
-    save(body);
+    // New date on a full day: warn first (due date cap, Oct 22, 2026).
+    if (due !== ymd(record.expected_completion_date)) {
+      const load = await checkDueDateLoad(due, record.id);
+      if (load) { setDueLoad(load); return; }
+    }
+    commitHard(due);
   };
 
   return (
@@ -103,6 +114,12 @@ export default function DeadlineControl({ record, editable, onSaved }) {
           <button type="button" style={btn} disabled={busy} onClick={() => { setEditing(false); setErr(''); }}>Cancel</button>
         </div>
       )}
+      <DueDateLoadModal
+        load={dueLoad}
+        onKeep={() => { const d = dueLoad.date; setDueLoad(null); commitHard(d); }}
+        onPick={(d) => { setDueLoad(null); setDue(d); commitHard(d); }}
+        onCancel={() => setDueLoad(null)}
+      />
       {err && (
         <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#b91c1c', fontWeight: 600 }}>{err}</div>
       )}

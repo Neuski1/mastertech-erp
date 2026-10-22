@@ -52,6 +52,7 @@ export const api = {
     return request(`/records${qs ? `?${qs}` : ''}`);
   },
   getRecord: (id) => request(`/records/${id}`),
+  getDueDateLoad: (date, excludeId) => request(`/records/due-date-load?date=${encodeURIComponent(date)}${excludeId ? `&exclude=${excludeId}` : ''}`),
   createRecord: (data) => request('/records', { method: 'POST', body: JSON.stringify(data) }),
   updateRecord: (id, data) => request(`/records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   updateRecordStatus: (id, status, manualOverride = false) => request(`/records/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, manual_override: manualOverride }) }),
@@ -250,6 +251,7 @@ export const api = {
     return request(`/appointments${qs ? `?${qs}` : ''}`);
   },
   getAppointment: (id) => request(`/appointments/${id}`),
+  getApptDayLoad: (date, excludeId) => request(`/appointments/day-load?date=${encodeURIComponent(date)}${excludeId ? `&exclude=${excludeId}` : ''}`),
   createAppointment: (data) => request('/appointments', { method: 'POST', body: JSON.stringify(data) }),
   updateAppointment: (id, data) => request(`/appointments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAppointment: (id, data = {}) => request(`/appointments/${id}`, { method: 'DELETE', body: JSON.stringify(data) }),

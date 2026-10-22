@@ -16,6 +16,7 @@ import FreightLinesTable from '../components/FreightLinesTable';
 import SignatureModal from '../components/SignatureModal';
 import StatusTextModal from '../components/StatusTextModal';
 import DeadlineControl from '../components/DeadlineControl';
+import DueDateLoadModal, { checkDueDateLoad, checkApptDayLoad } from '../components/DueDateLoadModal';
 import { BulletDisplay } from '../components/BulletTextarea';
 import useIsMobile from '../utils/useIsMobile';
 import { formatDate, formatDateTime } from '../utils/dateFormat';
@@ -185,9 +186,20 @@ export default function RecordDetail() {
     }
   };
 
+  // Due date cap warning: the load for a date that is already full, held
+  // while the pop-up asks whether to keep it.
+  const [dueLoad, setDueLoad] = useState(null);
+
   // Auto-save a single field on blur/change, routing to the correct endpoint.
-  const autoSave = async (field, value) => {
+  const autoSave = async (field, value, opts = {}) => {
     if (record && value === record[field]) return; // no change
+    // A new Expected Completion date on a day that already has the cap of
+    // other open work orders due pops a warning before saving (Oct 22, 2026).
+    if (field === 'expected_completion_date' && value && !opts.skipDueCheck && record &&
+        String(value).slice(0, 10) !== String(record.expected_completion_date || '').slice(0, 10)) {
+      const load = await checkDueDateLoad(value, record.id);
+      if (load) { setDueLoad(load); return; }
+    }
     savingFieldRef.current = field;
     setSaving(true);
     setError('');
@@ -1280,6 +1292,12 @@ ${paymentDetailHtml}
             onSaved={fetchRecord}
           />
         )}
+        <DueDateLoadModal
+          load={dueLoad}
+          onKeep={() => { const d = dueLoad.date; setDueLoad(null); autoSave('expected_completion_date', d, { skipDueCheck: true }); }}
+          onPick={(d) => { setDueLoad(null); autoSave('expected_completion_date', d, { skipDueCheck: true }); }}
+          onCancel={() => { setDueLoad(null); fetchRecord(); }}
+        />
       </div>
 
       {/* ─── Job Description ─── */}
@@ -2171,8 +2189,14 @@ function ScheduleModal({ record, onSuccess, onClose }) {
   const [sendConfirmation, setSendConfirmation] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Service appointment cap (Oct 22, 2026): full day warns before booking.
+  const [apptLoad, setApptLoad] = useState(null);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (skipCapCheck = false) => {
+    if (!skipCapCheck) {
+      const load = await checkApptDayLoad(date, apptType, null);
+      if (load) { setApptLoad(load); return; }
+    }
     setSaving(true);
     setError('');
     try {
@@ -2265,11 +2289,17 @@ function ScheduleModal({ record, onSuccess, onClose }) {
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} style={btnPrimary}>
+          <button onClick={() => handleSubmit(false)} disabled={saving} style={btnPrimary}>
             {saving ? 'Creating...' : 'Create Appointment'}
           </button>
         </div>
       </div>
+      <DueDateLoadModal
+        load={apptLoad}
+        onKeep={() => { setApptLoad(null); handleSubmit(true); }}
+        onPick={(d) => { setApptLoad(null); setDate(d); }}
+        onCancel={() => setApptLoad(null)}
+      />
     </div>
   );
 }
