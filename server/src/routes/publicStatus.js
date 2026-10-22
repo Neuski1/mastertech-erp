@@ -5,9 +5,10 @@
 //
 // The token is the record's permanent photo_token, the same one the invoice
 // and estimate emails already use for photo links, so no new secret exists.
-// The page shows only what the shop chose to send: the progress bar, the texts
-// that went out, and the photos a technician attached to one of them. Internal
-// photos, notes and prices never appear here.
+// The page shows the progress bar, the job description, the work and parts
+// lines by name (approved work only, same rule as the invoice PDF), every
+// photo on the work order, and the texts that went out. Prices, costs and
+// internal notes never appear here (Carol, Oct 22, 2026).
 // ---------------------------------------------------------------------------
 const express = require('express');
 const router = express.Router();
@@ -66,6 +67,9 @@ function page(title, inner) {
   .u .t{font-size:12px;color:#6b7280;margin-bottom:4px} .u p{margin:0;font-size:15px;line-height:1.45}
   .ph{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:10px}
   .ph a{display:block} .ph img{width:100%;height:120px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb}
+  .work{margin:0;padding:0;list-style:none} .work li{font-size:15px;line-height:1.4;padding:8px 0;border-bottom:1px solid #f3f4f6}
+  .work li:last-child{border-bottom:0} .work .q{color:#6b7280;font-size:13px;margin-left:6px}
+  .desc{font-size:15px;line-height:1.45;margin:0 0 6px;white-space:pre-line}
   .foot{background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 20px;text-align:center;font-size:12px;color:#6b7280}
   .foot a{color:#1e3a5f;font-weight:700}
 </style></head><body><div class="wrap">
@@ -139,7 +143,7 @@ router.get('/:token', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT r.id, r.record_number, r.status, r.approval_token, r.approval_token_expires_at,
-              r.approved_by_customer_at, c.first_name, u.year, u.make, u.model, r.deadline_type,
+              r.approved_by_customer_at, r.job_description, c.first_name, u.year, u.make, u.model, r.deadline_type,
               to_char(r.expected_completion_date, 'YYYY-MM-DD') AS expected_completion
          FROM records r
          JOIN customers c ON c.id = r.customer_id
@@ -159,6 +163,32 @@ router.get('/:token', async (req, res) => {
       [r.id]
     );
 
+    // Approved work only: a mid-job finding the customer has not approved yet
+    // stays off this list (the approve button covers it). Same rule as the
+    // invoice PDF. Descriptions only, never price or cost.
+    const { rows: laborLines } = await pool.query(
+      `SELECT description FROM record_labor_lines
+        WHERE record_id = $1 AND deleted_at IS NULL
+          AND (is_estimate_line = FALSE OR customer_approved = TRUE)
+          AND COALESCE(TRIM(description), '') <> ''
+        ORDER BY sort_order, id`,
+      [r.id]
+    );
+    const { rows: partLines } = await pool.query(
+      `SELECT description, quantity FROM record_parts_lines
+        WHERE record_id = $1 AND deleted_at IS NULL
+          AND (is_estimate_line = FALSE OR customer_approved = TRUE)
+          AND COALESCE(TRIM(description), '') <> ''
+        ORDER BY sort_order, id`,
+      [r.id]
+    );
+    const { rows: photoRows } = await pool.query(
+      `SELECT id FROM record_photos
+        WHERE record_id = $1 AND photo_data IS NOT NULL
+        ORDER BY created_at, id`,
+      [r.id]
+    );
+
     let stage = STAGE_BY_STATUS[r.status] || 0;
     for (const u of updates) stage = Math.max(stage, STAGE_BY_TYPE.get(u.update_type) || 0);
     if (!stage && updates.length) stage = 1;
@@ -175,11 +205,27 @@ router.get('/:token', async (req, res) => {
     const nowText = SUBSTATUS[r.status] || (stage ? STAGES[stage - 1] : 'Scheduled');
 
     const photoImg = (id) => `${base}/api/public/records/${r.id}/photos/${id}/image?token=${encodeURIComponent(token)}`;
+    const thumbImg = (id) => `${photoImg(id)}&thumb=1`;
+    const qty = (q) => {
+      const n = Number(q);
+      return Number.isFinite(n) && n !== 1 ? `<span class="q">Qty ${esc(String(+n.toFixed(2)))}</span>` : '';
+    };
+    const jobDesc = String(r.job_description || '').trim();
+    const workHtml = (jobDesc || laborLines.length || partLines.length)
+      ? `<h2>${r.status === 'estimate' ? 'Proposed work' : 'Your work order'}</h2>
+         ${jobDesc ? `<p class="desc">${esc(jobDesc)}</p>` : ''}
+         ${laborLines.length ? `<ul class="work">${laborLines.map(l => `<li>${esc(l.description.trim())}</li>`).join('')}</ul>` : ''}
+         ${partLines.length ? `<h2>Parts</h2><ul class="work">${partLines.map(p => `<li>${esc(p.description.trim())}${qty(p.quantity)}</li>`).join('')}</ul>` : ''}`
+      : '';
+    const photosHtml = photoRows.length
+      ? `<h2>Photos</h2><div class="ph">${photoRows.map(p => `<a href="${esc(photoImg(p.id))}" target="_blank" rel="noopener"><img src="${esc(thumbImg(p.id))}" alt="Photo from your RV" loading="lazy"></a>`).join('')}</div>`
+      : '';
+
     const updatesHtml = updates.length
       ? updates.map(u => {
           const ids = Array.isArray(u.photo_ids) ? u.photo_ids : [];
           const photos = ids.length
-            ? `<div class="ph">${ids.map(id => `<a href="${esc(photoImg(id))}" target="_blank" rel="noopener"><img src="${esc(photoImg(id))}" alt="Photo from your RV" loading="lazy"></a>`).join('')}</div>`
+            ? `<div class="ph">${ids.map(id => `<a href="${esc(photoImg(id))}" target="_blank" rel="noopener"><img src="${esc(photoImg(id) + '&thumb=1')}" alt="Photo from your RV" loading="lazy"></a>`).join('')}</div>`
             : '';
           return `<div class="u"><div class="t">${esc(denverStamp(u.created_at))}</div><p>${esc(forPage(u.message, token))}</p>${photos}</div>`;
         }).join('')
@@ -202,6 +248,8 @@ router.get('/:token', async (req, res) => {
       <div class="now">Right now: ${esc(nowText)}</div>
       ${expectedHtml}
       ${approveUrl ? `<a class="cta" href="${esc(approveUrl)}">Review and approve the estimate</a>` : ''}
+      ${workHtml}
+      ${photosHtml}
       <h2>Updates</h2>
       ${updatesHtml}
     `));

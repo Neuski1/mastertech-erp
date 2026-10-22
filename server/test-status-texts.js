@@ -7,7 +7,8 @@
 // writes nothing, a live send logs to communication_log AND
 // record_status_updates, opt-out and missing phone are refused, only this
 // record's photos can be attached, "needs approval" mints a line-approval
-// token, and the public status page shows what was sent and nothing else.
+// token, and the public status page shows what was sent, the approved work by
+// name and every photo, never prices or unapproved findings.
 
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -68,6 +69,11 @@ function getPage(token) {
     ALTER TABLE records ADD COLUMN IF NOT EXISTS approved_by_customer_at TIMESTAMPTZ;
     ALTER TABLE record_photos ALTER COLUMN onedrive_url DROP NOT NULL;
     ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS photo_data BYTEA;
+    ALTER TABLE record_photos ADD COLUMN IF NOT EXISTS thumbnail_data BYTEA;
+    ALTER TABLE records ADD COLUMN IF NOT EXISTS deadline_type VARCHAR(10) NOT NULL DEFAULT 'flexible';
+    ALTER TABLE records ADD COLUMN IF NOT EXISTS deadline_reason TEXT;
+    ALTER TABLE record_labor_lines ADD COLUMN IF NOT EXISTS customer_approved BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS customer_approved BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE record_labor_lines ADD COLUMN IF NOT EXISTS is_estimate_line BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE record_parts_lines ADD COLUMN IF NOT EXISTS is_estimate_line BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS estimate_line_approvals (
@@ -177,6 +183,45 @@ function getPage(token) {
   truthy('page shows the shared photo', pg.html.includes(`/photos/${photo.id}/image?token=`));
   truthy('page never shows the other record\'s photo', !pg.html.includes(`/photos/${foreign.id}/image`));
   truthy('page has no prices', !pg.html.includes('$396') && !pg.html.includes('396.00'));
+
+  // Work order details (Oct 22, 2026): job description, approved lines by
+  // name, every photo on the record. Never prices, never unapproved findings.
+  const { rows: [tech] } = await pool.query(
+    `SELECT id FROM technicians LIMIT 1`).catch(() => ({ rows: [] }));
+  const techId = tech ? tech.id : (await pool.query(
+    `INSERT INTO technicians (name) VALUES ('Mark') RETURNING id`).catch(() => ({ rows: [{ id: null }] }))).rows[0].id;
+  await pool.query(`UPDATE records SET job_description = 'Water leak at front cap. Check and reseal.' WHERE id = $1`, [rec.id]);
+  await pool.query(
+    `INSERT INTO record_labor_lines (record_id, technician_id, description, hours, rate, line_total, sort_order)
+     VALUES ($1, $2, 'Diagnose front cap leak', 1.5, 198, 297, 1)`, [rec.id, techId]);
+  await pool.query(
+    `INSERT INTO record_labor_lines (record_id, technician_id, description, hours, rate, line_total, sort_order, deleted_at)
+     VALUES ($1, $2, 'Deleted line text', 1, 198, 198, 2, NOW())`, [rec.id, techId]);
+  await pool.query(
+    `INSERT INTO record_parts_lines (record_id, description, quantity, sale_price_each, line_total, cost_each)
+     VALUES ($1, 'Dicor lap sealant', 3, 17.85, 53.55, 11.20), ($1, 'Front cap trim', 1, 88.40, 88.40, 50.00)`, [rec.id]);
+  await pool.query(
+    `INSERT INTO record_parts_lines (record_id, description, quantity, sale_price_each, line_total, is_estimate_line)
+     VALUES ($1, 'Unapproved awning motor', 1, 412.77, 412.77, TRUE)`, [rec.id]);
+  const { rows: [img] } = await pool.query(
+    `INSERT INTO record_photos (record_id, label, photo_data, thumbnail_data) VALUES ($1, 'Front cap', 'x'::bytea, 'y'::bytea) RETURNING id`, [rec.id]);
+  const pw = await getPage(String(rec.photo_token));
+  truthy('page shows job description', pw.html.includes('Water leak at front cap. Check and reseal.'));
+  truthy('page shows labor line by name', pw.html.includes('Diagnose front cap leak'));
+  truthy('page hides deleted line', !pw.html.includes('Deleted line text'));
+  truthy('page shows parts with qty', pw.html.includes('Dicor lap sealant<span class="q">Qty 3</span>'));
+  truthy('qty 1 shows no qty tag', pw.html.includes('Front cap trim</li>'));
+  truthy('page hides unapproved finding', !pw.html.includes('Unapproved awning motor'));
+  truthy('page hides unapproved labor finding', !pw.html.includes('Reseal roof'));
+  truthy('page shows every record photo as a thumbnail', pw.html.includes(`/photos/${img.id}/image?token=${rec.photo_token}&amp;thumb=1`));
+  truthy('photo links to the full image', pw.html.includes(`href="https://erp.test/api/public/records/${rec.id}/photos/${img.id}/image?token=${rec.photo_token}"`));
+  truthy('details page has no prices or costs', !/(\$|17\.85|53\.55|88\.40|11\.20|297|412\.77)/.test(pw.html.replace(/\$\{/g, '')));
+  truthy('work section titled for a work order', pw.html.includes('<h2>Your work order</h2>'));
+  await pool.query(`UPDATE records SET status = 'estimate' WHERE id = $1`, [rec.id]);
+  const pe = await getPage(String(rec.photo_token));
+  truthy('estimate titles it Proposed work', pe.html.includes('<h2>Proposed work</h2>'));
+  await pool.query(`UPDATE records SET status = 'in_progress' WHERE id = $1`, [rec.id]);
+
   const bad = await getPage('not-a-uuid');
   check('garbage token 404', bad.status, 404);
   const miss = await getPage('00000000-0000-0000-0000-000000000000');
