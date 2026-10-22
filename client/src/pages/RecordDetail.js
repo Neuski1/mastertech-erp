@@ -1278,7 +1278,6 @@ ${paymentDetailHtml}
             record={record}
             editable={isEditable}
             onSaved={fetchRecord}
-            onError={(msg) => setError(msg)}
           />
         )}
       </div>
