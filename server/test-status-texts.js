@@ -218,6 +218,12 @@ function getPage(token) {
   truthy('details page has no prices or costs', !/(\$|17\.85|53\.55|88\.40|11\.20|297|412\.77)/.test(pw.html.replace(/\$\{/g, '')));
   truthy('work section titled for a work order', pw.html.includes('<h2>Your work order</h2>'));
   await pool.query(`UPDATE records SET status = 'estimate' WHERE id = $1`, [rec.id]);
+  await pool.query(
+    `INSERT INTO record_labor_lines (record_id, technician_id, description, hours, rate, line_total, sort_order)
+     VALUES ($1, $2, 'WATER LEAK AT FRONT CAP.  Check and reseal. Found cracked sealant.', 1, 198, 198, 0)`, [rec.id, techId]);
+  const pd = await getPage(String(rec.photo_token));
+  truthy('description not repeated when a labor line carries it', !pd.html.includes('<p class="desc">'));
+  truthy('the labor line still shows', pd.html.includes('Found cracked sealant.'));
   const pe = await getPage(String(rec.photo_token));
   truthy('estimate titles it Proposed work', pe.html.includes('<h2>Proposed work</h2>'));
   await pool.query(`UPDATE records SET status = 'in_progress' WHERE id = $1`, [rec.id]);

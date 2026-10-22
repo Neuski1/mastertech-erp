@@ -210,7 +210,11 @@ router.get('/:token', async (req, res) => {
       const n = Number(q);
       return Number.isFinite(n) && n !== 1 ? `<span class="q">Qty ${esc(String(+n.toFixed(2)))}</span>` : '';
     };
-    const jobDesc = String(r.job_description || '').trim();
+    // The job description auto-imports into the labor lines on approval, so
+    // skip it when a labor line already carries it (WO 4830 showed it twice).
+    const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const rawDesc = String(r.job_description || '').trim();
+    const jobDesc = rawDesc && laborLines.some(l => norm(l.description).includes(norm(rawDesc))) ? '' : rawDesc;
     const workHtml = (jobDesc || laborLines.length || partLines.length)
       ? `<h2>${r.status === 'estimate' ? 'Proposed work' : 'Your work order'}</h2>
          ${jobDesc ? `<p class="desc">${esc(jobDesc)}</p>` : ''}
