@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
+import DueDateLoadModal, { checkApptDayLoad } from '../components/DueDateLoadModal';
 import { formatPhone, handlePhoneInput } from '../utils/formatPhone';
 import NewCustomerModal from '../components/NewCustomerModal';
 
@@ -58,6 +59,14 @@ export default function AppointmentForm() {
   const [sendCancelEmail, setSendCancelEmail] = useState(false);
   const [cancelResult, setCancelResult] = useState(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
+
+  // Service appointment cap (Oct 22, 2026): warn as soon as a full day is
+  // picked, and again at Save if the warning was never answered. apptAckRef
+  // holds the date|type the person already chose to keep (or the one an
+  // existing appointment was loaded with) so they are asked once.
+  const [apptLoad, setApptLoad] = useState(null);
+  const [apptLoadFromSubmit, setApptLoadFromSubmit] = useState(false);
+  const apptAckRef = useRef('');
   const [newUnitYear, setNewUnitYear] = useState('');
   const [newUnitMake, setNewUnitMake] = useState('');
   const [newUnitModel, setNewUnitModel] = useState('');
@@ -115,6 +124,8 @@ export default function AppointmentForm() {
         // Extract date/time in Mountain Time (not browser local or UTC)
         const mtDate = dt.toLocaleDateString('en-CA', { timeZone: 'America/Denver' });
         const mtHour = dt.toLocaleString('en-US', { timeZone: 'America/Denver', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\u200E/g, '');
+        // The day this appointment already sits on is never re-warned.
+        apptAckRef.current = `${mtDate}|${appt.appointment_type}`;
         setForm({
           customer_id: appt.customer_id || '',
           unit_id: appt.unit_id || '',
@@ -188,8 +199,33 @@ export default function AppointmentForm() {
 
   const dateClosure = closures.find(c => c.closure_date === form.scheduled_date) || null;
 
+  // Warn the moment a full day (or a service type on a full day) is picked.
+  useEffect(() => {
+    if (loading) return;
+    const key = `${form.scheduled_date}|${form.appointment_type}`;
+    if (key === apptAckRef.current) return;
+    let alive = true;
+    // Short pause so typing a date digit by digit does not pop the warning
+    // for a half-typed day.
+    const t = setTimeout(async () => {
+      const load = await checkApptDayLoad(form.scheduled_date, form.appointment_type, isEdit ? id : null);
+      if (alive && load) { setApptLoadFromSubmit(false); setApptLoad(load); }
+    }, 500);
+    return () => { alive = false; clearTimeout(t); };
+  }, [form.scheduled_date, form.appointment_type, loading, isEdit, id]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError(null);
+    const key = `${form.scheduled_date}|${form.appointment_type}`;
+    if (key !== apptAckRef.current) {
+      const load = await checkApptDayLoad(form.scheduled_date, form.appointment_type, isEdit ? id : null);
+      if (load) { setApptLoadFromSubmit(true); setApptLoad(load); return; }
+    }
+    await doSubmit();
+  };
+
+  const doSubmit = async () => {
     setError(null);
 
     if (dateClosure) {
@@ -593,6 +629,20 @@ export default function AppointmentForm() {
           </div>
         </form>
       </div>
+      <DueDateLoadModal
+        load={apptLoad}
+        onKeep={() => {
+          apptAckRef.current = `${apptLoad.date}|${form.appointment_type}`;
+          setApptLoad(null);
+          if (apptLoadFromSubmit) doSubmit();
+        }}
+        onPick={(d) => {
+          apptAckRef.current = `${d}|${form.appointment_type}`;
+          setApptLoad(null);
+          setForm(prev => ({ ...prev, scheduled_date: d }));
+        }}
+        onCancel={() => setApptLoad(null)}
+      />
       {showNewCustomer && (
         <NewCustomerModal
           initialName={customerSearch}

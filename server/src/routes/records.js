@@ -341,6 +341,67 @@ router.post('/:id/copy', requireRole('admin', 'service_writer', 'technician'), a
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/records/due-date-load?date=YYYY-MM-DD&exclude=<record id>
+// How many OTHER open work orders are already due on that date (Carol's team,
+// Oct 22, 2026). The screens warn when the count reaches the daily cap
+// (Business Settings > Work Order Policy, wo_due_date_daily_cap, default 3 =
+// "more than 2 others") so the service writer can push the customer to
+// another day before promising one. Open = anything not yet complete:
+// estimates count too, because they hold a date the shop gave a customer.
+// Also returns the next few weekdays (shop is Mon-Fri) still under the cap.
+// Read only; never blocks a save.
+// ---------------------------------------------------------------------------
+const DUE_LOAD_CLOSED = ['complete', 'payment_pending', 'partial', 'paid', 'void', 'filed', 'written_off'];
+router.get('/due-date-load', async (req, res) => {
+  const date = String(req.query.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const exclude = parseInt(req.query.exclude, 10) || 0;
+  const cap = settings.int('wo_due_date_daily_cap', 3);
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.id, r.record_number, r.status, r.deadline_type, c.first_name, c.last_name, c.company_name
+         FROM records r JOIN customers c ON c.id = r.customer_id
+        WHERE r.deleted_at IS NULL AND r.id <> $2
+          AND r.expected_completion_date = $1::date
+          AND r.status::text <> ALL($3::text[])
+        ORDER BY r.record_number`,
+      [date, exclude, DUE_LOAD_CLOSED]
+    );
+    // Next weekdays after the date with room, from one grouped query.
+    const { rows: counts } = await pool.query(
+      `SELECT to_char(r.expected_completion_date, 'YYYY-MM-DD') AS d, COUNT(*)::int AS n
+         FROM records r
+        WHERE r.deleted_at IS NULL AND r.id <> $2
+          AND r.expected_completion_date > $1::date
+          AND r.expected_completion_date <= $1::date + 30
+          AND r.status::text <> ALL($3::text[])
+        GROUP BY 1`,
+      [date, exclude, DUE_LOAD_CLOSED]
+    );
+    const byDay = new Map(counts.map(c => [c.d, c.n]));
+    const open = [];
+    const d = new Date(`${date}T12:00:00Z`);
+    for (let i = 0; i < 30 && open.length < 3; i++) {
+      d.setUTCDate(d.getUTCDate() + 1);
+      const dow = d.getUTCDay();
+      if (dow === 0 || dow === 6) continue;
+      const key = d.toISOString().slice(0, 10);
+      const n = byDay.get(key) || 0;
+      if (n < cap) open.push({ date: key, count: n });
+    }
+    const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+    res.json({
+      date, cap, count: rows.length, over: cap > 0 && rows.length >= cap,
+      weekend: dow === 0 || dow === 6,
+      records: rows, next_open: open,
+    });
+  } catch (err) {
+    console.error('GET /api/records/due-date-load error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/records — List records with filters
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
