@@ -230,15 +230,18 @@ export default function RecordDetail() {
     }
   };
 
-  // The server sends the Checked In text on its own the first time a work
+  // The server sends the Work started text on its own the first time a work
   // order moves to In Progress (never on Not Started). Say so, or say why it did not go.
+  // Oct 23, 2026: also say when it was skipped because the customer already got one.
   const reportCheckinText = (result) => {
     const c = result && result.checkin_text;
     if (!c) return;
     if (c.sent) {
-      setSuccessMsg('Checked In text sent to the customer.');
+      setSuccessMsg('Work started text sent to the customer.');
+    } else if (c.reason === 'already_sent') {
+      setSuccessMsg('No text sent: this customer was already told work started on this work order.');
     } else if (c.reason === 'blocked') {
-      setError(`Status changed, but the Checked In text did not go out: ${c.error || 'unknown reason'}`);
+      setError(`Status changed, but the Work started text did not go out: ${c.error || 'unknown reason'}`);
     }
   };
 

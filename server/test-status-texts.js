@@ -121,6 +121,16 @@ function getPage(token) {
   const ws = opts.types.find(t => t.key === 'work_started');
   truthy('draft has name, RV and link', ws.draft.includes('Hi Gary,') && ws.draft.includes('2019 Grand Design Imagine') && ws.draft.includes(`/api/public/status/${rec.photo_token}`));
   truthy('parts_ordered draft keeps {note} slot', opts.types.find(t => t.key === 'parts_ordered').draft.includes('{note}'));
+  // Oct 23, 2026: Checked in and In a service bay are retired.
+  check('retired updates are not offered', opts.types.filter(t => ['checked_in', 'in_bay'].includes(t.key)).length, 0);
+  check('seven buttons remain', opts.types.map(t => t.key),
+    ['work_started', 'needs_approval', 'parts_ordered', 'parts_received', 'delayed', 'complete', 'custom']);
+  check('history still labels a retired text', opts.labels.checked_in, 'Checked in');
+  for (const st of ['approved', 'schedule_customer', 'scheduled']) {
+    check(`${st} no longer suggests Checked in`, svc.SUGGEST_BY_STATUS[st], undefined);
+  }
+  const retired = await svc.sendStatusUpdate(rec.id, { type: 'in_bay', dryRun: true });
+  check('retired update refused', [retired.ok, retired.status], [false, 400]);
 
   // Dry run while OFF: allowed, writes nothing.
   const dry = await svc.sendStatusUpdate(rec.id, { type: 'parts_ordered', note: 'ETA Thursday.', dryRun: true });
@@ -249,7 +259,7 @@ function getPage(token) {
   const nophone = await svc.sendStatusUpdate(rec.id, { type: 'complete' });
   check('no phone refused', [nophone.ok, nophone.status], [false, 400]);
 
-  // Automatic Checked In on the first move into active work.
+  // Automatic Work started (Checked In until Oct 23, 2026) on the first move into In Progress.
   await pool.query("UPDATE customers SET phone_primary = '(303) 555-0142' WHERE id = $1", [cust.id]);
   const { rows: [rec3] } = await pool.query(
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4803,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
@@ -264,8 +274,11 @@ function getPage(token) {
   check('scheduled -> awaiting_approval sends nothing', await svc.autoCheckIn(rec3.id, { from: 'scheduled', to: 'awaiting_approval' }), null);
   check('still no texts', sent.length, before);
   const first = await svc.autoCheckIn(rec3.id, { from: 'scheduled', to: 'in_progress' });
-  check('scheduled -> in_progress sends Checked In', first.sent, true);
-  truthy('it is the Checked In wording', sent[sent.length - 1].text.startsWith("Hi Gary, it's Master Tech RV. Your 2019 Grand Design Imagine is checked in on work order #4803."));
+  check('scheduled -> in_progress sends Work started', first.sent, true);
+  truthy('it is the Work started wording', sent[sent.length - 1].text.startsWith('Hi Gary, our technician has started work on your 2019 Grand Design Imagine.'));
+  const { rows: autoRow } = await pool.query(
+    `SELECT update_type FROM record_status_updates WHERE record_id = $1 AND delivery_status = 'sent'`, [rec3.id]);
+  check('logged as work_started', autoRow.map(r => r.update_type), ['work_started']);
   check('moving between active statuses sends nothing', await svc.autoCheckIn(rec3.id, { from: 'in_progress', to: 'awaiting_parts' }), null);
   const again = await svc.autoCheckIn(rec3.id, { from: 'on_hold', to: 'in_progress' });
   check('never twice on one work order', again, { sent: false, reason: 'already_sent' });
@@ -278,7 +291,19 @@ function getPage(token) {
   // Oct 22, 2026: Not Started no longer sends Checked In; In Progress does.
   check('estimate -> Not Started sends nothing', await svc.autoCheckIn(rec6.id, { from: 'estimate', to: 'approved' }), null);
   const ns = await svc.autoCheckIn(rec6.id, { from: 'approved', to: 'in_progress' });
-  check('Not Started -> In Progress sends Checked In', ns.sent, true);
+  check('Not Started -> In Progress sends Work started', ns.sent, true);
+  // A work order that got the old Checked In, or a Work started by hand, is not texted again.
+  const { rows: [rec7] } = await pool.query(
+    `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4807,$1,$2,'approved') RETURNING id`, [cust.id, unit.id]);
+  await pool.query(
+    `INSERT INTO record_status_updates (record_id, customer_id, update_type, message, delivery_status)
+     VALUES ($1, $2, 'checked_in', 'old checked in', 'sent')`, [rec7.id, cust.id]);
+  check('old Checked In blocks the auto text', await svc.autoCheckIn(rec7.id, { from: 'approved', to: 'in_progress' }), { sent: false, reason: 'already_sent' });
+  const { rows: [rec8] } = await pool.query(
+    `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4808,$1,$2,'approved') RETURNING id`, [cust.id, unit.id]);
+  const manual = await svc.sendStatusUpdate(rec8.id, { type: 'work_started' });
+  check('manual Work started sends', manual.ok, true);
+  check('manual Work started blocks the auto text', await svc.autoCheckIn(rec8.id, { from: 'approved', to: 'in_progress' }), { sent: false, reason: 'already_sent' });
   await setSetting('status_text_auto_checkin', 'false');
   const { rows: [rec5] } = await pool.query(
     `INSERT INTO records (record_number, customer_id, unit_id, status) VALUES (4805,$1,$2,'estimate') RETURNING id`, [cust.id, unit.id]);
@@ -307,12 +332,11 @@ function getPage(token) {
   const o2 = await svc.composeOptions(rec.id);
   const d = (k) => o2.types.find(t => t.key === k).draft;
   truthy('work_started draft ends with the date', d('work_started').endsWith('Expected completion date: Thursday, October 3.'));
-  truthy('checked_in draft ends with the date', d('checked_in').endsWith('Expected completion date: Thursday, October 3.'));
   truthy('parts_ordered draft ends with the date', d('parts_ordered').endsWith('Expected completion date: Thursday, October 3.'));
   truthy('delayed draft has no date line', !d('delayed').includes('Expected completion'));
   truthy('ready for pickup has no date line', !d('complete').includes('Expected completion'));
   check('no warning when date is good', o2.completion.warning, null);
-  const dr = await svc.sendStatusUpdate(rec.id, { type: 'in_bay', dryRun: true });
+  const dr = await svc.sendStatusUpdate(rec.id, { type: 'parts_received', dryRun: true });
   truthy('template send: link, then date, then STOP', /\/api\/public\/status\/\S+ Expected completion date: Thursday, October 3\. Reply STOP to opt out\.$/.test(dr.body));
   const dd = await svc.sendStatusUpdate(rec.id, { type: 'delayed', note: 'Awning arm backordered to Oct 10.', dryRun: true });
   truthy('delayed send has no date line', !dd.body.includes('Expected completion'));
