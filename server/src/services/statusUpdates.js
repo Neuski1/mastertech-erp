@@ -10,8 +10,9 @@
 // which shows the progress bar, every update sent so far, the photos the tech
 // chose to share, and an Approve button when an estimate is waiting.
 //
-// One text is automatic: Checked In goes out the first time a work order moves
-// into active shop work (autoCheckIn, below; Carol, Sept 28, 2026). Every
+// One text is automatic: Work started goes out the first time a work order
+// moves to In Progress (autoCheckIn, below). Until Oct 23, 2026 that text was
+// Checked In; Carol retired Checked In and In a service bay that day. Every
 // other update waits for a person to press Send. The master switch
 // `status_texts_enabled` in Business Settings starts OFF so the wording can be
 // approved before the first real customer gets one.
@@ -23,10 +24,15 @@ const { sendSMS, normalizePhone, isPhoneOptedOut, isSmsConfigured } = require('.
 
 // Order matters: this is the order the buttons appear in the modal.
 // `stage` drives the progress bar on the customer's status page.
+// `retired` (Carol, Oct 23, 2026): no longer offered in the Text Update window
+// or Business Settings and refused if sent. They stay listed so texts already
+// sent under them keep their label in history and their place on the
+// customer's progress bar. The customer knows they are checked in when they
+// drop off, and In a service bay said the same thing as Work started.
 const UPDATE_TYPES = [
-  { key: 'checked_in',     label: 'Checked in',        stage: 1, needsNote: false,
+  { key: 'checked_in',     label: 'Checked in',        stage: 1, needsNote: false, retired: true,
     fallback: "Hi {first_name}, it's Master Tech RV. Your {rv} is checked in on work order #{wo}. We'll text you as the job moves along. Follow it here: {link}" },
-  { key: 'in_bay',         label: 'In a service bay',  stage: 2, needsNote: false,
+  { key: 'in_bay',         label: 'In a service bay',  stage: 2, needsNote: false, retired: true,
     fallback: 'Hi {first_name}, your {rv} just rolled into a service bay at Master Tech RV. {link}' },
   { key: 'work_started',   label: 'Work started',      stage: 2, needsNote: false,
     fallback: 'Hi {first_name}, our technician has started work on your {rv}. {link}' },
@@ -50,10 +56,8 @@ const BY_KEY = new Map(UPDATE_TYPES.map(t => [t.key, t]));
 const INVOICE_STATUSES = ['complete', 'payment_pending', 'partial', 'paid', 'written_off'];
 
 // Which update a tech most likely wants, given where the work order sits.
+// Before work starts there is no canned update, so those fall to Custom.
 const SUGGEST_BY_STATUS = {
-  approved: 'checked_in',
-  schedule_customer: 'checked_in',
-  scheduled: 'checked_in',
   in_progress: 'work_started',
   order_parts: 'parts_ordered',
   awaiting_parts: 'parts_ordered',
@@ -238,7 +242,9 @@ async function composeOptions(recordId) {
     blockers,
     suggested: SUGGEST_BY_STATUS[r.status] || 'custom',
     stop_line: STOP_LINE,
-    types: UPDATE_TYPES.map(t => ({
+    // Every label, retired ones included, so old texts in history read right.
+    labels: Object.fromEntries(UPDATE_TYPES.map(t => [t.key, t.label])),
+    types: UPDATE_TYPES.filter(t => !t.retired).map(t => ({
       key: t.key,
       label: t.label,
       needs_note: t.needsNote,
@@ -261,6 +267,7 @@ async function buildMessage(recordId, { type, note, message }) {
   if (!r) return { error: 'Record not found', status: 404 };
   const def = BY_KEY.get(type);
   if (!def) return { error: `Unknown update type "${type}"`, status: 400 };
+  if (def.retired) return { error: `"${def.label}" is no longer offered. Use Work started or Custom message.`, status: 400 };
   const cleanNote = String(note || '').trim();
   if (def.needsNote && !cleanNote && !String(message || '').trim()) {
     return { error: `"${def.label}" needs a short reason or new date for the customer.`, status: 400 };
@@ -375,17 +382,26 @@ async function logUpdate(r, { type, body, photos, userId, delivery, error, provi
   }
 }
 
-// The only status that sends Checked In automatically is In Progress. Not
+// The only status that sends the automatic text is In Progress. Not
 // Started (approved) was dropped Oct 22, 2026 (Carol): moving an approved
 // estimate to Not Started told customers their RV was checked in when it was
 // still in their driveway. Scheduled, Schedule Customer and Awaiting Approval
 // can all describe an RV that is not at the shop either (the #308 incident).
-// Still once per work order: a WO that already got Checked In never gets it again.
+// Still once per work order.
 const CHECKIN_STATUSES = ['in_progress'];
 
+// The text sent automatically on that first move (Carol, Oct 23, 2026; was
+// checked_in). AUTO_SENT_TYPES are the texts that count as "the customer was
+// already told work began": a work order that got the old Checked In, or a
+// Work started tapped by hand, never gets another one automatically.
+const AUTO_TYPE = 'work_started';
+const AUTO_SENT_TYPES = ['checked_in', 'work_started'];
+
 // Called by PATCH /api/records/:id/status after the change commits. Sends the
-// Checked In text the first time a work order enters active work, and never
+// Work started text the first time a work order enters In Progress, and never
 // again once one has gone out. Returns what happened so the screen can say so.
+// Name kept as autoCheckIn (and the setting key status_text_auto_checkin) so
+// nothing that calls it or reads it has to move.
 async function autoCheckIn(recordId, { from, to, userId }) {
   if (!CHECKIN_STATUSES.includes(to) || CHECKIN_STATUSES.includes(from)) return null;
   if (!isEnabled()) return { sent: false, reason: 'switched_off' };
@@ -393,12 +409,12 @@ async function autoCheckIn(recordId, { from, to, userId }) {
 
   const { rows } = await pool.query(
     `SELECT 1 FROM record_status_updates
-      WHERE record_id = $1 AND update_type = 'checked_in' AND delivery_status = 'sent' LIMIT 1`,
-    [recordId]
+      WHERE record_id = $1 AND update_type = ANY($2::text[]) AND delivery_status = 'sent' LIMIT 1`,
+    [recordId, AUTO_SENT_TYPES]
   );
   if (rows.length) return { sent: false, reason: 'already_sent' };
 
-  const out = await sendStatusUpdate(recordId, { type: 'checked_in', userId, dryRun: false });
+  const out = await sendStatusUpdate(recordId, { type: AUTO_TYPE, userId, dryRun: false });
   if (out.ok) return { sent: true, to: out.to, body: out.body };
   return { sent: false, reason: 'blocked', error: out.error };
 }
@@ -446,6 +462,7 @@ module.exports = {
   sendStatusUpdate,
   autoCheckIn,
   CHECKIN_STATUSES,
+  AUTO_TYPE,
   listUpdates,
   statusPageUrl,
   installStatusUpdates,

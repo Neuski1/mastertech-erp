@@ -1063,8 +1063,8 @@ router.patch('/:id/status', requireRole('admin', 'service_writer', 'bookkeeper',
       'SELECT * FROM records WHERE id = $1', [req.params.id]
     );
 
-    // First move into active shop work (the RV is here) sends the Checked In
-    // text on its own, once per work order. Never on Not Started, Schedule
+    // First move into In Progress sends the Work started text on its own
+    // (Checked In until Oct 23, 2026), once per work order. Never on Not Started, Schedule
     // Customer or Scheduled: the RV is not on the lot yet. A text problem never
     // undoes or fails the status change. See services/statusUpdates.js.
     let checkinText = null;

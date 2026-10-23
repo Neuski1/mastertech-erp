@@ -115,7 +115,9 @@ export default function StatusTextModal({ recordId, onClose, onSent }) {
     }
   };
 
-  const labelFor = (key) => data?.types.find(t => t.key === key)?.label || key;
+  // data.labels covers retired updates (Checked in, In a service bay) that
+  // still appear in history but are no longer offered as buttons.
+  const labelFor = (key) => data?.labels?.[key] || data?.types.find(t => t.key === key)?.label || key;
 
   return (
     <div style={overlay} onClick={onClose}>
